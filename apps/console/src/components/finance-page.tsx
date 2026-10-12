@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { CourierCashRow, FinanceDeskView, HandoverRow, MerchantPayableRow, SettlementExportInput } from '@driver/contracts';
+import { COMMISSION_TIER_ROLES, type CourierCashRow, type FinanceDeskView, type HandoverRow, type MerchantPayableRow, type SettlementExportInput } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useMemo, useState } from 'react';
 import { arabicDay, CASH_LEVEL_CLS, cashLevel, downloadCsv, merchantWords, netWords, owedWords } from '@/lib/control-room';
@@ -13,7 +13,9 @@ import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { PersonName } from './named';
+import { CommissionDueCard } from './commission-card';
 import { CollectionRound } from './finance-round';
+import { AdjustCard, PayDialog, useCanPayOut } from './money-out';
 import {
   Button,
   Card,
@@ -121,6 +123,8 @@ function ExportMenu() {
 }
 
 export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
+  const canPay = useCanPayOut();
+  const { roles } = useMyRoles();
   const overCap = desk.couriers.filter((c) => c.overCap);
   return (
     <div className="space-y-5">
@@ -143,10 +147,12 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <CouriersTable rows={desk.couriers} />
         <div className="space-y-5">
+          <CommissionDueCard rows={desk.commissionDue} canSet={hasAny(roles, COMMISSION_TIER_ROLES)} />
           <MerchantsCard rows={desk.merchants} />
           <HandoversCard rows={desk.handovers} />
         </div>
       </div>
+      {canPay ? <AdjustCard /> : null}
       <p className="text-xs text-muted">{t('console.fin_updated', { time: formatDayClock(desk.at) })}</p>
     </div>
   );
@@ -272,6 +278,8 @@ function CouriersTable({ rows }: { rows: CourierCashRow[] }) {
 // ───────────────────────── merchants and hand-overs ─────────────────────────
 
 function MerchantsCard({ rows }: { rows: MerchantPayableRow[] }) {
+  const canPay = useCanPayOut();
+  const [paying, setPaying] = useState<MerchantPayableRow | null>(null);
   const sorted = useMemo(() => [...rows].sort((a, b) => Number(b.overExposure) - Number(a.overExposure) || Math.abs(b.payableIqd) - Math.abs(a.payableIqd)), [rows]);
   return (
     <Card title={t('console.fin_merchants')} hint={t('console.fin_merchants_hint')}>
@@ -293,11 +301,19 @@ function MerchantsCard({ rows }: { rows: MerchantPayableRow[] }) {
                 </span>
                 <span className="block text-xs text-muted">{settleModeLabel(m.mode)}</span>
               </span>
-              <span className={cx('shrink-0 text-sm', m.payableIqd === 0 ? 'text-muted' : m.payableIqd < 0 ? 'text-ok' : 'text-text')}>{merchantWords(m.payableIqd)}</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className={cx('text-sm', m.payableIqd === 0 ? 'text-muted' : m.payableIqd < 0 ? 'text-ok' : 'text-text')}>{merchantWords(m.payableIqd)}</span>
+                {canPay && m.payableIqd > 0 ? (
+                  <Button size="sm" variant="secondary" needsNet onClick={() => setPaying(m)} data-testid="pay-merchant">
+                    {t('console.pay_merchant_button')}
+                  </Button>
+                ) : null}
+              </span>
             </li>
           ))}
         </ul>
       )}
+      <PayDialog target={paying ? { kind: 'merchant', id: paying.merchantId, name: paying.name, maxIqd: paying.payableIqd } : null} onClose={() => setPaying(null)} />
     </Card>
   );
 }

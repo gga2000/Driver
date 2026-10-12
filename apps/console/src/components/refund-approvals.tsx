@@ -97,14 +97,18 @@ function RefundRow({ a, now }: { a: RefundApproval; now: Date }) {
           <Chip size="sm" tone={STATE_TONE[a.state]} dot>
             {t(`console.ra_state_${a.state}` as MessageKey)}
           </Chip>
-          <Chip size="sm">{t(a.kind === 'ticket' ? 'console.ra_kind_ticket' : 'console.ra_kind_dispute')}</Chip>
+          <Chip size="sm">{t(a.kind === 'ticket' ? 'console.ra_kind_ticket' : a.kind === 'adjustment' ? 'console.ra_kind_adjustment' : 'console.ra_kind_dispute')}</Chip>
         </p>
         <p className="mt-1 text-dense text-text">
           {t(LIMIT_KEY[a.limit])}
-          <span aria-hidden className="mx-1.5 text-faint">
-            ·
-          </span>
-          {t('console.ra_funded', { party: t(`console.sup_fault_${a.faultParty}` as MessageKey) })}
+          {a.adjustment ? null : (
+            <>
+              <span aria-hidden className="mx-1.5 text-faint">
+                ·
+              </span>
+              {t('console.ra_funded', { party: t(`console.sup_fault_${a.faultParty}` as MessageKey) })}
+            </>
+          )}
           {a.method ? (
             <>
               <span aria-hidden className="mx-1.5 text-faint">
@@ -114,7 +118,15 @@ function RefundRow({ a, now }: { a: RefundApproval; now: Date }) {
             </>
           ) : null}
         </p>
+        {a.adjustment ? (
+          <p className="mt-1">
+            <bdi dir="ltr" className="font-mono text-xs text-text" data-testid="ra-adjustment-accounts">
+              {t('console.ra_adjust_accounts', { from: a.adjustment.fromAccount, to: a.adjustment.toAccount })}
+            </bdi>
+          </p>
+        ) : null}
         {a.note ? <p className="mt-1 text-dense text-muted">«{a.note}»</p> : null}
+        {a.adjustment?.incidentId ? <p className="mt-1 text-xs text-muted">{t('console.ra_adjust_incident', { id: a.adjustment.incidentId })}</p> : null}
         <p className="num mt-1 text-xs text-muted">
           {t('console.ra_asked_by', { name: asker, age: ageLabel(a.requestedAt, now) })}
           {a.decidedAt ? (

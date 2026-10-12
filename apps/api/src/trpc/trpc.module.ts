@@ -12,6 +12,7 @@ import { FleetModule, FleetService } from '../modules/fleet/index.js';
 import { OpsDishPhotosService, OpsModule, OpsPickupSpotsService, OpsService } from '../modules/ops/index.js';
 import { MerchantAdminModule, MerchantAdminService } from '../modules/merchant-admin/index.js';
 import { MenuPhotosModule, MenuPhotosService } from '../modules/menu-photos/index.js';
+import { FoodCartsModule, FoodCartsService } from '../modules/food-carts/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
 import { PartnerModule, PartnerService } from '../modules/partner/index.js';
 import { CustomerWalletService, LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
@@ -29,7 +30,7 @@ import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { ControlsModule, ControlsService } from '../modules/controls/index.js';
 import { ZoneChecksService, ZonesModule, ZonesService } from '../modules/zones/index.js';
-import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
+import { AccountCloseService, ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { SafetyModule, SafetyService } from '../modules/safety/index.js';
 import { InsightsModule, InsightsService } from '../modules/insights/index.js';
@@ -75,6 +76,7 @@ export class TrpcService {
     private readonly dishPhotos: OpsDishPhotosService,
     private readonly merchantAdmin: MerchantAdminService,
     private readonly menuPhotos: MenuPhotosService,
+    private readonly foodCarts: FoodCartsService,
     private readonly ledger: LedgerFacade,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
@@ -99,6 +101,7 @@ export class TrpcService {
     private readonly notify: NotifyService,
     private readonly controls: ControlsService,
     private readonly controlRoom: ControlRoomService,
+    private readonly accountClose: AccountCloseService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
     private readonly zoneChecks: ZoneChecksService,
@@ -159,6 +162,7 @@ export class TrpcService {
       dishPhotos: this.dishPhotos,
       merchantAdmin: this.merchantAdmin,
       menuPhotos: this.menuPhotos,
+      foodCarts: this.foodCarts,
       orders: this.orders,
       trips: this.trips,
       dispatch: this.dispatch,
@@ -184,6 +188,7 @@ export class TrpcService {
       notify: this.notify,
       controls: this.controls,
       controlRoom: this.controlRoom,
+      accountClose: this.accountClose,
       support: this.support,
       zones: this.zones,
       zoneChecks: this.zoneChecks,
@@ -230,5 +235,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, FoodCartsModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

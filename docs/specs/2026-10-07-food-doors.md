@@ -94,3 +94,13 @@ k11, wait for a fee decision). g3/r5: no paid ranking, ever.
     with the after-order screens) the way in is two ordinary orders placed together, each with its own
     courier and its own usual delivery fee: no new second-pickup fee, so no new money rule. Not built now:
     the cart, checkout and orders service are held by the launch lanes until then.
+
+## «مميّز»: featured restaurants (Ali, 2026-10-12)
+
+A restaurant on the featured commission tier (15 %, set per store in the Console, #300) carries a
+date-dark stamp with gold «مميّز» beside its name in the lists, while it is open. In the plain food list
+(`catalog.restaurants` with no search, and «الأقرب» in the app) one open featured restaurant sits first;
+with several, the one at the top changes at Baghdad midnight (`featuredFirst` in contracts). A closed or
+paused one never moves up. Search, «أحسن 3», and «الأسرع» / «الأعلى تقييم» keep their own order.
+Ali picked this (date stamp, one at the top) from three marks and two lifts:
+`/mnt/project-files/food-doors/featured/featured-concepts.png`.

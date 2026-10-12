@@ -26,9 +26,12 @@
 //            the pinned strip, agreed                                         POST /demo/rajaa/trip-chat
 //   agree-*  step 4 agreed prices: ask the driver about a pin on the road and a door drop, his prices,
 //            agreed, and the hold with the locked lines                    POST /demo/rajaa/agreements
+//   carts-*  food carts «عربانات»: the list (followed strip, near you, all), a cart's page with dishes picked,
+//            a closed cart, the walk-over ticket (cooking, ready), the carts map           POST /demo/carts
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
 //            demand, request board, home                                POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
+//   owed-*   M-3: an earlier unpaid 500 دينار as its own line under checkout's total   POST /demo/owe
 //                                                                         POST /demo/deals
 //   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
 //            web export in PARTNER_DIST_DIR, built against the same demo API), the customer's receipt
@@ -55,6 +58,8 @@
 //            box (on the way, the range option, late), delivered with the courier, the compliment chips
 //            (picked, sent) before the tip card            POST /demo/track (kitchen, on_the_way, late; rated=1)
 //            and the ride reveal (a taxi accepted while the screen is open)    POST /demo/ride
+//   stats-*  «دفترك ويا درايفر» on a fresh account with a year of history: the year (+ full page), a month
+//            column picked, «شلون نحسبها؟», بالتفصيل, this month, since the start      POST /demo/stats
 //   trips-*  joy J7d on a fresh account: the ride tab (a regular trip asking, «خليه سايقك المفضل؟»),
 //            «رحلاتي الثابتة», a day to confirm (ride, الرجعة) and confirmed, the editor (ride, الرجعة),
 //            «سواقي المفضلين», the booked ride (+ home card), booking for later with a favourite, the
@@ -144,13 +149,13 @@ const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'owed', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'stats', 'carts'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
 // Taxi/tuktuk step 4: booked rides (c10), the simple mode (v2) and the الرجعة-linked taxis (x2–x4); they run right after the ride flow.
-const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors'];
+const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors', 'ride-walk'];
 const known = [...GROUPS, ...RIDE_GROUPS];
 const groups = new Set(selected.includes('all') ? known : selected);
 for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
@@ -242,8 +247,7 @@ try {
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await settle(1600);
       await shot('app-welcome-home');
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => errors.push('welcome-home did not close'));
+      if (!(await dismissWelcome())) errors.push('welcome-home did not close');
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -294,12 +298,14 @@ try {
   if (wants('share')) await shareShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
+  if (wants('owed')) await owedShots(personId, khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
   // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
   if (wants('ride')) await rideShots().finally(() => rideForShots());
   if (wants('later')) await laterShots();
   if (wants('ride-errors')) await rideErrorShots();
+  if (wants('ride-walk')) await rideWalkShots();
   // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
   if (wants('simple')) await asOtherAccount(simpleShots);
   if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
@@ -311,6 +317,8 @@ try {
   if (wants('trips')) await tripsShots(khalid);
   if (wants('crash')) await crashShots();
   if (wants('booked')) await bookedShots();
+  if (wants('stats')) await asOtherAccount(statsShots);
+  if (wants('carts')) await asOtherAccount(cartsShots);
 } catch (err) {
   errors.push(err.stack ?? String(err));
   await page.screenshot({ path: join(outDir, 'app-failure.png') }).catch(() => {});
@@ -464,8 +472,7 @@ async function simpleShots() {
     await page.locator('[data-testid="setup-name"]').fill('كاظم');
     await byTestId('setup-skip').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -538,6 +545,74 @@ async function tripsShots(khalid) {
   await tripsFlow(khalid, personId, seed);
 }
 
+/**
+ * Food carts «عربانات»: a fresh account standing near the souq garage (position granted) follows the
+ * liver and corn carts; the list, the liver cart with a size and an extra picked («شلون تريده؟»), the walk-over ticket cooking
+ * and ready, a closed cart, and the carts on the golden map.
+ */
+async function cartsShots() {
+  const ctx = page.context();
+  await ctx.grantPermissions(['geolocation'], { origin });
+  await ctx.setGeolocation({ latitude: 32.9046, longitude: 45.0628, accuracy: 15 });
+  const personId = await freshSignIn(process.env.CARTS_PHONE ?? '0770 456 7711');
+  const seed = await demoPost(`/demo/carts?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  const cart = (key) => seed.carts.find((c) => c.key === key).cartId;
+  await page.goto(`${origin}/food-carts`, LOADED);
+  await byTestId('carts-followed').waitFor({ timeout: 20_000 });
+  await shot('carts-list');
+  await byTestId('carts-show-all').click();
+  await fullShot('carts-list-all');
+  await page.goto(`${origin}/food-carts/${cart('liver')}`, LOADED);
+  await byTestId('cart-menu').waitFor({ timeout: 20_000 });
+  await shot('carts-cart');
+  const liver = seed.carts.find((c) => c.key === 'liver');
+  const plus = (item) => page.locator(`[data-testid="cart-dish-${liver.orgId}_${item}"]`).locator('[data-testid="cart-dish-add"], [data-testid="stepper-inc"]').first();
+  // A dish with sizes or extras asks «شلون تريده؟» first (Ali 2026-10-12).
+  const choose = async (item, names, name) => {
+    await plus(item).click();
+    await byTestId('cart-choice').waitFor({ timeout: 10_000 });
+    for (const n of names) await page.locator('[data-testid^="cart-choice-"]').filter({ hasText: n }).first().click();
+    if (name) await shot(name);
+    await byTestId('cart-choice-add').click();
+    await byTestId('cart-choice').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+  };
+  await choose('plate', ['صحن كامل'], 'carts-choice-size');
+  await choose('laffa', ['بيض'], 'carts-choice-extras');
+  await choose('laffa', [], null);
+  await plus('maalak').click();
+  await shot('carts-cart-picked');
+  await fullShot('carts-cart-picked-full');
+  await byTestId('cart-order').click();
+  await byTestId('cart-ticket-card').waitFor({ timeout: 20_000 });
+  await shot('carts-ticket');
+  const ready = await demoPost(`/demo/carts?personId=${encodeURIComponent(personId)}&ticket=ready`);
+  if (ready?.walkupId) {
+    await page.goto(`${origin}/food-carts/ticket/${ready.walkupId}`, LOADED);
+    await byTestId('cart-ticket-card').waitFor({ timeout: 20_000 });
+    await shot('carts-ticket-ready');
+  }
+  await page.goto(`${origin}/food-carts`, LOADED);
+  await byTestId('carts-followed').waitFor({ timeout: 20_000 });
+  await shot('carts-list-tickets');
+  await page.goto(`${origin}/food-carts/${cart('corn')}`, LOADED);
+  await byTestId('cart-closed-note').waitFor({ timeout: 20_000 });
+  await shot('carts-closed');
+  await page.goto(`${origin}/food-carts/map`, LOADED);
+  await byTestId('carts-map-card').waitFor({ timeout: 30_000 }).catch(() => {});
+  await settle(4000);
+  await shot('carts-map');
+}
+
+/** The sunrise welcome (map N4) can take a few taps while its map loads: tap until it goes, up to 30 s. */
+async function dismissWelcome() {
+  for (let i = 0; i < 10; i++) {
+    await byTestId('welcome-home').click({ timeout: 3_000 }).catch(() => {});
+    if (await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 3_000 }).then(() => true).catch(() => false)) return true;
+  }
+  return false;
+}
+
 /** Signs out, then in as that number (name and area on a first sign-in); the person's id. */
 async function freshSignIn(phoneNumber) {
   await page.goto(`${origin}/`, LOADED);
@@ -564,8 +639,7 @@ async function freshSignIn(phoneNumber) {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -765,6 +839,34 @@ async function tripsFlow(khalid, personId, seed) {
  * and after a touch that never moves the map. Each failure is one procedure's request answered as a
  * network failure (a batch carrying it fails as a whole, as it would on a phone).
  */
+/**
+ * Map idea N10 «امشي دقيقة للشارع العام»: the dev walk flag puts a safe stop 60 m from the pickup,
+ * so the choose screen offers the walk; then the walk chosen (the pickup is the stop) and undone.
+ */
+async function rideWalkShots() {
+  await demoPost('/demo/ride?acceptMs=0');
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => globalThis.sessionStorage.setItem('driver.dev.walk', 'demo'));
+  await byTestId('service-taxi').click({ timeout: 15_000 });
+  await page.locator('[data-testid^="ride-spot-landmark:"]').first().click({ timeout: 15_000 });
+  await byTestId('ride-walk-offer').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1800);
+  await shot('ride-walk-offer');
+  await byTestId('ride-walk-go').click();
+  await byTestId('ride-walk-chosen').waitFor();
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1800);
+  await shot('ride-walk-chosen');
+  await byTestId('ride-walk-undo').click();
+  await byTestId('ride-walk-offer').waitFor();
+  await byTestId('ride-walk-door').click();
+  await byTestId('ride-walk-offer').waitFor({ state: 'detached' });
+  await settle(600);
+  await shot('ride-walk-door');
+  await page.evaluate(() => globalThis.sessionStorage.removeItem('driver.dev.walk'));
+}
+
 async function rideErrorShots() {
   const failing = (proc) => async (route) => (route.request().url().includes(proc) ? route.abort('failed') : route.continue());
   const withFailure = async (proc, flow) => {
@@ -861,8 +963,7 @@ async function laterShots() {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -951,6 +1052,72 @@ async function laterShots() {
  * followed pot, Thursday 20:00 «باچر الجمعة» and its booking sheet, the restaurant page with the pot
  * banner and «مطاعمنا», the item sheet's follow row, and the «قدر اليوم» switch.     POST /demo/usuals
  */
+/** «دفترك ويا درايفر» (docs/api/stats.md): a fresh account with a year of meals, rides, seats and savings. */
+async function statsShots() {
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.STATS_PHONE ?? '0770 456 9911');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('حيدر');
+    const box = await byTestId('place-map').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+    await page.mouse.up();
+    await settle(1000);
+    await byTestId('setup-save').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await dismissWelcome();
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId) throw new Error('stats: no person after sign-in');
+  await demoPost(`/demo/stats?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/month`, LOADED);
+  await byTestId('stats-saved').waitFor({ timeout: 20_000 });
+  await settle(1500);
+  await shot('stats-year');
+  await fullShot('stats-year-full');
+  const cols = page.locator('[data-testid^="stats-col-"]');
+  if ((await cols.count()) > 2) {
+    await cols.nth((await cols.count()) - 3).click();
+    await settle(500);
+    await byTestId('stats-columns').screenshot({ path: join(outDir, 'stats-year-picked.png') }).catch(() => errors.push('stats: picked column shot'));
+  }
+  await byTestId('stats-how').click();
+  await settle(800);
+  await shot('stats-how');
+  await page.keyboard.press('Escape');
+  await settle(500);
+  await byTestId('stats-tab-detail').click();
+  await byTestId('stats-detail-food').waitFor({ timeout: 10_000 }).catch(() => errors.push('stats: detail not shown'));
+  await settle(1200);
+  await fullShot('stats-detail-full');
+  await byTestId('stats-tab-ledger').click();
+  await byTestId('stats-period-month').click();
+  await byTestId('stats-month').waitFor({ timeout: 10_000 });
+  await settle(1500);
+  await fullShot('stats-month-full');
+  await byTestId('stats-period-all').click();
+  await settle(1800);
+  await fullShot('stats-all-full');
+  await byTestId('stats-period-year').click();
+  await byTestId('stats-tab-map').click();
+  // The lines draw once (1.2 s), then the pins; the map files load first.
+  await byTestId('stats-map-legend').waitFor({ timeout: 15_000 }).catch(() => errors.push('stats: map legend not shown'));
+  await settle(4500);
+  await shot('stats-map');
+}
+
 async function habitsShots() {
   await page.goto(`${origin}/`, LOADED);
   await page.evaluate(() => localStorage.clear());
@@ -977,8 +1144,7 @@ async function habitsShots() {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -1900,6 +2066,23 @@ async function dealsShots(khalid) {
   });
   await shot('deals-checkout');
   await fullShot('deals-checkout-full');
+}
+
+/** M-3: an earlier unpaid amount (500 دينار) shows as its own line under checkout's total, cash only. */
+async function owedShots(personId, khalid) {
+  if (!personId) return void errors.push('owed: no person');
+  await demoPost(`/demo/owe?personId=${encodeURIComponent(personId)}&amount=500`);
+  await demoPost('/demo/deals');
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
+  await byTestId(`dish-add-${khalid}_lentil_soup`).click();
+  await page.waitForTimeout(300);
+  await byTestId('cart-bar').click();
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-owed').waitFor({ timeout: 15_000 }).catch(() => errors.push('owed line at checkout not shown'));
+  await byTestId('checkout-owed').scrollIntoViewIfNeeded().catch(() => {});
+  await shot('owed-checkout');
+  await fullShot('owed-checkout-full');
 }
 
 /**

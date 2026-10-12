@@ -4,11 +4,14 @@ import { t } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
+import { baseUrlFromEnv } from '../../shared/public-url.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { smsBudgetThrottlesFromEnv, smsDailyBudgetFromEnv } from '../../shared/sms-budget.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { IdentityModule, IdentityService, OTP_ALERT_EVENT } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
@@ -47,9 +50,10 @@ function envInt(name: string, fallback: number): number {
 /**
  * Notification delivery (domain §8). Providers by env — push: PUSH_PROVIDER=dev|expo (EXPO_ACCESS_TOKEN)
  * plus FCM HTTP v1 for raw FCM tokens (FCM_PROJECT_ID + FCM_SERVICE_ACCOUNT_JSON); SMS: the shared
- * SmsPort (SMS_PROVIDER=dev|http|twilio); WhatsApp: WHATSAPP_PROVIDER=dev|meta (WHATSAPP_TOKEN,
- * WHATSAPP_PHONE_NUMBER_ID, statuses via the webhook with WHATSAPP_APP_SECRET). With nothing set,
- * every channel is a dev provider that logs.
+ * SmsPort (SMS_PROVIDER=dev|http|twilio|otpiq); WhatsApp: WHATSAPP_PROVIDER=dev|meta (WHATSAPP_TOKEN,
+ * WHATSAPP_PHONE_NUMBER_ID, statuses via the webhook with WHATSAPP_APP_SECRET). With nothing set in
+ * development every channel is a dev provider that logs; outside development WhatsApp without
+ * WHATSAPP_TOKEN is off (its rows are skipped `not_configured` and their SMS twins go).
  *
  * Tables `push_tokens`, `notify_preferences`, `notify_deliveries` (Prisma with DATABASE_URL, in
  * memory otherwise); sends, retries, receipt polls and SMS twins run on the `notify` BullMQ queue
@@ -152,10 +156,13 @@ function envInt(name: string, fallback: number): number {
         // s2: «وصل بالسلامة» reaches only trusted people with an account (identity matches their numbers).
         trustedAccounts: async (personId, purpose) => (await orNull(() => identity.trustedContactAccounts(personId, 'system:notify', purpose))) ?? [],
         // w9 auto-share: the same signed link the rider's own «شارك» makes, created for the rider.
+        // No SHARE_LINK_BASE_URL: no link (and none made); the message goes without it where it can.
         shareLink: (personId, subject) =>
           orNull(async () => {
+            const base = baseUrlFromEnv('SHARE_LINK_BASE_URL');
+            if (!base) return null;
             const link = await shares.createShareLink({ personId, sessionId: 'system:notify' }, subject);
-            return `${(process.env['SHARE_LINK_BASE_URL'] ?? 'https://driver.iq').replace(/\/$/, '')}${link.path}`;
+            return `${base}${link.path}`;
           }),
         // c9/s3: the name the booker gave the rider («ماما»), read from identity's vault for this message.
         riderName: (orderId) => orNull(async () => (await orders.riderOf(orderId, 'system:notify', 'notify_ride_for_rider'))?.name ?? null),
@@ -212,7 +219,7 @@ function envInt(name: string, fallback: number): number {
     },
     {
       provide: NOTIFY_ENGINE,
-      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService, controls: ControlsService, lookups: NotifyLookups) => {
+      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService, controls: ControlsService, lookups: NotifyLookups, counter: WindowCounter, events: EventsService) => {
         const contacts: NotifyContacts = {
           contact: async (to, opts) => {
             // SOS: `ec:<personId>` is that person's emergency contact — a number, not an account
@@ -247,9 +254,19 @@ function envInt(name: string, fallback: number): number {
           (at) => controls.promoHold(at),
           // A new-order text only while the order still waits for the kitchen.
           (row) => twinStillWanted(lookups, row),
+          // One SMS budget with sign-in codes (OTP_SMS_DAILY_BUDGET): ops hear it as the OTP guard's
+          // own `sms_budget` alert, from whichever side crossed the level first.
+          {
+            counter,
+            dailyBudget: smsDailyBudgetFromEnv(),
+            throttle: smsBudgetThrottlesFromEnv(),
+            alert: async (a) => {
+              await events.emit(undefined, { actorId: 'system', type: OTP_ALERT_EVENT, occurredAt: clock.now(), payload: { rule: 'sms_budget', ...a, mode: smsBudgetThrottlesFromEnv() ? 'throttle' : 'alert', source: 'notify' } }, { name: 'security', id: 'otp' });
+            },
+          },
         );
       },
-      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService, NOTIFY_LOOKUPS],
+      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService, NOTIFY_LOOKUPS, WINDOW_COUNTER, EventsService],
     },
     NotifyService,
   ],
@@ -275,7 +292,7 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
       engine: this.engine,
       repo: this.repo,
       lookups: this.lookups,
-      receiptBaseUrl: process.env['NOTIFY_RECEIPT_BASE_URL'] ?? 'https://driver.iq/r/',
+      receiptBaseUrl: baseUrlFromEnv('NOTIFY_RECEIPT_BASE_URL'),
       merchantAppUrl: process.env['MERCHANT_APP_URL'] ?? null,
     });
     const q = this.queue;

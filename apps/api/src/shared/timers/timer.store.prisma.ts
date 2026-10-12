@@ -9,6 +9,7 @@ import {
   type ClaimedTimer,
   type TimerSpec,
   type TimerStats,
+  type TakeResult,
   type TimerStore,
 } from './timer.store.js';
 
@@ -71,10 +72,23 @@ export class PrismaTimerStore implements TimerStore {
       .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime() || a.id.localeCompare(b.id));
   }
 
+  async take(queue: string, jobId: string, now: Date, tx: Tx): Promise<TakeResult> {
+    // The UPDATE locks the row until `tx` ends; a concurrent taker blocks on it, then re-reads the
+    // committed row (READ COMMITTED), finds it no longer pending and updates nothing.
+    const taken = await tx.$executeRaw`
+      UPDATE "public"."scheduled_timers" SET "status" = 'fired', "fired_at" = ${ts(now)}, "claimed_until" = NULL, "updated_at" = ${ts(now)}
+      WHERE "queue" = ${queue} AND "job_id" = ${jobId} AND "status" = 'pending'`;
+    if (taken > 0) return 'taken';
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "public"."scheduled_timers" WHERE "queue" = ${queue} AND "job_id" = ${jobId}`;
+    return rows.length > 0 ? 'done' : 'missing';
+  }
+
   async complete(id: string, now: Date): Promise<void> {
+    // Only while still claimed: a handler that took its run and re-armed the row left it pending and unclaimed.
     await this.prisma.prisma.$executeRaw`
       UPDATE "public"."scheduled_timers" SET "status" = 'fired', "fired_at" = ${ts(now)}, "claimed_until" = NULL, "updated_at" = ${ts(now)}
-      WHERE "id" = ${id} AND "status" = 'pending'`;
+      WHERE "id" = ${id} AND "status" = 'pending' AND "claimed_until" IS NOT NULL`;
   }
 
   async fail(id: string, error: string, retryAt: Date | null): Promise<void> {

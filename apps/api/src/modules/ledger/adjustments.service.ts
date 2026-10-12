@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { DriverError, type MoneyRules, type RoleKind } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { LedgerIncidentPort } from './incidents.js';
 import { LedgerService } from './ledger.service.js';
 import { postAdjustment } from './postings.js';
@@ -29,17 +31,20 @@ export interface Adjustment extends AdjustmentRequest {
   postedAt: Date | null;
 }
 
+/** Where a request above the second-approver line waits (the Console's persisted second-OK queue). */
+export type ParkAdjustment = (adj: Adjustment) => Promise<Adjustment>;
+
 /**
  * Hand-written corrections (edge-case G-85): only finance may post one, with a reason and a linked
  * incident; above 25,000 a second, different finance person must approve before anything posts.
  *
- * Pending requests live in memory for M2 (no table yet); a restart drops unapproved requests,
- * which is the safe failure (nothing was posted).
+ * The service keeps no pending state: a request above the line is handed to `park` (the caller's
+ * persisted queue) and posts only when `approve` is called with it. Posting is idempotent per
+ * adjustment id (`adjustment:<id>`).
  */
 @Injectable()
 export class AdjustmentService {
-  private readonly pending = new Map<string, Adjustment>();
-  private seq = 0;
+  private readonly incidentSources: Array<(incidentId: string) => Promise<boolean>> = [];
 
   constructor(
     private readonly ledger: LedgerService,
@@ -48,46 +53,47 @@ export class AdjustmentService {
     @Inject(MONEY_RULES) private readonly rules: MoneyRules,
   ) {}
 
-  async request(actor: FinanceActor, input: AdjustmentRequest): Promise<Adjustment> {
+  /** Other places an incident may live (support tickets): a correction may link any of them. */
+  linkIncidents(source: (incidentId: string) => Promise<boolean>): void {
+    this.incidentSources.push(source);
+  }
+
+  private async incidentKnown(incidentId: string): Promise<boolean> {
+    if (await this.incidents.exists(incidentId)) return true;
+    for (const source of this.incidentSources) if (await source(incidentId)) return true;
+    return false;
+  }
+
+  /** Posts at once up to the second-approver line; above it, nothing posts and `park` keeps the request. */
+  async request(actor: FinanceActor, input: AdjustmentRequest, park: ParkAdjustment): Promise<Adjustment> {
     if (!actor.roles.includes('finance')) throw new DriverError('forbidden');
-    if (input.reason.trim().length < 5 || !input.incidentId || !(await this.incidents.exists(input.incidentId))) throw new DriverError('adjustment_incident_required');
-    if (!Number.isInteger(input.amountIqd) || input.amountIqd <= 0) throw new DriverError('invalid_input');
-    this.seq += 1;
+    if (input.reason.trim().length < 5 || !input.incidentId || !(await this.incidentKnown(input.incidentId))) throw new DriverError('adjustment_incident_required');
+    if (!Number.isInteger(input.amountIqd) || input.amountIqd <= 0 || input.fromAccount === input.toAccount) throw new DriverError('invalid_input');
     const now = this.clock.now();
     const adj: Adjustment = {
       ...input,
       reason: input.reason.trim(),
-      id: `adj_${now.getTime().toString(36)}_${this.seq}`,
+      id: `adj_${randomUUID().replace(/-/g, '').slice(0, 20)}`,
       status: 'pending_second_approval',
       requestedBy: actor.personId,
       approvedBy: null,
       requestedAt: now,
       postedAt: null,
     };
-    if (input.amountIqd > this.rules.adjustments.secondApproverAboveIqd) {
-      this.pending.set(adj.id, adj);
-      return { ...adj };
-    }
+    if (input.amountIqd > this.rules.adjustments.secondApproverAboveIqd) return park(adj);
     return this.post(adj, null);
   }
 
-  async approve(actor: FinanceActor, adjustmentId: string): Promise<Adjustment> {
+  /** A second, different finance person lets a parked request post. */
+  async approve(actor: FinanceActor, adj: Adjustment, tx?: Tx): Promise<Adjustment> {
     if (!actor.roles.includes('finance')) throw new DriverError('forbidden');
-    const adj = this.pending.get(adjustmentId);
-    if (!adj) throw new DriverError('not_found');
     if (actor.personId === adj.requestedBy) throw new DriverError('adjustment_second_approver');
-    const posted = await this.post(adj, actor.personId);
-    this.pending.delete(adjustmentId);
-    return posted;
+    return this.post(adj, actor.personId, tx);
   }
 
-  pendingApprovals(): Adjustment[] {
-    return [...this.pending.values()].map((a) => ({ ...a }));
-  }
-
-  private async post(adj: Adjustment, approvedBy: string | null): Promise<Adjustment> {
+  private async post(adj: Adjustment, approvedBy: string | null, tx?: Tx): Promise<Adjustment> {
     const at = this.clock.now();
-    await this.ledger.recordAll(postAdjustment({ ...adj, occurredAt: at }));
+    await this.ledger.recordAll(postAdjustment({ ...adj, occurredAt: at }), tx);
     return { ...adj, status: 'posted', approvedBy, postedAt: at };
   }
 }

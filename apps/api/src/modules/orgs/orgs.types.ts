@@ -27,6 +27,8 @@ export interface Org {
   cityId: string;
   /** In join order: the creator (owner / first payer) first. */
   members: OrgMember[];
+  /** When the org was added (a restaurant's onboarding): its starter commission period counts from here. */
+  createdAt: Date;
   /** Restaurants and grocers: order-taking settings (columns on `orgs`). */
   merchant?: MerchantSettings;
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { RoleKind } from './auth.js';
 import { CityId, Iqd, LatLng } from './common.js';
 import { Event } from './event.js';
 import { CapRole, SettlementMode } from './ledger-rules.js';
@@ -270,6 +271,49 @@ export const OutboxView = z.object({
 });
 export type OutboxView = z.infer<typeof OutboxView>;
 
+/** Who may put failed outbox rows back on the queue (money may post again: admin only, audited). */
+export const OUTBOX_REQUEUE_ROLES: readonly RoleKind[] = ['admin'];
+/** Who sees the money alarm (a ledger posting stuck in the outbox). */
+export const MONEY_ALARM_ROLES: readonly RoleKind[] = ['finance', 'admin'];
+
+/** At most this many failed rows go back on one requeue. */
+export const OUTBOX_REQUEUE_MAX = 500;
+
+/**
+ * `system.requeueOutbox` (admin): failed outbox rows back to pending with their attempts reset, either
+ * the rows named, or every failed row of one event type written in [from, to). Each subscriber that
+ * already delivered a row is skipped on the retry, so only the one that failed runs again.
+ */
+export const OutboxRequeueInput = z.union([
+  z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(OUTBOX_REQUEUE_MAX) }).strict(),
+  z
+    .object({ type: z.string().min(1).max(80), from: z.coerce.date(), to: z.coerce.date() })
+    .strict()
+    .refine((r) => r.from.getTime() < r.to.getTime(), { message: 'from must be before to', path: ['to'] }),
+]);
+export type OutboxRequeueInput = z.infer<typeof OutboxRequeueInput>;
+
+export const OutboxRequeueResult = z.object({ requeued: z.number().int().nonnegative() });
+export type OutboxRequeueResult = z.infer<typeof OutboxRequeueResult>;
+
+/** Money stuck in the outbox: a ledger posting that failed for good, or a row waiting longer than `MONEY_ALARM_PENDING_SEC`. */
+export const MONEY_ALARM_PENDING_SEC = 120;
+export const MoneyAlarm = z.object({
+  /** Failed outbox rows a ledger subscriber has not posted. */
+  ledgerFailed: z.number().int().nonnegative(),
+  /** Seconds since the oldest still-pending outbox row was written (0 when none is pending). */
+  oldestPendingSec: z.number().int().nonnegative(),
+  alarm: z.boolean(),
+});
+export type MoneyAlarm = z.infer<typeof MoneyAlarm>;
+
+/** SMS sent in the last 24 hours (sign-in codes and notification texts together) against the day's budget. */
+export const SmsDayView = z.object({
+  sent: z.number().int().nonnegative(),
+  budget: z.number().int().positive(),
+});
+export type SmsDayView = z.infer<typeof SmsDayView>;
+
 /** Live simulator progress (sim time and counts) while a Console-started run is going. */
 export const SimulatorProgress = z.object({
   simTime: z.coerce.date(),
@@ -455,6 +499,10 @@ export interface ConsolePort {
   /** s5: a customer's last orders and this month's credits, for the support card. */
   customerHistory(input: z.infer<typeof CustomerHistoryInput>): Promise<CustomerHistory>;
   outbox(): Promise<OutboxView>;
+  /** Failed rows back to pending; the audit row (against `actorId`, the admin) commits with the change. */
+  requeueOutbox(input: OutboxRequeueInput, actorId: string): Promise<OutboxRequeueResult>;
+  moneyAlarm(): Promise<MoneyAlarm>;
+  smsDay(): Promise<SmsDayView>;
   merchants(cityId: string): Promise<MerchantRow[]>;
   simulatorStatus(): Promise<z.input<typeof SimulatorStatus>>;
   simulatorStart(input: z.infer<typeof SimulatorStartInput>): Promise<z.input<typeof SimulatorStatus>>;

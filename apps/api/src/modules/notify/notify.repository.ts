@@ -95,6 +95,8 @@ export interface NotifyRepository {
   deleteToken(token: string, personId?: string): Promise<boolean>;
   deleteTokens(tokens: readonly string[]): Promise<number>;
   deleteSessionTokens(sessionId: string): Promise<number>;
+  /** Every token of a person, in the caller's transaction when given (his account is being closed). */
+  deletePersonTokens(personId: string, tx?: Tx): Promise<number>;
   tokensOf(personId: string, app?: NotifyApp): Promise<PushTokenRecord[]>;
   preferences(personId: string): Promise<NotifyPreferences | null>;
   setPreferences(personId: string, prefs: NotifyPreferences, now: Date): Promise<NotifyPreferences>;
@@ -168,6 +170,17 @@ export class InMemoryNotifyRepository implements NotifyRepository {
     let n = 0;
     for (const [t, row] of this.tokens) {
       if (row.sessionId === sessionId) {
+        this.tokens.delete(t);
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  async deletePersonTokens(personId: string): Promise<number> {
+    let n = 0;
+    for (const [t, row] of this.tokens) {
+      if (row.personId === personId) {
         this.tokens.delete(t);
         n += 1;
       }
@@ -351,6 +364,10 @@ export class PrismaNotifyRepository implements NotifyRepository {
     return (await this.db().pushToken.deleteMany({ where: { sessionId } })).count;
   }
 
+  async deletePersonTokens(personId: string, tx?: Tx): Promise<number> {
+    return (await this.db(tx).pushToken.deleteMany({ where: { personId } })).count;
+  }
+
   async tokensOf(personId: string, app?: NotifyApp): Promise<PushTokenRecord[]> {
     return (await this.db().pushToken.findMany({ where: { personId, ...(app ? { app } : {}) }, orderBy: { lastSeenAt: 'desc' } })).map(tokenOf);
   }
@@ -373,12 +390,12 @@ export class PrismaNotifyRepository implements NotifyRepository {
 
   async preferences(personId: string): Promise<NotifyPreferences | null> {
     const r = await this.db().notifyPreference.findUnique({ where: { personId } });
-    return r ? { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide } : null;
+    return r ? { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide, foodCarts: r.foodCarts } : null;
   }
 
   async setPreferences(personId: string, prefs: NotifyPreferences): Promise<NotifyPreferences> {
     const r = await this.db().notifyPreference.upsert({ where: { personId }, create: { id: newId('npf'), personId, ...prefs }, update: prefs });
-    return { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide };
+    return { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide, foodCarts: r.foodCarts };
   }
 
   async insertDeliveries(rows: readonly NewDelivery[], now: Date, tx?: Tx): Promise<DeliveryRecord[]> {

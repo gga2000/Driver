@@ -423,6 +423,11 @@ export const WeeklyStatement = z.object({
      */
     adjustmentsIqd: Iqd.default(0),
   }),
+  /**
+   * The restaurant's commission now (money §1): its tier, the rate in percent and, on `starter`, the day
+   * its starter period began (its onboarding). Null from an older server.
+   */
+  rate: z.object({ tier: CommissionTier, pct: z.number(), starterSince: z.coerce.date().nullable() }).nullable().default(null),
 });
 export type WeeklyStatement = z.infer<typeof WeeklyStatement>;
 
@@ -466,6 +471,19 @@ export const MerchantDispute = z.object({
     .nullable(),
 });
 export type MerchantDispute = z.infer<typeof MerchantDispute>;
+
+/**
+ * `money.receiveCourierCash`: the restaurant takes its cash from a courier on its own tablet. The owner
+ * types what he counted, the courier reads his daily hand-over code from his app (his confirmation).
+ */
+export const ReceiveCourierCashInput = MerchantScope.extend({
+  courierId: z.string().min(1),
+  amountIqd: Iqd.positive(),
+  code: z.string().regex(/^\d{4}$/),
+  /** One per opened sheet: a retry posts once. */
+  idempotencyKey: z.string().min(8).max(128),
+});
+export type ReceiveCourierCashInput = z.input<typeof ReceiveCourierCashInput>;
 
 export const RespondDisputeInput = MerchantScope.extend({
   orderId: z.string().min(1),
@@ -650,6 +668,7 @@ export interface MerchantAdminPort {
   moneyStatement(actor: Actor, input: z.infer<typeof StatementInput>): Promise<WeeklyStatement>;
   moneyDisputes(actor: Actor, input: MerchantScope): Promise<MerchantDispute[]>;
   moneyRespondDispute(actor: Actor, input: z.output<typeof RespondDisputeInput>): Promise<MerchantDispute>;
+  moneyReceiveCourierCash(actor: Actor, input: z.output<typeof ReceiveCourierCashInput>): Promise<MerchantCashAccount>;
   insights(actor: Actor, input: z.output<typeof InsightsInput>): Promise<MerchantInsights>;
   /** S-M6: the end-of-day card (owner and staff; the net is the owner's). */
   daySummary(actor: Actor, input: z.output<typeof DaySummaryInput>): Promise<MerchantDaySummary>;

@@ -13,6 +13,11 @@ const STAFF: ReadonlySet<RoleKind> = new Set(['admin', 'dispatcher', 'support', 
 
 const AUDITED = [
   'finance.exportSettlement',
+  'finance.payMerchant',
+  'finance.payDriver',
+  'finance.adjust',
+  'finance.setCommissionTier',
+  'ops.merchantOnboarding',
   'ops.controls.setSwitch',
   'ops.controls.setScreen',
   'ops.controls.setCapacity',
@@ -22,6 +27,7 @@ const AUDITED = [
   'system.setSeason',
   'system.setIftarTime',
   'ops.pickupSpots.set',
+  'ops.pickupSpots.moveKitchen',
   'ops.dishPhotos.keep',
   'ops.dishPhotos.takeDown',
   'safety.acknowledge',
@@ -70,6 +76,12 @@ const AUDITED = [
   // Cash staff take in: a courier's hand-in on the round, a customer's top-up at the counter.
   'ops.recordCashReceipt',
   'ops.confirmTopUp',
+  // Account close (docs/api/account-close.md): the audit row is written in the close's transaction.
+  'identity.closeAccount.close',
+  // Admins cut a staff member off every device («الموظفين»).
+  'identity.endAllSessions',
+  // Admins put failed outbox rows back on the queue: the audit row commits with the requeue.
+  'system.requeueOutbox',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */
@@ -91,7 +103,6 @@ const GAPS: Record<string, string> = {
   'ops.menuPhotos.addShot': 'stored on the shot',
   'ops.menuPhotos.markShot': 'stored on the shot',
   'ops.menuPhotos.schedule': 'stored on the schedule',
-  'ops.merchantOnboarding': 'no trail',
   'routes.ops.callPinAlertDriver': 'no trail',
   'safety.note': 'stored on the incident',
   'support.chatRead': 'read marker, not an action (may stay a gap)',

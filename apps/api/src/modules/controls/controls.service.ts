@@ -42,6 +42,7 @@ import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
+import { IdentityService } from '../identity/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { AuditLogService, StaffNames } from './audit.js';
 import { CONTROLS_REPOSITORY, QUIET_DEFAULTS, targetOf, type BannerRecord, type ControlsRepository, type KillSwitchRecord, type QuietRecord, type ZoneCapacityRecord } from './controls.repository.js';
@@ -153,6 +154,7 @@ export class ControlsService implements ControlsPort {
     private readonly names: StaffNames,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly identity: IdentityService,
   ) {}
 
   /** The orders module binds its live count (it owns orders; controls cannot import it). */
@@ -252,8 +254,17 @@ export class ControlsService implements ControlsPort {
     throw new DriverError('zone_at_capacity', { retryAfterSec: cap.etaMin * 60, messageAr: throttleMessage(cap.etaMin, cap.mode) });
   }
 
-  /** الرجعة booking: a switched-off corridor (or the intercity vertical) refuses new holds. */
+  /**
+   * Launch scope: a service missing from the city's `launchedVerticals` takes no new work, with or
+   * without a switch (`service_paused`, "not open yet").
+   */
+  assertLaunched(cityId: string, vertical: Vertical): void {
+    if (!this.config.isLaunched(cityId, vertical)) throw new DriverError('service_paused', { messageAr: t('soon.not_open_yet', { name: VERTICAL_AR[vertical] }) });
+  }
+
+  /** الرجعة booking: not launched yet, or a switched-off corridor (or the intercity vertical), refuses new holds. */
   async assertCorridorOpen(input: { cityId: string; corridorId: string }): Promise<void> {
+    this.assertLaunched(input.cityId, 'intercity');
     const live = await this.liveSwitches(input.cityId);
     const s = live.find((x) => x.scope === 'vertical' && x.key === 'intercity') ?? live.find((x) => x.scope === 'corridor' && x.key === input.corridorId);
     if (s) throw new DriverError('service_paused', { messageAr: await this.refusalFor(s, input.cityId) });
@@ -642,6 +653,22 @@ export class ControlsService implements ControlsPort {
     return this.bannerView(row, await this.names.of([row.setById]), now);
   }
 
+  // ───────────────────────── staff ─────────────────────────
+
+  /**
+   * «طلّعه من كل الأجهزة» (Console «الموظفين», admins): every session of that person ends on every
+   * device, with its audit row in the same transaction. Identity owns the sessions; the trail is here.
+   */
+  async endAllSessions(actor: Actor, input: { personId: string }): Promise<{ ended: number }> {
+    if (input.personId === actor.personId) throw new DriverError('forbidden');
+    const name = (await this.names.of([input.personId], actor.personId))[input.personId] ?? input.personId;
+    return this.uow.run(async (tx) => {
+      const out = await this.identity.endAllSessions(actor, input.personId, 'admin');
+      await this.audits.record({ cityId: null, actorId: actor.personId, action: 'staff.end_sessions', subjectKind: 'person', subjectId: input.personId, summaryAr: `طلّع ${name} من كل الأجهزة (${out.ended})`, detail: { ended: out.ended } }, tx);
+      return out;
+    });
+  }
+
   // ───────────────────────── quiet days and the season ─────────────────────────
 
   private async liveQuiet(): Promise<QuietRecord[]> {
@@ -657,7 +684,9 @@ export class ControlsService implements ControlsPort {
    * the kind of day, Ramadan's times on both timetables and the home card (J6, `season.ts`).
    */
   async season(input: SeasonInput): Promise<PublicSeason> {
-    return composeSeason({ rows: await this.liveQuiet(), now: this.clock.now(), cityId: input.cityId, timetable: input.timetable });
+    const today = composeSeason({ rows: await this.liveQuiet(), now: this.clock.now(), cityId: input.cityId, timetable: input.timetable });
+    // The launched services ride along so home hides the tiles of the rest (no extra read).
+    return input.cityId ? { ...today, launched: this.config.launchedVerticals(input.cityId) } : today;
   }
 
   /** The notify engine's gate for offers: suppressed on quiet days and seasons with offers off, held around iftar (J6). */

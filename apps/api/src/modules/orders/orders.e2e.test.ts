@@ -43,16 +43,17 @@ describe('orders × trips — end to end', () => {
     expect(delivered.state).toBe('delivered');
     expect((await h.trips.get(t.id)).state).toBe('completed');
     expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ amountIqd: 16500, discrepancyIqd: 0, courierId: 'd1' });
-    // Edge-case §3: merchant_payable net of commission, created the moment the courier collects.
-    expect(h.events.last('merchant.payable_accrued')!.payload).toMatchObject({ merchantOrgId: 'rest_1', grossIqd: 15000, commissionIqd: 2250, netIqd: 12750, heldBy: 'courier' });
+    // Edge-case §3: merchant_payable net of commission, created the moment the courier collects. The
+    // restaurant has no tier on file, so it is on starter (5 %, Ali 2026-10-11): 750 on 15,000.
+    expect(h.events.last('merchant.payable_accrued')!.payload).toMatchObject({ merchantOrgId: 'rest_1', grossIqd: 15000, commissionTier: 'starter', commissionPct: 5, commissionIqd: 750, netIqd: 14250, heldBy: 'courier' });
 
     await h.advance(2 * HOUR - 1000);
     expect((await h.orders.get(o.id)).state).toBe('delivered');
     await h.advance(1000);
     expect((await h.orders.get(o.id)).state).toBe('closed');
-    // Revenue 500 service + 2,250 commission = 2,750 → 27 points; the sister's line is a third of the value.
-    expect(h.events.last('order.points_allocated')!.payload).toMatchObject({ platformRevenueIqd: 2750, basePoints: 27 });
-    expect(h.events.last('points.pending')!.payload).toMatchObject({ phoneHash: fakePhoneHash('07709998877'), points: 9 });
+    // Revenue 500 service + 750 commission = 1,250 → 12 points; the sister's line is a third of the value.
+    expect(h.events.last('order.points_allocated')!.payload).toMatchObject({ platformRevenueIqd: 1250, basePoints: 12 });
+    expect(h.events.last('points.pending')!.payload).toMatchObject({ phoneHash: fakePhoneHash('07709998877'), points: 4 });
     expect(h.events.types(o.id)).toEqual([
       'order.placed',
       'line.tagged',

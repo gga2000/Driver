@@ -171,6 +171,7 @@ export function composeStatement(input: { merchantOrgId: string; from: Date; to:
       settledIqd,
       adjustmentsIqd: statementAdjustments(input.statement.openingIqd, netIqd, settledIqd, input.statement.closingIqd),
     },
+    rate: null,
   };
 }
 

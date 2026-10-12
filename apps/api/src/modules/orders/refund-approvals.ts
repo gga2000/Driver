@@ -11,7 +11,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
  * with `register`), declines it with a note, or the requester cancels it. Only `pending` moves, once.
  */
 
-export type RefundApprovalKind = 'ticket' | 'dispute';
+export type RefundApprovalKind = 'ticket' | 'dispute' | 'adjustment';
 
 /** `refund_approvals` */
 export interface RefundApprovalRecord {
@@ -22,7 +22,7 @@ export interface RefundApprovalRecord {
   orderId: string | null;
   amountIqd: number;
   limitKind: RefundApprovalLimit;
-  /** The original request: ticket `{ method, faultParty, note, idempotencyKey }`, complaint `{ outcome, faultParty, reason }`. */
+  /** The original request: ticket `{ method, faultParty, note, idempotencyKey }`, complaint `{ outcome, faultParty, reason }`, adjustment (`finance.adjust`) the whole `Adjustment`. */
   payload: Record<string, unknown>;
   requestedBy: string;
   requestedAt: Date;

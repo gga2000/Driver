@@ -65,6 +65,7 @@ we can't open to the public without it.
 | The gold evening map on the courier and customer phones: works on the web; phones wait for the Expo account (§2) | Probably | `docs/specs/2026-10-09-map-golden-hour-design.md` |
 | The courier's «اتصال · قريباً» button stays until calls are built (§1 "Phone calls"; Ali 2026-10-09 said keep it) | No | `apps/partner/app/job.tsx` |
 | The shift guarantee (G-91) is built but switched off (`MoneyRules.guarantee.enabled = false`); Ali decides whether to pay it, the amount for 9–11 h shifts, couriers only, and a minimum online time | No | `docs/api/shift-guarantee.md` |
+| Food carts (عربانات): on phones the owner's «فتحت هنا» can't read the phone's location yet, because the Merchant app has no location module. He sets the spot by moving the map (the web version uses the browser's location). Add `expo-location` to the Merchant app with the next development build. Carts are also off at launch until Ali opens them (`foodCarts.launched` in the city file) | No (carts are off at launch) | `docs/api/food-carts.md`, `apps/merchant/src/features/cart/position.ts` |
 | Launch content: 50+ landmarks and meeting points with photos, canned support replies, a full dress rehearsal, kill switches tested | Yes | launch playbook §7 |
 
 ## 4. Parents' WhatsApp messages (خطوط), notes for when we build it
@@ -110,6 +111,7 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
 - A blocked or expired driver goes offline only at his next check-in (up to 30 seconds).
 - No automatic flag for couriers who send change to the wallet far more often than others.
 - Two kinds of pending request are lost if the server restarts (`docs/persistence.md`).
+- Field ops re-check the draft Baghdad-road meeting point «مفرق المدائن» (33.0985, 44.5802 in `apps/api/src/modules/routes/intercity.config.ts`): it is about 8 km off the fast road, which runs through الوحدة and الزعفرانية (found while drawing the N13 road map, 2026-10-11).
 - Older review notes that may be out of date: `docs/research/2026-10-04-apps-review.md` #13, #18, #23, #26, #32.
 
 ## 7. Platform (servers, tests, alerts): dated work and parked items
@@ -150,7 +152,7 @@ run the checks, get the reviewer's `reviewed:<sha>` label and, for sign-in, Ali'
 | Limits against abuse (too many orders or cancels from one person or phone) | `claude/lane-d-abuse-limits` | Probably | slot 420000; built on an older `main`, expect conflicts |
 | A household member must accept before joining a shared wallet (SEC-06) | `claude/lane-d-household` | Yes: no one may be added to a wallet without saying yes | slot 430000 |
 | Opening in waves: new customers wait in a queue until ops opens more places | `claude/lane-d-waves` | Probably | slot 440000; the store reviewer's account must skip the queue |
-| Delete my account from inside the app (both stores require it) | `claude/lane-d-account-deletion` | Yes | slot 450000; carries the list of every table it clears |
+| Delete my account from inside the app (both stores require it) | `claude/lane-d-account-deletion` | Yes | slot 450000; carries the list of every table it clears ; partners and merchants already ask from their apps and an admin closes them from the Console (`docs/api/account-close.md`), so its `work_role` blocker sends them there |
 | A test kitchen and test numbers for Apple and Google's reviewers | `claude/lane-d-store-review` | Yes for the store review | slot 460000; drop its copy of the staging test numbers (#133 already put them on `main`); it must never erase demo data |
 
 Still to build:

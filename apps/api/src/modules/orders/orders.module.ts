@@ -1,14 +1,15 @@
 import { RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
-import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Logger, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
-import { Accounts, CapsService, LedgerModule, LedgerService, WalletHolds } from '../ledger/index.js';
+import { Accounts, CapsService, LedgerModule, LedgerService, NightlyJob, WalletHolds } from '../ledger/index.js';
 import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
 import { HouseholdsRpc, OrgsModule, OrgsService } from '../orgs/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
@@ -189,14 +190,21 @@ export class OrdersModule implements OnModuleInit, OnModuleDestroy {
     private readonly staff: OrdersStaffService,
     private readonly eventsService: EventsService,
     private readonly walletHolds: WalletHolds,
+    private readonly nightly: NightlyJob,
+    @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
   ) {}
 
   private unsubscribeFailure: (() => void) | undefined;
   private unregisterHolds: (() => void) | undefined;
 
   onModuleInit(): void {
+    // FLW-22: order timers survive a lost Redis job (the sweeper fires their durable copy).
+    this.orders.bindDurableTimers(this.timerStore, this.sweeper ?? null);
     // SEC-07: open orders on his own wallet are a hold every other wallet spend (seat, deposit, tip) sees.
     this.unregisterHolds = this.walletHolds.register(ORDERS_WALLET_HOLDS, (customerId) => this.orders.openWalletHoldIqd(customerId));
+    // The nightly close checks every order closed the day before settled in exactly one money group.
+    this.nightly.watchClosures({ closedBetween: async (from, to) => (await this.orders.closedBetween(from, to)).map((id) => ({ kind: 'order' as const, id })) });
     // The throttle and the console's zone gauges count active orders here (orders owns them).
     this.controls.bindActiveOrders((cityId) => this.orders.activeByZone(cityId));
     // Invite as a gift (joy g2): the closed order carries the inviter; a claim is only before a first order.

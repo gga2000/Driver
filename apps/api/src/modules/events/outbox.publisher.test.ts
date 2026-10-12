@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { EventsModule, MONEY_ALARM_REPEAT_MS } from './events.module.js';
 import { EventsService } from './events.service.js';
 import { createInMemoryEvents } from './in-memory.js';
 import { InMemoryEventsRepository } from './memory.repository.js';
@@ -51,6 +53,27 @@ describe('OutboxPublisher — sync mode (no Redis)', () => {
     });
     await h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' });
     expect(seen).toEqual(['order.placed', 'order.offered_to_merchant']);
+  });
+
+  it('drain() waits for a drain already running (the interval or another commit) instead of returning at once', async () => {
+    const h = synced();
+    const seen: string[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    h.events.subscribe('test:slow', ['order.placed'], async (e) => {
+      seen.push(e.orderId!);
+      await gate;
+    });
+    const first = h.events.emit(undefined, order('o1'), { name: 'order', id: 'o1' }); // its drain holds at o1
+    while (!seen.includes('o1')) await new Promise((r) => setTimeout(r, 0));
+    let returned = false;
+    const drained = h.events.drain().then(() => (returned = true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(returned).toBe(false);
+    open();
+    await drained;
+    await first;
+    expect(await h.events.pendingOutbox()).toBe(0);
   });
 
   it('rows with no subscriber are published', async () => {
@@ -330,5 +353,107 @@ describe('concurrent drains', () => {
     expect((await h.publisher.drainOnce()).claimed).toBe(200);
     expect((await h.publisher.drainOnce()).claimed).toBe(5);
     expect(order_).toEqual(Array.from({ length: 205 }, (_, i) => `o${i}`));
+  });
+});
+
+describe('requeue of failed rows and the money alarm', () => {
+  /** A row the ledger could not post ten times: failed for good, the other subscriber delivered. */
+  async function failedLedgerRow(h: ReturnType<typeof queued>, id = 'o1', type = 'order.closed') {
+    await h.events.emit(undefined, order(id, type), { name: 'order', id });
+    for (let i = 0; i < 10; i++) {
+      await h.publisher.drainOnce();
+      const row = (await h.repo.outbox()).find((r) => r.event.orderId === id)!;
+      if (row.status === 'pending') h.clock.set(row.nextAttemptAt);
+    }
+  }
+
+  function withLedger() {
+    const h = queued();
+    const broken = { on: true };
+    const calls = { ledger: 0, other: 0 };
+    h.events.subscribe('ledger:order.closed', ['order.closed'], async () => {
+      calls.ledger += 1;
+      if (broken.on) throw new Error('posting refused');
+    });
+    h.events.subscribe('notify:order.closed', ['order.closed'], async () => {
+      calls.other += 1;
+    });
+    return { h, broken, calls };
+  }
+
+  it('the alarm goes on for a failed ledger posting, and for a row pending longer than 2 minutes', async () => {
+    const { h } = withLedger();
+    expect(await h.events.moneyAlarm()).toEqual({ ledgerFailed: 0, oldestPendingSec: 0, alarm: false });
+    await failedLedgerRow(h);
+    expect(await h.events.moneyAlarm()).toMatchObject({ ledgerFailed: 1, alarm: true });
+
+    const p = queued();
+    p.events.subscribe('ledger:order.closed', ['order.closed'], async () => {
+      throw new Error('database away');
+    });
+    await p.events.emit(undefined, order('o2', 'order.closed'), { name: 'order', id: 'o2' });
+    await p.publisher.drainOnce();
+    p.clock.advanceSeconds(120);
+    expect(await p.events.moneyAlarm()).toEqual({ ledgerFailed: 0, oldestPendingSec: 120, alarm: false });
+    p.clock.advanceSeconds(1);
+    expect(await p.events.moneyAlarm()).toEqual({ ledgerFailed: 0, oldestPendingSec: 121, alarm: true });
+  });
+
+  it('a slow row no ledger subscriber takes (a push, an SMS) is not the money alarm', async () => {
+    const p = queued();
+    p.events.subscribe('ledger:order.closed', ['order.closed'], async () => undefined);
+    p.events.subscribe('notify:order.placed', ['order.placed'], async () => {
+      throw new Error('push provider away');
+    });
+    await p.events.emit(undefined, order('o4', 'order.placed'), { name: 'order', id: 'o4' });
+    await p.publisher.drainOnce();
+    p.clock.advanceSeconds(600);
+    expect(await p.events.moneyAlarm()).toEqual({ ledgerFailed: 0, oldestPendingSec: 0, alarm: false });
+  });
+
+  it('a requeued row goes back to pending with its attempts reset; only the subscriber that failed runs again', async () => {
+    const { h, broken, calls } = withLedger();
+    await failedLedgerRow(h);
+    expect(calls).toEqual({ ledger: 10, other: 1 });
+    const [row] = await h.repo.outbox();
+    broken.on = false;
+    expect(await h.events.requeueFailedOutbox({ ids: [row!.id] })).toEqual([row!.id]);
+    expect((await h.repo.outbox())[0]).toMatchObject({ status: 'pending', attempts: 0 });
+    await h.publisher.drainOnce();
+    expect(calls).toEqual({ ledger: 11, other: 1 });
+    expect((await h.repo.outbox())[0]).toMatchObject({ status: 'published' });
+    expect(await h.events.moneyAlarm()).toMatchObject({ ledgerFailed: 0, alarm: false });
+    // A published row is not failed: nothing to requeue.
+    expect(await h.events.requeueFailedOutbox({ ids: [row!.id] })).toEqual([]);
+  });
+
+  it('by type and time range: only failed rows of that type written in [from, to)', async () => {
+    const { h } = withLedger();
+    const from = h.clock.now();
+    await failedLedgerRow(h, 'o1');
+    await failedLedgerRow(h, 'o2');
+    const to = h.clock.now();
+    await failedLedgerRow(h, 'o3');
+    const rows = await h.repo.outbox();
+    expect(rows.every((r) => r.status === 'failed')).toBe(true);
+    expect(await h.events.requeueFailedOutbox({ type: 'order.placed', from, to })).toEqual([]);
+    const moved = await h.events.requeueFailedOutbox({ type: 'order.closed', from, to });
+    expect(moved).toEqual(rows.filter((r) => r.event.orderId !== 'o3').map((r) => r.id));
+  });
+
+  it('a job machine logs the alarm as an error (Sentry) when it starts and every 10 minutes while it lasts', async () => {
+    const { h } = withLedger();
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const mod = new EventsModule(h.events, h.publisher, h.repo, h.clock, 'all');
+    const t0 = Date.now();
+    expect(await mod.checkMoneyAlarm(t0)).toBe(false);
+    await failedLedgerRow(h);
+    const before = errors.mock.calls.length;
+    expect(await mod.checkMoneyAlarm(t0)).toBe(true);
+    expect(await mod.checkMoneyAlarm(t0 + 60_000)).toBe(true);
+    expect(errors.mock.calls.slice(before).map((c) => String(c[0]))).toEqual([expect.stringMatching(/^money alarm: 1 failed ledger posting/)]);
+    expect(await mod.checkMoneyAlarm(t0 + MONEY_ALARM_REPEAT_MS)).toBe(true);
+    expect(errors.mock.calls.length - before).toBe(2);
+    errors.mockRestore();
   });
 });

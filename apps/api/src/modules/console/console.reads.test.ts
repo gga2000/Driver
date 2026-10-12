@@ -13,6 +13,7 @@ import type { SimulatorService } from '../simulator/index.js';
 import type { DriverAccountService } from '../driver-account/index.js';
 import { CONSOLE_DRIVER_SEARCH_PURPOSE, CONSOLE_NAMES_PURPOSE, CONSOLE_ORDER_SEARCH_PURPOSE, ConsoleReadService } from './console.reads.js';
 import { cashHeld, pinState } from './driver-state.js';
+import { SMS_DAY_KEY, SMS_DAY_MS } from '../../shared/sms-budget.js';
 
 const START = '2026-10-03T09:00:00Z';
 const SYSTEM = { personId: 'system' };
@@ -37,7 +38,8 @@ async function world() {
   const fleetRepo = new InMemoryFleetRepository();
   const fleet = new FleetService(fleetRepo, id.service, undefined as never, d.service, undefined as never, ev.events, undefined as never, d.clock);
   const catalog = new CatalogService(new InMemoryCatalogRepository());
-  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock, simulator, fleet, catalog);
+  // The identity harness's window counter: its sign-in codes are the day's SMS.
+  const reads = new ConsoleReadService(d.service, id.service, o.orders, l.caps, l.ledger, l.merchantCash, ev.events, orgs, scoring, d.clock, simulator, fleet, catalog, undefined, undefined, id.counter);
 
   // Three couriers and a khat driver; a customer who never drives.
   const people: Record<string, string> = {};
@@ -286,6 +288,14 @@ describe('ConsoleReadService', () => {
     expect(m!.balanceIqd).toBeGreaterThan(0);
   });
 
+  it('smsDay: the last 24 h of SMS from the shared counter, against the daily budget', async () => {
+    const w = await world();
+    // Five people signed in: five sign-in codes by SMS.
+    expect(await w.reads.smsDay()).toEqual({ sent: 5, budget: 4500 });
+    await w.id.counter.hit(SMS_DAY_KEY, SMS_DAY_MS, Number.MAX_SAFE_INTEGER); // a notification text
+    expect((await w.reads.smsDay()).sent).toBe(6);
+  });
+
   it('simulator controls delegate to the live simulator (status, start, stop)', async () => {
     const w = await world();
     expect(await w.reads.simulatorStatus()).toEqual({ available: true, running: false });
@@ -357,5 +367,29 @@ describe('ConsoleReadService.names (K-01)', () => {
     expect(res.items).toEqual({ [`${kebab.id}:${liver.id}`]: { name: 'صحن معلاك' } });
     expect(res.people).toEqual({});
     expect(w.id.repo.accessLogs).toHaveLength(0);
+  });
+});
+
+describe('ConsoleReadService — outbox requeue and the money alarm', () => {
+  it('requeues failed rows against the admin, with the audit row written in the same unit of work', async () => {
+    const w = await world();
+    const audited: Array<{ entry: Record<string, unknown>; tx: unknown }> = [];
+    const audits = { record: async (entry: Record<string, unknown>, tx: unknown) => void audited.push({ entry, tx }) };
+    const reads = new ConsoleReadService(w.d.service, w.id.service, w.o.orders, w.l.caps, w.l.ledger, w.l.merchantCash, w.ev.events, w.orgs, new ScoringService(w.ev.events), w.d.clock, {} as never, {} as never, w.catalog, undefined, undefined, undefined, audits as never, w.ev.uow);
+    w.ev.events.subscribe('ledger:order.closed', ['order.closed'], async () => {
+      throw new Error('posting refused');
+    });
+    await w.ev.events.emit(undefined, { type: 'order.closed', actorId: 'system', occurredAt: w.d.clock.now(), orderId: 'o1' }, { name: 'order', id: 'o1' });
+    for (let i = 0; i < 10; i++) {
+      const [row] = await w.ev.repo.outbox();
+      if (row!.status === 'pending') w.d.clock.set(row!.nextAttemptAt);
+      await w.ev.publisher.drainOnce();
+    }
+    expect(await reads.moneyAlarm()).toMatchObject({ ledgerFailed: 1, alarm: true });
+    const [row] = await w.ev.repo.outbox();
+    expect(await reads.requeueOutbox({ ids: [row!.id] }, 'admin_1')).toEqual({ requeued: 1 });
+    expect(audited).toHaveLength(1);
+    expect(audited[0]!.entry).toMatchObject({ actorId: 'admin_1', action: 'outbox.requeue', subjectKind: 'outbox', subjectId: row!.id, detail: { requeued: 1, ids: [row!.id] } });
+    expect(audited[0]!.tx).toBeDefined();
   });
 });

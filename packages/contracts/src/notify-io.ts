@@ -88,10 +88,15 @@ export const NotifyPreferences = z.object({
    * minutes before his usual time. On by default, at most one a day; this switch silences it.
    */
   sameRide: z.boolean(),
+  /**
+   * Food carts (2026-10-11): «{cart} فتح» when a cart the person follows opens. On by default
+   * (following is the opt-in), once a cart a day, never for an opening 23:00–08:00.
+   */
+  foodCarts: z.boolean(),
 });
 export type NotifyPreferences = z.infer<typeof NotifyPreferences>;
 
-export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true };
+export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true, foodCarts: true };
 
 export const SetNotifyPreferencesInput = NotifyPreferences.partial();
 export type SetNotifyPreferencesInput = z.infer<typeof SetNotifyPreferencesInput>;
@@ -108,7 +113,7 @@ export const MARKETING_MAX_PER_WEEK = 2;
  * offers, new orders) and `money` (settlement, cash receipts to partners and merchants) are never
  * switched off by a preference.
  */
-export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip', 'same_ride']);
+export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip', 'same_ride', 'food_cart']);
 export type NotifyCategory = z.infer<typeof NotifyCategory>;
 
 /**
@@ -116,8 +121,9 @@ export type NotifyCategory = z.infer<typeof NotifyCategory>;
  * Only `marketing` counts toward the weekly offer cap; `dish_pot` is one a day by its event key.
  * `regular_trip` (joy r5, the «تأكد رحلتك؟» reminder) follows the same quiet rules — the app still
  * shows the occurrence to confirm when the push is held — and is never counted in the cap.
+ * `food_cart` («أبو حيدر فتح») is one a cart a Baghdad day, never sent for an opening at night.
  */
-export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot', 'regular_trip']);
+export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot', 'regular_trip', 'food_cart']);
 
 export const NotifyTemplateId = z.enum([
   'order_accepted',
@@ -135,6 +141,7 @@ export const NotifyTemplateId = z.enum([
   'phone_ride_matched',
   'phone_driver_arrived',
   'merchant_new_order',
+  'merchant_order_cancelled',
   'partner_new_job',
   'partner_zone_nudge',
   'ride_nudge',
@@ -158,6 +165,7 @@ export const NotifyTemplateId = z.enum([
   'sos_desk_ring',
   'console_unwatched_alert',
   'console_live_down_alert',
+  'staff_new_device',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -214,6 +222,11 @@ export const NotifyTemplateId = z.enum([
   'order_dispute_void',
   'order_free_cancel',
   'order_courier_lost',
+  // Food carts: a followed cart opened; a walk-over ticket is ready, turned down, or called off at closing.
+  'food_cart_opened',
+  'food_cart_walkup_ready',
+  'food_cart_walkup_rejected',
+  'food_cart_walkup_closed',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -252,10 +265,11 @@ export interface NotifyTemplateDef {
   /**
    * The SMS's own words (`sms.*` with `{name}` params) when SMS is a primary channel and says more than
    * the push (a link, a code), or when the person has no app at all (a ride booked by phone, step 4).
-   * `withCode` is used instead when the `code` param is set. Absent: the SMS is the WhatsApp text,
-   * else "title — body".
+   * `withCode` is used instead when the `code` param is set; `noLink` / `withCodeNoLink` when the
+   * message has no `link` param (the link's address is not configured). Absent: the SMS is the
+   * WhatsApp text, else "title — body".
    */
-  sms?: { key: MessageKey; withCode?: MessageKey };
+  sms?: { key: MessageKey; withCode?: MessageKey; noLink?: MessageKey; withCodeNoLink?: MessageKey };
   /** Channels attempted at once (subject to preferences). */
   primary: readonly NotifyChannel[];
   /**
@@ -477,7 +491,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.order_delivered.title', body: 'push.order_delivered.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('order_receipt', 'wa.order_delivered', ['merchant', 'amount', 'receiptUrl'], ['مطعم خالد', '12,500', 'https://driver.iq/r/ord_123']),
+    whatsapp: wa('order_receipt', 'wa.order_delivered', ['merchant', 'amount', 'receiptUrl'], ['مطعم خالد', '12,500', 'https://app.example.com/r/ord_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -487,7 +501,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.ride_completed.title', body: 'push.ride_completed.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://driver.iq/r/ord_123']),
+    whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://app.example.com/r/ord_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -554,6 +568,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     // Domain §8: "push + loud alert + optional SMS" — the SMS goes when the push is not confirmed in 30 s.
     smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  merchant_order_cancelled: {
+    id: 'merchant_order_cancelled',
+    category: 'work',
+    app: 'merchant',
+    // An order the kitchen already accepted was cancelled: it hears at once, so nobody keeps cooking it.
+    push: { title: 'push.merchant_order_cancelled.title', body: 'push.merchant_order_cancelled.body', androidChannel: 'offers', deepLink: 'driver-merchant://order/{orderId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
   partner_new_job: {
@@ -734,7 +757,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.khat_sweep_dispatch.title', body: 'push.khat_sweep_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.driver.iq/safety']),
+    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.example.com/safety']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -745,7 +768,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.sos_dispatch.title', body: 'push.sos_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
-    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.driver.iq/safety/sos_123']),
+    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.example.com/safety/sos_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -768,7 +791,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.console_unwatched.title', body: 'push.console_unwatched.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('console_unwatched_alert', 'wa.console_unwatched', ['minutes', 'link'], ['5 دقيقة', 'https://console.driver.iq']),
+    whatsapp: wa('console_unwatched_alert', 'wa.console_unwatched', ['minutes', 'link'], ['5 دقيقة', 'https://console.example.com']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -778,9 +801,18 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.console_live_down.title', body: 'push.console_live_down.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.driver.iq']),
+    whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.example.com']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // A staff account signed in from a device never seen on it: every admin, push only, at any hour.
+  staff_new_device: {
+    id: 'staff_new_device',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.staff_new_device.title', body: 'push.staff_new_device.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    primary: ['push'],
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.
@@ -788,7 +820,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'sos_emergency_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://driver.iq/sos/abc.def']),
+    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://app.example.com/sos/abc.def']),
     primary: ['whatsapp'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -809,7 +841,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'trip_shared_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://driver.iq/share/shr_abc']),
+    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://app.example.com/share/shr_abc']),
     primary: ['whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -822,7 +854,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'customer',
     push: { title: 'push.ride_for_rider.title', body: 'push.ride_for_rider.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code' },
+    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code', noLink: 'sms.ride_for_rider_nolink', withCodeNoLink: 'sms.ride_for_rider_code_nolink' },
     primary: ['push', 'sms'],
     quietHours: 'send',
   },
@@ -859,6 +891,42 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.dish_pot.title', body: 'push.dish_pot.body', androidChannel: 'marketing', deepLink: 'driver://restaurant/{merchantOrgId}' },
     primary: ['push'],
     quietHours: 'defer',
+  },
+  // Food carts: a cart the person follows opened («أبو حيدر فتح»), once a cart a Baghdad day.
+  food_cart_opened: {
+    id: 'food_cart_opened',
+    category: 'food_cart',
+    app: 'customer',
+    push: { title: 'push.food_cart_opened.title', body: 'push.food_cart_opened.body', androidChannel: 'marketing', deepLink: 'driver://food-carts/{cartId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  // Food carts: the walk-over ticket is ready at the cart; come with the code and pay there.
+  food_cart_walkup_ready: {
+    id: 'food_cart_walkup_ready',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.food_cart_walkup_ready.title', body: 'push.food_cart_walkup_ready.body', androidChannel: 'orders', deepLink: 'driver://food-carts/ticket/{walkupId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Food carts: the cart turned the ticket down before starting it («ما أگدر هسه»); nothing was paid.
+  food_cart_walkup_rejected: {
+    id: 'food_cart_walkup_rejected',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.food_cart_walkup_rejected.title', body: 'push.food_cart_walkup_rejected.body', androidChannel: 'orders', deepLink: 'driver://food-carts/ticket/{walkupId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Food carts: the cart closed before starting the ticket; nothing was paid.
+  food_cart_walkup_closed: {
+    id: 'food_cart_walkup_closed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.food_cart_walkup_closed.title', body: 'push.food_cart_walkup_closed.body', androidChannel: 'orders', deepLink: 'driver://food-carts/ticket/{walkupId}' },
+    primary: ['push'],
+    quietHours: 'send',
   },
   // Joy w4: an order on the household wallet over a limit waits for the payer's yes.
   household_approval: {
@@ -1139,6 +1207,7 @@ export function preferenceFor(category: NotifyCategory, channel: NotifyChannel):
   if (category === 'dish_pot') return 'dishPots';
   if (category === 'regular_trip') return 'regularTrips';
   if (category === 'same_ride') return 'sameRide';
+  if (category === 'food_cart') return 'foodCarts';
   if ((category === 'order_updates' || category === 'receipts') && channel === 'push') return 'orderUpdates';
   if (category === 'chat') return 'chat';
   if (category === 'receipts' && channel === 'whatsapp') return 'whatsappReceipts';

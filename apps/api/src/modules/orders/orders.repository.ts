@@ -4,6 +4,9 @@ import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 
+/** An order that ended by cancellation (the customer's, or ours). */
+const CANCELLED_STATES = ['customer_cancelled', 'platform_cancelled'] as const satisfies readonly OrderState[];
+
 /**
  * How an order leaves without the kitchen's answer (M-01): nobody accepted in time, or the customer let
  * a partial accept lapse. The merchant board's «طلبات فاتتك» reads these, and only these (perf z5).
@@ -204,6 +207,11 @@ export interface OrdersRepository {
    */
   merchantMissedBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
   /**
+   * The merchant's orders it had accepted that were cancelled (customer or platform) at or after
+   * `since`, with their lines: the board's red «انلغى، لا تكمل» cards. On `(merchant_org_id, state)`.
+   */
+  merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date, tx?: Tx): Promise<OrderAggregate[]>;
+  /**
    * One merchant's delivered orders placed in `[from, to)`, counted per drop-off zone (`dropoff.zoneKey`,
    * null when none): one grouped read on `(merchant_org_id, placed_at)` that returns counts only, never
    * an order, a customer or a pin (maps program r6).
@@ -228,6 +236,8 @@ export interface OrdersRepository {
   householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]>;
   /** Joy w6: everyone who placed an order in `[from, to)` that was delivered or completed (distinct). */
   orderersServedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]>;
+  /** Ids of the orders that reached `closed` in `[from, to)` (the nightly money-group check). */
+  closedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]>;
   /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
@@ -521,6 +531,15 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
   }
 
+  async merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { merchantOrgId, state: { in: [...CANCELLED_STATES] }, acceptedAt: { not: null }, cancelledAt: { gte: since } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ cancelledAt: 'desc' }, { id: 'asc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
   async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]> {
     // Prisma's groupBy cannot group on a JSON path, so this one read is SQL; the placed-at range keeps
     // it on the (merchant_org_id, placed_at) index and only counts leave the database.
@@ -539,6 +558,11 @@ export class PrismaOrdersRepository implements OrdersRepository {
       select: { ordererId: true },
     });
     return rows.map((r) => r.ordererId);
+  }
+
+  async closedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]> {
+    const rows = await this.db(tx).order.findMany({ where: { state: 'closed', closedAt: { gte: from, lt: to } }, orderBy: [{ closedAt: 'asc' }, { id: 'asc' }], select: { id: true } });
+    return rows.map((r) => r.id);
   }
 
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]> {
@@ -767,6 +791,15 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return (await this.merchantOrdersBetween(merchantOrgId, from, to)).filter((a) => missed(a.order));
   }
 
+  async merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date): Promise<OrderAggregate[]> {
+    const out: OrderAggregate[] = [];
+    for (const o of this.orders.values()) {
+      if (o.merchantOrgId !== merchantOrgId || !(CANCELLED_STATES as readonly string[]).includes(o.state) || !o.acceptedAt || !o.cancelledAt || o.cancelledAt < since) continue;
+      out.push({ order: { ...o }, lines: (this.linesByOrder.get(o.id) ?? []).map((l) => ({ ...l })), participants: (this.participantsByOrder.get(o.id) ?? []).map((p) => ({ ...p })) });
+    }
+    return out.sort((a, b) => b.order.cancelledAt!.getTime() - a.order.cancelledAt!.getTime() || a.order.id.localeCompare(b.order.id));
+  }
+
   async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date): Promise<DropoffZoneCount[]> {
     const counts = new Map<string | null, number>();
     for (const o of this.orders.values()) {
@@ -783,6 +816,13 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       if (o.placedAt >= from && o.placedAt < to && (o.deliveredAt !== null || o.state === 'completed' || o.state === 'closed')) out.add(o.ordererId);
     }
     return [...out];
+  }
+
+  async closedBetween(from: Date, to: Date): Promise<string[]> {
+    return [...this.orders.values()]
+      .filter((o) => o.state === 'closed' && o.closedAt !== null && o.closedAt >= from && o.closedAt < to)
+      .sort((a, b) => a.closedAt!.getTime() - b.closedAt!.getTime() || a.id.localeCompare(b.id))
+      .map((o) => o.id);
   }
 
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date): Promise<OrderRecord[]> {

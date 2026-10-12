@@ -22,7 +22,7 @@ export function requestLogFromEnv(env: Record<string, string | undefined> = proc
 }
 
 /**
- * `CORS_ORIGINS` (comma-separated, e.g. `https://app.driver.iq,https://console.driver.iq`) limits which
+ * `CORS_ORIGINS` (comma-separated, e.g. `https://app.example.com,https://console.example.com`) limits which
  * web origins may call the API from a browser. Unset: any origin (development, and the default until
  * the domains exist). Native apps send no Origin and are unaffected. Credentials are bearer tokens,
  * never cookies, so the list guards against other sites using a signed-in browser tab, not more.

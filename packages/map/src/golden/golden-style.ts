@@ -1,5 +1,6 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM } from '../zones.js';
+import { GOLDEN_FONTS } from './fonts.js';
 import { GOLDEN_PALETTES, LANDMARK_PARTS, type GoldenPalette } from './palettes.js';
 import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
@@ -26,13 +27,9 @@ export interface GoldenStyleOptions {
   riseAt?: number;
 }
 
-/** The vector source id and the font stacks `tools/map-tiles/glyphs.py` writes. */
+/** The vector source id; the font stacks live in `fonts.ts` so pieces can import them alone. */
 export const GOLDEN_SOURCE = 'golden';
-export const GOLDEN_FONTS = {
-  regular: ['IBM Plex Sans Arabic Regular'],
-  medium: ['IBM Plex Sans Arabic Medium'],
-  bold: ['IBM Plex Sans Arabic Bold'],
-} as const;
+export { GOLDEN_FONTS };
 export const GOLDEN_ATTRIBUTION = '© OpenStreetMap contributors, Overture Maps Foundation';
 
 /**
@@ -60,16 +57,20 @@ const isCls = (cls: string) => ['==', ['get', 'cls'], cls] as never;
 const kindIn = (...kinds: string[]) => ['in', ['get', 'kind'], ['literal', kinds]] as never;
 const ROUND = { 'line-cap': 'round', 'line-join': 'round' } as const;
 
-// Street widths in px per zoom; a casing adds a little each side, more once streets are wide.
+// Street widths in px per zoom; a casing adds a little each side, more once streets are wide. Streets keep widening
+// past z18 like the houses do (×4 by z20), so up close a side street is a real 6–8 m street, not a hairline.
 const WIDTH = {
-  alley: [15, 0.4, 16, 1.5, 18, 6],
-  minor: [12, 0.3, 14, 0.8, 15, 1.4, 16, 3, 18, 10],
-  mid: [12, 0.8, 14, 2.6, 15, 5, 16, 9, 18, 28],
-  major: [11, 1, 13, 2.6, 14, 4.8, 15, 8, 16, 13, 18, 40],
-  highway: [8, 0.9, 11, 2.2, 13, 4, 16, 14, 18, 40],
-  bridge: [11, 1.6, 13, 3, 14, 5, 16, 14, 18, 44],
+  alley: [15, 0.4, 16, 2, 18, 9, 20, 36],
+  minor: [12, 0.3, 14, 0.8, 15, 1.6, 16, 4, 18, 18, 20, 72],
+  mid: [12, 0.8, 14, 2.6, 15, 5, 16, 9, 18, 28, 20, 112],
+  major: [11, 1, 13, 2.6, 14, 4.8, 15, 8, 16, 13, 18, 40, 20, 160],
+  highway: [8, 0.9, 11, 2.2, 13, 4, 16, 14, 18, 40, 20, 160],
+  bridge: [11, 1.6, 13, 3, 14, 5, 16, 14, 18, 44, 20, 176],
 } satisfies Record<string, Stops>;
 const cased = (w: Stops, add: number): Stops => w.map((v, i) => (i % 2 === 1 ? v + add * (1 + Math.max(0, w[i - 1]! - 15) * 0.5) : v));
+/** Cream streets in the town view turn into tarmac as the camera comes down to street level. */
+const STREET_LEVEL = [15.2, 16.2] as const;
+const street = (town: string, close: string) => ['interpolate', ['linear'], ['zoom'], STREET_LEVEL[0], town, STREET_LEVEL[1], close] as never;
 
 /**
  * Shadow offset in screen px at zoom 16 and 20 for a house of `heightM`, cast away from the sun.
@@ -84,6 +85,9 @@ export function shadowOffset(sun: SunPosition, heightM: number, z: number): [num
   const px = lengthM / metresPerPx;
   return [Math.round(Math.sin(away) * px * 10) / 10, Math.round(-Math.cos(away) * px * 10) / 10];
 }
+
+/** The street furniture in the tiles' `lanterns` layer (tools/map-tiles/build.py): lamp posts and street palms. */
+const STREET_FURNITURE = ['post', 'head', 'trunk', 'frond', 'crown', 'pit'];
 
 /** Zoom where the landmarks (main mosque, hospital, garages) stand up: before the houses, so they guide the eye. */
 export const LANDMARK_RISE = 14.6;
@@ -144,31 +148,34 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
   }
   const road = { ...src, 'source-layer': 'roads' } as const;
   if (p.lampGlow && mode !== 'lite') {
-    L.push({ id: 'golden-lamp-glow', type: 'line', ...road, filter: ['in', ['get', 'cls'], ['literal', ['major', 'highway', 'bridge']]] as never, layout: ROUND, paint: { 'line-color': p.lampGlow, 'line-opacity': 0.08, 'line-width': zoom(11, 6, 16, 34, 18, 90), 'line-blur': zoom(11, 4, 16, 22, 18, 50) } });
+    L.push({ id: 'golden-lamp-glow', type: 'line', ...road, filter: ['in', ['get', 'cls'], ['literal', ['major', 'highway', 'bridge']]] as never, layout: ROUND, paint: { 'line-color': p.lampGlow, 'line-opacity': 0.08, 'line-width': zoom(11, 6, 16, 34, 18, 90, 20, 360), 'line-blur': zoom(11, 4, 16, 22, 18, 50, 20, 200) } });
   }
+  // up close every street is tarmac (p.asphalt) on a sandy shoulder: the casings turn from caramel edges into the shoulder
+  const a = p.asphalt;
   L.push(
-    { id: 'golden-minor-case', type: 'line', ...road, filter: isCls('minor'), minzoom: 15.5, layout: ROUND, paint: { 'line-color': p.minorCase, 'line-width': zoom(...cased(WIDTH.minor, 0.8)), 'line-opacity': 0.45 } },
-    { id: 'golden-mid-case', type: 'line', ...road, filter: isCls('mid'), minzoom: 12, layout: ROUND, paint: { 'line-color': p.majorCase, 'line-width': zoom(...cased(WIDTH.mid, 1.4)), 'line-opacity': 0.8 } },
-    { id: 'golden-major-case', type: 'line', ...road, filter: isCls('major'), layout: ROUND, paint: { 'line-color': p.majorCase, 'line-width': zoom(...cased(WIDTH.major, 2)), 'line-opacity': fade(15.5, 1, 16.5, 0.5) } },
-    { id: 'golden-highway-case', type: 'line', ...road, filter: isCls('highway'), layout: ROUND, paint: { 'line-color': p.highwayCase, 'line-width': zoom(...cased(WIDTH.highway, 2)) } },
-    { id: 'golden-alley', type: 'line', ...road, filter: isCls('alley'), minzoom: 15, layout: ROUND, paint: { 'line-color': p.alley, 'line-width': zoom(...WIDTH.alley) } },
-    { id: 'golden-minor', type: 'line', ...road, filter: isCls('minor'), minzoom: 12, layout: ROUND, paint: { 'line-color': p.minor, 'line-width': zoom(...WIDTH.minor), 'line-opacity': fade(12, 0.45, 13, 0.55, 16, 1) } },
-    { id: 'golden-mid', type: 'line', ...road, filter: isCls('mid'), minzoom: 12, layout: ROUND, paint: { 'line-color': p.major, 'line-width': zoom(...WIDTH.mid) } },
-    { id: 'golden-major', type: 'line', ...road, filter: isCls('major'), layout: ROUND, paint: { 'line-color': p.major, 'line-width': zoom(...WIDTH.major) } },
-    { id: 'golden-highway', type: 'line', ...road, filter: isCls('highway'), layout: ROUND, paint: { 'line-color': p.highway, 'line-width': zoom(...WIDTH.highway) } },
+    { id: 'golden-minor-case', type: 'line', ...road, filter: isCls('minor'), minzoom: 15.5, layout: ROUND, paint: { 'line-color': street(p.minorCase, a.shoulder), 'line-width': zoom(...cased(WIDTH.minor, 0.8)), 'line-opacity': fade(15.5, 0.45, 16.5, 1) } },
+    { id: 'golden-mid-case', type: 'line', ...road, filter: isCls('mid'), minzoom: 12, layout: ROUND, paint: { 'line-color': street(p.majorCase, a.shoulder), 'line-width': zoom(...cased(WIDTH.mid, 1.4)), 'line-opacity': fade(15.2, 0.8, 16.2, 1) } },
+    { id: 'golden-major-case', type: 'line', ...road, filter: isCls('major'), layout: ROUND, paint: { 'line-color': street(p.majorCase, a.shoulder), 'line-width': zoom(...cased(WIDTH.major, 2)) } },
+    { id: 'golden-highway-case', type: 'line', ...road, filter: isCls('highway'), layout: ROUND, paint: { 'line-color': street(p.highwayCase, a.shoulder), 'line-width': zoom(...cased(WIDTH.highway, 2)) } },
+    { id: 'golden-alley', type: 'line', ...road, filter: isCls('alley'), minzoom: 15, layout: ROUND, paint: { 'line-color': street(p.alley, a.alley), 'line-width': zoom(...WIDTH.alley) } },
+    { id: 'golden-minor', type: 'line', ...road, filter: isCls('minor'), minzoom: 12, layout: ROUND, paint: { 'line-color': street(p.minor, a.minor), 'line-width': zoom(...WIDTH.minor), 'line-opacity': fade(12, 0.45, 13, 0.55, 16, 1) } },
+    { id: 'golden-mid', type: 'line', ...road, filter: isCls('mid'), minzoom: 12, layout: ROUND, paint: { 'line-color': street(p.major, a.mid), 'line-width': zoom(...WIDTH.mid) } },
+    { id: 'golden-major', type: 'line', ...road, filter: isCls('major'), layout: ROUND, paint: { 'line-color': street(p.major, a.major), 'line-width': zoom(...WIDTH.major) } },
+    { id: 'golden-highway', type: 'line', ...road, filter: isCls('highway'), layout: ROUND, paint: { 'line-color': street(p.highway, a.highway), 'line-width': zoom(...WIDTH.highway) } },
     // Bridges: a pale deck over the water with a dark rail either side.
     { id: 'golden-bridge-case', type: 'line', ...road, filter: isCls('bridge'), layout: { 'line-cap': 'butt' }, paint: { 'line-color': p.deckCase, 'line-width': zoom(...cased(WIDTH.bridge, 4)) } },
     { id: 'golden-bridge', type: 'line', ...road, filter: isCls('bridge'), layout: { 'line-cap': 'butt' }, paint: { 'line-color': p.deck, 'line-width': zoom(...WIDTH.bridge) } },
   );
   if (rich) {
-    // built streets up close: a pale kerb along main roads and a dashed centre line
+    // built streets up close: a pale kerb along main roads and a dashed centre line. Butt caps: the streets come in short
+    // pieces, and a round cap on a kerb drew a white ring on the tarmac at every join.
     const kerb = (cls: 'major' | 'mid', w: number): LayerSpecification => ({
-      id: `golden-kerb-${cls}`, type: 'line', ...road, filter: isCls(cls), minzoom: 15.5, layout: ROUND,
-      paint: { 'line-color': p.kerb, 'line-gap-width': zoom(...WIDTH[cls]), 'line-width': zoom(15.5, w * 0.2, 18, w) },
+      id: `golden-kerb-${cls}`, type: 'line', ...road, filter: isCls(cls), minzoom: 15.5, layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: { 'line-color': a.kerb, 'line-gap-width': zoom(...WIDTH[cls]), 'line-width': zoom(15.5, w * 0.2, 18, w, 20, w * 4) },
     });
     L.push(kerb('major', 3.2), kerb('mid', 2.4), {
       id: 'golden-centre-line', type: 'line', ...road, filter: ['in', ['get', 'cls'], ['literal', ['major', 'highway']]] as never, minzoom: 16.8,
-      paint: { 'line-color': p.marking, 'line-width': zoom(16.8, 0.6, 18, 1.8), 'line-dasharray': [3, 4], 'line-opacity': fade(16.8, 0, 17.3, 0.9) },
+      paint: { 'line-color': a.line, 'line-width': zoom(16.8, 0.6, 18, 1.8, 20, 7.2), 'line-dasharray': [3, 4], 'line-opacity': fade(16.8, 0, 17.3, 0.9) },
     });
   }
   const bld = { ...src, 'source-layer': 'buildings' } as const;
@@ -256,6 +263,23 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
       id: 'golden-lanterns', type: 'fill-extrusion', ...lan, minzoom: 16.4, filter: kindIn('lamp'),
       paint: {
         'fill-extrusion-color': ['match', ['get', 'c'], 1, p.landmark.lamp2, 2, p.landmark.lamp3, p.landmark.lamp1] as never,
+        'fill-extrusion-base': ['get', 'base'] as never,
+        'fill-extrusion-height': ['get', 'hm'] as never,
+        'fill-extrusion-opacity': fade(16.4, 0, 16.9, 1),
+      },
+    });
+    // lamp posts along the main streets and date palms on their pavements (map audit, 2026-10-12): the lamp heads are
+    // cream by day and lit at night, when each post pools light on the street in front of it
+    if (p.windowGlow) {
+      L.push({
+        id: 'golden-street-lamp-glow', type: 'circle', ...lan, minzoom: 16.4, filter: kindIn('lampglow'),
+        paint: { 'circle-color': p.landmark.led, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-opacity': fade(16.4, 0, 17, 0.4), 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 16.4, 4, 18, 22, 20, 88] as never },
+      });
+    }
+    L.push({
+      id: 'golden-street-furniture', type: 'fill-extrusion', ...lan, minzoom: 16.4, filter: kindIn(...STREET_FURNITURE),
+      paint: {
+        'fill-extrusion-color': ['match', ['get', 'kind'], 'post', p.landmark.steel, 'head', p.windowGlow ? p.landmark.led : p.landmark.white, 'trunk', p.landmark.trunk, 'pit', p.landmark.planter, p.landmark.crown] as never,
         'fill-extrusion-base': ['get', 'base'] as never,
         'fill-extrusion-height': ['get', 'hm'] as never,
         'fill-extrusion-opacity': fade(16.4, 0, 16.9, 1),

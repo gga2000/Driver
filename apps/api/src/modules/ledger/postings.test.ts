@@ -62,6 +62,15 @@ describe('order closed — money §2 worked example', () => {
     expect(p.money.lines.find((l) => l.type === 'commission_accrued')?.amount).toBe(1200);
   });
 
+  it('starter (Ali 2026-10-11): a 20,000 food order takes 1,000 (5 %); featured takes 3,000 (15 %)', () => {
+    const commission = (tier: OrderMoneyPayload['commissionTier']) => postOrderClosed(workedExample({ itemsSubtotalIqd: 20000, commissionTier: tier }), rules).money.lines.find((l) => l.type === 'commission_accrued');
+    expect(commission('starter')).toMatchObject({ amount: 1000, memo: 'commission:starter' });
+    expect(commission('featured')).toMatchObject({ amount: 3000, memo: 'commission:featured' });
+    const n = nets(postOrderClosed(workedExample({ itemsSubtotalIqd: 20000, commissionTier: 'starter' }), rules).money);
+    expect(n['merchant_cash:m1']).toBe(19000);
+    expect(n['platform']).toBe(1000 + 500);
+  });
+
   it('batched second order: courier earns 70 % of its fee, the customer pays it in full', () => {
     const p = postOrderClosed(workedExample({ batchedSecond: true }), rules);
     const n = nets(p.money);

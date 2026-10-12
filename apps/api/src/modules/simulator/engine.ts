@@ -13,6 +13,7 @@ import {
   type HandoverRecord,
   type HotWaitRecord,
   type ObservedOffer,
+  type AcceptedOfferRecord,
   type OrderRun,
   type ReplayRecord,
   type RestaurantRun,
@@ -73,6 +74,7 @@ export class Simulation implements SimContext {
   readonly hotWaits: HotWaitRecord[] = [];
   readonly handovers: HandoverRecord[] = [];
   readonly doorCash = new Map<string, DoorCashRecord>();
+  readonly acceptedOffers: AcceptedOfferRecord[] = [];
   readonly offers: ObservedOffer[] = [];
 
   readonly dispatchLog: DispatchMoment[] = [];
@@ -284,7 +286,18 @@ export class Simulation implements SimContext {
       }
     if (this.t - this.lastDispatcherT >= 15_000) {
       this.lastDispatcherT = this.t;
+      const before = this.dispatcher.overrides.length;
       await dispatcherStep(this, this.cards, this.dispatcher);
+      // The desk's offer reaches the chosen driver's phone at once (as a push does), not on the next
+      // board read a tick later: with live ticks of 6 s or more, that extra tick plus his reaction
+      // often ran past the 15-s offer timer, so desk offers timed out unanswered.
+      for (const o of this.dispatcher.overrides.slice(before)) {
+        const card = this.cards.find((c) => c.tripId === o.tripId);
+        if (!card) continue;
+        const list = byDriver.get(o.driverId) ?? [];
+        list.push({ card, offerId: o.offerId });
+        byDriver.set(o.driverId, list);
+      }
     }
 
     // Drivers act a moment after the desk: on a fake clock everything in a tick shares one
@@ -453,7 +466,10 @@ export class Simulation implements SimContext {
     const ledgerById = new Map<string, Awaited<ReturnType<SimServices['ledger']['eventsFor']>>[number]>();
     for (const account of await this.s.ledger.accounts()) for (const e of await this.s.ledger.eventsFor(account)) ledgerById.set(e.id, e);
     const merchants = [];
-    for (const r of this.restaurants) merchants.push({ merchantId: r.orgId, balanceIqd: (await this.s.merchantCash.balance(r.orgId)).balanceIqd });
+    for (const r of this.restaurants) {
+      const view = await this.s.merchantCash.balance(r.orgId);
+      merchants.push({ merchantId: r.orgId, balanceIqd: view.balanceIqd, holders: view.holders });
+    }
     // G-91: who the guarantee covers, their offer answers (from the log), and the settled shifts of the day.
     const covered: string[] = [];
     const offerAnswers: GuaranteeSnapshot['offers'] = [];
@@ -481,6 +497,7 @@ export class Simulation implements SimContext {
       hotWaits: [...this.hotWaits],
       handovers: [...this.handovers],
       doorCash: [...this.doorCash.values()],
+      acceptedOffers: [...this.acceptedOffers],
       merchants,
       guarantee: { covered, offers: offerAnswers, windows },
       rideStarts,

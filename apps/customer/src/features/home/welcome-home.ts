@@ -1,4 +1,5 @@
 import { AZIZIYAH_ZONES } from '@driver/contracts';
+import type { RestaurantSummary } from './restaurant-summary';
 
 /**
  * «هلا بيك بحيّك» (joy h7, discovery D-15 and idea 4-5): after setup, once, a small drawing of
@@ -35,3 +36,9 @@ export function welcomeLines(name: string | null, zoneId: string | null): [Welco
 
 /** How long the pin takes to land before the success buzz (the spring settles around here). */
 export const PIN_LAND_MS = 450;
+
+/** Real numbers only: the open kitchen that reaches this door soonest (by its own range), or null. */
+export function nearestOpen(kitchens: readonly RestaurantSummary[] | undefined): (RestaurantSummary & { etaMinMinutes: number; etaMaxMinutes: number }) | null {
+  const open = (kitchens ?? []).filter((k): k is RestaurantSummary & { etaMinMinutes: number; etaMaxMinutes: number } => k.open && k.etaMinMinutes !== null && k.etaMaxMinutes !== null);
+  return open.sort((a, b) => a.etaMinMinutes - b.etaMinMinutes)[0] ?? null;
+}

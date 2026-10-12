@@ -8,11 +8,17 @@ import {
   DriversPage,
   MerchantList,
   MerchantsListInput,
+  MONEY_ALARM_ROLES,
+  MoneyAlarm,
+  OUTBOX_REQUEUE_ROLES,
+  OutboxRequeueInput,
+  OutboxRequeueResult,
   OutboxView,
   RightNow,
   RightNowInput,
   SimulatorStartInput,
   SimulatorStatus,
+  SmsDayView,
 } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -55,11 +61,21 @@ export const merchantsRouter = router({
     .query(({ ctx, input }) => ctx.console.merchants(input.cityId)),
 });
 
-/** `system.*`: outbox health and simulator controls (stubbed until the simulator is rebuilt). */
+/** `system.*`: outbox health (and the admin's requeue of failed rows), the money alarm, the day's SMS count and simulator controls. */
 export const systemRouter = router({
   outbox: protectedProcedure(CONSOLE_READ_ROLES)
     .output(OutboxView)
     .query(({ ctx }) => ctx.console.outbox()),
+  requeueOutbox: protectedProcedure(OUTBOX_REQUEUE_ROLES)
+    .input(OutboxRequeueInput)
+    .output(OutboxRequeueResult)
+    .mutation(({ ctx, input }) => ctx.console.requeueOutbox(input, ctx.actor.personId)),
+  moneyAlarm: protectedProcedure(MONEY_ALARM_ROLES)
+    .output(MoneyAlarm)
+    .query(({ ctx }) => ctx.console.moneyAlarm()),
+  smsDay: protectedProcedure(CONSOLE_READ_ROLES)
+    .output(SmsDayView)
+    .query(({ ctx }) => ctx.console.smsDay()),
   simulator: router({
     status: protectedProcedure(CONSOLE_READ_ROLES)
       .output(SimulatorStatus)

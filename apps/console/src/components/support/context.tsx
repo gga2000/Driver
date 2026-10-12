@@ -30,6 +30,8 @@ import { statusTone } from './sla';
 
 // Loads only on a case with a refund waiting for a second OK (Console speed budget).
 const PendingRefundStrip = dynamic(() => import('../refund-approvals').then((m) => m.PendingRefundStrip));
+// A partner's or merchant's «احذف حسابي» case: the admin's close (loads only on those cases).
+const AccountClose = dynamic(() => import('../account-close').then((m) => m.AccountClose));
 // The customer's last orders and credits (s5) load after the card (Console speed budget).
 const CustomerHistory = dynamic(() => import('./customer-history').then((m) => m.CustomerHistory));
 
@@ -66,6 +68,9 @@ export function ContextPane({
         name={data.ticket.customerName}
         currentId={data.ticket.id}
       />
+      {data.ticket.kind === 'deletion' && data.ticket.customerId ? (
+        <AccountClose personId={data.ticket.customerId} className="mx-5 my-4" {...(closed ? {} : { ticketId: data.ticket.id })} />
+      ) : null}
       {!closed ? <ActionsSection data={data} onAction={onAction} /> : null}
       <OrderSection data={data} />
       <LedgerSection data={data} />
