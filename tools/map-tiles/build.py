@@ -194,15 +194,54 @@ for f in L(TOWN, 'building'):
         if g.contains(t): add('buildings', t, {'hm': hm + 0.9, 'base': hm, 'kind': 'dish'}, 15); nr += 1
 print('buildings', nb, 'roof pieces', nr, file=sys.stderr)
 
-# lantern strings (Ali, 2026-10-11: the Ramadan streets, kept all year): strings of fanous lanterns hang across the main
-# streets in the town centre, every ~26 m, sagging between the shop fronts. Each lantern is a small box in the air (base/hm)
-# with a colour index `c` (0 saffron, 1 gold, 2 coral) the style colours by light: painted glass by day, lit at night. A
-# `glow` point under each string lets the night style pool warm light on the street. Only close up (z16 tiles).
+# street lamps and palms (map audit, 2026-10-12): a lamp post every ~26 m along both sides of the main streets across
+# town (one side, alternating, on the mid streets outside the centre), and a date palm on the pavement between every
+# second pair of posts on the main streets. Pieces are small boxes in the air like the lanterns, in the same layer:
+# `post` (pole, foot and arm), `head` (the lamp: cream by day, lit at night), `trunk`, `frond`, `crown`, `pit`, and a
+# `lampglow` point 3 m into the street for the night pool of light.
+# lantern strings (Ali, 2026-10-11: the Ramadan streets, kept all year): in the town centre a string of fanous
+# lanterns hangs across the street between each pair of posts, sagging in the middle. Each lantern is a small box in the
+# air (base/hm) with a colour index `c` (0 saffron, 1 gold, 2 coral) the style colours by light: painted glass by day,
+# lit at night. A `glow` point under each string lets the night style pool warm light on the street. Only close up
+# (z16 tiles).
 LANTERN_CORE_M, LANTERN_EVERY_M, LANTERN_GAP_M = 1700, 26, 2.2
 LANTERN_HALF = {'major': 9.0, 'mid': 6.5}
-lan_mids = []; nlan = 0
+LAMP_TOWN_M, POST_H = 3200, 7.2
+lan_mids = []; nstr = nlan = npost = npalm = 0
 cxm, cym = CENTER[0] * mx, CENTER[1] * my
-for ly, g, p, z0, z1 in list(F):
+to_deg = lambda q: shapely.affinity.scale(q, 1 / mx, 1 / my, origin=(0, 0))
+sq = lambda x, y, h: sg.box(x - h, y - h, x + h, y + h)
+ngon = lambda x, y, r, n: sg.Polygon([(x + r * math.cos(2 * math.pi * i / n), y + r * math.sin(2 * math.pi * i / n)) for i in range(n)])
+# what a post or palm must keep clear of: every other street (crossings) and the houses (pavements in Overture are thin)
+street_m = [(i, shapely.affinity.scale(g, mx, my, origin=(0, 0))) for i, (ly, g, p, *_ ) in enumerate(F) if ly == 'roads' and p.get('cls') in ('major', 'mid', 'minor', 'alley', 'highway')]
+street_tree = STRtree([g for _, g in street_m]); street_ids = [i for i, _ in street_m]
+house_tree = STRtree([shapely.affinity.scale(g, mx, my, origin=(0, 0)) for (ly, g, p, *_ ) in F if ly == 'buildings' and p.get('kind') in ('house', 'mosque')])
+def clear(x, y, own, r):
+    pt = sg.Point(x, y)
+    if any(street_ids[j] != own for j in street_tree.query(pt, predicate='dwithin', distance=r)): return False
+    return len(house_tree.query(pt, predicate='dwithin', distance=0.4)) == 0
+posts = []
+def lamp_post(x, y, nx, ny):
+    """A post at (x, y) metres with its arm reaching 1.4 m over the street along (nx, ny)."""
+    global npost
+    if any(abs(x - o[0]) < 7 and abs(y - o[1]) < 7 for o in posts): return False
+    posts.append((x, y)); npost += 1
+    hx, hy = x + nx * 1.4, y + ny * 1.4
+    for q, base, top, kind in ((sq(x, y, 0.15), 0, POST_H, 'post'), (sq(x, y, 0.25), 0, 0.7, 'post'),
+                               (sq((x + hx) / 2, (y + hy) / 2, 0.75), POST_H - 0.15, POST_H, 'post'), (sq(hx, hy, 0.32), POST_H - 0.35, POST_H - 0.05, 'head')):
+        add('lanterns', to_deg(q), {'kind': kind, 'base': base, 'hm': top}, 16)
+    add('lanterns', sg.Point((x + nx * 3) / mx, (y + ny * 3) / my), {'kind': 'lampglow'}, 16)
+    return True
+def palm(x, y):
+    global npalm
+    npalm += 1
+    parts = [(ngon(x, y, 0.6, 8), 0, 0.35, 'pit'), (ngon(x, y, 0.22, 6), 0, 7.5, 'trunk')]
+    for k in range(6):
+        a = 2 * math.pi * k / 6 + 0.3
+        parts.append((ngon(x + math.cos(a) * 1.6, y + math.sin(a) * 1.6, 1.05, 6), 6.9 - (k % 2) * 0.5, 7.3 - (k % 2) * 0.5, 'frond'))
+    parts.append((ngon(x, y, 0.9, 8), 7.3, 8.0, 'crown'))
+    for q, base, top, kind in parts: add('lanterns', to_deg(q), {'kind': kind, 'base': base, 'hm': top}, 16)
+for fi, (ly, g, p, z0, z1) in enumerate(list(F)):
     if ly != 'roads' or p.get('cls') not in LANTERN_HALF or z0 < 12: continue
     gm = shapely.affinity.scale(g, mx, my, origin=(0, 0))
     if gm.geom_type != 'LineString' or gm.length < 40: continue
@@ -210,20 +249,33 @@ for ly, g, p, z0, z1 in list(F):
     d = 14.0
     while d < gm.length - 14:
         c = gm.interpolate(d); a = gm.interpolate(d - 2); b = gm.interpolate(d + 2); d += LANTERN_EVERY_M
-        if math.hypot(c.x - cxm, c.y - cym) > LANTERN_CORE_M: continue
+        r = math.hypot(c.x - cxm, c.y - cym)
+        if r > LAMP_TOWN_M: continue
         if any(abs(c.x - o[0]) < 16 and abs(c.y - o[1]) < 16 for o in lan_mids): continue   # dual carriageways, crossings
         lan_mids.append((c.x, c.y))
-        ux, uy = b.x - a.x, b.y - a.y; L_ = math.hypot(ux, uy) or 1; nx, ny = -uy / L_, ux / L_   # across the street
-        n = int(2 * half // LANTERN_GAP_M)
+        ux, uy = b.x - a.x, b.y - a.y; L_ = math.hypot(ux, uy) or 1; ux, uy = ux / L_, uy / L_; nx, ny = -uy, ux   # across the street
         k = len(lan_mids)
+        core = r <= LANTERN_CORE_M
+        off = half + 0.6
+        sides = (-1, 1) if p['cls'] == 'major' or core else ((-1,) if k % 2 else (1,))
+        for sd in sides:
+            x, y = c.x + nx * off * sd, c.y + ny * off * sd
+            if clear(x, y, fi, 3): lamp_post(x, y, -nx * sd, -ny * sd)
+        if p['cls'] == 'major' and k % 2 == 0 and d - LANTERN_EVERY_M / 2 < gm.length - 8:
+            m = gm.interpolate(d - LANTERN_EVERY_M / 2)   # half way to the next pair of posts
+            for sd in (-1, 1):
+                x, y = m.x + nx * (off + 0.4) * sd, m.y + ny * (off + 0.4) * sd
+                if clear(x, y, fi, 4): palm(x, y)
+        if not core: continue
+        n = int(2 * half // LANTERN_GAP_M)
         for i in range(n + 1):
-            t = i / n; off = -half + 2 * half * t
+            t = i / n; o = -half + 2 * half * t
             z = 6.4 - 1.5 * (1 - (2 * t - 1) ** 2)                                              # the string sags in the middle
-            q = sg.box(c.x + nx * off - 0.45, c.y + ny * off - 0.45, c.x + nx * off + 0.45, c.y + ny * off + 0.45)
-            add('lanterns', shapely.affinity.scale(q, 1 / mx, 1 / my, origin=(0, 0)), {'kind': 'lamp', 'c': (i + k) % 3, 'base': round(z - 0.9, 2), 'hm': round(z, 2)}, 16)
+            q = sg.box(c.x + nx * o - 0.45, c.y + ny * o - 0.45, c.x + nx * o + 0.45, c.y + ny * o + 0.45)
+            add('lanterns', to_deg(q), {'kind': 'lamp', 'c': (i + k) % 3, 'base': round(z - 0.9, 2), 'hm': round(z, 2)}, 16)
             nlan += 1
-        add('lanterns', sg.Point(c.x / mx, c.y / my), {'kind': 'glow'}, 16)
-print('lantern strings', len(lan_mids), 'lanterns', nlan, file=sys.stderr)
+        add('lanterns', sg.Point(c.x / mx, c.y / my), {'kind': 'glow'}, 16); nstr += 1
+print('lantern strings', nstr, 'lanterns', nlan, 'lamp posts', npost, 'palms', npalm, file=sys.stderr)
 
 # places (POIs) -----------------------------------------------------------------------
 for f in pois:

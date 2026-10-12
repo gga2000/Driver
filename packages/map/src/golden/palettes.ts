@@ -48,12 +48,15 @@ export interface GoldenPalette {
   /** Night only: the roof colour of a house with its lights on, and the warm light it spills on the street. */
   litRoof: string | null;
   windowGlow: string | null;
-  /** School yards, and parks and pitches; the mud bank along the Tigris; the kerb and centre line of main streets. */
+  /**
+   * Streets up close (audit 2026-10-12): warm dusty tarmac with a sandy shoulder, a pale kerb and a white centre line.
+   * The style blends the cream streets of the town view into these as the camera comes down to street level.
+   */
+  asphalt: { major: string; mid: string; minor: string; alley: string; highway: string; shoulder: string; kerb: string; line: string };
+  /** School yards, and parks and pitches; the mud bank along the Tigris. */
   yard: string;
   green: string;
   bank: string;
-  kerb: string;
-  marking: string;
   /** The 3D landmarks (main mosque, hospital, garages): one colour per `part` in the tiles' `landmarks` layer. */
   landmark: Record<LandmarkPart, string>;
 }
@@ -85,16 +88,18 @@ const LANDMARK_DAY: Record<LandmarkPart, string> = {
 const DAY: GoldenPalette = {
   land: '#F3E2C2', urban: '#EBD3A8', farm: '#EDE3B9', palm: '#E2DDA8', palmCrown: '#B4B071',
   water: '#7E7F4E', waterEdge: '#666839', canal: '#9AA06A', glint: '#C9C690', glintOpacity: 0.55,
-  shadow: '#8A5A2A', shadowOpacity: 0.17,
+  shadow: '#8A6440', shadowOpacity: 0.3,
   alley: '#FBF1DE', minor: '#FFFBF1', minorCase: '#D9B27A', major: '#FFF6E4', majorCase: '#C9944C',
   highway: '#F8DA9E', highwayCase: '#B67A31', deck: '#FFF8EA', deckCase: '#6B3D1A', lampGlow: null,
   roof: '#FBEBCF', wall: '#C9A877', mosque: '#F4E3C2', tankWhite: '#FFF9EE', tankBlack: '#EFE3CE',
   label: '#4A321D', labelHalo: '#FBF1DE', area: '#8D6A45', river: '#F4EED2', riverHalo: '#5E6533',
-  light: { color: '#FFFFFF', intensity: 0.2 },
+  light: { color: '#FFFFFF', intensity: 0.45 },
   sky: { sky: '#F6D9A6', horizon: '#FBEBD0', fog: '#F6E7CB' },
-  roofTones: ['#FBEBCF', '#F6E6CC', '#F2D9AE', '#FCF1DC', '#EFCF9E', '#F3DFC0'],
+  // lime plaster, yellow brick, sand brick, white-washed, dusty stone, baked brick: Iraqi walls, sculpted by a real sun
+  roofTones: ['#F2E2C6', '#EDD3A6', '#E4C190', '#F4E8D2', '#E0C8A4', '#D2AE82'],
   litRoof: null, windowGlow: null,
-  yard: '#F2DDB2', green: '#CFCF95', bank: '#B8A06C', kerb: '#FFFDF7', marking: '#DDBC88',
+  asphalt: { major: '#958B7E', mid: '#A09588', minor: '#B9AD98', alley: '#DCC6A0', highway: '#8A8074', shoulder: '#EAD7B4', kerb: '#FBF3E4', line: '#FFFDF6' },
+  yard: '#F2DDB2', green: '#CFCF95', bank: '#B8A06C',
   landmark: LANDMARK_DAY,
 };
 
@@ -102,15 +107,16 @@ const GOLDEN: GoldenPalette = {
   ...DAY,
   land: '#F1D9B2', urban: '#E9CFA3', farm: '#EADBA9', palm: '#DDD49A', palmCrown: '#ADA562',
   water: '#7A7A48', waterEdge: '#626234', glint: '#EBC883', glintOpacity: 0.8,
-  shadow: '#A87F55', shadowOpacity: 0.35,
+  shadow: '#8A6440', shadowOpacity: 0.5,
   alley: '#F9EBD3', minor: '#FFF8EA', minorCase: '#D2A66C', major: '#FFF2D8', majorCase: '#C28640',
   highway: '#F6CF86', highwayCase: '#AE6E25', deck: '#FFF5E2', deckCase: '#633416',
   roof: '#F9D9A0', wall: '#D9A766', mosque: '#F2DCB5',
   label: '#462D17', labelHalo: '#F8EAD2', area: '#87633D', river: '#F4EBCB',
-  light: { color: '#FFF1D6', intensity: 0.24 },
+  light: { color: '#FFF1D6', intensity: 0.55 },
   sky: { sky: '#F1C47E', horizon: '#F9DFB4', fog: '#F4DFBC' },
-  roofTones: ['#F9D9A0', '#F4E2C0', '#ECC68C', '#FBEAD0', '#E6B97E', '#EBD2AA'],
-  yard: '#F0D6A2', green: '#C7C789', bank: '#B39760', marking: '#D7B47E',
+  roofTones: ['#F3E6CF', '#E8C995', '#DDB57C', '#F7EEDD', '#E0C49A', '#CFA56F'],
+  asphalt: { major: '#8F8578', mid: '#9B9083', minor: '#B5A893', alley: '#D9C29A', highway: '#857B6F', shoulder: '#E8D3AE', kerb: '#FBF3E4', line: '#FFFDF6' },
+  yard: '#F0D6A2', green: '#C7C789', bank: '#B39760',
   landmark: { ...LANDMARK_DAY, stone: '#ECCB94', trim: '#F7DFB2', pave: '#F2DDB8', dome: '#E0A535', brick: '#DCA765', yard: '#D2BC94' },
 };
 
@@ -119,34 +125,37 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
   day: DAY,
   morning: {
     ...DAY,
-    land: '#F1E3C8', urban: '#EDDDBF', wall: '#D2B88E', shadow: '#8E8672', shadowOpacity: 0.26,
-    light: { color: '#FFF8EA', intensity: 0.2 },
+    land: '#F1E3C8', urban: '#EDDDBF', wall: '#D2B88E', shadow: '#8E8672', shadowOpacity: 0.34,
+    light: { color: '#FFF8EA', intensity: 0.45 },
     sky: { sky: '#EFE2C6', horizon: '#F7EEDB', fog: '#F1E3C8' },
   },
   golden: GOLDEN,
   sunset: {
     ...GOLDEN,
-    land: '#F0D2AE', urban: '#ECC9A2', roof: '#DDB898', wall: '#B48E70', shadow: '#7E5A44', shadowOpacity: 0.34,
+    land: '#F0D2AE', urban: '#ECC9A2', roof: '#DDB898', wall: '#B48E70', shadow: '#7E5A44', shadowOpacity: 0.48,
     glint: '#F2B870', glintOpacity: 0.9,
-    light: { color: '#FFD9B8', intensity: 0.28 },
+    light: { color: '#FFD9B8', intensity: 0.5 },
     sky: { sky: '#E8A066', horizon: '#F6CF9C', fog: '#F0D2AE' },
-    roofTones: ['#DDB898', '#D9BFA4', '#D2A884', '#E4C6A8', '#CC9F7A', '#D8B392'],
+    roofTones: ['#E9CDAA', '#DFB78E', '#D5A77E', '#EED8BC', '#D2AA88', '#C2946E'],
+    asphalt: { major: '#86786E', mid: '#91837A', minor: '#AA9A8A', alley: '#D2B596', highway: '#7C6F66', shoulder: '#E2C6A4', kerb: '#F6E6D2', line: '#FFF6EA' },
     // the lanterns come on as the sun goes down
     landmark: { ...LANDMARK_DAY, stone: '#E2B98E', trim: '#EFCDA4', pave: '#E8C9A4', dome: '#DC9534', brick: '#CF9466', yard: '#C9B08E', white: '#F2E2D2', bus: '#F2E2D2', lamp1: '#F59A2E', lamp2: '#F2C054', lamp3: '#EE7650' },
   },
   night: {
-    land: '#1D1712', urban: '#201913', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
+    land: '#261D15', urban: '#2B2118', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
     water: '#2F3320', waterEdge: '#4A5034', canal: '#2F3320', glint: '#6E5A30', glintOpacity: 0.5,
     shadow: '#000000', shadowOpacity: 0,
-    alley: '#30271F', minor: '#3B3026', minorCase: '#1D1712', major: '#5A4A3B', majorCase: '#1D1712',
-    highway: '#665443', highwayCase: '#1D1712', deck: '#B48A57', deckCase: '#22180F', lampGlow: '#E8A34A',
+    alley: '#3A3026', minor: '#45392D', minorCase: '#261D15', major: '#5A4C3E', majorCase: '#261D15',
+    highway: '#665443', highwayCase: '#261D15', deck: '#B48A57', deckCase: '#22180F', lampGlow: '#E8A34A',
     roof: '#2A2018', wall: '#231A13', mosque: '#58422B', tankWhite: '#7A6852', tankBlack: '#6B5A48',
     label: '#F2E0C3', labelHalo: '#22180F', area: '#BFA27C', river: '#C9CC9C', riverHalo: '#1E2114',
-    light: { color: '#FFE0B0', intensity: 0.12 },
+    light: { color: '#FFD9A0', intensity: 0.36 },
     sky: { sky: '#1E140C', horizon: '#4A2E16', fog: '#24190F' },
-    roofTones: ['#2A2018', '#2E231A', '#33271D', '#271D16', '#2C2219', '#30261E'],
-    litRoof: '#55381F', windowGlow: '#FFB04A',
-    yard: '#2C2318', green: '#232615', bank: '#3A3020', kerb: '#6E5C48', marking: '#8A7356',
+    // a warm evening, not a black-out: walls in umber and olive-brown (red-browns turn purple under the lamps)
+    roofTones: ['#54473A', '#4C4033', '#5C4D3B', '#463B30', '#615240', '#50443A'],
+    litRoof: '#6E4A26', windowGlow: '#FFB04A',
+    asphalt: { major: '#4A4036', mid: '#463C33', minor: '#41372E', alley: '#3D3329', highway: '#463D34', shoulder: '#2E251C', kerb: '#B8945E', line: '#E9C27A' },
+    yard: '#2C2318', green: '#232615', bank: '#3A3020',
     // floodlit at night: the mosque and the hospital glow warm; the garages' fins light up in saffron lines, the hall
     // and the tea kiosk glow, and light pools on the ground under them
     landmark: {
