@@ -445,8 +445,9 @@ export class PartnerService implements PartnerPort {
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,
           // Maps program r4: the code he shows at the counter, while the pickup is still to do. Rides have
-          // no counter (and a second 4-digit number next to the night trip code would only confuse).
-          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
+          // no counter (and a second 4-digit number next to the night trip code would only confuse); nor
+          // does a دوّرلي shop or a parcel sender (it has its own PIN): only an order from one of our merchants.
+          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && order?.merchantOrgId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
           door: doors.get(s.id) ?? null,
           pickupSpot: spots.get(s.id) ?? null,
           // «عزيمة» (joy g1): «هدية — لا تذكر السعر» at the door, no receipt in the bag at the kitchen.
