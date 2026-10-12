@@ -53,6 +53,12 @@ export interface GoldenPalette {
    * The style blends the cream streets of the town view into these as the camera comes down to street level.
    */
   asphalt: { major: string; mid: string; minor: string; alley: string; highway: string; shoulder: string; kerb: string; line: string };
+  /** The Tigris from the bank (silty, light) to the deep channel (`d` 0–6 in the tiles), and the reeds on its edge. */
+  riverDepth: readonly [string, string, string, string, string, string, string];
+  reeds: readonly [string, string, string];
+  /** Farm plots by crop (`crop` 0 wheat, 1 young barley, 2 clover, 3 fallow, 4 ploughed) and worn dusty ground (`d` 0–2). */
+  crops: readonly [string, string, string, string, string];
+  dust: readonly [string, string, string];
   /** School yards, and parks and pitches; the mud bank along the Tigris. */
   yard: string;
   green: string;
@@ -98,6 +104,10 @@ const DAY: GoldenPalette = {
   // lime plaster, yellow brick, sand brick, white-washed, dusty stone, baked brick: Iraqi walls, sculpted by a real sun
   roofTones: ['#F2E2C6', '#EDD3A6', '#E4C190', '#F4E8D2', '#E0C8A4', '#D2AE82'],
   litRoof: null, windowGlow: null,
+  riverDepth: ['#ADA972', '#A19E68', '#96955E', '#8B8C55', '#82834E', '#7A7C49', '#717344'],
+  reeds: ['#7A853A', '#8E9446', '#6A7432'],
+  crops: ['#E2CB86', '#CFCB86', '#BCC07A', '#E4CFA2', '#D9C08F'],
+  dust: ['#E4CB9C', '#EAD5AE', '#DDBF8E'],
   asphalt: { major: '#958B7E', mid: '#A09588', minor: '#B9AD98', alley: '#DCC6A0', highway: '#8A8074', shoulder: '#EAD7B4', kerb: '#FBF3E4', line: '#FFFDF6' },
   yard: '#F2DDB2', green: '#CFCF95', bank: '#B8A06C',
   landmark: LANDMARK_DAY,
@@ -154,6 +164,10 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     // a warm evening, not a black-out: walls in umber and olive-brown (red-browns turn purple under the lamps)
     roofTones: ['#54473A', '#4C4033', '#5C4D3B', '#463B30', '#615240', '#50443A'],
     litRoof: '#6E4A26', windowGlow: '#FFB04A',
+    riverDepth: ['#4A4E30', '#44482C', '#3E4229', '#383C25', '#323621', '#2C301D', '#262A18'],
+    reeds: ['#3A4220', '#34391D', '#2C321A'],
+    crops: ['#3A3218', '#2E3218', '#28301A', '#3A2E20', '#36291C'],
+    dust: ['#302419', '#2C2117', '#33271B'],
     asphalt: { major: '#4A4036', mid: '#463C33', minor: '#41372E', alley: '#3D3329', highway: '#463D34', shoulder: '#2E251C', kerb: '#B8945E', line: '#E9C27A' },
     yard: '#2C2318', green: '#232615', bank: '#3A3020',
     // floodlit at night: the mosque and the hospital glow warm; the garages' fins light up in saffron lines, the hall
