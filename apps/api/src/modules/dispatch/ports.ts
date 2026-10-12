@@ -61,6 +61,11 @@ export interface JobExposure {
 export interface CapsPort {
   isOverCap(driverId: string): Promise<boolean>;
   canOffer(driverId: string, job?: JobExposure): Promise<boolean>;
+  /**
+   * Over cap once cash he has just collected lands. The ledger posts a drop-off's cash a step after
+   * the trip completes, so a cap check made the moment he is freed would not see it yet.
+   */
+  wouldBeOverCap?(driverId: string, pendingCashIqd: number): Promise<boolean>;
 }
 export const CAPS = Symbol('CAPS');
 
@@ -180,6 +185,10 @@ export class FakeCaps implements CapsPort {
     if (this.over.has(driverId)) return false;
     if (!job || job.prepaid) return true;
     return job.valueIqd <= (this.remaining.get(driverId) ?? Number.POSITIVE_INFINITY);
+  }
+
+  async wouldBeOverCap(driverId: string, pendingCashIqd: number): Promise<boolean> {
+    return this.over.has(driverId) || pendingCashIqd >= (this.remaining.get(driverId) ?? Number.POSITIVE_INFINITY);
   }
 }
 

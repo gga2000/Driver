@@ -1336,8 +1336,13 @@ export class OfferOrchestrator {
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
     await this.retire(r);
-    // He is free again: a red job nobody took may be his now.
-    if (r.assignedDriverId) await this.retryUnassigned(r.cityId);
+    // He is free again: a red job nobody took may be his now. Not when the cash this job just put in
+    // his hand takes him to his cap: the ledger has not posted it yet, so the offer would skip the cap
+    // check; the jobs' own retries come round as usual.
+    if (!r.assignedDriverId) return;
+    const cash = this.exposure(r).valueIqd;
+    if (cash > 0 && (await this.caps.wouldBeOverCap?.(r.assignedDriverId, cash))) return;
+    await this.retryUnassigned(r.cityId);
   }
 
   /**

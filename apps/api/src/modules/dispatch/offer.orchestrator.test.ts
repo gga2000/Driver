@@ -274,6 +274,22 @@ describe('eligibility', () => {
     expect((await h.service.getRequest('t1'))?.status).toBe('assigned');
   });
 
+  it('freed by a cash job that takes him to his cap: no red job is re-offered to him before the ledger has that cash', async () => {
+    for (const [room, expected] of [[20_000, ['a1']], [12_000, []]] as const) {
+      const h = dispatchHarness();
+      await h.online('a1', 0.2);
+      h.keepAlive.add('a1');
+      await h.service.request({ tripId: 't1', cityId: 'aziziyah', vertical: 'taxi', zoneId: 'centre', pickup: north(0), cashIqd: 12_000 });
+      await respond(h, 't1', 'a1');
+      await taxi(h, 't2');
+      await h.advance(15 * 60);
+      expect(h.trips.offeredTo('t2')).toEqual([]);
+      h.caps.remaining.set('a1', room);
+      await h.service.jobFinished('t1');
+      expect(h.trips.offeredTo('t2')).toEqual(expected);
+    }
+  });
+
   it('tuktuks never get edge-zone jobs unless they opted in', async () => {
     const h = dispatchHarness();
     await h.online('tk-plain', 0.2, { vehicle: 'tuktuk' });

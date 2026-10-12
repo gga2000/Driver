@@ -149,6 +149,8 @@ export interface CapsPort {
   isOverCap(driverId: string): Promise<boolean>;
   canOffer(driverId: string, job?: JobExposure): Promise<boolean>;
   status(driverId: string): Promise<CapStatus>;
+  /** Over cap once `pendingCashIqd` he just collected lands (dispatch asks before re-offering a freed driver). */
+  wouldBeOverCap(driverId: string, pendingCashIqd: number): Promise<boolean>;
 }
 
 /** What orders asks before accepting a cash order from a new account. */
@@ -221,6 +223,11 @@ export class CapsService implements CapsPort, CashRiskPort {
   async canOffer(driverId: string, job?: JobExposure): Promise<boolean> {
     const s = await this.status(driverId);
     return canOfferJob(s.owedIqd, s.capIqd, job, this.rules);
+  }
+
+  async wouldBeOverCap(driverId: string, pendingCashIqd: number): Promise<boolean> {
+    const s = await this.status(driverId);
+    return isOverCapAmount(s.owedIqd + Math.max(0, pendingCashIqd), s.capIqd);
   }
 
   async newCustomerCash(customerId: string, orderTotalIqd: number) {
