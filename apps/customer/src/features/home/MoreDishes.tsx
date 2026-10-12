@@ -80,14 +80,13 @@ function Tile({ h, photo, basket, testID }: { h: HourDish; photo: DishPhoto | nu
         <Text variant="label" weight={700} numberOfLines={1} style={{ marginTop: theme.space[2] }}>
           {d.name}
         </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
-          <Text variant="caption" color="textMuted" numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>
-            {d.restaurantName}
-          </Text>
-          <Text variant="label" face="display" weight={700} tabular numberOfLines={1}>
-            {price}
-          </Text>
-        </View>
+        {/* The kitchen has the line to itself: beside the price, «مشويات الحاج كريم» was cut (home roast 4). */}
+        <Text variant="caption" color="textMuted" numberOfLines={1}>
+          {d.restaurantName}
+        </Text>
+        <Text variant="label" face="display" weight={700} tabular numberOfLines={1}>
+          {price}
+        </Text>
       </AnimatedPressable>
       <Counter dish={d.name} count={basket.countOf(d)} onAdd={add} onRemove={() => basket.remove(d)} testID={testID} place={{ top: PHOTO_H - KEY - 8, end: 8 }} />
     </View>

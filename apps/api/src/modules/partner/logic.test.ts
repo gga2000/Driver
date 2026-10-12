@@ -46,6 +46,16 @@ describe('buildPay', () => {
     expect(pay).toEqual({ totalIqd: 700, components: [{ key: 'batch_bonus', amountIqd: 700 }], takePct: null });
   });
 
+  it('a batched second errand shows 70 % of its errand fee, the receipt outside it (Ali 2026-10-12); a single errand the whole fee', () => {
+    const errand = { type: 'errand' as const, deliveryFeeIqd: 2_000, tipIqd: 0, totalIqd: 7_000 + 2_000 + 500 };
+    expect(buildPay({ vertical: 'errand', orders: [errand], batchedSecond: true, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null })).toEqual({
+      totalIqd: 1_400,
+      components: [{ key: 'batch_bonus', amountIqd: 1_400 }],
+      takePct: null,
+    });
+    expect(buildPay({ vertical: 'errand', orders: [errand], batchedSecond: false, batchShare: 0.7, compensationIqd: 0, take: null }).totalIqd).toBe(2_000);
+  });
+
   it('the offer promises exactly what the ledger posts (review 2026-10-04 #16)', () => {
     // Ledger postings: courier share = pct(fee, 0.7) (half rounds up): 1,250 → 875, 1,750 → 1,225.
     for (const [fee, posted] of [

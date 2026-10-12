@@ -2053,6 +2053,8 @@ export class OrdersService implements OnModuleInit {
         errand: {
           orderId: order.id,
           ...(courier ? { tripId: courier.tripId } : {}),
+          // The batch rate his offer showed when this errand rode along another job (money §2, Ali 2026-10-12).
+          ...(courier?.batchedSecond ? { batchedSecond: true } : {}),
           occurredAt: now,
           ...payer,
           shopperId: courier?.courierId ?? '',
