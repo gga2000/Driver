@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DriverError, type Actor, type RoleKind } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
+import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import type { IdentityService } from '../identity/index.js';
@@ -27,7 +28,8 @@ const code = async (p: Promise<unknown>) => {
  */
 async function setup() {
   const clock = new FakeClock('2026-10-07T09:00:00Z');
-  const orgs = new OrgsService(undefined, clock);
+  const uow = new UnitOfWork(new NoDatabaseRunner());
+  const orgs = new OrgsService(undefined, clock, undefined, uow);
   const khalid = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: OWNER.personId });
   const karim = await orgs.create({ type: 'grocer', name: 'أسواق كريم', cityId: 'aziziyah', ownerId: 'p_karim' });
   const elsewhere = await orgs.create({ type: 'restaurant', name: 'مطعم الكوت', cityId: 'kut', ownerId: 'p_kut' });
@@ -69,8 +71,8 @@ async function setup() {
   const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === HAIDER.personId ? 'حيدر' : null])) } as unknown as IdentityService;
   const audits = new AuditLogService(auditRepo, new StaffNames(identity, clock), clock);
   const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
-  const svc = new OpsPickupSpotsService(merchant, orgs, audits, catalog);
-  return { clock, orgs, khalid, karim, elsewhere, home, merchant, catalog, svc, auditRepo, recorded, removed };
+  const svc = new OpsPickupSpotsService(merchant, orgs, audits, catalog, uow);
+  return { uow, audits, clock, orgs, khalid, karim, elsewhere, home, merchant, catalog, svc, auditRepo, recorded, removed };
 }
 
 describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)', () => {
@@ -169,6 +171,24 @@ describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)'
     expect(await code(h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 33.3, lng: 44.4 } }))).toBe('outside_zone');
     expect(await code(h.svc.moveKitchen(HAIDER, { merchantOrgId: h.home.id, pin: { lat: 32.887, lng: 45.0765 } }))).toBe('org_not_found');
     expect((await h.orgs.merchantSettings(h.khalid.id)).location?.zoneKey).toBe('zakur');
+  });
+
+  it('«حرّك مكان المطعم»: the new pin and its audit row are written in one transaction', async () => {
+    const h = await setup();
+    const seen: { settings?: unknown; audit?: unknown } = {};
+    const setMerchantSettings = h.orgs.setMerchantSettings.bind(h.orgs);
+    vi.spyOn(h.orgs, 'setMerchantSettings').mockImplementation(async (id, patch) => {
+      seen.settings = h.uow.current();
+      return setMerchantSettings(id, patch);
+    });
+    const record = h.audits.record.bind(h.audits);
+    vi.spyOn(h.audits, 'record').mockImplementation(async (row, tx) => {
+      seen.audit = tx;
+      return record(row, tx);
+    });
+    await h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 32.887, lng: 45.0765 } });
+    expect(seen.settings).toBeDefined();
+    expect(seen.audit).toBe(seen.settings);
   });
 
   it('a kitchen move does not hide who set the pickup spot last', async () => {
