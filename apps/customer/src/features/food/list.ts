@@ -1,3 +1,4 @@
+import { featuredFirst } from '@driver/contracts';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 
 /**
@@ -33,7 +34,12 @@ const SORTS: Record<ListSort, (a: RestaurantSummary, b: RestaurantSummary) => nu
   rating: (a, b) => (b.rating ?? -1) - (a.rating ?? -1) || b.ratingCount - a.ratingCount,
 };
 
-export function applyList(list: readonly RestaurantSummary[], sort: ListSort, f: ListFilters): { open: RestaurantSummary[]; closed: RestaurantSummary[] } {
+/**
+ * «مميّز» (Ali, 2026-10-12): in the plain order («الأقرب», the default) one open featured kitchen sits
+ * first, the same one the server puts first; a sort the customer picks (fastest, top rated) keeps its
+ * own order.
+ */
+export function applyList(list: readonly RestaurantSummary[], sort: ListSort, f: ListFilters, at: Date = new Date()): { open: RestaurantSummary[]; closed: RestaurantSummary[] } {
   const kept = list.filter(
     (r) =>
       (!f.openNow || r.open) &&
@@ -42,7 +48,8 @@ export function applyList(list: readonly RestaurantSummary[], sort: ListSort, f:
       (!f.cuisine || r.tags.includes(f.cuisine)),
   );
   const cmp = (a: RestaurantSummary, b: RestaurantSummary) => SORTS[sort](a, b) || a.name.localeCompare(b.name, 'ar');
-  return { open: kept.filter((r) => r.open).sort(cmp), closed: kept.filter((r) => !r.open).sort(cmp) };
+  const open = kept.filter((r) => r.open).sort(cmp);
+  return { open: sort === 'nearest' ? featuredFirst(open, at) : open, closed: kept.filter((r) => !r.open).sort(cmp) };
 }
 
 /** Cuisine chips worth showing: tags that at least one kitchen has, most common first. */

@@ -76,6 +76,8 @@ export const RestaurantCard = z.object({
   opensInMin: z.number().int().min(0).nullable().optional(),
   /** Busy mode: prep takes longer. */
   busy: z.boolean(),
+  /** «مميّز»: on the featured commission tier; marked in the lists, one sits first (`featuredFirst`). */
+  featured: z.boolean().optional(),
   /**
    * Weekly opening hours on the city's clock ("HH:MM", `end` before `start` runs past midnight); empty
    * = always open. Joy o11: a closed kitchen offers pre-order slots for today or tomorrow inside them

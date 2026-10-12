@@ -63,6 +63,7 @@ export * from './fleet-io.js';
 export * from './ops-io.js';
 export * from './menu-photos-io.js';
 export * from './shop-lines.js';
+export * from './food-carts-io.js';
 export * from './dish-photos-io.js';
 export * from './merchant-admin-io.js';
 export * from './partner-io.js';
@@ -114,4 +115,5 @@ export {
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';
 export * from './food-doors.js';
+export * from './featured.js';
 export * from './weights.js';
