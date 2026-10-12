@@ -13,7 +13,7 @@ import type { SeedHours, SeedMenuItem, SeedRestaurant } from './aziziyah-restaur
 export type SeedHomeSale = { mode: 'ready'; cooked: number; left: number } | { mode: 'reserve'; rule: ReserveRule };
 
 export interface SeedHomeItem extends SeedMenuItem {
-  /** «شنو بالصحن؟», e.g. «5 حبات». */
+  /** «شنو بالصحن؟», e.g. «5 قطع». */
   portion?: string;
   /** Her photo of the dish: a dish-library file served at `/media/food/<photo>.webp` (demo stand-in). */
   photo: string;
@@ -57,7 +57,7 @@ export const DEMO_HOME_KITCHENS: readonly SeedHomeKitchen[] = [
         nameEn: 'Home dishes',
         items: [
           { key: 'dolma', photo: 'lib-dolma-1', nameAr: 'دولمة عراقية', nameEn: 'Iraqi dolma', descriptionAr: 'ورق عنب وبصل وشجر، ويا ضلع غنم', priceIqd: 6000, prepTimeMin: 10, taxonomy: 'dolma', servesMin: 1, servesMax: 1, home: { mode: 'ready', cooked: 12, left: 4 } },
-          { key: 'kubba', photo: 'lib-kubba-1', nameAr: 'كبة حلب', nameEn: 'Kubba Halab', descriptionAr: 'تمن ولحم مفروم، مقلية بنفس اليوم', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'kubba', portion: '5 حبات', home: { mode: 'ready', cooked: 10, left: 6 } },
+          { key: 'kubba', photo: 'lib-kubba-1', nameAr: 'كبة حلب', nameEn: 'Kubba Halab', descriptionAr: 'تمن ولحم مفروم، مقلية بنفس اليوم', priceIqd: 5000, prepTimeMin: 10, taxonomy: 'kubba', portion: '5 قطع', home: { mode: 'ready', cooked: 10, left: 6 } },
           { key: 'quzi', photo: 'lib-quzi-1', nameAr: 'قوزي على تمن', nameEn: 'Quzi on rice', descriptionAr: 'لحم غنم على تمن بالكرزات والزبيب', priceIqd: 12000, prepTimeMin: 10, taxonomy: 'rice', servesMin: 2, servesMax: 2, labels: ['family'], home: { mode: 'reserve', rule: { aheadMin: 1440, days: [0, 3, 5], times: ['13:00', '19:00'], maxPerSlot: 6 } } },
           { key: 'biryani', photo: 'lib-biryani-1', nameAr: 'برياني دجاج', nameEn: 'Chicken biryani', descriptionAr: 'دجاج كامل وتمن بالبهارات ويا شعرية', priceIqd: 8000, prepTimeMin: 10, taxonomy: 'biryani', servesMin: 3, servesMax: 4, home: { mode: 'reserve', rule: { aheadMin: 240, days: EVERY_DAY, times: ['13:00', '19:00'], maxPerSlot: 8 } } },
         ],

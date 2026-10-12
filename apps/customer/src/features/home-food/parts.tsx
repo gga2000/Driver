@@ -81,7 +81,7 @@ export function CountPill({ icon, label, tone }: { icon: IconName; label: string
   );
 }
 
-/** «يشبّع 2» or «5 حبات» beside a dish name. */
+/** «يشبّع 2» or «5 قطع» beside a dish name. */
 export function PortionPill({ label, style }: { label: string; style?: StyleProp<ViewStyle> }) {
   const theme = useTheme();
   return (
