@@ -24,6 +24,7 @@ import {
   type OrderSearchInput,
   type OrderSearchPage,
   type MoneyAlarm,
+  type NotifyStuck,
   type OutboxRequeueInput,
   type OutboxRequeueResult,
   type OutboxView,
@@ -48,6 +49,7 @@ import { EventsService, type StoredEvent } from '../events/index.js';
 import { FleetService } from '../fleet/index.js';
 import { IdentityService, type RosterRow } from '../identity/index.js';
 import { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
+import { NotifyService } from '../notify/index.js';
 import { OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { ScoringService } from '../scoring/index.js';
@@ -103,6 +105,8 @@ export class ConsoleReadService implements ConsolePort {
     /** The admin's outbox requeue writes its audit row in the same transaction. */
     @Optional() private readonly audits?: AuditLogService,
     @Optional() private readonly uow?: UnitOfWork,
+    /** Stuck outgoing messages on the System page; 0 without it. */
+    @Optional() private readonly notify?: NotifyService,
   ) {}
 
   // ───────────────────────── names (K-01) ─────────────────────────
@@ -433,6 +437,11 @@ export class ConsoleReadService implements ConsolePort {
   /** The money alarm: ledger postings stuck in the outbox (failed, or pending longer than 2 min). */
   async moneyAlarm(): Promise<MoneyAlarm> {
     return this.events.moneyAlarm();
+  }
+
+  /** Outgoing messages claimed for a send more than 5 min ago with no outcome (read only, never resent). */
+  async notifyStuck(): Promise<NotifyStuck> {
+    return this.notify ? this.notify.stuckSends() : { stuck: 0, oldestSec: 0 };
   }
 
   /** SMS sent in the last 24 h (sign-in codes and notification texts) and the budget they share. */
