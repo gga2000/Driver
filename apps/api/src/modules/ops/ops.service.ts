@@ -241,11 +241,12 @@ export class OpsService implements OpsPort, OnModuleInit {
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);
     const org = await this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
-    // A new restaurant starts on `starter` unless the visit named another tier (audited below).
-    await this.orgs.setMerchantSettings(org.id, { location, commissionTier: input.commissionTier });
     if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
+      // A new restaurant starts on `starter` unless the visit named another tier; the rate commits with its
+      // audit row below (the nested run joins this transaction).
+      await this.orgs.setMerchantSettings(org.id, { location, commissionTier: input.commissionTier });
       const row = await this.repo.addOnboarding(
         {
           orgId: org.id,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
+import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import type { IdentityService } from '../identity/index.js';
 import { ORDERS_RULES } from '../orders/index.js';
@@ -14,11 +15,12 @@ const DAY_MS = 86_400_000;
 
 async function setup() {
   const clock = new FakeClock('2026-10-12T09:00:00Z');
-  const orgs = new OrgsService(undefined, clock);
+  const uow = new UnitOfWork(new NoDatabaseRunner());
+  const orgs = new OrgsService(undefined, clock, undefined, uow);
   const khalid = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: OWNER.personId });
   const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === FINANCE.personId ? 'زينب' : null])) } as unknown as IdentityService;
   const audits = new AuditLogService(new InMemoryControlsRepository(), new StaffNames(identity, clock), clock);
-  const service = new CommissionTierService(orgs, audits, clock);
+  const service = new CommissionTierService(orgs, audits, clock, uow);
   return { clock, orgs, khalid, audits, service };
 }
 

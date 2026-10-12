@@ -10,6 +10,7 @@ import {
   type MerchantCommissionView,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { AuditLogService } from '../controls/index.js';
 import { ORDERS_RULES } from '../orders/index.js';
 import { OrgsService, type Org } from '../orgs/index.js';
@@ -48,6 +49,7 @@ export class CommissionTierService {
     private readonly orgs: OrgsService,
     private readonly audits: AuditLogService,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly uow: UnitOfWork,
   ) {}
 
   async view(merchantOrgId: string): Promise<MerchantCommissionView> {
@@ -78,15 +80,21 @@ export class CommissionTierService {
     if (org.members.some((m) => m.personId === actor.personId)) throw new DriverError('staff_own_account');
     const from = org.merchant?.commissionTier ?? null;
     if (from !== input.tier) {
-      await this.orgs.setMerchantSettings(org.id, { commissionTier: input.tier });
-      await this.audits.record({
-        cityId: org.cityId,
-        actorId: actor.personId,
-        action: COMMISSION_TIER_AUDIT.action,
-        subjectKind: COMMISSION_TIER_AUDIT.subjectKind,
-        subjectId: org.id,
-        summaryAr: `غيّر عمولة ${org.name} لـ${TIER_AR[input.tier]} (${tierRatePct(input.tier)}%)`,
-        detail: { from, to: input.tier, fromPct: tierRatePct(from ?? ORDERS_RULES.defaultCommissionTier), toPct: tierRatePct(input.tier) },
+      // The rate and its audit row commit together: a failed audit write leaves the rate as it was.
+      await this.uow.run(async (tx) => {
+        await this.orgs.setMerchantSettings(org.id, { commissionTier: input.tier });
+        await this.audits.record(
+          {
+            cityId: org.cityId,
+            actorId: actor.personId,
+            action: COMMISSION_TIER_AUDIT.action,
+            subjectKind: COMMISSION_TIER_AUDIT.subjectKind,
+            subjectId: org.id,
+            summaryAr: `غيّر عمولة ${org.name} لـ${TIER_AR[input.tier]} (${tierRatePct(input.tier)}%)`,
+            detail: { from, to: input.tier, fromPct: tierRatePct(from ?? ORDERS_RULES.defaultCommissionTier), toPct: tierRatePct(input.tier) },
+          },
+          tx,
+        );
       });
     }
     return this.view(org.id);
