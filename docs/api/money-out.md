@@ -9,7 +9,32 @@ amount or money rule changes: the limits are the existing ones.
 | `finance.payMerchant` | mutation | `finance` | `{ cityId, merchantId, amountIqd, channel: zaincash \| bank \| ops_round, idempotencyKey (8–128) }` | `{ reference (M-XXXX-XXXX), amountIqd, leftIqd }` |
 | `finance.payDriver` | mutation | `finance` | `{ cityId, driverId, amountIqd, channel: zaincash \| agent \| ops_round \| bank, idempotencyKey }` | `{ reference (D-XXXX-XXXX), amountIqd, leftIqd }` |
 | `finance.adjust` | mutation | `finance` | `{ cityId, fromAccount, toAccount, amountIqd, reason (5–500), incidentId }` | `{ adjustmentId, status: posted \| pending_second_approval, amountIqd, approvalId }` |
+| `finance.commission` | query | `finance`, `admin` | `{ merchantOrgId }` | `MerchantCommissionView` |
+| `finance.setCommissionTier` | mutation | `finance`, `admin` | `{ merchantOrgId, tier: starter \| base \| featured \| marketing }` | `MerchantCommissionView` |
 | `merchantAdmin.money.receiveCourierCash` | mutation | the restaurant's owner | see `docs/api/partner-merchant-wave2.md` | `MerchantCashAccount` |
+
+## A restaurant's commission tier
+
+Money §1 tiers come from the city's money rules: `starter` 5 %, `base` 12 %, `featured` 15 %,
+`marketing` 18 % (`pickup` 5 % is the rate of pickup orders, not a tier a store is put on, so the
+control refuses it). Ali, 2026-10-11: every new restaurant starts on `starter` for its first two months,
+and a restaurant with no tier on file is charged at `starter` too (`ORDERS_RULES.defaultCommissionTier`).
+`ops.merchantOnboarding` takes an optional `commissionTier` (default `starter`) and writes the same
+audit row. The ledger posts the tier read at delivery and keeps it in the commission memo
+(`commission:<tier>`), so a change applies to later orders only. `featured` never changes list order.
+
+`MerchantCommissionView`: `{ merchantOrgId, name, tier, pct, onFile, starterSince, starterDays,
+reviewDue, lastChange: { at, byName, from, to } | null, options: [{ tier, pct }] }`. The starter period
+counts from the restaurant's onboarding (`orgs.created_at`, the date every merchant already has).
+**Nothing switches automatically.** From day 49 (7 weeks; `STARTER_COMMISSION.reviewAfterDays`) on
+starter, `reviewDue` is true and the finance desk (`finance.desk` → `commissionDue[]`: `{ merchantOrgId,
+name, starterSince, days }`, longest first) shows «سعر البداية قرّب يخلص» with «اختار العمولة»; the
+Console store page shows the same card to finance and admins. Picking the same tier again writes
+nothing. Nobody sets the tier of a shop he belongs to (`staff_own_account`).
+Audit: `store.commission_tier_set` (subject `store`, detail `{ from, to, fromPct, toPct }`).
+
+The Merchant app's weekly statement (`merchantAdmin.money.statement`) carries `rate: { tier, pct,
+starterSince }`: «عمولتك هسة 5% · سعر البداية من 12 تشرين الأول».
 
 ## Paying a restaurant
 

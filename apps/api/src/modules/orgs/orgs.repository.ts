@@ -26,7 +26,7 @@ export interface OrgFilter {
  * and phones are read through identity (vault), never stored here.
  */
 export interface OrgsRepository {
-  create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[] }, tx?: Tx): Promise<Org>;
+  create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date }, tx?: Tx): Promise<Org>;
   get(orgId: string, tx?: Tx): Promise<Org | null>;
   list(filter: OrgFilter, tx?: Tx): Promise<Org[]>;
   /** Adds the member or replaces its role and limit. */
@@ -51,9 +51,9 @@ export class InMemoryOrgsRepository implements OrgsRepository {
   private readonly approvalRows = new Map<string, PayerApprovalRequest>();
   private seq = 0;
 
-  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[] }): Promise<Org> {
+  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date }): Promise<Org> {
     this.seq += 1;
-    const org: Org = { id: `org_${this.seq}`, type: input.type, name: input.name, cityId: input.cityId, members: input.members.map((m) => ({ ...m })) };
+    const org: Org = { id: `org_${this.seq}`, type: input.type, name: input.name, cityId: input.cityId, members: input.members.map((m) => ({ ...m })), createdAt: input.createdAt ?? new Date() };
     if (isMerchantType(input.type)) org.merchant = { ...DEFAULT_MERCHANT_SETTINGS };
     this.orgs.set(org.id, org);
     return clone(org);
@@ -149,6 +149,7 @@ interface OrgRow {
   pickupPhotoRefs?: string[];
   pickupUpdatedAt?: Date | null;
   setup?: unknown;
+  createdAt: Date;
   members: Array<{ personId: string; role: string; spendingLimitIqd: number | null; monthlyBudgetIqd?: number | null }>;
 }
 
@@ -187,6 +188,7 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
     name: r.name,
     cityId: r.cityId,
     members: r.members.map((m) => ({ personId: m.personId, role: m.role as OrgMember['role'], spendingLimitIqd: m.spendingLimitIqd, monthlyBudgetIqd: m.monthlyBudgetIqd ?? null })),
+    createdAt: r.createdAt,
   };
   if (isMerchantType(type)) {
     org.merchant = {
@@ -241,10 +243,11 @@ export class PrismaOrgsRepository implements OrgsRepository {
     return rows.map((r) => orgFromRow(r, pins.get(r.id)));
   }
 
-  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[] }, tx?: Tx): Promise<Org> {
+  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date }, tx?: Tx): Promise<Org> {
     const db = this.db(tx);
     const row = await db.org.create({
       data: {
+        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
         type: input.type,
         name: input.name,
         cityId: input.cityId,

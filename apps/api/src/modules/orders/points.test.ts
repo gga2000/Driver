@@ -74,8 +74,8 @@ describe('points at checkout (W-02, J-D10)', () => {
 
   it('orders.quote says what the order earns, and the close allocates exactly that (joy o7)', async () => {
     const h = withPoints(0);
-    // 500 service fee + 15 % of 15,000 = 2,750 دينار of platform revenue → 27 points.
-    expect((await h.orders.quote('c1', h.foodInput())).pointsEarn).toBe(27);
+    // 500 service fee + 5 % (starter, the default tier) of 15,000 = 1,250 دينار of platform revenue → 12 points.
+    expect((await h.orders.quote('c1', h.foodInput())).pointsEarn).toBe(12);
     const o = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
     const t = await h.tripFor(o.id);
@@ -84,7 +84,7 @@ describe('points at checkout (W-02, J-D10)', () => {
     await h.trips.arrive(t.id, drop.id, 'd1', { pin: HOME });
     await h.dropoff(t.id, { cashCollectedIqd: 16_500 });
     await h.advance(2 * 60 * 60_000);
-    expect(h.events.last('order.points_allocated')!.payload).toMatchObject({ platformRevenueIqd: 2750, basePoints: 27 });
+    expect(h.events.last('order.points_allocated')!.payload).toMatchObject({ platformRevenueIqd: 1250, basePoints: 12 });
   });
 
   it('the ledger posts the same redemption when the order closes', async () => {

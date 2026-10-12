@@ -126,7 +126,7 @@ export default async function register(ctx) {
     if (shop) await identity.revokeRole(SYSTEM, { personId: ownerId, kind: 'merchant_owner', orgId: shop.id });
     seq += 1;
     shop = await orgs.create({ type: 'restaurant', name: SHOP, cityId: 'aziziyah', ownerId });
-    await orgs.setMerchantSettings(shop.id, { location: KITCHEN, commissionTier: 'base' });
+    await orgs.setMerchantSettings(shop.id, { location: KITCHEN, commissionTier: 'starter' });
     await identity.grantRole(SYSTEM, { personId: ownerId, kind: 'merchant_owner', orgId: shop.id });
     // The shop is new (no storefront): its first read starts «جهّز محلك», as for a real signed-up shop.
     await setup.adopt(shop);

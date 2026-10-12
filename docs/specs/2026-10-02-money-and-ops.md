@@ -3,7 +3,9 @@
 Date: 2026-10-02 · Status: approved — Plan 2 complete, Q1–Q6. All amounts IQD; every figure here is config per city/zone, not code.
 
 ## 1. Restaurant commission
-Tiered by what the merchant receives: 12% base listing · 15% featured placement · 18% marketing deals. 5% on pickup orders. Lower tiers conditional on price parity (in-app price = in-store price). Customer service fee: fixed 500 per order, shown as its own line.
+Tiered by what the merchant receives: 12% base listing · 15% featured placement · 18% marketing deals. 5% on pickup orders.
+
+**Starter tier (Ali, 2026-10-11): 5% for a new restaurant's first two months** ("make it 5% in the first couple of months for us, and 15% for featured placement"; "two months then decide later"). Every new restaurant starts on `starter`, as does any restaurant with no tier on file. The period counts from the day the restaurant was added (onboarding, `orgs.created_at`). Nothing switches automatically: after 7 weeks (49 days) the Console finance desk and the store page show a reminder, and finance or an admin picks the next tier (audited). `featured` is a rate tier only; it does not change list order (no paid ranking). Base, marketing and pickup rates are unchanged. Lower tiers conditional on price parity (in-app price = in-store price). Customer service fee: fixed 500 per order, shown as its own line.
 
 ## 2. Delivery fees and courier pay (food, grocery)
 Delivery fees pass through to the courier in full.

@@ -21,6 +21,7 @@ import { DispatchService } from '../dispatch/index.js';
 import { EventsService } from '../events/index.js';
 import { CapsService, LedgerService } from '../ledger/index.js';
 import { OrgsService } from '../orgs/index.js';
+import { CommissionTierService } from './commission.service.js';
 
 /** The week-one cash collection round (launch playbook §4): 23:00 local. */
 export const ROUND_HOUR_LOCAL = 23;
@@ -130,6 +131,7 @@ export class FinanceDeskService {
     private readonly audits: AuditLogService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly commission: CommissionTierService,
     @Optional() @Inject(CASH_ROUND_FROM_HOUR) private readonly roundFromHour: number = ROUND_WINDOW_FROM_HOUR,
   ) {}
 
@@ -285,7 +287,7 @@ export class FinanceDeskService {
 
   async desk(actor: Actor, cityId: string): Promise<FinanceDeskView> {
     const now = this.clock.now();
-    const [couriers, merchants, handovers, nightly] = await Promise.all([this.couriers(actor, cityId), this.merchants(cityId), this.handovers(actor, startOfLocalDay(now), now), this.nightly()]);
+    const [couriers, merchants, handovers, nightly, commissionDue] = await Promise.all([this.couriers(actor, cityId), this.merchants(cityId), this.handovers(actor, startOfLocalDay(now), now), this.nightly(), this.commission.due(cityId)]);
     return {
       cityId,
       at: now,
@@ -301,6 +303,7 @@ export class FinanceDeskService {
         collectedTodayIqd: handovers.reduce((a, h) => a + h.amountIqd, 0),
         couriersOverCap: couriers.filter((c) => c.overCap).length,
       },
+      commissionDue,
     };
   }
 

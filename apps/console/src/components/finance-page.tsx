@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { CourierCashRow, FinanceDeskView, HandoverRow, MerchantPayableRow, SettlementExportInput } from '@driver/contracts';
+import { COMMISSION_TIER_ROLES, type CourierCashRow, type FinanceDeskView, type HandoverRow, type MerchantPayableRow, type SettlementExportInput } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useMemo, useState } from 'react';
 import { arabicDay, CASH_LEVEL_CLS, cashLevel, downloadCsv, merchantWords, netWords, owedWords } from '@/lib/control-room';
@@ -13,6 +13,7 @@ import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { PersonName } from './named';
+import { CommissionDueCard } from './commission-card';
 import { CollectionRound } from './finance-round';
 import { AdjustCard, PayDialog, useCanPayOut } from './money-out';
 import {
@@ -123,6 +124,7 @@ function ExportMenu() {
 
 export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
   const canPay = useCanPayOut();
+  const { roles } = useMyRoles();
   const overCap = desk.couriers.filter((c) => c.overCap);
   return (
     <div className="space-y-5">
@@ -145,6 +147,7 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <CouriersTable rows={desk.couriers} />
         <div className="space-y-5">
+          <CommissionDueCard rows={desk.commissionDue} canSet={hasAny(roles, COMMISSION_TIER_ROLES)} />
           <MerchantsCard rows={desk.merchants} />
           <HandoversCard rows={desk.handovers} />
         </div>
