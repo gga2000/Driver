@@ -436,6 +436,7 @@ export class OrdersService implements OnModuleInit {
     }
     const preferredDriverId = await this.rideBooking(ordererId, input, now);
     assertNotScheduledCourierOrder(input);
+    assertErrandCash(input);
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
@@ -2381,6 +2382,14 @@ const PLATFORM_PROMO_LABEL = { ar: 'خصم درايفر', en: 'Driver discount' 
  */
 function assertNotScheduledCourierOrder(input: { type: OrderType; scheduledFor?: Date | undefined }): void {
   if ((input.type === 'parcel' || input.type === 'errand') && input.scheduledFor) throw new DriverError('invalid_input');
+}
+
+/**
+ * «دوّرلي» is cash only for now: the shopper's receipt sets the goods' price after placement, and a
+ * wallet hold placed on the list's estimate could then outgrow the balance (docs/api/errand-receipt.md).
+ */
+function assertErrandCash(input: { type: OrderType; paymentMethod: string }): void {
+  if (input.type === 'errand' && input.paymentMethod !== 'cash') throw new DriverError('errand_cash_only');
 }
 
 /** "سلّمته" (S-M4) is recorded on a ready order, or right after the courier confirmed the pickup himself. */

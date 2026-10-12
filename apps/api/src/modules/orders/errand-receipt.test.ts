@@ -157,3 +157,13 @@ describe('«دوّرلي» pickup guard (the shops stop waits for the receipt)',
     expect(asked).toEqual([]);
   });
 });
+
+describe('«دوّرلي» is cash only for now', () => {
+  it('a wallet errand is refused at placement and nothing is written', async () => {
+    const h = ordersHarness();
+    const errandItem = { unit: 'piece' as const, where: { kind: 'near' as const }, ifMissing: 'call' as const, maxIqd: null, photoUploadId: null, voiceUploadId: null, voiceSec: null, listMaxIqd: 10_000 };
+    const input = { cityId: 'aziziyah', type: 'errand' as const, paymentMethod: 'wallet' as const, pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [{ freeText: 'صمون', qty: 4, errandItem }] };
+    expect(await code(h.orders.place('c1', input))).toBe('errand_cash_only');
+    expect(h.events.ofType('order.placed')).toEqual([]);
+  });
+});

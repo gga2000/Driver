@@ -365,6 +365,7 @@ export const ERROR_TABLE = {
   booking_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   hold_expired: { i18n: 'intercity.hold_expired', retryHint: 'never', status: 'CONFLICT' },
   wallet_insufficient: { retryHint: 'never', status: 'CONFLICT' },
+  errand_cash_only: { retryHint: 'never', status: 'BAD_REQUEST' },
   cash_reservation_revoked: { retryHint: 'never', status: 'FORBIDDEN' },
   // Step 4b: a rider who still owes a no-show amount books with the wallet deposit until it is paid.
   cash_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },

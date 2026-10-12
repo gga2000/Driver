@@ -48,4 +48,4 @@ The shopper must never be stuck at a pickup. These are the ways out:
 ## Open with Ali
 
 - The rule itself: the customer pays the receipt, and over the ceiling the shopper calls first and the receipt is never blocked.
-- Wallet errands: the server allows them today. The customer app only sends cash.
+- Wallet errands: the server refuses them for now (`errand_cash_only` at placement), because a receipt raises the total after a wallet hold was placed. The customer app only sends cash. If Ali allows the wallet, the receipt needs a balance check first.

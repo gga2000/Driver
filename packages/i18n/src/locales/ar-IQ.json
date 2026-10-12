@@ -9671,5 +9671,6 @@
   "error.errand_receipt_missing": "سجّل الوصل قبل لا تطلع من المحلات",
   "partner.errand.receipt_first": "سجّل الوصل أول، بعدين اشتريت الليستة",
   "partner.errand.receipt_queued": "انحفظ الوصل بالتلفون، يندز أول ما يرجع النت",
-  "partner.errand.receipt_waiting": "ينتظر النت حتى يندز"
+  "partner.errand.receipt_waiting": "ينتظر النت حتى يندز",
+  "error.errand_cash_only": "دوّرلي بالكاش بس هسه"
 }

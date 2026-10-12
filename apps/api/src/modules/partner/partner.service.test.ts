@@ -187,7 +187,7 @@ function harness(
         opts.rideFor
           ? order({ type: 'ride', merchantOrgId: null, participants: [{ id: 'pt1', role: 'rider', personId: 'mum', label: null, note: null }] as Order['participants'] })
           : opts.errandOrder
-            ? order({ type: 'errand', merchantOrgId: null })
+            ? order({ type: 'errand', merchantOrgId: null, lines: [] })
             : opts.rideOrder
             ? order({ type: 'ride', merchantOrgId: null, ...(opts.rideCargo ? { rideCargo: opts.rideCargo } : {}) })
             : id === 'o2'

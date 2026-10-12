@@ -9671,5 +9671,6 @@
   "error.errand_receipt_missing": "Record the receipt before you leave the shops",
   "partner.errand.receipt_first": "Record the receipt first, then mark the list bought",
   "partner.errand.receipt_queued": "Receipt saved on the phone; it sends when the internet is back",
-  "partner.errand.receipt_waiting": "Waiting for the internet to send"
+  "partner.errand.receipt_waiting": "Waiting for the internet to send",
+  "error.errand_cash_only": "Shop-for-me is cash only for now"
 }
