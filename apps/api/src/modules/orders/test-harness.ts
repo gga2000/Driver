@@ -10,6 +10,7 @@ import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter, type EtaCorrection } from '../routing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { RecordingOrderEvents } from './events.adapter.js';
+import type { OrdersControlsPort } from './controls.port.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository } from './orders.repository.js';
 import { OrdersService, type OrdersCashRiskPort, type OrderTimerJob } from './orders.service.js';
@@ -159,7 +160,7 @@ export class FakePromotions extends MerchantDealsPromotions implements Promotion
  * `etaCorrection` gives it a learned correction (on the harness clock); placement locks the promise's
  * ride from it.
  */
-export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection } = {}) {
+export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection; controls?: OrdersControlsPort } = {}) {
   const clock = new FakeClock(start);
   const eta = new EtaService(new StraightLineRouter(), opts.etaCorrection?.(clock));
   const uow = new UnitOfWork(new NoDatabaseRunner());
@@ -210,7 +211,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     },
     // Opening hours and minimum: none until a test saves a storefront (`catalog.saveStorefront`).
     storefront: (orgId) => catalog.storefront(orgId),
-  }, promotions, undefined, {
+  }, promotions, opts.controls, {
     // C-04: wallet balances by payer (customer or household); unset = 0.
     balanceIqd: async ({ customerId, householdId }) => wallets.get(householdId ? `household:${householdId}` : `customer:${customerId}`) ?? 0,
     // W-02: points balances by person (`points:<id>`); unset = 0.
