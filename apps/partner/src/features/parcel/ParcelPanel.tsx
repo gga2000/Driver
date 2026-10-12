@@ -40,7 +40,7 @@ export default function ParcelPanel({ orderId, stop }: { orderId: string | null;
     <Animated.View entering={theme.reduceMotion ? undefined : FadeIn.duration(180)} testID="parcel-panel" style={{ gap: theme.space[3] }}>
       <ParcelCard view={view} />
       {atDoor ? <PayLine view={view} /> : null}
-      {stage === 'pickup' && orderId ? <PickupPhoto orderId={orderId} /> : null}
+      {stage === 'pickup' && orderId ? <PickupPhoto orderId={orderId} onParcel={view.pickupPhoto === true} /> : null}
       {stage === 'to_door' ? <Note testID="parcel-pin-at-door" icon="lock" title={t('parcel.k_pin_at_door')} bg={theme.colors.accentTint} ink={theme.colors.accentText} /> : null}
       {stage === 'pin' && orderId ? <PinStep orderId={orderId} view={view} /> : null}
       {stage === 'verified' ? <Note testID="parcel-pin-verified" icon="check" title={t('parcel.pin_verified')} body={t('parcel.k_verified_sub')} bg={theme.colors.successTint} ink={theme.colors.successText} /> : null}
@@ -104,26 +104,32 @@ const PICKUP_PHOTOS = new Map<string, PickupPhotoState>();
 
 /**
  * «صوّر الطرد عند الاستلام»: the camera (the photo library where there is none), then the upload. A failed
- * upload says so and offers a retry; it never holds up the job.
+ * upload or a failed save on the parcel (`parcels.courier.pickupPhoto`) says so and offers a retry; it never
+ * holds up the job.
  */
-function PickupPhoto({ orderId }: { orderId: string }) {
+function PickupPhoto({ orderId, onParcel }: { orderId: string; onParcel: boolean }) {
   const theme = useTheme();
-  const t = useT();
   const client = useApiClient();
-  const [state, setStateRaw] = useState<PickupPhotoState>(PICKUP_PHOTOS.get(orderId) ?? { kind: 'none' });
+  const t = useT();
+  const actions = useParcelActions(orderId);
+  // Seeded from the server: a photo already on the parcel shows as saved (even from another phone).
+  const [state, setStateRaw] = useState<PickupPhotoState>(PICKUP_PHOTOS.get(orderId) ?? (onParcel ? { kind: 'saved', photo: null } : { kind: 'none' }));
   const [denied, setDenied] = useState(false);
   const setState = (s: PickupPhotoState) => {
     PICKUP_PHOTOS.set(orderId, s);
     setStateRaw(s);
   };
-  const upload = async (photo: PickedPhoto) => {
+  /** Upload (unless already uploaded), then save it on the parcel; either failing offers the same retry. */
+  const upload = async (photo: PickedPhoto, uploaded?: string) => {
     setState({ kind: 'uploading', photo });
+    let uploadId = uploaded;
     try {
-      const uploadId = await uploadPhoto(photo, (input) => client.places.photoUpload.mutate(input));
-      setState({ kind: 'saved', photo, uploadId });
+      uploadId ??= await uploadPhoto(photo, (input) => client.places.photoUpload.mutate(input));
+      await actions.pickupPhoto.mutateAsync({ orderId, uploadId });
+      setState({ kind: 'saved', photo });
       theme.haptic('success');
     } catch {
-      setState({ kind: 'failed', photo });
+      setState({ kind: 'failed', photo, ...(uploadId ? { uploadId } : {}) });
       theme.haptic('warning');
     }
   };
@@ -142,7 +148,7 @@ function PickupPhoto({ orderId }: { orderId: string }) {
   return (
     <View testID="parcel-pickup-photo" style={{ gap: theme.space[3], padding: theme.space[4], borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceSunken }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        {state.kind === 'none' ? (
+        {state.kind === 'none' || !state.photo ? (
           <View style={{ width: 56, height: 56, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="camera" size={24} color="text" strokeWidth={2} />
           </View>
@@ -180,7 +186,7 @@ function PickupPhoto({ orderId }: { orderId: string }) {
           <Text variant="caption" color="dangerText">
             {t('parcel.k_photo_failed_sub')}
           </Text>
-          <Button testID="parcel-photo-retry" label={t('action.retry')} icon="refresh" variant="secondary" size="md" fullWidth onPress={() => void upload(state.photo)} />
+          <Button testID="parcel-photo-retry" label={t('action.retry')} icon="refresh" variant="secondary" size="md" fullWidth onPress={() => void upload(state.photo, state.uploadId)} />
         </View>
       ) : null}
       {denied ? (

@@ -47,5 +47,7 @@ export function pinComplete(pin: string): boolean {
 export type PickupPhotoState =
   | { kind: 'none' }
   | { kind: 'uploading'; photo: PickedPhoto }
-  | { kind: 'saved'; photo: PickedPhoto; uploadId: string }
-  | { kind: 'failed'; photo: PickedPhoto };
+  /** On the parcel (`parcels.courier.pickupPhoto`); `photo` is null when only the server says so (another session). */
+  | { kind: 'saved'; photo: PickedPhoto | null }
+  /** The upload or saving it on the parcel failed; `uploadId` set = uploaded, only the save is retried. */
+  | { kind: 'failed'; photo: PickedPhoto; uploadId?: string };

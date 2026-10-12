@@ -29,6 +29,7 @@ export function useParcelActions(orderId: string | null) {
   return {
     checkPin: useMutation({ ...api.parcels.courier.checkPin.mutationOptions(), onSuccess: store }),
     refuse: useMutation({ ...api.parcels.courier.refuse.mutationOptions(), onSuccess: store }),
+    pickupPhoto: useMutation({ ...api.parcels.courier.pickupPhoto.mutationOptions(), onSuccess: store }),
     refetch: () => qc.invalidateQueries({ queryKey: api.parcels.courier.job.queryKey({ orderId: orderId ?? '' }) }),
   };
 }
