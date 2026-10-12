@@ -96,6 +96,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId), lastPosition: (tripId) => trips.lastPosition(tripId), pickupsByZone: (cityId, from, to) => trips.pickupsByZone(cityId, from, to) },
         orders: {
           get: (orderId) => orders.get(orderId).catch(() => null),
+          errandReceipt: (courierId, input) => orders.recordErrandReceipt(courierId, input),
           startCodeRequired: async (orderId) => (await orders.startCodeOf(orderId)) !== null,
           // c9/s3: who he picks up when the ride was booked for someone else (a logged vault read).
           riderName: async (orderId, driverId) => (await orders.riderOf(orderId, driverId, 'partner_rider'))?.name ?? null,

@@ -25,6 +25,8 @@ import {
   type PartnerJob,
   type PartnerDoor,
   type PartnerPickupSpot,
+  type PartnerErrandReceipt,
+  type PartnerErrandReceiptInput,
   type PartnerShopItem,
   type PartnerShopList,
   type PartnerJobStop,
@@ -129,6 +131,18 @@ export class PartnerService implements PartnerPort {
     const climate = this.deps.climate;
     if (!climate || !servedVerticals(roles, vehicle).includes('taxi')) return null;
     return climate.check(driverId);
+  }
+
+  /**
+   * «دوّرلي»: the shops' receipt total and photo, from the courier of this trip at its errand shops
+   * stop. Orders does the money and the checks that matter (arrived, not picked up, his own photo).
+   */
+  async errandReceipt(actor: Actor, input: PartnerErrandReceiptInput): Promise<PartnerErrandReceipt> {
+    const trip = await this.deps.trips.get(input.tripId);
+    if (trip.courierId !== actor.personId) throw new DriverError('forbidden');
+    const stop = trip.stops.find((s) => s.id === input.stopId);
+    if (!stop || stop.type !== 'pickup' || !stop.orderId || !this.deps.orders.errandReceipt) throw new DriverError('order_state_conflict');
+    return this.deps.orders.errandReceipt(actor.personId, { orderId: stop.orderId, totalIqd: input.totalIqd, photoUploadId: input.photoUploadId });
   }
 
   /** نعم / لا for this shift; only while the question stands (`climate_check_none` otherwise). */

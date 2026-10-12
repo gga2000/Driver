@@ -376,6 +376,18 @@ export const PartnerShopList = z.object({
 });
 export type PartnerShopList = z.infer<typeof PartnerShopList>;
 
+/** «دوّرلي»: the receipt total he paid at the shops and its photo (his own upload), at the shops stop before «اشتريت الليستة». */
+export const PartnerErrandReceiptInput = z.object({
+  tripId: z.string().min(1),
+  stopId: z.string().min(1),
+  totalIqd: Iqd.positive().max(10_000_000),
+  photoUploadId: z.string().regex(/^[A-Za-z0-9_-]{8,80}$/),
+});
+export type PartnerErrandReceiptInput = z.infer<typeof PartnerErrandReceiptInput>;
+/** What the customer now owes at the door, and whether the receipt is over the list's ceiling (he should have called; never blocked). */
+export const PartnerErrandReceipt = z.object({ receiptIqd: Iqd, cashDueIqd: Iqd, overCeiling: z.boolean() });
+export type PartnerErrandReceipt = z.infer<typeof PartnerErrandReceipt>;
+
 export const PartnerJobStop = z.object({
   stopId: z.string(),
   seq: z.number().int(),
@@ -480,6 +492,7 @@ export interface PartnerPort {
   demandGlow(actor: Actor): Promise<PartnerDemandGlow>;
   /** «المكيّفة شغالة اليوم؟» نعم / لا for this shift (ride idea x1); `climate_check_none` when nothing is asked. */
   answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus>;
+  errandReceipt(actor: Actor, input: PartnerErrandReceiptInput): Promise<PartnerErrandReceipt>;
   /** «مشاوير باچر» (review #28): rides booked for later he confirmed, and the ones he may confirm. */
   bookedJobs(actor: Actor): Promise<PartnerBookedJobs>;
   /** Confirm / pass on an open booked job, release or start his own; answers with the fresh list. */

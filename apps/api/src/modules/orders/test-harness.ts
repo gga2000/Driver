@@ -1,3 +1,4 @@
+import type { OrdersUploadsPort } from './catalog.port.js';
 import { createHash } from 'node:crypto';
 import { AZIZIYAH_MONEY_RULES, type LatLng, type PlaceOrderInput } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
@@ -160,7 +161,7 @@ export class FakePromotions extends MerchantDealsPromotions implements Promotion
  * `etaCorrection` gives it a learned correction (on the harness clock); placement locks the promise's
  * ride from it.
  */
-export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection; controls?: OrdersControlsPort } = {}) {
+export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection; controls?: OrdersControlsPort; uploads?: OrdersUploadsPort } = {}) {
   const clock = new FakeClock(start);
   const eta = new EtaService(new StraightLineRouter(), opts.etaCorrection?.(clock));
   const uow = new UnitOfWork(new NoDatabaseRunner());
@@ -223,7 +224,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
       const resolve = placeZones.resolve;
       return resolve ? { resolve } : undefined;
     },
-  }, orgsHouseholds(orgs), eta);
+  }, orgsHouseholds(orgs), eta, undefined, opts.uploads);
   orders.onModuleInit();
   // c9/s3: a ride for someone else, as OrdersModule binds it (identity stood in for).
   const riderIdentity = new FakeRiderIdentity(people);

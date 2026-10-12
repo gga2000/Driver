@@ -1176,6 +1176,46 @@ export class OrdersService implements OnModuleInit {
     await this.merchants.heartbeat(merchantOrgId, this.clock.now());
   }
 
+  // ───────────────────────── «دوّرلي» shopper ─────────────────────────
+
+  /**
+   * «دوّرلي»: what the shopper paid at the shops, typed from the receipt with its photo, at the shops
+   * stop (arrived, not yet completed). The goods become the receipt: the customer pays it plus the
+   * errand's fees and tip (cash rounds up to 250 as everywhere), and the ledger's `actualCostIqd`
+   * reads it. A second entry before the pickup replaces the first (both stay on the history); after
+   * the pickup it is locked. Over the customer's list ceiling it still records, flagged for the desk.
+   */
+  async recordErrandReceipt(courierId: string, input: { orderId: string; totalIqd: number; photoUploadId: string }): Promise<{ receiptIqd: number; totalIqd: number; cashDueIqd: number; overCeiling: boolean }> {
+    if (!Number.isInteger(input.totalIqd) || input.totalIqd <= 0) throw new DriverError('invalid_input');
+    return this.uow.run(async (tx) => {
+      const { order, lines } = await this.load(input.orderId, tx);
+      if (order.type !== 'errand') throw new DriverError('order_state_conflict');
+      const trip = await this.trips.activeForOrder(order.id);
+      if (!trip || trip.courierId !== courierId) throw new DriverError('forbidden');
+      const pickup = trip.stops.find((st) => st.orderId === order.id && st.type === 'pickup') ?? null;
+      if (!pickup || pickup.state !== 'arrived') throw new DriverError('order_state_conflict');
+      const photo = this.uploads ? await this.uploads.get(input.photoUploadId) : null;
+      if (!photo || photo.ownerId !== courierId || photo.state !== 'stored') throw new DriverError('upload_invalid');
+      const priced = { ...order, itemsTotalIqd: input.totalIqd };
+      const { totalIqd } = payable(order.type, order.paymentMethod, orderPriceIqd(priced));
+      const next = await this.repo.updateIf(order.id, order.state, { receiptTotalIqd: input.totalIqd, itemsTotalIqd: input.totalIqd, totalIqd }, tx);
+      if (!next) throw new DriverError('order_state_conflict');
+      const ceiling = lines.find((l) => l.errandItem?.listMaxIqd != null)?.errandItem?.listMaxIqd ?? null;
+      const overCeiling = ceiling !== null && input.totalIqd > ceiling;
+      await this.emit(tx, 'order.errand_receipt', courierId, next, {
+        orderId: order.id,
+        tripId: trip.id,
+        courierId,
+        receiptIqd: input.totalIqd,
+        previousIqd: order.receiptTotalIqd,
+        photoUploadId: input.photoUploadId,
+        overCeiling,
+        ...(overCeiling ? { ceilingIqd: ceiling, dispatcherCard: true } : {}),
+      });
+      return { receiptIqd: input.totalIqd, totalIqd: next.totalIqd, cashDueIqd: next.paymentMethod === 'cash' ? cashDueIqd(next) : 0, overCeiling };
+    });
+  }
+
   // ───────────────────────── customer side ─────────────────────────
 
   /** Partial-accept answer (review A.4): approve the reduced order, or cancel free. */

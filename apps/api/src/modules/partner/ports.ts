@@ -112,6 +112,8 @@ export interface PartnerDeps {
     recipientName?(orderId: string, driverId: string): Promise<string | null>;
     /** o10: rides the ride's orderer finished before this one (a count, no names). Optional for fakes. */
     riderTrips?(orderId: string): Promise<number | null>;
+    /** «دوّرلي»: `OrdersService.recordErrandReceipt` (it checks the courier, the stop and the photo). Optional for fakes. */
+    errandReceipt?(courierId: string, input: { orderId: string; totalIqd: number; photoUploadId: string }): Promise<{ receiptIqd: number; cashDueIqd: number; overCeiling: boolean }>;
   };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };
