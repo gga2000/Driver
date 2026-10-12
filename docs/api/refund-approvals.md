@@ -49,7 +49,8 @@ aggregate `refund_approval:<id>`). A decision also writes a Console audit row,
 ## Ledger corrections (`kind: 'adjustment'`)
 
 A hand-written ledger correction above 25,000 (`finance.adjust`, limit `adjustment`,
-`MoneyRules.adjustments.secondApproverAboveIqd`) waits in the same queue, so it survives a restart and
+`MoneyRules.adjustments.secondApproverAboveIqd`), or one that would take the person's solo corrections
+above 50,000 that Baghdad day (`soloDailyMaxIqd`), waits in the same queue, so it survives a restart and
 any API machine can approve it. Only **finance** approves it (an admin who is not finance gets
 `forbidden` and the request stays pending), never the person who asked. On approval the correction
 posts in the decision's transaction. See `docs/api/money-out.md`.
