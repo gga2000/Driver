@@ -127,3 +127,25 @@ describe('merchant_cash_held_within_courier_cash', () => {
     expect(check({ ...snapshot([], ledger), merchants: merchants(0, 0) })).toMatchObject({ violations: 1 });
   });
 });
+
+describe('errand_paid_equals_receipt_plus_fees («دوّرلي»)', () => {
+  // Receipt 18,700 + delivery 2,000 + service 500 + tip 1,000 = 22,200 → cash 22,250.
+  const errand = order({ id: 'e1', type: 'errand', state: 'closed', paymentMethod: 'cash', itemsTotalIqd: 18_700, deliveryFeeIqd: 2_000, serviceFeeIqd: 500, tipIqd: 1_000, totalIqd: 22_250, deliveredAt: AT });
+  const line = (type: LedgerEvent['type'], amount: number, toAccount: string): LedgerEvent => ({ id: `le_${type}`, kind: 'money', type, amount, currency: 'IQD', fromAccount: 'customer:c1', toAccount, orderId: 'e1', postingGroupId: 'order:e1:money', occurredAt: AT, recordedAt: AT });
+  const ledger = [line('errand_cost_actual', 18_700, 'driver:k1'), line('errand_fee', 2_000, 'driver:k1'), line('service_fee', 500, 'platform'), line('tip', 1_000, 'driver:k1')];
+  const receipts = [{ orderId: 'e1', courierId: 'k1', receiptIqd: 18_700, byStaff: false }];
+  const check = (s: SimSnapshot) => checkInvariants(s).find((r) => r.name === 'errand_paid_equals_receipt_plus_fees')!;
+
+  it('passes a receipt charged with its fees, the cash rounded up to 250, and the shopper credited', () => {
+    expect(check({ ...snapshot([errand, order({ id: 'o1' })], ledger), errandReceipts: receipts })).toMatchObject({ checked: 1, violations: 0 });
+  });
+
+  it('flags a total off the receipt, a ledger cost that is not the receipt, the wrong shopper and a missing receipt', () => {
+    expect(check({ ...snapshot([{ ...errand, totalIqd: 21_000 }], ledger), errandReceipts: receipts }).examples[0]).toMatch(/e1: total 21000 ≠ 22250/);
+    const cheap = ledger.map((e) => (e.type === 'errand_cost_actual' ? { ...e, amount: 15_000 } : e));
+    expect(check({ ...snapshot([errand], cheap), errandReceipts: receipts }).examples.join('\n')).toMatch(/ledger errand cost 15000 ≠ receipt 18700/);
+    const elsewhere = ledger.map((e) => (e.toAccount === 'driver:k1' ? { ...e, toAccount: 'driver:k2' } : e));
+    expect(check({ ...snapshot([errand], elsewhere), errandReceipts: receipts }).examples[0]).toMatch(/shopper k1 credited 0 ≠ 21700/);
+    expect(check({ ...snapshot([errand], ledger), errandReceipts: [] }).examples[0]).toMatch(/e1: delivered with no receipt/);
+  });
+});

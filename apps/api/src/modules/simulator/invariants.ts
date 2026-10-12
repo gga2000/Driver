@@ -1,5 +1,5 @@
 import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
-import type { DispatchMoment, DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import type { DispatchMoment, DoorCashRecord, ErrandReceiptRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -43,6 +43,8 @@ export interface SimSnapshot {
   merchants: Array<{ merchantId: string; balanceIqd: number; holders?: Array<{ courierId: string; amountIqd: number }> }>;
   /** Absent in hand-built snapshots. */
   guarantee?: GuaranteeSnapshot;
+  /** «دوّرلي» receipts the server accepted (absent in hand-built snapshots). */
+  errandReceipts?: ErrandReceiptRecord[];
   /** s1: every ride pickup the server completed (its `stop.completed` events); absent in hand-built snapshots. */
   rideStarts?: RideStartRecord[];
   errors: Array<{ where: string; message: string }>;
@@ -77,6 +79,10 @@ const MAX_EXAMPLES = 5;
 const LATE_PROMISE_GROUP = 'late_promise:';
 /** Posting group prefix of the tip after a good rating (`afterTipGroupId`). */
 const AFTER_TIP_GROUP = 'tip:';
+/** What a «دوّرلي» customer pays for (`postErrand`): the goods, the errand's delivery fee, the service fee, the tip. */
+const ERRAND_CHARGE_TYPES = new Set(['errand_cost_actual', 'errand_fee', 'service_fee', 'tip']);
+/** What the shopper is credited: the goods he paid for at the shops, the delivery fee and the tip. */
+const ERRAND_SHOPPER_TYPES = new Set(['errand_cost_actual', 'errand_fee', 'tip']);
 const TERMINAL_TRIPS = new Set(['completed', 'customer_cancelled', 'driver_cancelled', 'platform_cancelled', 'failed']);
 
 export const isPointsAccount = (a: string) => a.startsWith('points:') || a.startsWith('points_pending:') || a === 'points_pool';
@@ -625,6 +631,41 @@ export const INVARIANTS: readonly Definition[] = [
             break;
           }
         }
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'errand_paid_equals_receipt_plus_fees',
+    description:
+      '«دوّرلي»: every delivered errand costs the customer exactly its receipt + delivery fee + service fee + tip (a cash total rounded up to 250, the rest change to his wallet); the order\'s goods and the ledger\'s errand cost are the receipt, and the shopper who recorded it is credited the receipt, the delivery fee and the tip',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const receipts = new Map((s.errandReceipts ?? []).map((r) => [r.orderId, r]));
+      const rows = byOrder(s.ledger);
+      const step = RULES.cashStepIqd;
+      for (const o of s.orders) {
+        if (o.type !== 'errand' || o.deliveredAt === null || (o.state !== 'delivered' && o.state !== 'closed')) continue;
+        checked += 1;
+        const rec = receipts.get(o.id);
+        if (!rec) {
+          bad.push(`${o.id}: delivered with no receipt recorded`);
+          continue;
+        }
+        const price = rec.receiptIqd + o.deliveryFeeIqd + o.serviceFeeIqd + o.tipIqd;
+        const due = o.paymentMethod === 'cash' ? Math.ceil(price / step) * step : price;
+        if (o.itemsTotalIqd !== rec.receiptIqd) bad.push(`${o.id}: goods ${o.itemsTotalIqd} ≠ receipt ${rec.receiptIqd}`);
+        if (o.totalIqd !== due) bad.push(`${o.id}: total ${o.totalIqd} ≠ ${due} (receipt ${rec.receiptIqd} + delivery ${o.deliveryFeeIqd} + service ${o.serviceFeeIqd} + tip ${o.tipIqd}, ${o.paymentMethod})`);
+        const r = rows.get(o.id) ?? [];
+        const cost = sum(r, (e) => e.type === 'errand_cost_actual');
+        if (cost !== rec.receiptIqd) bad.push(`${o.id}: ledger errand cost ${cost} ≠ receipt ${rec.receiptIqd}`);
+        const charged = sum(r, (e) => ERRAND_CHARGE_TYPES.has(e.type)) - sum(r, (e) => e.type === 'promo_funded');
+        if (charged !== price) bad.push(`${o.id}: customer charged ${charged} ≠ ${price}`);
+        const shopper = `driver:${rec.courierId}`;
+        const credited = sum(r, (e) => ERRAND_SHOPPER_TYPES.has(e.type) && e.toAccount === shopper);
+        const owed = rec.receiptIqd + o.deliveryFeeIqd + o.tipIqd;
+        if (credited !== owed) bad.push(`${o.id}: shopper ${rec.courierId} credited ${credited} ≠ ${owed}`);
       }
       return { checked, bad };
     },

@@ -41,9 +41,19 @@ The shopper must never be stuck at a pickup. These are the ways out:
 
 1. **No network.** The amount and the photo stay on the phone. «سجّل الوصل» sends them once the network is back, and the phone treats a queued receipt as recorded. The server guard still decides in the end, so the pickup completes once the upload lands.
 2. **The shop had nothing.** The courier («مشكلة») or ops can cancel the trip at the shops with no receipt. The existing errand cancel path applies.
-3. **The photo keeps failing.** Today the courier reports it through «مشكلة», and support cancels the trip as in 2.
+3. **The photo keeps failing.** The courier reports it through «مشكلة» and reads the amount out. Ops record the receipt for him with `orders.ops.recordErrandReceipt` ([staff-ops.md](staff-ops.md)). It runs the same rules as his own entry, the photo is optional, and it writes a Console audit row. The pickup then completes as usual.
 
-**Open:** a Console action where ops record the receipt for the courier, with the amount he reads out and the photo sent to support. This needs lane E (Console) and lane A (an ops variant of `recordErrandReceipt`), and it should be in place before دوّرلي launches.
+**Open:** the Console button for `orders.ops.recordErrandReceipt` (lane E). The server side is in.
+
+## In the simulator
+
+`pnpm sim` plays «دوّرلي» runs on top of the order mix (3 % of `--orders`, cash, from their own seed stream). The in-process run opens errands in the city for its own app, since Aziziyah launches without them. The shopper buys the list, uploads the receipt photo and records the receipt, then completes the pickup. About one run in seven, the photo fails and ops record the receipt (`orders.ops.recordErrandReceipt`). The door collects the order's cash due.
+
+The invariant `errand_paid_equals_receipt_plus_fees` checks each delivered errand:
+
+- The total is receipt + delivery fee + service fee + tip, rounded up to 250 for cash.
+- The order's goods and the ledger's `errand_cost_actual` both equal the receipt.
+- The shopper who recorded it is credited the receipt, the delivery fee and the tip.
 
 ## Open with Ali
 

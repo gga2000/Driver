@@ -121,6 +121,11 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
     (s.dispatchLog ??= []).push({ tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_a', at: 0 }, { tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_b', at: 0 });
   },
+  errand_paid_equals_receipt_plus_fees: (s) => {
+    // The receipt recorded but the total still priced on the customer's guess (no server recompute).
+    const o = first(s.orders, 'a delivered errand', (x) => x.type === 'errand' && x.deliveredAt !== null);
+    o.totalIqd += 1_000;
+  },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };
 
