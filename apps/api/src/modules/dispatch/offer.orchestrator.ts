@@ -1324,6 +1324,22 @@ export class OfferOrchestrator {
     });
   }
 
+  /**
+   * Trips tells us cash was taken at a drop-off (`stop.completed`, before `trip.completed`): it is in
+   * his hand from now on, and counts toward his cap until the ledger posts it (a cash hold). Idempotent
+   * per stop, so a redelivered event changes nothing.
+   */
+  async cashCollected(tripId: string, stopId: string, amountIqd: number): Promise<void> {
+    if (amountIqd <= 0) return;
+    const r = await this.store.getRequest(tripId);
+    const driverId = r?.assignedDriverId;
+    if (!driverId) return;
+    const held = (await this.store.cashHolds(driverId)).find((h) => h.tripId === tripId);
+    const collected = { ...held?.collected, [stopId]: amountIqd };
+    const sum = Object.values(collected).reduce((n, v) => n + v, 0);
+    await this.store.addCashHold(driverId, { tripId, amountIqd: Math.max(held?.amountIqd ?? 0, sum), collected, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
+  }
+
   /** Trips tells us the courier has the order in the bag (batching skips its pickup from now on). */
   async markPickedUp(tripId: string): Promise<void> {
     const r = await this.store.getRequest(tripId);
@@ -1339,8 +1355,11 @@ export class OfferOrchestrator {
     if (r.assignedDriverId) {
       // The cash he took reaches the ledger after this event (order → ledger through the outbox).
       // Until it does it still counts toward his cap, or the gap would let an over-cap driver be offered.
-      const cash = r.cashIqd ?? 0;
-      if (cash > 0) await this.store.addCashHold(r.assignedDriverId, { tripId, amountIqd: cash, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
+      // The cash recorded at the door when trips told us (a whole note with change to the wallet, owed
+      // fees) can be more than the order's total; never count less than either.
+      const held = (await this.store.cashHolds(r.assignedDriverId)).find((h) => h.tripId === tripId);
+      const cash = Math.max(r.cashIqd ?? 0, held?.amountIqd ?? 0);
+      if (cash > 0) await this.store.addCashHold(r.assignedDriverId, { ...held, tripId, amountIqd: cash, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
       await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.presence.resetZoneClock(r.assignedDriverId);
     }

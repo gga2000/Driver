@@ -92,4 +92,27 @@ describe('cash of a finished job counts toward the cap until the ledger posts it
       }
     }
   });
+
+  it('holds the cash recorded at the door when it is more than the total (a whole note, change to the wallet)', async () => {
+    // Simulator seed 20: a 17,500 order paid with a 20,000 note (2,500 to the wallet). Holding only the
+    // order's total left him under his cap by dispatch's count, while the posting took him over it.
+    const ledger = ledgerHarness({ start: '2026-10-03T09:00:00Z' });
+    const h = dispatchHarness('2026-10-03T09:00:00Z', undefined, { caps: ledger.caps });
+    for (let i = 0; i < 3; i++) await ledger.posting.orderMoney(order(i));
+    await ledger.posting.orderMoney(workedExample({ orderId: 'o3', tripId: 'old3', courierId: 'k1', itemsSubtotalIqd: 10_000 }));
+    expect((await ledger.caps.status('k1')).owedIqd).toBe(57_000);
+    await h.online('k1', 0.2, { vehicle: 'tuktuk' });
+    await h.service.request({ tripId: 'f5', cityId: 'aziziyah', vertical: 'food', zoneId: 'centre', pickup: north(0), dropoffZoneId: 'centre', readyAt: h.clock.now(), hot: true, cashIqd: 17_500 });
+    const offer = await h.openOffer('f5', 'k1');
+    await h.service.respond(h.actor('k1'), { offerId: offer!.id, accept: true });
+
+    await h.orchestrator.cashCollected('f5', 'drop-1', 20_000); // stop.completed, before trip.completed
+    await h.orchestrator.cashCollected('f5', 'drop-1', 20_000); // a redelivery changes nothing
+    await h.orchestrator.jobFinished('f5'); // the request's 17,500 does not lower it
+    expect((await h.store.cashHolds('k1')).map((x) => x.amountIqd)).toEqual([20_000]);
+    expect(await ledger.caps.isOverCap('k1', 17_500)).toBe(false); // 74,500: the total alone let him through
+    expect(await h.orchestrator.isOverCap('k1')).toBe(true); // 77,000 with the note in his hand
+    await ride(h, 'r3');
+    expect(h.trips.offeredTo('r3')).not.toContain('k1');
+  });
 });

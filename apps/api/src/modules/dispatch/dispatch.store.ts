@@ -85,6 +85,8 @@ export interface CashHold {
   amountIqd: number;
   /** Epoch ms after which the hold is dropped even if no posting was seen (a trip that collected nothing). */
   until: number;
+  /** Cash recorded at each drop-off of the trip (stop id → amount), when trips told us; `amountIqd` is at least their sum. */
+  collected?: Record<string, number>;
 }
 
 export interface PolicyOverride {
