@@ -459,6 +459,7 @@ describe('InboxService — the Today list (CON-12)', () => {
     const h = harness();
     await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
     await h.emit('order.errand_receipt', { orderId: 'ord_ok', tripId: 'trp_ok' }, { orderId: 'ord_ok', receiptIqd: 9000, overCeiling: false });
+    await h.emit('order.errand_receipt', { orderId: 'ord_desk', tripId: 'trp_d' }, { orderId: 'ord_desk', receiptIqd: 30000, overCeiling: true, ceilingIqd: 20000, byStaff: true });
     await h.emit('order.errand_receipt', { orderId: 'ord_e', tripId: 'trp_e' }, { orderId: 'ord_e', receiptIqd: 31000, overCeiling: true, ceilingIqd: 25000, dispatcherCard: true });
     await h.emit('order.errand_receipt', { orderId: 'ord_e2', tripId: 'trp_e2' }, { orderId: 'ord_e2', receiptIqd: 12000, overCeiling: true, ceilingIqd: 10000, dispatcherCard: true });
 

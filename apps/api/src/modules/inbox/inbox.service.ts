@@ -217,9 +217,10 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
           : null;
       }
       case 'order.errand_receipt': {
-        // «دوّرلي»: only a receipt over the customer's ceiling needs the desk (call before he pays).
+        // «دوّرلي»: only a receipt over the customer's ceiling needs the desk (call before he pays);
+        // one the desk typed itself (byStaff) is already in hand.
         const id = e.orderId ?? str(p['orderId']);
-        return id && p['overCeiling'] === true
+        return id && p['overCeiling'] === true && p['byStaff'] !== true
           ? {
               ...base,
               kind: 'over_ceiling',
