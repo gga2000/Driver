@@ -6,7 +6,7 @@ import { MAX_CONTENT_WIDTH } from '@/components/Screen';
 import { FoodArt, artOf } from '@/features/food/FoodArt';
 import { servesCopy } from '@/features/food/portions';
 import { useLocale, useT } from '@/lib/i18n';
-import { iqd } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { dayChip, dayLeft, firstOpenSlot, slotWhen } from './format';
 import { PortionPill, usePom } from './parts';
 import { useHomeSlots } from './queries';
@@ -243,7 +243,7 @@ export function ReserveSheet({ merchantId, item, now, onClose, onBook }: Reserve
             })}
           >
             <Text variant="button" color={pom.on} tabular numberOfLines={1}>
-              {when ? t('home_food.book', { day: when.day, time: when.time, amount: iqd(total, { locale }) }) : t('home_food.reserve')}
+              {when ? t('home_food.book', { day: when.day, time: when.time, amount: amountParam(total) }) : t('home_food.reserve')}
             </Text>
           </Pressable>
           {when ? (

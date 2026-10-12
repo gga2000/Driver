@@ -9328,7 +9328,7 @@
   "home_food.day_full": "Booked",
   "home_food.qty": "How many plates?",
   "home_food.qty_max": "{n} left at this time",
-  "home_food.book": "Reserve {day} {time} · {amount}",
+  "home_food.book": "Reserve {day} {time} · {amount} IQD",
   "home_food.book_note": "Ready {day} {time}; the courier brings it straight after.",
   "home_food.slots_none": "Fully booked this week. Check back tomorrow, a time may open.",
   "home_food.slots_failed": "We couldn't load the times",
