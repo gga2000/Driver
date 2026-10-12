@@ -9061,6 +9061,7 @@
   "notify.battery.samsung_3": "وتأكد درايفر مو بـ«التطبيقات النايمة»",
   "push.merchant_activated.title": "مبروك، «{shop}» تفعّل على درايفر",
   "push.merchant_activated.body": "كمّل تجهيز محلك حتى توصلك الطلبات",
+  "push.home_kitchen_activated.body": "ضيف أكلاتك حتى توصلك الطلبات",
   "sms.merchant_activated": "درايفر: مبروك، «{shop}» تفعّل. {next}",
   "sms.merchant_activated_link": "كمّل تجهيز محلك من هنا: {link}",
   "sms.merchant_activated_app": "افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.",

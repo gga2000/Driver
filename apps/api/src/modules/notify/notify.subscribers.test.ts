@@ -579,7 +579,7 @@ describe('notify subscribers: أكل بيت activation link', () => {
   it("a home kitchen's welcome opens «أكلاتي» (/home-kitchen) and asks her to add her dishes, not set up a shop", async () => {
     const h = notifyHarness();
     const got = await requestsFor(activated({ type: 'home_kitchen' }), { ...deps(h), merchantAppUrl });
-    expect(got.map((r) => ({ template: r.template, to: r.to, shop: r.params?.['shop'] }))).toEqual([{ template: 'merchant_activated', to: 'owner', shop: 'مطعم خالد' }]);
+    expect(got.map((r) => ({ template: r.template, to: r.to, shop: r.params?.['shop'] }))).toEqual([{ template: 'home_kitchen_activated', to: 'owner', shop: 'مطعم خالد' }]);
     const next = String(got[0]!.params?.['next']);
     expect(next).toContain('https://merchant.driver.iq/home-kitchen');
     expect(next).toContain('أكلاتك');
@@ -596,6 +596,8 @@ describe('notify subscribers: أكل بيت activation link', () => {
     expect(next).not.toContain('كمّل تجهيز محلك');
     const shop = await requestsFor(activated({ type: 'restaurant' }), deps(h));
     expect(shop.map((r) => r.params?.['next'])).toEqual(['افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.']);
+    expect(home.map((r) => r.template)).toEqual(['home_kitchen_activated']);
+    expect(shop.map((r) => r.template)).toEqual(['merchant_activated']);
   });
 
   it('a missing or any other type keeps the /setup link', async () => {
@@ -604,6 +606,7 @@ describe('notify subscribers: أكل بيت activation link', () => {
       const got = await requestsFor(activated(extra), { ...deps(h), merchantAppUrl });
       expect(got.map((r) => r.params?.['next'])).toEqual(['كمّل تجهيز محلك من هنا: https://merchant.driver.iq/setup']);
       expect(String(got[0]!.params?.['next'])).not.toContain('أكلاتك');
+      expect(got.map((r) => r.template)).toEqual(['merchant_activated']);
     }
   });
 });

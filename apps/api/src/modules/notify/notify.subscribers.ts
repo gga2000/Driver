@@ -546,7 +546,8 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const next = base_
         ? t(home ? 'sms.home_kitchen_activated_link' : 'sms.merchant_activated_link', { link: `${base_}${home ? '/home-kitchen' : '/setup'}` }, 'ar-IQ')
         : t(home ? 'sms.home_kitchen_activated_app' : 'sms.merchant_activated_app', {}, 'ar-IQ');
-      return owners.map((to) => ({ ...base, template: 'merchant_activated' as const, to, params: { shop: shop ?? '', next } }));
+      const template = home ? ('home_kitchen_activated' as const) : ('merchant_activated' as const);
+      return owners.map((to) => ({ ...base, template, to, params: { shop: shop ?? '', next } }));
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);

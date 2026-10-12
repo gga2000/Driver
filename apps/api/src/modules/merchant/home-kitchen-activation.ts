@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { AuditLogService } from '../controls/index.js';
 import { EventsService } from '../events/index.js';
 import { MERCHANT_SETUP_CATALOG, type SetupCatalogPort } from './setup.service.js';
@@ -10,6 +10,8 @@ import { MERCHANT_STORES, type MerchantStoresPort } from './merchant.service.js'
  * 2026-10-11), and «جهّز محلك» is not for her (she adds dishes in «أكلاتي»). Keyed on the org: a
  * second delivery changes nothing. Customers still see nothing until `homeKitchens.launched` is on.
  */
+const LOG = new Logger('HomeKitchenActivation');
+
 /** Who approved her, for the tier's audit row (any change of a store's rate is one). */
 export interface ActivationAudit {
   audits: Pick<AuditLogService, 'record'>;
@@ -34,7 +36,9 @@ export async function activateHomeKitchen(stores: MerchantStoresPort, catalog: P
   if (Object.keys(patch).length > 0) {
     await stores.setMerchantSettings(orgId, patch);
     if (patch.commissionTier && audit) {
-      await audit.audits.record({
+      // Right after the tier write; a redelivery finds her on `home` and won't come back for the row.
+      await audit.audits
+        .record({
         cityId: org.cityId,
         actorId: audit.actorId,
         action: 'store.commission_tier_set',
@@ -42,7 +46,8 @@ export async function activateHomeKitchen(stores: MerchantStoresPort, catalog: P
         subjectId: orgId,
         summaryAr: `${org.name} صار مطبخ بيت بعمولة أكل بيت`,
         detail: { from: s.commissionTier, to: 'home' },
-      });
+        })
+        .catch((err: unknown) => LOG.error(`home kitchen ${orgId}: tier set to home but its audit row failed: ${err instanceof Error ? err.message : String(err)}`));
     }
     changed = true;
   }
