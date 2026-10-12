@@ -568,6 +568,11 @@ export interface ServicePalette {
   back: ServiceSwatch & { light: string };
   /** طرود (2026-10-12): henna, the colour of the twine and the brown paper; `kraft` is the tag's paper. */
   parcel: ServiceSwatch & { kraft: string };
+  /**
+   * Food carts «عربانات» (2026-10-11): fuchsia, clear of home cooks' pomegranate and the tuktuk's plum.
+   * The tile is a deep fuchsia tint, never a pale pink wash (that read like home cooks' blush).
+   */
+  carts: ServiceSwatch;
   off: ServiceSwatch;
 }
 
@@ -599,6 +604,7 @@ const servicesDay: ServicePalette = {
     card: { bg: '#FFEBC2', top: '#FFF6E0', on: '#24170E', sub: '#5E4632', dot: '#A8680A' },
   },
   parcel: { fill: '#A9531C', on: '#FFFFFF', glow: '#A9531C', kraft: '#E4C9A4', card: { bg: '#F6E1D2', top: '#FBF0E7', on: '#24170E', sub: '#5E4632', dot: '#A9531C' } },
+  carts: { fill: '#D9409F', on: '#1A0612', glow: '#D9409F', card: { bg: '#EFA2D2', top: '#F5C2E2', on: '#24170E', sub: '#4A1F3E', dot: '#8A1A6C' } },
   off: { fill: '#E9DFD2', on: '#5E4E42', glow: '#E9DFD2', card: { bg: '#EFE6DA', on: '#4E4036', sub: '#5E4E42', dot: '#8A7A6C' } },
 };
 
@@ -630,6 +636,7 @@ const servicesNight: ServicePalette = {
     card: { bg: '#3A2A12', top: '#48361A', on: '#FFF3E2', sub: '#EBD2A0', dot: '#FFC155' },
   },
   parcel: { fill: '#E0915E', on: '#1A0A04', glow: '#000000', kraft: '#5A4430', card: { bg: '#3A2216', top: '#48291A', on: '#FFF3E2', sub: '#EBCDB4', dot: '#E0915E' } },
+  carts: { fill: '#F25CC0', on: '#1A0612', glow: '#000000', card: { bg: '#3E1A33', top: '#4A2240', on: '#FFF3E2', sub: '#F2C6E2', dot: '#F25CC0' } },
   off: { fill: '#2E241C', on: '#BFA892', glow: '#000000', card: { bg: '#2E241C', on: '#D9C6B2', sub: '#BFA892', dot: '#8A7560' } },
 };
 

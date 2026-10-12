@@ -161,6 +161,30 @@ describe('catalog.restaurants (customer read, M3)', () => {
   });
 });
 
+describe('«مميّز» (featured tier, Ali 2026-10-12)', () => {
+  it('marks a featured kitchen and puts it first when open; a search keeps its own order', async () => {
+    const w = await world();
+    const kareem = w.byKey('haj_kareem').orgId;
+    const before = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    expect(before[0]?.id).not.toBe(kareem);
+    await w.orgs.setMerchantSettings(kareem, { commissionTier: 'featured' });
+    const cards = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    expect(cards[0]).toMatchObject({ id: kareem, open: true, featured: true });
+    expect(cards[0]!.pickup).not.toBeNull();
+    for (const c of cards.slice(1)) expect(c.featured, c.name).toBeUndefined();
+    const found = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR, filters: { query: 'كباب' } });
+    expect(found[0]?.id).not.toBe(kareem);
+  });
+
+  it('never moves a closed featured kitchen up', async () => {
+    const w = await world();
+    const musafir = w.byKey('musafir').orgId;
+    await w.orgs.setMerchantSettings(musafir, { commissionTier: 'featured' });
+    const cards = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    expect(cards.at(-1)).toMatchObject({ id: musafir, open: false, featured: true });
+  });
+});
+
 describe('catalog.search', () => {
   const search = async (query: string, at?: string) => {
     const w = await world(at);

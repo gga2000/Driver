@@ -62,13 +62,13 @@ describe.each(Object.keys(services) as ThemeName[])('%s theme: the home service 
     }
   });
   it('no two service cards share a wash', () => {
-    const all = [p.food.card.bg, p.taxi.card.bg, p.tuktuk.card.bg, p.trips.card.bg, p.back.card.bg, p.parcel.card.bg];
+    const all = [p.food.card.bg, p.taxi.card.bg, p.tuktuk.card.bg, p.trips.card.bg, p.back.card.bg, p.parcel.card.bg, p.carts.card.bg];
     expect(new Set(all).size).toBe(all.length);
   });
   it('the tuktuk is not the error red, and no two services share a fill', () => {
     expect(p.tuktuk.fill).not.toBe(themes[name].danger);
     expect(p.parcel.fill).not.toBe(themes[name].danger);
-    const all = [p.food.fill, p.taxi.fill, p.tuktuk.fill, p.trips.fill, p.back.fill, p.parcel.fill];
+    const all = [p.food.fill, p.taxi.fill, p.tuktuk.fill, p.trips.fill, p.back.fill, p.parcel.fill, p.carts.fill];
     expect(new Set(all).size).toBe(all.length);
   });
 });
