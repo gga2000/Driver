@@ -35,3 +35,25 @@ export const MISSING_KEY = { call: 'partner.errand.missing_call', similar: 'part
 export function whereKey(item: PartnerShopItem): { key: 'partner.errand.where_shop' | 'partner.errand.where_near'; name: string | null } {
   return item.where.name ? { key: 'partner.errand.where_shop', name: item.where.name } : { key: 'partner.errand.where_near', name: null };
 }
+
+/** The receipt total as he types it: Western or Arabic-Indic digits, separators ignored; null when empty or 0. */
+export function parseReceipt(text: string): number | null {
+  const digits = text.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)).replace(/\D/g, '');
+  const n = digits ? Number(digits) : 0;
+  return n > 0 && n <= 10_000_000 ? n : null;
+}
+
+/** Thousands grouped with commas, Western digits («18,750»). */
+export function groupDigits(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/** Over the customer's list ceiling: he calls the customer first (a confirm, never a block). */
+export function overCeiling(amount: number | null, listMaxIqd: number | null): boolean {
+  return amount !== null && listMaxIqd !== null && amount > listMaxIqd;
+}
+
+/** Device-local key of what he recorded at this stop (shown again after a restart). */
+export function receiptKey(stopId: string): string {
+  return `errand.receipt.${stopId.replace(/[^\w.-]/g, '_')}`;
+}

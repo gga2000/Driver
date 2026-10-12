@@ -1,8 +1,9 @@
-// «دوّرلي» (shop-for-me): a courier's job whose first stop is the customer's list «الليستة» — five items,
+// «دوّرلي» (shop-for-me): a courier's job (6 pieces in all: a bike's item cap) whose first stop is the customer's list «الليستة» — five items,
 // one with a photo, one with a voice note, a known shop with its pin, the «إذا ماكو» choices and the
 // customer's price ceilings.
 //
 //   POST /demo/errand-job?who=courier   the list accepted by him, on his way to the shops
+//        &step=at_shops                 …and arrived at them (the receipt panel shows)
 import { Buffer } from 'node:buffer';
 import { platePng } from '../door-photo.mjs';
 
@@ -48,15 +49,21 @@ export default async function register(demo) {
       pickup: SHOPS,
       dropoff: HOME,
       lines: [
-        line('بنادول أدفانس', 2, { unit: 'box', where: { kind: 'known', name: 'صيدلية الشفاء', pin: PHARMACY }, ifMissing: 'call', maxIqd: 6000, photoUploadId: photo }),
+        line('بنادول أدفانس', 1, { unit: 'box', where: { kind: 'known', name: 'صيدلية الشفاء', pin: PHARMACY }, ifMissing: 'call', maxIqd: 6000, photoUploadId: photo }),
         line('حليب نيدو الكبير', 1, { unit: 'piece', where: near, ifMissing: 'similar', voiceUploadId: voice, voiceSec: 9 }),
-        line('طماطة', 2, { unit: 'kg', where: near, ifMissing: 'skip' }),
-        line('صمون', 10, { unit: 'piece', where: near, ifMissing: 'skip' }),
+        line('طماطة', 1, { unit: 'kg', where: near, ifMissing: 'skip' }),
+        line('صمون', 2, { unit: 'piece', where: near, ifMissing: 'skip' }),
         line('ماي صحة', 1, { unit: 'carton', where: near, ifMissing: 'similar', maxIqd: 4000 }),
       ],
     });
+    // Dispatch builds the trip itself on order.placed (outbox): wait a moment for it before building one.
+    let built = null;
+    for (let i = 0; i < 20 && !built; i++) {
+      built = await trips.activeForOrder(order.id);
+      if (!built) await new Promise((r) => setTimeout(r, 100));
+    }
     const trip =
-      (await trips.activeForOrder(order.id)) ??
+      built ??
       (await trips.createForOrders({
         cityId: CITY,
         vertical: 'errand',
@@ -70,6 +77,12 @@ export default async function register(demo) {
     const open = await dispatch.openOffer(p.personId, CITY);
     const offerId = open?.offer.id ?? (await dispatch.override(dispatcher, { tripId: trip.id, driverId: p.personId, reason: 'demo', force: true })).offerId;
     await dispatch.respond({ personId: p.personId, sessionId: 'demo' }, { offerId, accept: true });
+    if (query.step === 'at_shops') {
+      const mine = (await trips.forDriver(p.personId)).find((t) => t.orders.some((o) => o.orderId === order.id)) ?? trip;
+      const pickup = mine.stops.find((s) => s.type === 'pickup');
+      await dispatch.presence.heartbeat(p.personId, SHOPS.pin).catch(() => undefined);
+      await trips.arrive(mine.id, pickup.id, p.personId, { pin: SHOPS.pin });
+    }
     demo.json(res, 200, { tripId: trip.id, orderId: order.id });
   });
 }

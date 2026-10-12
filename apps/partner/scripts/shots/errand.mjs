@@ -19,4 +19,14 @@ export default async function run(s) {
   await c.wait('errand-list');
   await c.byTestId('errand-list').scrollIntoViewIfNeeded();
   await c.shot('ticked-after-reload', { settle: 1200 });
+
+  // At the shops: the receipt panel under the list; a total over the customer's limit asks him to call first.
+  await s.demoPost('/demo/errand-job?who=courier&step=at_shops');
+  await c.goto('/job');
+  await c.byTestId('errand-receipt').waitFor({ state: 'attached', timeout: 15_000 });
+  await c.byTestId('errand-receipt').scrollIntoViewIfNeeded();
+  await c.shot('receipt', { settle: 1200 });
+  await c.byTestId('errand-receipt-amount').fill('31000');
+  await c.byTestId('errand-receipt').scrollIntoViewIfNeeded();
+  await c.shot('receipt-over', { settle: 600 });
 }

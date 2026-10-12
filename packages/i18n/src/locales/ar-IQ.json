@@ -9652,5 +9652,20 @@
   "rajaa_road.share_passed": "عدّوا {town}. باقي {duration} لـ{city}",
   "rajaa_road.share_next": "الجاية {town} بعد {duration}",
   "rajaa_road.updated_now": "تحدّث هسة",
-  "rajaa_road.updated_ago": "آخر تحديث قبل {n} دقيقة"
+  "rajaa_road.updated_ago": "آخر تحديث قبل {n} دقيقة",
+  "partner.errand.receipt_title": "الوصل",
+  "partner.errand.receipt_hint": "اكتب شكد دفعت بالمحلات وصوّر الوصل. الزبون يدفع هذا المبلغ وية أجرة التوصيل.",
+  "partner.errand.receipt_amount_a11y": "شكد دفعت بالدينار",
+  "partner.errand.receipt_photo": "صوّر الوصل",
+  "partner.errand.receipt_photo_again": "صوّرت الوصل، صوّر مرة ثانية",
+  "partner.errand.receipt_send": "سجّل الوصل",
+  "partner.errand.receipt_called": "اتصلت بالزبون، سجّل الوصل",
+  "partner.errand.receipt_over": "أكثر من حد الزبون ({amount} دينار). اتصل بيه قبل لا تشتري.",
+  "partner.errand.receipt_recorded": "سجلت الوصل: {amount} دينار",
+  "partner.errand.receipt_due": "تاخذ من الزبون {amount} دينار",
+  "partner.errand.receipt_change": "غيّر",
+  "partner.errand.receipt_failed": "الوصل ما تسجّل، جرّب مرة ثانية",
+  "partner.errand.receipt_locked": "طلعت من المحلات، ما تگدر تغيّر الوصل. احجي ويا الدعم",
+  "partner.errand.receipt_camera_denied": "لازم تسمح للكاميرا حتى تصوّر الوصل",
+  "partner.errand.receipt_offline": "ماكو نت: الوصل يتسجّل أول ما يرجع النت"
 }

@@ -9652,5 +9652,20 @@
   "rajaa_road.share_passed": "Past {town}. {duration} to {city}",
   "rajaa_road.share_next": "Next: {town} in {duration}",
   "rajaa_road.updated_now": "Updated just now",
-  "rajaa_road.updated_ago": "Last update {n} min ago"
+  "rajaa_road.updated_ago": "Last update {n} min ago",
+  "partner.errand.receipt_title": "Receipt",
+  "partner.errand.receipt_hint": "Type what you paid at the shops and photograph the receipt. The customer pays this plus the delivery.",
+  "partner.errand.receipt_amount_a11y": "What you paid, in IQD",
+  "partner.errand.receipt_photo": "Photograph the receipt",
+  "partner.errand.receipt_photo_again": "Receipt photographed, take it again",
+  "partner.errand.receipt_send": "Record the receipt",
+  "partner.errand.receipt_called": "I called the customer, record it",
+  "partner.errand.receipt_over": "Over the customer's limit ({amount} IQD). Call them before you buy.",
+  "partner.errand.receipt_recorded": "Receipt recorded: {amount} IQD",
+  "partner.errand.receipt_due": "Collect {amount} IQD from the customer",
+  "partner.errand.receipt_change": "Change",
+  "partner.errand.receipt_failed": "The receipt wasn't recorded, try again",
+  "partner.errand.receipt_locked": "You've left the shops, the receipt can't change. Talk to support",
+  "partner.errand.receipt_camera_denied": "Allow the camera to photograph the receipt",
+  "partner.errand.receipt_offline": "No internet: the receipt records once it's back"
 }

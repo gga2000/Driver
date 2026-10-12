@@ -9,6 +9,7 @@ import { openNav, useNavApp } from '@/features/work/nav';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { storage } from '@/lib/storage';
+import { ReceiptPanel } from './ReceiptPanel';
 import { listStop, MISSING_KEY, parseTicks, ticksKey, toggleTick, UNIT_KEY, whereKey } from './logic';
 
 const THUMB = 64;
@@ -80,6 +81,11 @@ export default function ShopListCard({ job }: { job: PartnerJob }) {
           <ItemRow key={i} i={i} item={item} ticked={ticks.has(i)} onTick={() => tick(i)} onPhoto={(url) => setPhoto({ id: `errand-${i}`, url })} voice={voice} />
         ))}
       </ScrollView>
+      {stop.state === 'arrived' ? (
+        <View style={{ paddingHorizontal: theme.space[3], paddingBottom: theme.space[3] }}>
+          <ReceiptPanel tripId={job.tripId} stopId={stop.stopId} listMaxIqd={listMax} />
+        </View>
+      ) : null}
       <PhotoViewer photos={photo ? [photo] : []} index={photo ? 0 : null} onIndex={(n) => n === null && setPhoto(null)} title={t('partner.errand.title')} testIDPrefix="errand" />
     </View>
   );
