@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import { Text, useTheme } from '@driver/ui';
+import { Icon, Text, useTheme } from '@driver/ui';
 
 /**
  * The marks the road map draws over the map (N13 «طريق بغداد»): the car as the driver's initial in a
@@ -9,7 +9,7 @@ import { Text, useTheme } from '@driver/ui';
 
 const SHADOW = '0 2px 8px rgba(40,24,8,0.22)';
 
-/** The car: the driver's initial on cream inside a saffron ring. */
+/** The car: the driver's initial on cream inside a saffron ring (the minibus when his name is not known). */
 export function CarPin({ initial, size = 44 }: { initial: string; size?: number }) {
   const theme = useTheme();
   return (
@@ -27,9 +27,13 @@ export function CarPin({ initial, size = 44 }: { initial: string; size?: number 
         boxShadow: `0 0 0 2px ${theme.colors.surface}, ${SHADOW}`,
       }}
     >
-      <Text variant={size >= 40 ? 'title' : 'label'} weight={700} color="accentText" compact style={{ direction: 'rtl' }}>
-        {initial}
-      </Text>
+      {initial ? (
+        <Text variant={size >= 40 ? 'title' : 'label'} weight={700} color="accentText" compact style={{ direction: 'rtl' }}>
+          {initial}
+        </Text>
+      ) : (
+        <Icon name="rajaa" size={Math.round(size * 0.45)} color="accentText" strokeWidth={2.2} />
+      )}
     </View>
   );
 }

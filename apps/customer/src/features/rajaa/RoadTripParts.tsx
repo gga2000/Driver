@@ -51,12 +51,12 @@ const RAIL_LABELS = 5;
  * The town rail (A): the road from the garage to the end, right to left, the part driven in saffron
  * with the car on the last town behind; towns long behind are small dots, the next one in accent.
  */
-export function TownRail({ trip }: { trip: RoadTrip }) {
+export function TownRail({ trip, startLabel }: { trip: RoadTrip; startLabel?: string }) {
   const theme = useTheme();
   const t = useT();
   const nodes = trip.stops.filter((s) => s.kind === 'start' || s.kind === 'town' || s.kind === 'end' || s.kind === 'my_stop');
   const carAt = trip.carM === null ? -1 : nodes.lastIndexOf(nodes.filter((s) => s.passed).pop() ?? nodes[0]!);
-  const nextAt = nodes.findIndex((s) => s === trip.next);
+  const nextAt = trip.carM === null ? -1 : nodes.findIndex((s) => s === trip.next);
   // Named: the start, the car's town, the next, the end; then towns ahead in order while there is room.
   const named = new Set<number>([0, nodes.length - 1, ...(carAt >= 0 ? [carAt] : []), ...(nextAt >= 0 ? [nextAt] : [])]);
   for (let i = Math.max(carAt, 0) + 1; i < nodes.length && named.size < RAIL_LABELS; i++) named.add(i);
@@ -70,7 +70,7 @@ export function TownRail({ trip }: { trip: RoadTrip }) {
           <View style={{ position: 'absolute', top: 14, height: 3, width: '50%', [side]: 0, backgroundColor: on ? theme.colors.accent : theme.colors.border }} />
         );
         return (
-          <View key={s.id} style={{ flex: label ? 1 : 0.35, alignItems: 'center', minWidth: label ? 0 : 14 }} accessible={label} accessibilityLabel={label ? t('rajaa_road.rail_a11y', { town: s.name, time: clockLabel(s.at) }) : undefined}>
+          <View key={s.id} style={{ flex: label ? 1 : 0.35, alignItems: 'center', minWidth: label ? 0 : 14 }} accessible={label} accessibilityLabel={label ? t('rajaa_road.rail_a11y', { town: s.kind === 'start' && startLabel ? startLabel : s.name, time: clockLabel(s.at) }) : undefined}>
             {i > 0 ? line('start', carAt >= 0 && i <= carAt) : null}
             {i < nodes.length - 1 ? line('end', carAt >= 0 && i < carAt) : null}
             <View style={{ height: 30, justifyContent: 'center' }}>
@@ -87,7 +87,7 @@ export function TownRail({ trip }: { trip: RoadTrip }) {
             {label ? (
               <>
                 <Text variant="caption" weight={i === nextAt ? 700 : 600} color={i === nextAt ? 'accentText' : 'text'} numberOfLines={1} align="center" compact style={{ marginTop: 2 }}>
-                  {s.name}
+                  {s.kind === 'start' && startLabel ? startLabel : s.name}
                 </Text>
                 <Text variant="caption" color="textMuted" tabular align="center" compact>
                   {clockLabel(s.at)}
@@ -106,7 +106,7 @@ export function TownRail({ trip }: { trip: RoadTrip }) {
  * A tap opens the whole road. When the map can't draw (no map on this build, or it failed) it is not
  * there at all and the card below says it all.
  */
-export function RoadStrip({ trip, driverName, onOpen }: { trip: RoadTrip; driverName: string | null; onOpen: () => void }) {
+export function RoadStrip({ trip, driverName, startLabel, onOpen }: { trip: RoadTrip; driverName: string | null; startLabel: string; onOpen: () => void }) {
   const theme = useTheme();
   const t = useT();
   const lite = useLiteMode();
@@ -115,7 +115,7 @@ export function RoadStrip({ trip, driverName, onOpen }: { trip: RoadTrip; driver
   return (
     <Pressable testID="road-strip" accessibilityRole="button" accessibilityLabel={t('rajaa_road.strip_a11y')} onPress={onOpen} style={{ height: 150, backgroundColor: theme.colors.surfaceSunken }}>
       <View pointerEvents="none" style={{ flex: 1 }}>
-        <RoadMap road={trip.road} carM={trip.carM} mode="strip" startName={trip.stops[0]!.name} initial={initialOf(driverName ?? '') || '·'} topInset={0} bottomInset={0} lite={lite} onFail={() => setFailed(true)} />
+        <RoadMap road={trip.road} carM={trip.carM} mode="strip" startName={startLabel} initial={driverName ? initialOf(driverName) : ''} topInset={0} bottomInset={0} lite={lite} onFail={() => setFailed(true)} />
       </View>
       <View pointerEvents="none" style={{ position: 'absolute', top: theme.space[3], end: theme.space[3], flexDirection: 'row', alignItems: 'center', gap: 4, paddingStart: theme.space[3], paddingEnd: theme.space[2], minHeight: 36, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, boxShadow: '0 1px 6px rgba(40,24,8,0.2)' }}>
         <Text variant="footnote" weight={700}>

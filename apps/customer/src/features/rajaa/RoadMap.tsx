@@ -6,7 +6,7 @@ import * as road from '@driver/map/pieces/road';
 import { useTheme } from '@driver/ui';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from '@/features/track/map/native-maplibre';
 import { bearingAhead, pointAt, stripBounds } from './road-trip';
-import { roadChips, type RoadMapProps } from './road-map-types';
+import { LOCALITIES_LAYER, roadChips, withoutNamed, type RoadMapProps } from './road-map-types';
 import { CarPin, CarTag, HorizonCard, TownChip } from './RoadPins';
 
 /** Whether this build can draw the road (a phone build with the native map and our map's files). */
@@ -32,7 +32,12 @@ export function RoadMap(props: RoadMapProps) {
   const [ready, setReady] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const light = useMemo(() => golden.resolveLight().light, []);
-  const style = useMemo(() => nativeGoldenStyle(golden, light, lite ? 'lite' : 'customer'), [light, lite]);
+  // The map's own town names that our chips already say stay off (a town is never named twice).
+  const style = useMemo(() => {
+    const base = nativeGoldenStyle(golden, light, lite ? 'lite' : 'customer');
+    const named = [startName, ...r.towns.map((t) => t.nameAr)];
+    return { ...base, layers: base.layers.map((l) => (l.id === LOCALITIES_LAYER && l.type === 'symbol' ? { ...l, filter: withoutNamed(l.filter, named) as never } : l)) };
+  }, [light, lite, startName, r]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
   // The town names are the screen's chips, so the piece's own labels stay off.
   const layers = useMemo(() => road.roadLayers({ source: SOURCE, light }).filter((l) => l.type !== 'symbol'), [light]);
@@ -42,7 +47,8 @@ export function RoadMap(props: RoadMapProps) {
     const ahead = r.towns.filter((t) => t.m - m > 300);
     return { next: ahead[0] ?? null, passed: carM === null ? [] : r.towns.filter((t) => !ahead.includes(t)) };
   }, [r, carM]);
-  const chips = useMemo(() => (mode === 'window' ? [] : roadChips(r, startName, progress.next, progress.passed)), [mode, r, startName, progress]);
+  // Before the car leaves no town is "next" yet (the garage is).
+  const chips = useMemo(() => (mode === 'window' ? [] : roadChips(r, startName, carM === null ? null : progress.next, progress.passed)), [mode, r, startName, carM, progress]);
   const car = carM === null ? null : pointAt(r, carM);
   const nextAt = progress.next ? (progress.next.kind === 'city' ? r.path[r.path.length - 1]! : progress.next.at) : null;
 

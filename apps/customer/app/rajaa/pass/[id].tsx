@@ -377,7 +377,7 @@ export default function BoardingPassScreen() {
         />
       ) : null}
       {cardLine && toCity ? <RoadCard line={cardLine} city={cityName(t, toCity)} onRoad={departed} watching={watching}
-          strip={trip ? <RoadStrip trip={trip} driverName={driverCard?.firstName ?? null} onOpen={() => router.push({ pathname: '/rajaa/road/[id]', params: { id: b.id } })} /> : undefined}
+          strip={trip && corridor ? <RoadStrip trip={trip} driverName={driverCard?.firstName ?? null} startLabel={cityName(t, endpoints(corridor.cityId, b.departure.direction).from)} onOpen={() => router.push({ pathname: '/rajaa/road/[id]', params: { id: b.id } })} /> : undefined}
           subtitle={words?.subtitle}
           summary={words?.summary}
           unknown={

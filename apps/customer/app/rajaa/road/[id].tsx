@@ -110,6 +110,7 @@ export default function RoadScreen() {
     body = centred(<EmptyState icon="rajaa" title={b && !ended ? t('rajaa_road.error') : t('rajaa_road.closed')} body={t('rajaa_road.closed_body')} action={{ label: t('action.back'), onPress: back }} />);
   } else {
     const city = cityName(t, toCity);
+    const fromCity = corridor ? cityName(t, endpoints(corridor.cityId, b.departure.direction).from) : garage;
     const departed = b.departure.state === 'departed';
     const fixAgeMin = departed && p?.car ? Math.floor((now.getTime() - p.car.at.getTime()) / MIN) : null;
     const stale = fixAgeMin !== null && fixAgeMin >= STALE_MIN;
@@ -118,7 +119,7 @@ export default function RoadScreen() {
     const trusted = (me.data?.trustedContacts ?? []).map((c) => c.name);
     // A failed profile read just leaves the line out (the pass says who follows).
     const watching = !me.isError && me.data?.safety.autoShareRajaa && trusted.length > 0 ? t(trusted.length > 1 ? 'rajaa.watching_many' : 'rajaa.watching_one', { names: namesList(t, trusted) }) : null;
-    const line = mode === 'window' ? [words?.subtitle, trip.pace === 'moving' ? t('rajaa_road.pace_moving') : trip.pace === 'slow' ? t('rajaa_road.pace_slow') : null].filter(Boolean).join(' ') : departed ? words?.nextLine : t('rajaa_road.not_left');
+    const line = mode === 'window' ? [words?.subtitle, trip.pace === 'moving' ? t('rajaa_road.pace_moving') : trip.pace === 'slow' ? t('rajaa_road.pace_slow') : null].filter(Boolean).join(t('rajaa.names_sep')) : departed ? words?.nextLine : t('rajaa_road.not_left');
     const driverLine = [driverCard?.firstName, b.departure.vehicle.model, plate(b.departure.vehicle.plate)].filter(Boolean).join(' · ');
 
     sheet = (
@@ -158,17 +159,10 @@ export default function RoadScreen() {
             </Text>
           ) : null}
         </View>
-        <TownRail trip={trip} />
+        <TownRail trip={trip} startLabel={fromCity} />
         <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-          {canWindow ? (
-            <Button
-              testID="road-window-toggle"
-              variant="secondary"
-              icon={mode === 'window' ? 'map-pin' : 'location-arrow'}
-              label={mode === 'window' ? t('rajaa_road.window_off') : t('rajaa_road.window_on')}
-              onPress={() => setView(mode === 'window' ? 'whole' : 'window')}
-            />
-          ) : null}
+          {/* In the window seat the way back to the whole road sits by the share button (on the whole road, «شوف قدامك» floats on the map). */}
+          {mode === 'window' ? <Button testID="road-window-toggle" variant="secondary" icon="map-pin" label={t('rajaa_road.window_off')} onPress={() => setView('whole')} /> : null}
           <Button testID="road-share" style={{ flex: 1 }} icon="share" label={t('rajaa.share_trip')} onPress={() => void onShare()} />
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 24 }}>
@@ -193,8 +187,8 @@ export default function RoadScreen() {
           road={trip.road}
           carM={trip.carM}
           mode={mode}
-          startName={garage}
-          initial={initialOf(driverCard?.firstName ?? '') || '·'}
+          startName={fromCity}
+          initial={driverCard?.firstName ? initialOf(driverCard.firstName) : ''}
           carTag={words?.tag ?? null}
           horizon={words?.horizon ?? null}
           topInset={insets.top + TOP_BAR}
@@ -209,6 +203,19 @@ export default function RoadScreen() {
               {t('rajaa_road.end_chip', { city, time: clockLabel(trip.arriveAt) })}
             </Text>
           </View>
+        ) : null}
+        {canWindow && mode === 'whole' ? (
+          <Pressable
+            testID="road-window-toggle"
+            accessibilityRole="button"
+            onPress={() => setView('window')}
+            style={({ pressed }) => ({ position: 'absolute', bottom: sheetH + theme.space[3], end: theme.space[4], flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 44, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: theme.colors.inverse, boxShadow: SHADOW, opacity: pressed ? 0.85 : 1 })}
+          >
+            <Icon name="location-arrow" size={18} color="onInverseAccent" strokeWidth={2.2} />
+            <Text variant="label" weight={700} color="onInverse">
+              {t('rajaa_road.window_on')}
+            </Text>
+          </Pressable>
         ) : null}
         <View pointerEvents="box-none" style={styles.bottom}>
           {sheet}

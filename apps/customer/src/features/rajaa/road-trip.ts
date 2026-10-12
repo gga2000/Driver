@@ -216,8 +216,9 @@ export function sharedRoadTrip({ road, startName, car, eta, now }: { road: Inter
   if (!car || !eta) return null;
   const carM = roadProgress(road, [car.lng, car.lat]).m;
   const leftM = Math.max(1, road.totalM - carM);
-  const fixAt = Math.min(car.at.getTime(), now.getTime());
-  const msPerM = Math.max(0, eta.getTime() - fixAt) / leftM;
+  // The live stream can hand the dates over as strings: read them either way.
+  const fixAt = Math.min(new Date(car.at).getTime(), now.getTime());
+  const msPerM = Math.max(0, new Date(eta).getTime() - fixAt) / leftM;
   const travelMin = (msPerM * road.totalM) / MIN;
   if (!Number.isFinite(travelMin) || travelMin <= 0) return null;
   // Timed from the fix: what is ahead of the car is "now + the rest at this pace".

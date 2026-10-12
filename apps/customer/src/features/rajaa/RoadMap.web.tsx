@@ -7,7 +7,7 @@ import { prepareGolden } from '@/features/track/map/golden-setup';
 import { ensureMaplibreCss } from '@/features/track/map/maplibre-css';
 import { GOLDEN_MAP } from '@/features/track/map/credit';
 import { bearingAhead, pointAt, stripBounds } from './road-trip';
-import { roadChips, type RoadMapProps } from './road-map-types';
+import { LOCALITIES_LAYER, roadChips, withoutNamed, type RoadMapProps } from './road-map-types';
 import { CarPin, CarTag, HorizonCard, TownChip } from './RoadPins';
 
 // The map's base (`golden`) and the screens' piece (the road, from its own entry so this screen carries no other piece).
@@ -53,7 +53,8 @@ export function RoadMap(props: RoadMapProps) {
     const ahead = road.towns.filter((t) => t.m - m > 300);
     return { next: ahead[0] ?? null, passed: carM === null ? [] : road.towns.filter((t) => !ahead.includes(t)) };
   }, [road, carM]);
-  const chips = useMemo(() => (mode === 'window' ? [] : roadChips(road, startName, progress.next, progress.passed)), [mode, road, startName, progress]);
+  // Before the car leaves no town is "next" yet (the garage is).
+  const chips = useMemo(() => (mode === 'window' ? [] : roadChips(road, startName, carM === null ? null : progress.next, progress.passed)), [mode, road, startName, carM, progress]);
   const car = carM === null ? null : pointAt(road, carM);
   const nextAt = progress.next ? (progress.next.kind === 'city' ? road.path[road.path.length - 1]! : progress.next.at) : null;
   const scene = useRef({ chips, car, nextAt });
@@ -67,6 +68,8 @@ export function RoadMap(props: RoadMapProps) {
     const taken: { x: number; y: number; w: number; h: number }[] = [];
     const overlaps = (r: { x: number; y: number; w: number; h: number }) => taken.some((q) => r.x < q.x + q.w && r.x + r.w > q.x && r.y < q.y + q.h && r.y + r.h > q.y);
     const s = scene.current;
+    // The strip's «الطريق كله» chip sits in the top corner (left, in Arabic): no town chip under it.
+    if (live.current.mode === 'strip') taken.push({ x: 0, y: 0, w: 200, h: 60 });
     const carEl = marks.current.get('car');
     const tagEl = marks.current.get('tag');
     if (carEl) {
@@ -102,14 +105,20 @@ export function RoadMap(props: RoadMapProps) {
       const el = marks.current.get(`chip:${c.id}`);
       if (!el) continue;
       const p = m.project(c.at);
+      // A hidden chip measures 0: show it unseen for a moment to read its size.
+      if (el.style.display === 'none') {
+        el.style.visibility = 'hidden';
+        el.style.display = 'flex';
+      }
       const w = el.offsetWidth, h = el.offsetHeight;
-      let x = c.side === 'left' ? p.x - 10 - w : p.x + 10;
-      // A chip pushed off the side goes to the other side of its town.
-      if (x < 4) x = p.x + 10;
-      if (x + w > width - 4) x = p.x - 10 - w;
-      const r = { x, y: p.y - h / 2, w, h };
+      el.style.visibility = '';
+      // Its own side of the road first, then the other side (off the screen's edge, or on another mark).
+      const sides = c.side === 'left' ? [p.x - 10 - w, p.x + 10] : [p.x + 10, p.x - 10 - w];
+      const fits = sides.map((x) => ({ x, y: p.y - h / 2, w, h })).filter((q) => q.x >= 4 && q.x + w <= width - 4);
+      const r = fits.find((q) => !overlaps(q)) ?? fits[0] ?? { x: sides[0]!, y: p.y - h / 2, w, h };
       const off = p.x < 0 || p.x > width || p.y < live.current.topInset || p.y > height - live.current.bottomInset;
-      const hide = off || overlaps(r);
+      // The next town always shows, even over another chip (not under the strip's own «الطريق كله»).
+      const hide = off || (overlaps(r) && (c.tone !== 'next' || live.current.mode === 'strip'));
       el.style.display = hide ? 'none' : 'flex';
       el.style.transform = `translate(${Math.round(r.x)}px, ${Math.round(r.y)}px)`;
       if (!hide) taken.push(r);
@@ -201,6 +210,7 @@ export function RoadMap(props: RoadMapProps) {
             if (layer.type === 'symbol' || m.getLayer(layer.id)) continue;
             m.addLayer(layer as never, before);
           }
+          if (m.getLayer(LOCALITIES_LAYER)) m.setFilter(LOCALITIES_LAYER, withoutNamed(m.getFilter(LOCALITIES_LAYER), [s.startName, ...s.road.towns.map((t) => t.nameAr)]) as never);
           paint();
         });
         m.once('load', () => {

@@ -45,7 +45,7 @@ export function ShareRoadMap({ shared, trip, fallback }: { shared: NonNullable<R
       carM={shared.carM}
       mode="whole"
       startName={t(cityKey(trip.route.fromCityId))}
-      initial={initialOf(trip.driverFirstName ?? '') || '·'}
+      initial={trip.driverFirstName ? initialOf(trip.driverFirstName) : ''}
       carTag={words}
       topInset={56}
       bottomInset={24}

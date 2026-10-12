@@ -10,7 +10,7 @@ export interface RoadMapProps {
   mode: RoadMapMode;
   /** The name at the start of the road (the garage's town). */
   startName: string;
-  /** The driver's initial, for the car pin. */
+  /** The driver's initial, for the car pin ('' draws the minibus). */
   initial: string;
   /** The whole road: the car's tag («عديتوا بسماية» over «باقي 38 دقيقة»). */
   carTag?: { top: string; bottom: string } | null;
@@ -47,4 +47,11 @@ export function roadChips(road: IntercityRoad, startName: string, nextTown: Road
     chips.push({ id: `town_${i}`, name: t.nameAr, at: t.kind === 'city' ? end : t.at, tone, side: i % 2 === 0 ? 'left' : 'right' });
   });
   return chips;
+}
+
+/** The map's own town names that our chips already say: hidden, so a town is never named twice. */
+export const LOCALITIES_LAYER = 'golden-localities';
+export function withoutNamed(filter: unknown, names: readonly string[]): unknown {
+  const not = ['!', ['in', ['get', 'name'], ['literal', [...names]]]];
+  return filter ? ['all', filter, not] : not;
 }
