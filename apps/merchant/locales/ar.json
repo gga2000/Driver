@@ -400,6 +400,8 @@
   "merchant.statement.pdf_note": "نسخة PDF توصلك على واتساب كل يوم أحد",
   "merchant.statement.order_ref": "⁦#{ref}⁩",
   "merchant.statement.commission_line": "عمولة {pct}%",
+  "merchant.statement.rate": "عمولتك هسة {rate}",
+  "merchant.statement.rate_starter": "عمولتك هسة {rate} · سعر البداية من {date}",
   "merchant.disputes.kind_cold_or_late": "الأكل بارد أو متأخر",
   "merchant.disputes.kind_missing_item": "صنف ناقص",
   "merchant.disputes.kind_wrong_item": "صنف غلط",

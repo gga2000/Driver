@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DriverError,
   type Actor,
   type AddLandmarkPhotoInput,
@@ -240,10 +241,12 @@ export class OpsService implements OpsPort, OnModuleInit {
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);
     const org = await this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
-    await this.orgs.setMerchantSettings(org.id, { location });
     if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
+      // A new restaurant starts on `starter` unless the visit named another tier; the rate commits with its
+      // audit row below (the nested run joins this transaction).
+      await this.orgs.setMerchantSettings(org.id, { location, commissionTier: input.commissionTier });
       const row = await this.repo.addOnboarding(
         {
           orgId: org.id,
@@ -281,6 +284,18 @@ export class OpsService implements OpsPort, OnModuleInit {
         tx,
         { actorId: actor.personId, type: 'merchant.onboarding_drafted', occurredAt: now, payload: { onboardingId: row.id, merchantOrgId: org.id, cityId: input.cityId, type: input.type, menuPhotos: input.menuPhotoUploadIds.length } },
         { name: 'org', id: org.id },
+      );
+      await this.audits?.record(
+        {
+          cityId: input.cityId,
+          actorId: actor.personId,
+          action: 'store.commission_tier_set',
+          subjectKind: 'store',
+          subjectId: org.id,
+          summaryAr: `سجّل ${input.name} بعمولة ${Math.round(AZIZIYAH_MONEY_RULES.commission[input.commissionTier] * 10_000) / 100}%`,
+          detail: { from: null, to: input.commissionTier, onboardingId: row.id },
+        },
+        tx,
       );
       return { onboardingId: row.id, merchantOrgId: org.id, state: row.state, menuPhotos: row.menuPhotoRefs.length, taskId: task.id, createdAt: row.createdAt };
     });

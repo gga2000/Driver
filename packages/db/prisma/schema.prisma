@@ -186,7 +186,7 @@ model Org {
   printerAt       DateTime?                              @map("printer_at")
   /// NULL = the orders default.
   defaultPrepMin  Int?                                   @map("default_prep_min")
-  /// Money §1 tier (base / featured / marketing); NULL = the orders default.
+  /// Money §1 tier (starter / base / featured / marketing); NULL = the orders default (starter).
   commissionTier  String?                                @map("commission_tier")
   /// Pickup point couriers are sent to: zone key + pin. NULL until the merchant's place is on file.
   locationZoneKey String?                                @map("location_zone_key")

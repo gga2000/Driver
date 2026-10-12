@@ -267,7 +267,7 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_UPLOADS) private readonly uploads?: OrdersUploadsPort,
   ) {
     this.promotions = promotions ?? new NoPromotions();
-    this.timers = new DurableTimers(queue, clock, () => uow.current());
+    this.timers = new DurableTimers(queue, clock, uow);
   }
 
   /** FLW-22: every order timer has a durable copy (written with the order), so a lost Redis job only delays it. */
