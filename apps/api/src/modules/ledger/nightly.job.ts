@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { nightlyMessage, type MoneyRules, type NightlyReport } from '@driver/contracts';
+import { nightlyMessage, type LedgerEvent, type MoneyRules, type NightlyReport } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { idOf } from './accounts.js';
@@ -11,6 +11,30 @@ import { LedgerService } from './ledger.service.js';
 import { LEDGER_EVENTS, LEDGER_INCIDENTS, MONEY_RULES } from './tokens.js';
 
 export const NIGHTLY_QUEUE = 'ledger-nightly';
+/** The money-group check looks at what closed in the 24 h ending this long before the run (retries have settled). */
+export const MONEY_GROUP_SETTLE_MS = 30 * 60_000;
+const DAY_MS = 24 * 3_600_000;
+
+/**
+ * A module whose closed jobs each settle in one money posting group: orders (`order:<id>:money`, a
+ * ride's `trip:<trip>:money`) and intercity seats (`seat:<seat>:money`). The ledger owns the naming;
+ * a source only says what closed.
+ */
+export interface MoneyClosureSource {
+  /** Orders that closed in `[from, to)` (ids), and seats whose money settled then (seat money ids). */
+  closedBetween(from: Date, to: Date): Promise<Array<{ kind: 'order' | 'seat'; id: string }>>;
+}
+
+/** The order's money groups among its ledger rows: its own, or its ride trip's. */
+function orderMoneyGroups(rows: readonly LedgerEvent[], orderId: string): string[] {
+  const groups = new Set<string>();
+  for (const e of rows) {
+    const g = e.postingGroupId;
+    if (e.kind !== 'money' || !g) continue;
+    if (g === `order:${orderId}:money` || (g.startsWith('trip:') && g.endsWith(':money'))) groups.add(g);
+  }
+  return [...groups];
+}
 
 /** Next 02:00 in the city's zone (Asia/Baghdad is UTC+3 all year), strictly after `now`. */
 export function nextNightlyRunAt(now: Date, rules: MoneyRules): Date {
@@ -35,6 +59,7 @@ export function localDay(at: Date, rules: MoneyRules): string {
 @Injectable()
 export class NightlyJob {
   private readonly logger = new Logger(NightlyJob.name);
+  private readonly closures: MoneyClosureSource[] = [];
 
   constructor(
     private readonly ledger: LedgerService,
@@ -53,6 +78,7 @@ export class NightlyJob {
     const guaranteePaid = weekly ? await this.settleGuarantees(runAt) : [];
     const inv = await this.ledger.checkInvariant();
     await this.reconcileRunningBalances(runAt);
+    const groupsIncident = await this.checkMoneyGroups(runAt);
 
     const driverIds = new Set<string>();
     for (const account of await this.ledger.accounts()) {
@@ -73,6 +99,7 @@ export class NightlyJob {
         evidence: { money: inv.money, points: inv.points, kindViolations: inv.kindViolations, runAt: runAt.toISOString() },
       });
     }
+    incidentId ??= groupsIncident;
     const report: NightlyReport = {
       runAt,
       ok: inv.ok,
@@ -133,6 +160,47 @@ export class NightlyJob {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`running balance check failed: ${message}`);
       await this.incidents.open({ kind: 'ledger_balance_check_failed', summary: `nightly ${localDay(runAt, this.rules)}: ${message}`, evidence: { runAt: runAt.toISOString() } });
+    }
+  }
+
+  /** Orders and routes say what closed; the nightly run checks each settled in exactly one money group. */
+  watchClosures(source: MoneyClosureSource): void {
+    this.closures.push(source);
+  }
+
+  /**
+   * Every order closed and every seat settled in the 24 h before the run (less the settle margin) has
+   * exactly one money posting group. A missing one is money the outbox never posted (requeue it from
+   * the Console System page); two are a double posting. Either opens a ledger incident; a failure of
+   * the check itself must not stop the close. Returns the incident id, if one was opened.
+   */
+  private async checkMoneyGroups(runAt: Date): Promise<string | null> {
+    if (this.closures.length === 0) return null;
+    const to = new Date(runAt.getTime() - MONEY_GROUP_SETTLE_MS);
+    const from = new Date(to.getTime() - DAY_MS);
+    try {
+      const closed = (await Promise.all(this.closures.map((c) => c.closedBetween(from, to)))).flat();
+      const problems: string[] = [];
+      const seats = closed.filter((c) => c.kind === 'seat').map((c) => `seat:${c.id}:money`);
+      const posted = new Set((seats.length > 0 ? await this.ledger.eventsForGroups(seats) : []).map((e) => e.postingGroupId));
+      for (const g of seats) if (!posted.has(g)) problems.push(`${g} missing`);
+      for (const c of closed) {
+        if (c.kind !== 'order') continue;
+        const groups = orderMoneyGroups(await this.ledger.eventsForOrder(c.id), c.id);
+        if (groups.length !== 1) problems.push(`order ${c.id}: ${groups.length} money groups${groups.length ? ` (${groups.join(', ')})` : ''}`);
+      }
+      if (problems.length === 0) return null;
+      this.logger.error(`money groups: ${problems.length} of ${closed.length} closed orders and seats do not have exactly one: ${problems.slice(0, 10).join('; ')}`);
+      return await this.incidents.open({
+        kind: 'ledger_money_group_missing',
+        summary: `nightly ${localDay(runAt, this.rules)}: ${problems.length} closed order(s) or seat(s) without exactly one money posting group`,
+        evidence: { from: from.toISOString(), to: to.toISOString(), checked: closed.length, problems: problems.slice(0, 100), runAt: runAt.toISOString() },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`money group check failed: ${message}`);
+      await this.incidents.open({ kind: 'ledger_money_group_check_failed', summary: `nightly ${localDay(runAt, this.rules)}: ${message}`, evidence: { runAt: runAt.toISOString() } });
+      return null;
     }
   }
 

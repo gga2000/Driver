@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
+import { MONEY_ALARM_PENDING_SEC, OUTBOX_REQUEUE_MAX } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
-import { EVENTS_REPOSITORY, newId, type EventsRepository } from './events.repository.js';
+import { EVENTS_REPOSITORY, newId, type EventsRepository, type OutboxRequeueSelect } from './events.repository.js';
 import type { Aggregate, EventHandler, NewEvent, OutboxFailure, OutboxStats, StoredEvent } from './events.types.js';
 import { OutboxPublisher } from './outbox.publisher.js';
 import { SubscriberRegistry, type SubscribeOptions } from './subscriber.registry.js';
@@ -17,6 +18,9 @@ export interface TripOrderDetachments {
   /** `detached_at` of the latest attachment of `orderId` to `tripId`; null while attached or unknown. */
   detachedAt(tripId: string, orderId: string): Promise<Date | null>;
 }
+
+/** The ledger names its outbox subscribers `ledger:<event type>` (ledger.subscribers.ts). */
+export const LEDGER_SUBSCRIBER_PREFIX = 'ledger:';
 
 export const TRIP_ORDER_LOOKUP_TOKEN = Symbol.for('driver.trips.TripOrderLookup');
 
@@ -163,6 +167,30 @@ export class EventsService {
       lastError: r.lastError ?? null,
       createdAt: r.createdAt,
     }));
+  }
+
+  /**
+   * Admin re-drive (Console System page): failed rows back to pending with attempts reset, inside
+   * `tx` when given so the caller's audit row commits with it; the drain is poked after the commit.
+   * A subscriber that already delivered a row is skipped on the retry (its delivery record).
+   */
+  async requeueFailedOutbox(select: OutboxRequeueSelect, tx?: Tx): Promise<string[]> {
+    const ids = await this.repo.requeueFailed(select, this.clock.now(), OUTBOX_REQUEUE_MAX, tx);
+    if (ids.length > 0) {
+      if (tx) await this.pokeAfterCommit(tx);
+      else await this.publisher.poke();
+    }
+    return ids;
+  }
+
+  /**
+   * Money stuck in the outbox: failed rows a ledger subscriber never posted, and how long the oldest
+   * pending row has waited. Either one (any failed, or older than 2 min) is the money alarm.
+   */
+  async moneyAlarm(): Promise<{ ledgerFailed: number; oldestPendingSec: number; alarm: boolean }> {
+    const stuck = await this.repo.stuckFor(LEDGER_SUBSCRIBER_PREFIX);
+    const oldestPendingSec = stuck.oldestPendingAt ? Math.max(0, Math.floor((this.clock.now().getTime() - stuck.oldestPendingAt.getTime()) / 1000)) : 0;
+    return { ledgerFailed: stuck.failed, oldestPendingSec, alarm: stuck.failed > 0 || oldestPendingSec > MONEY_ALARM_PENDING_SEC };
   }
 
   /**

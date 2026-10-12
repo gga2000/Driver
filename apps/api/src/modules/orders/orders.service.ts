@@ -1754,6 +1754,11 @@ export class OrdersService implements OnModuleInit {
     return this.repo.householdOrdersBetween(householdId, memberIds, from, to);
   }
 
+  /** The orders that closed in `[from, to)`: the ledger's nightly check that each settled once. */
+  closedBetween(from: Date, to: Date): Promise<string[]> {
+    return this.repo.closedBetween(from, to);
+  }
+
   /** Joy w6: who had orders served in `[from, to)` (the month-start card's audience). */
   orderersServedBetween(from: Date, to: Date): Promise<string[]> {
     return this.repo.orderersServedBetween(from, to);
