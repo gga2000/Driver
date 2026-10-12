@@ -110,6 +110,13 @@ export default async function register(ctx) {
     if (d.accept) await admin.moneyRespondDispute(owner, { merchantOrgId: khalid.orgId, orderId: d.order.id, decision: 'accept_default', evidenceUploadIds: [] }).catch(() => undefined);
   }
 
+  // ── the statement's rate line: `POST /demo/money/tier?tier=starter` puts مطعم خالد on that tier ──
+  ctx.route('/demo/money/tier', async (_req, _res, url) => {
+    const tier = ['starter', 'base', 'featured', 'marketing'].includes(url.searchParams.get('tier')) ? url.searchParams.get('tier') : 'base';
+    await ctx.services.orgs.setMerchantSettings(khalid.orgId, { commissionTier: tier });
+    return { tier };
+  });
+
   // ── "اطلب فلوسك" hooks ──
   let lastPlan = null;
   ctx.route('/demo/money/request', async () => {

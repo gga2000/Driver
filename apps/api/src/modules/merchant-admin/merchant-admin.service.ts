@@ -46,7 +46,7 @@ import { IdentityService } from '../identity/index.js';
 import { Accounts, LedgerFacade, LedgerService, MerchantCashService } from '../ledger/index.js';
 import { MerchantService } from '../merchant/index.js';
 import { OpsService } from '../ops/index.js';
-import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, OrdersService } from '../orders/index.js';
+import { activePauseWindow, CITY_PAUSE_WINDOWS, commissionPctOf, DEFAULT_TIMEZONE, ORDERS_RULES, OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
@@ -465,11 +465,15 @@ export class MerchantAdminService implements MerchantAdminPort {
   async moneyStatement(actor: Actor, input: { merchantOrgId: string; weekOf?: Date | undefined }): Promise<WeeklyStatement> {
     await this.owner(actor, input.merchantOrgId);
     const range = localPeriod('week', input.weekOf ?? this.clock.now());
-    const [statement, orders] = await Promise.all([
+    const [statement, orders, org] = await Promise.all([
       this.ledger.statement(Accounts.merchantCash(input.merchantOrgId), { from: range.from, to: range.to }),
       this.ordersIn(input.merchantOrgId, { from: new Date(range.from.getTime() - DAY_MS), to: range.to }),
+      this.orgs.get(input.merchantOrgId),
     ]);
-    return composeStatement({ merchantOrgId: input.merchantOrgId, from: range.from, to: range.to, statement, orders });
+    // His rate now, for the statement's header; a starter shop also sees the day its starter period began.
+    const tier = org.merchant?.commissionTier ?? ORDERS_RULES.defaultCommissionTier;
+    const rate = { tier, pct: commissionPctOf(tier), starterSince: tier === 'starter' ? org.createdAt : null };
+    return { ...composeStatement({ merchantOrgId: input.merchantOrgId, from: range.from, to: range.to, statement, orders }), rate };
   }
 
   private async disputeOf(order: Order, responses: ReadonlyMap<string, DisputeResponseRecord>, names: ReadonlyMap<string, string>): Promise<MerchantDispute | null> {
