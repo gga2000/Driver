@@ -9290,5 +9290,11 @@
   "partner.glow_some": "The glowing areas have work",
   "partner.glow_yours": "Your call. This is only advice; orders reach you wherever you are",
   "partner.glow_age_now": "Picture from a moment ago",
-  "partner.glow_age": "Picture from {n} min ago"
+  "partner.glow_age": "Picture from {n} min ago",
+  "error.parcel_not_found": "We couldn't find this parcel",
+  "error.parcel_door_closed": "This link has ended. Ask the sender for a new one",
+  "error.parcel_door_outside_zone": "This spot is outside the area the fare was set for. Mark a door in the same area or tell the sender",
+  "error.parcel_photo_unknown": "The photo didn't arrive. Take it again",
+  "error.parcel_not_cancellable": "The courier has the parcel, it can't be cancelled now",
+  "error.parcel_receiver_is_you": "That's your own number. Choose who receives the parcel"
 }

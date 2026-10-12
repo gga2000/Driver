@@ -3923,3 +3923,47 @@ model RefundApproval {
   @@map("refund_approvals")
   @@schema("public")
 }
+
+/// طرود (Ali 2026-10-12): a parcel inside the city. The receiver is a person id (the name the sender
+/// gave lives in identity_vault under participant `parcel:<id>`); the door link's token is stored only
+/// as its sha-256. The courier order is placed once the door is set (`order_id`). Ids, the parcel's
+/// own words and money only. (`parcels` is the older per-order table from the M2 domain, unused so far.)
+model ParcelSend {
+  id                String    @id @default(cuid())
+  cityId            String    @map("city_id")
+  senderId          String    @map("sender_id")
+  clientRequestId   String    @map("client_request_id")
+  what              String
+  /// small | medium | large
+  size              String
+  declaredValueIqd  Int       @map("declared_value_iqd")
+  photoUploadId     String?   @map("photo_upload_id")
+  recipientPersonId String    @map("recipient_person_id")
+  /// DeliveryPoint (zone, pin, saved place).
+  pickup            Json
+  /// receiver | sender
+  doorBy            String    @map("door_by")
+  zoneKey           String    @map("zone_key")
+  dropoff           Json?
+  /// sender | receiver
+  payer             String
+  fareIqd           Int       @map("fare_iqd")
+  courierNote       String?   @map("courier_note")
+  pin               String
+  doorTokenHash     String?   @unique @map("door_token_hash")
+  doorDueAt         DateTime? @map("door_due_at")
+  doorSetAt         DateTime? @map("door_set_at")
+  orderId           String?   @map("order_id")
+  /// waiting_door | placed | cancelled
+  stage             String
+  cancelledAt       DateTime? @map("cancelled_at")
+  createdAt         DateTime  @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([senderId, clientRequestId])
+  @@index([senderId, createdAt])
+  @@index([stage, doorDueAt])
+  @@index([orderId])
+  @@map("parcel_sends")
+  @@schema("public")
+}

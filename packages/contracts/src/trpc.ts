@@ -16,6 +16,7 @@ import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { StatsPort } from './stats-io.js';
 import type { PartnerPort } from './partner-io.js';
+import type { ParcelsPort } from './parcels-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
@@ -134,6 +135,8 @@ export interface AppContext {
   referrals: ReferralsPort;
   /** Joy J7d: favourite drivers, regular trips, dinner timed to the ride home (`modules/ride-habits`). */
   rideHabits: RideHabitsPort;
+  /** Parcels طرود: quote, send, the parcel's page, her door page (`modules/parcels`). */
+  parcels: ParcelsPort;
   /** Taxi/tuktuk step 4 (v4): rides booked by phone from the Console (`modules/phone-booking`). */
   phoneBookings: PhoneBookingPort;
   /** Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (`modules/garage-taxi`). */

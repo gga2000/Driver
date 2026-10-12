@@ -1,0 +1,73 @@
+import { Module } from '@nestjs/common';
+import { PrismaService } from '../../shared/db/prisma.service.js';
+import { baseUrlFromEnv } from '../../shared/public-url.js';
+import { IdentityModule, IdentityService } from '../identity/index.js';
+import { identityRiders, OrdersModule, OrdersService, orgsHouseholds } from '../orders/index.js';
+import { OrgsModule, OrgsService } from '../orgs/index.js';
+import { BLOB_STORE, ownsStoredUpload, PlacesModule, SavedPlacesService, type BlobStore } from '../places/index.js';
+import { TripsModule, TripsService } from '../trips/index.js';
+import { ParcelsJob } from './parcels.job.js';
+import { InMemoryParcelsRepository, PARCELS_REPOSITORY, PrismaParcelsRepository, type ParcelsRepository } from './parcels.repository.js';
+import { ParcelsService, orderInput } from './parcels.service.js';
+import { PARCELS_LINK_BASE, PARCELS_ORDERS, PARCELS_PEOPLE, PARCELS_PLACES, PARCELS_RIDERS, type ParcelsOrdersPort, type ParcelsPeoplePort, type ParcelsPlacesPort } from './ports.js';
+
+const photoOf = (proof: Record<string, unknown> | undefined): string | null => (typeof proof?.['photoUploadId'] === 'string' ? proof['photoUploadId'] : null);
+
+/**
+ * طرود: owns `parcel_sends`. Places courier orders through orders only; the receiver's name lives in the
+ * identity vault (participant names, `parcel:<id>`). Env: SHARE_LINK_BASE_URL (the receiver's link; unset: no link).
+ */
+@Module({
+  imports: [OrdersModule, TripsModule, IdentityModule, OrgsModule, PlacesModule],
+  providers: [
+    {
+      provide: PARCELS_REPOSITORY,
+      useFactory: (prisma: PrismaService): ParcelsRepository => (prisma.configured ? new PrismaParcelsRepository(prisma) : new InMemoryParcelsRepository()),
+      inject: [PrismaService],
+    },
+    {
+      provide: PARCELS_ORDERS,
+      useFactory: (orders: OrdersService, trips: TripsService): ParcelsOrdersPort => ({
+        fare: async (senderId, i) => (await orders.quote(senderId, orderInput({ id: 'quote', cityId: i.cityId, pickup: i.pickup, courierNote: null }, i.dropoff))).totalIqd,
+        place: (senderId, input) => orders.place(senderId, input),
+        order: (orderId) => orders.get(orderId).catch(() => null),
+        cancel: (senderId, orderId) => orders.cancel(senderId, { orderId, reason: 'parcel_cancelled' }),
+        proofs: async (orderId) => {
+          const carried = await trips.courierOf(orderId);
+          if (!carried) return { pickup: null, dropoff: null };
+          const trip = await trips.get(carried.tripId);
+          const stop = (type: 'pickup' | 'dropoff') => trip.stops.find((s) => s.orderId === orderId && s.type === type);
+          return { pickup: photoOf(stop('pickup')?.handoverProof), dropoff: photoOf(stop('dropoff')?.handoverProof) };
+        },
+      }),
+      inject: [OrdersService, TripsService],
+    },
+    {
+      provide: PARCELS_PEOPLE,
+      useFactory: (identity: IdentityService): ParcelsPeoplePort => ({
+        firstName: async (personId, accessorId, purpose) => (await identity.firstNamesFor([personId], accessorId, purpose))[personId] ?? null,
+        phoneMasked: async (personId, accessorId, purpose) => (await identity.memberCards([personId], accessorId, purpose))[personId]?.phoneMasked ?? null,
+      }),
+      inject: [IdentityService],
+    },
+    {
+      provide: PARCELS_PLACES,
+      useFactory: (saved: SavedPlacesService, blobs: BlobStore): ParcelsPlacesPort => ({
+        zoneOf: (cityId, pin) => saved.zones.resolve(cityId, pin),
+        zone: (cityId, zoneKey) => {
+          const centre = saved.zones.centre(cityId, zoneKey);
+          return centre ? { name: saved.zones.names(cityId, zoneKey).ar, centre } : null;
+        },
+        photoOwned: (uploadId, personId) => ownsStoredUpload(blobs, uploadId, personId),
+        photoUrl: (uploadId) => blobs.readUrl(uploadId),
+      }),
+      inject: [SavedPlacesService, BLOB_STORE],
+    },
+    { provide: PARCELS_RIDERS, useFactory: (identity: IdentityService, orgs: OrgsService) => identityRiders(identity, orgsHouseholds(orgs)), inject: [IdentityService, OrgsService] },
+    { provide: PARCELS_LINK_BASE, useFactory: () => baseUrlFromEnv('SHARE_LINK_BASE_URL') },
+    ParcelsService,
+    ParcelsJob,
+  ],
+  exports: [ParcelsService],
+})
+export class ParcelsModule {}

@@ -9290,5 +9290,11 @@
   "partner.glow_some": "المناطق المضوية بيها شغل",
   "partner.glow_yours": "القرار إلك. هاي نصيحة بس، والطلبات توصلك وين ما تكون",
   "partner.glow_age_now": "الصورة من شوية",
-  "partner.glow_age": "الصورة قبل {n} دقيقة"
+  "partner.glow_age": "الصورة قبل {n} دقيقة",
+  "error.parcel_not_found": "ما لگينا هذا الطرد",
+  "error.parcel_door_closed": "هذا الرابط انتهى. اطلب من المرسل يدزلك رابط جديد",
+  "error.parcel_door_outside_zone": "هذا المكان بره المنطقة اللي انحسبت عليها الأجرة. ثبّت الباب بنفس المنطقة أو گول للمرسل",
+  "error.parcel_photo_unknown": "الصورة ما وصلت. صوّرها مرة ثانية",
+  "error.parcel_not_cancellable": "الدليفري أخذ الطرد، ما ينلغي هسه",
+  "error.parcel_receiver_is_you": "هذا رقمك. اختار الشخص اللي يستلم الطرد"
 }
