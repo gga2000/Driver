@@ -296,7 +296,7 @@ export class OpsService implements OpsPort, OnModuleInit {
   }
 
   /**
-   * أكل بيت «سجّلي مطبخج»: a cook applies for her own kitchen from the Merchant app. She is both the
+   * أكل بيت «سجّل مطبخك»: a cook applies for a home kitchen from the Merchant app. She is both the
    * one who sent it and its contact, so the approvals guard (`approval_own_item`) keeps her from
    * deciding on it; staff call her and approve or turn it down in the Console queue. One application
    * at a time: while one waits, asking again returns it. Her name goes to the identity vault only;

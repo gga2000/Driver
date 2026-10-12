@@ -3,16 +3,6 @@ import { EventsService } from '../events/index.js';
 import { MERCHANT_SETUP_CATALOG, type SetupCatalogPort } from './setup.service.js';
 import { MERCHANT_STORES, type MerchantStoresPort } from './merchant.service.js';
 
-/** The cook's monogram on her kitchen card: the first letter of her kitchen's own word («مطبخ أم حسين» → ح). */
-export function kitchenMonogram(name: string): string | null {
-  const words = name
-    .trim()
-    .split(/\s+/)
-    .filter((w) => w && w !== 'مطبخ' && w !== 'أم' && w !== 'ام' && w !== 'أبو' && w !== 'ابو' && w !== 'خالة' && w !== 'بيت');
-  const word = words[words.length - 1] ?? name.trim();
-  return [...word][0] ?? null;
-}
-
 /**
  * أكل بيت: staff approved a cook's kitchen (`merchant.activated`, its `type` from the stored
  * onboarding row). Her storefront is made a home kitchen, her commission tier is `home` (Ali's 10%,
@@ -25,7 +15,8 @@ export async function activateHomeKitchen(stores: MerchantStoresPort, catalog: P
   const s = await stores.merchantSettings(orgId);
   let changed = false;
   if (!front?.home) {
-    const home = { monogram: kitchenMonogram(org.name) };
+    // No monogram of her own yet: the badge falls back to her kitchen name's letter (kitchenMonogram).
+    const home = { monogram: null };
     await catalog.saveStorefront(front ? { ...front, home } : { orgId, cityId: org.cityId, nameAr: org.name, cuisineAr: 'أكل بيت', tags: [], photoUrl: null, minOrderIqd: 0, hours: [], home });
     changed = true;
   }
