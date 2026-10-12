@@ -1,23 +1,19 @@
 import { useEffect, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { Button, Icon, Text, useNetwork, useTheme, useToast } from '@driver/ui';
-import { pickPhoto, uploadPhoto, type PickedPhoto } from '@/features/account/photo';
+import { pickPhoto, type PickedPhoto } from '@/features/account/photo';
 import { useRefreshWork } from '@/features/work/queries';
 import { apiErrorCode, useApiClient } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { storage } from '@/lib/storage';
-import { groupDigits, overCeiling, parseReceipt, receiptKey } from './logic';
-
-interface Recorded {
-  receiptIqd: number;
-  cashDueIqd: number;
-}
+import { groupDigits, overCeiling, parseReceipt } from './logic';
+import { loadReceipt, onReceiptNudge, recordReceipt, useReceipt } from './receipt-state';
 
 /**
  * «الوصل» (دوّرلي): at the shops, what he paid, typed from the receipt with its photo. The server makes
  * it the goods' price and the customer's new total at the door; until he leaves the shops he can
  * change it. Over the customer's ceiling the button itself says he called first (never a block).
+ * With no network it waits on the phone and counts as recorded (receipt-state.ts).
  */
 export function ReceiptPanel({ tripId, stopId, listMaxIqd }: { tripId: string; stopId: string; listMaxIqd: number | null }) {
   const theme = useTheme();
@@ -28,26 +24,28 @@ export function ReceiptPanel({ tripId, stopId, listMaxIqd }: { tripId: string; s
   const refresh = useRefreshWork();
   const [text, setText] = useState('');
   const [photo, setPhoto] = useState<PickedPhoto | null>(null);
-  const [recorded, setRecorded] = useState<Recorded | null>(null);
+  const recorded = useReceipt(stopId);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const key = receiptKey(stopId);
+  // The job screen's main button was tapped before a receipt: the panel lights up once.
+  const [nudged, setNudged] = useState(false);
 
   useEffect(() => {
-    let live = true;
-    void storage.getItem(key).then((raw) => {
-      if (!live || !raw) return;
-      try {
-        const v = JSON.parse(raw) as Recorded;
-        if (Number.isInteger(v.receiptIqd) && Number.isInteger(v.cashDueIqd)) setRecorded(v);
-      } catch {
-        /* unreadable: ask again */
-      }
-    }, () => undefined);
-    return () => {
-      live = false;
-    };
-  }, [key]);
+    void loadReceipt(stopId);
+  }, [stopId]);
+  useEffect(
+    () =>
+      onReceiptNudge(() => {
+        theme.haptic('warning');
+        setNudged(true);
+      }),
+    [theme],
+  );
+  useEffect(() => {
+    if (!nudged) return;
+    const id = setTimeout(() => setNudged(false), 2400);
+    return () => clearTimeout(id);
+  }, [nudged]);
 
   const amount = parseReceipt(text);
   const over = overCeiling(amount, listMaxIqd);
@@ -62,15 +60,12 @@ export function ReceiptPanel({ tripId, stopId, listMaxIqd }: { tripId: string; s
     if (amount === null || !photo) return;
     setBusy(true);
     try {
-      const photoUploadId = await uploadPhoto(photo, (input) => client.places.photoUpload.mutate(input));
-      const res = await client.partner.errandReceipt.mutate({ tripId, stopId, totalIqd: amount, photoUploadId });
-      const next = { receiptIqd: res.receiptIqd, cashDueIqd: res.cashDueIqd };
-      setRecorded(next);
+      const how = await recordReceipt(client, { tripId, stopId, totalIqd: amount, photo });
       setEditing(false);
       setText('');
       setPhoto(null);
-      void storage.setItem(key, JSON.stringify(next)).catch(() => undefined);
-      void refresh();
+      if (how === 'queued') toast.show({ message: t('partner.errand.receipt_queued'), tone: 'warning', icon: 'clock' });
+      else void refresh();
     } catch (e) {
       const code = apiErrorCode(e);
       toast.show({ message: t(code === 'order_state_conflict' ? 'partner.errand.receipt_locked' : 'partner.errand.receipt_failed'), tone: 'warning', icon: 'receipt' });
@@ -87,7 +82,11 @@ export function ReceiptPanel({ tripId, stopId, listMaxIqd }: { tripId: string; s
           <Text variant="label" weight={700} tabular>
             {t('partner.errand.receipt_recorded', { amount: amountParam(recorded.receiptIqd) })}
           </Text>
-          {recorded.cashDueIqd > 0 ? (
+          {recorded.cashDueIqd === null ? (
+            <Text testID="errand-receipt-waiting" variant="caption" color="warningText">
+              {t('partner.errand.receipt_waiting')}
+            </Text>
+          ) : recorded.cashDueIqd > 0 ? (
             <Text variant="caption" color="textMuted" tabular>
               {t('partner.errand.receipt_due', { amount: amountParam(recorded.cashDueIqd) })}
             </Text>
@@ -99,7 +98,10 @@ export function ReceiptPanel({ tripId, stopId, listMaxIqd }: { tripId: string; s
   }
 
   return (
-    <View testID="errand-receipt" style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.space[3], gap: theme.space[3] }}>
+    <View
+      testID="errand-receipt"
+      style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.space[3], gap: theme.space[3], borderWidth: 2, borderColor: nudged ? theme.colors.warning : 'transparent' }}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
         <Icon name="receipt" size={18} color="accentText" />
         <Text variant="label" weight={700} style={{ flex: 1 }}>
@@ -147,7 +149,7 @@ export function ReceiptPanel({ tripId, stopId, listMaxIqd }: { tripId: string; s
         variant="primary"
         fullWidth
         loading={busy}
-        disabled={amount === null || !photo || !net.online}
+        disabled={amount === null || !photo}
         onPress={() => void send()}
       />
       {!net.online ? (

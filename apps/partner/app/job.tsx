@@ -25,7 +25,7 @@ import { speakOffer, stopSpeaking } from '@/features/offer/speak';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
 import { DoorCard } from '@/features/work/DoorCard';
 import { PickupSpotCard } from '@/features/work/PickupSpotCard';
-import { JobKindPanel } from '@/features/work/JobKindPanel';
+import { JobKindPanel, jobKindBlocks, nudgeJobKind } from '@/features/work/JobKindPanel';
 import { StartCodePanel } from '@/features/work/StartCodePanel';
 import { needsStartCode } from '@/features/work/start-code';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
@@ -253,6 +253,8 @@ function JobView({
 
   const advance = async () => {
     if (!stop || !action || busy) return;
+    const kindBlock = action.kind === 'complete' ? jobKindBlocks(job, stop) : null;
+    if (kindBlock) return (toast.show({ message: t(kindBlock), tone: 'warning', icon: 'receipt' }), nudgeJobKind());
     if (action.kind === 'complete' && stop.type === 'dropoff' && !ride) {
       setPanel('handover');
       return;
