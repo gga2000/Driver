@@ -51,6 +51,10 @@
     "./pieces/road": {
       "types": "./dist/golden/road.d.ts",
       "default": "./dist/golden/road.js"
+    },
+    "./pieces/carts": {
+      "types": "./dist/golden/carts.d.ts",
+      "default": "./dist/golden/carts.js"
     }
   },
   "scripts": {
