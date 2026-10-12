@@ -4,7 +4,7 @@ import { Pressable, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  formatIqd,
+  formatAmount,
   Icon,
   IconButton,
   QueryBoundary,
@@ -214,7 +214,7 @@ function BakeryBody({ bakery }: { bakery: Bakery }) {
                   {item.name}
                 </Text>
                 <Text variant="footnote" weight={600} color="textMuted">
-                  {t('shopping.lot', { n: item.per, amount: formatIqd(item.priceIqd) })}
+                  {t('shopping.lot', { n: item.per, amount: formatAmount(item.priceIqd) })}
                 </Text>
               </View>
               {item.available ? (

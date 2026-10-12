@@ -2017,7 +2017,7 @@
   "merchant.market.oven.pause_hint": "نرجع وحدنا",
   "merchant.market.oven.close": "سدّ",
   "merchant.market.oven.close_hint": "لحد ما تفتحه",
-  "merchant.market.oven.live_open": "الزباين يشوفونك مفتوح، يخبز هسه",
+  "merchant.market.oven.live_open": "الزباين يشوفونك مفتوح، يخبز هسة",
   "merchant.market.oven.live_paused": "موقّف، يرجع وحده الساعة {time}",
   "merchant.market.oven.live_closed": "مسدود. الزباين ما يگدرون يطلبون",
   "merchant.market.oven.pause_title": "إذا توقّف شوية، شكد؟",

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { formatIqd, Icon, ModalSheet, Stepper, Text, TextField, useTheme } from '@driver/ui';
+import { formatAmount, formatIqd, Icon, ModalSheet, Stepper, Text, TextField, useTheme } from '@driver/ui';
 import type { MessageKey } from '@driver/i18n';
 import { useT } from '@/lib/i18n';
 import { lineIqd } from './basket';
@@ -62,8 +62,8 @@ export function WeightSheet({
   const pieces = byKg ? piecesFor(item.piecesPerKg, amount) : null;
   const total = lineIqd(item, amount);
   const priceUnit = byKg
-    ? t('shopping.per_kg', { amount: formatIqd(item.priceIqd) })
-    : t('shopping.per_piece', { amount: formatIqd(item.priceIqd) });
+    ? t('shopping.per_kg', { amount: formatAmount(item.priceIqd) })
+    : t('shopping.per_piece', { amount: formatAmount(item.priceIqd) });
   const photoWhen = item.photoToday ? t('shopping.photo_today') : t('shopping.photo_yesterday');
   const amountWords = byKg ? weightText(amount) : t('shopping.pieces', { n: amount });
 
@@ -85,7 +85,7 @@ export function WeightSheet({
           accessibilityRole="button"
           accessibilityLabel={t(
             current > 0 ? 'shopping.update_basket_a11y' : 'shopping.add_basket_a11y',
-            { what: amountWords, amount: formatIqd(total) },
+            { what: amountWords, amount: formatAmount(total) },
           )}
           onPress={() => onSave(amount, note.trim())}
           style={({ pressed }) => ({

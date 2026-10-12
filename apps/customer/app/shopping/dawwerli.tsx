@@ -2,7 +2,7 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { formatIqd, Icon, Text, TextField, useTheme, useToast, type IconName } from '@driver/ui';
+import { formatAmount, formatIqd, Icon, Text, TextField, useTheme, useToast, type IconName } from '@driver/ui';
 import type { MessageKey } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { CITY_ID, useDeliverTo, usePlaceOrder } from '@/features/food/queries';
@@ -197,7 +197,7 @@ export default function Dawwerli() {
           <Row
             label={t('shopping.fees')}
             value={
-              fees != null ? formatIqd(fees) : t('shopping.fees_from', { amount: formatIqd(500) })
+              fees != null ? formatIqd(fees) : t('shopping.fees_from', { amount: formatAmount(500) })
             }
           />
           <TextField
@@ -359,7 +359,7 @@ function ItemRow({ item, first }: { item: ErrandItem; first: boolean }) {
           {t('shopping.if_missing_line', {
             what: t(`shopping.missing_${item.ifMissing}` as MessageKey),
           })}
-          {item.maxIqd ? ` · ${t('shopping.max_line', { amount: formatIqd(item.maxIqd) })}` : ''}
+          {item.maxIqd ? ` · ${t('shopping.max_line', { amount: formatAmount(item.maxIqd) })}` : ''}
         </Text>
       </View>
     </Pressable>

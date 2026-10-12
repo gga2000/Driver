@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { formatIqd, QueryBoundary, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { formatAmount, formatIqd, QueryBoundary, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import type { MessageKey } from '@driver/i18n';
 import { Screen } from '@/components/Screen';
 import { CITY_ID, useDeliverTo } from '@/features/food/queries';
@@ -138,7 +138,7 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
             onPress={() => void onSet()}
             a11y={t('shopping.daily_set_a11y', {
               n: pieces,
-              amount: formatIqd(bread),
+              amount: formatAmount(bread),
               days: days.size,
             })}
           />
@@ -227,7 +227,7 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
             {item.name}
           </Text>
           <Text variant="footnote" weight={600} color="textMuted">
-            {t('shopping.lot', { n: item.per, amount: formatIqd(item.priceIqd) })}
+            {t('shopping.lot', { n: item.per, amount: formatAmount(item.priceIqd) })}
           </Text>
         </View>
         <PackStepper
@@ -307,7 +307,7 @@ function DailyBody({ bakery }: { bakery: Bakery }) {
         <Line label={t('shopping.daily_bread_line')} value={formatIqd(bread)} />
         <Line
           label={t('shopping.delivery')}
-          value={t('shopping.delivery_from', { amount: formatIqd(500) })}
+          value={t('shopping.delivery_from', { amount: formatAmount(500) })}
         />
         <Text variant="footnote" color="textMuted">
           {t('shopping.daily_cash', { time: chosen.time, part: t(chosen.part as MessageKey) })}
