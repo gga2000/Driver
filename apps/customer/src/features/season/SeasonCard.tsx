@@ -17,7 +17,7 @@ const TIMETABLES: Timetable[] = ['sunni', 'shia'];
  * suhoor runs) on the timetable the person follows, and the two neutral choices until they pick one;
  * at Eid «عيدكم مبارك» without naming the day; on a special Friday ops' own line. Nothing festive on a
  * quiet day: the Ramadan card stays (it is service), plain, and Eid's hides (the server decides). On a
- * festive Ramadan day, once the timetable is picked, the countdown is the lantern card with the open
+ * festive Ramadan day, once the timetable is picked, the countdown is the gold lantern strip with the open
  * `kitchens` that make it before the adhan (`IftarCard`).
  * Renders nothing on an ordinary day, and before the first season read (an ordinary day).
  */
