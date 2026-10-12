@@ -9,6 +9,7 @@ import { distanceM, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
 import { GOLDEN_MAP, MAP_CREDIT } from './map/credit';
 import { useLabelAvoid } from './map/useLabelAvoid';
+import { routeWaypoints } from './map3d';
 import { CourierMarker, HeadingArrow, PlacePin, placePinSide, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { RecentreChip } from './map/RecentreChip';
 import { TRACK_3D, TrackMap3D } from './map/TrackMap3D';
@@ -19,6 +20,8 @@ import { isLive, POSITION_POLL_MS, useOrderRoute } from './queries';
 import { placeKind, placeWord } from './place-kind';
 import { storyShot } from './story';
 import { phaseOf } from './timeline';
+
+export { routeWaypoints };
 
 /** The cooking ring moves this often (prep is minutes long). */
 const PREP_TICK_MS = 5_000;
@@ -43,18 +46,6 @@ export interface TrackMapProps {
   destinationKind?: 'home' | 'destination';
   /** Rides while searching (ride idea m1): the search wave — how far the rings reach, who is asked. */
   wave?: { part: 1 | 2 | 3; asked: number | 'all' } | null;
-}
-
-/** Where the route still goes after the courier: next stops of this order, in order. */
-export function routeWaypoints(v: OrderTracking): { start: LngLat | null; waypoints: LngLat[] } {
-  const stops = v.trip?.stops.filter((s) => s.mine && s.target && s.state !== 'completed' && s.state !== 'skipped') ?? [];
-  const home = v.dropoff?.pin ?? v.trip?.stops.find((s) => s.mine && s.type === 'dropoff')?.target ?? null;
-  const kitchen = v.merchant?.pin ?? null;
-  if (stops.length > 0) return { start: v.courier ? null : (kitchen ?? null), waypoints: stops.map((s) => s.target!) };
-  if (v.order.deliveredAt || v.order.state === 'closed' || v.order.state === 'delivered') return { start: null, waypoints: [] };
-  // No trip yet: kitchen → door.
-  if (kitchen && home) return { start: kitchen, waypoints: [home] };
-  return { start: null, waypoints: home ? [home] : [] };
 }
 
 /**

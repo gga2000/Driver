@@ -9,6 +9,8 @@ import type { SessionStatus } from './session';
  *  - signed in, no merchant role on any store       → /not-activated (friendly, with a call button)
  *  - signed in, several stores and none picked yet  → /stores
  *  - signed in and ready, on an auth/gate screen    → / (the orders board)
+ *  - signed in, on the staff-alert screen           → stay, whatever the stores (staff open SOS
+ *    pushes there)
  */
 
 export type StoreAccess = 'loading' | 'none' | 'pick' | 'ready';
@@ -23,6 +25,7 @@ export interface GuardInput {
 export const AUTH_GROUP = '(auth)';
 export const GATE_SCREEN = 'not-activated';
 export const STORES_SCREEN = 'stores';
+export const STAFF_ALERT_SCREEN = 'staff-alert';
 
 export function resolveGuard({ status, access, segments }: GuardInput): GuardTarget | null {
   if (status === 'loading') return null;
@@ -30,6 +33,7 @@ export function resolveGuard({ status, access, segments }: GuardInput): GuardTar
   const inAuth = first === AUTH_GROUP;
 
   if (status === 'signedOut') return inAuth ? null : '/welcome';
+  if (first === STAFF_ALERT_SCREEN) return null;
 
   if (access === 'loading') return null;
   if (access === 'none') return first === GATE_SCREEN ? null : '/not-activated';

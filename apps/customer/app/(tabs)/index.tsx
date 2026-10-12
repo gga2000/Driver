@@ -265,7 +265,7 @@ export default function Home() {
           </Animated.View>
         ) : null}
         {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
-        <SeasonCard />
+        <SeasonCard kitchens={open} />
 
         {/* The hour's food (concept C, Ali 2026-10-08): the town's pots and the hour's dishes as one
             photo gallery that shows itself once, then «أكلات ثانية» in two columns. Late at night

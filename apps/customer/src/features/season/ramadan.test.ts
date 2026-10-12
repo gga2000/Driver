@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PublicSeason, TimetableTimes } from '@driver/contracts';
 import { LOUD_SEASON } from '@/lib/season';
 import { createMemoryStorage } from '@/lib/storage';
-import { iftarLeadMinutes, ramadanLine, seasonCard, timesFor, withIftarSlot } from './ramadan';
+import { iftarLeadMinutes, ramadanKitchens, ramadanLine, seasonCard, timesFor, withIftarSlot } from './ramadan';
 import { TIMETABLE_PREF_KEY, TimetablePref } from './timetable-pref';
 
 /** Baghdad wall clock → instant. */
@@ -80,5 +80,20 @@ describe('timetable pick', () => {
     const again = new TimetablePref(store);
     await again.load();
     expect(again.current).toBe('shia');
+  });
+});
+
+describe('the iftar line names only kitchens that make it', () => {
+  const k = (id: string, open: boolean, max: number | null) => ({ id, open, etaMaxMinutes: max });
+  const list = [k('near', true, 25), k('far', true, 50), k('shut', false, 20), k('unknown', true, null)];
+  it('before iftar: open, with a longest time that still beats the adhan; none in the morning', () => {
+    expect(ramadanKitchens(list, { kind: 'iftar', minutes: 40, at: at('2027-02-08T17:39') }).map((x) => x.id)).toEqual(['near']);
+    expect(ramadanKitchens(list, { kind: 'iftar', minutes: 180, at: at('2027-02-08T17:39') }).map((x) => x.id)).toEqual(['near', 'far']);
+    expect(ramadanKitchens(list, { kind: 'iftar', minutes: 10, at: at('2027-02-08T17:39') })).toEqual([]);
+    expect(ramadanKitchens(list, { kind: 'iftar', minutes: 181, at: at('2027-02-08T17:39') })).toEqual([]);
+  });
+  it('before suhoor: every open kitchen; on the last evening none', () => {
+    expect(ramadanKitchens(list, { kind: 'suhoor', at: at('2027-02-09T05:25') }).map((x) => x.id)).toEqual(['near', 'far', 'unknown']);
+    expect(ramadanKitchens(list, { kind: 'none' })).toEqual([]);
   });
 });

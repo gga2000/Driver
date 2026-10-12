@@ -155,6 +155,11 @@ describe('the part of day on hours and windows (R-06)', () => {
     expect(hourWindow(at('2026-10-01T14:50:00Z'), at('2026-10-01T15:55:00Z'))).toEqual({ from: '5:50 العصر', to: '6:55 المسا' });
     expect(hourWindow(at('2026-10-01T15:00:00Z'), at('2026-10-01T21:00:00Z'))).toEqual({ from: '6 المسا', to: '12 بالليل' });
     expect(hourWindow(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'), { locale: 'en' })).toEqual({ from: '4', to: '6 PM' });
+    // A window ending at 12 noon is «12 الظهر», never «12 الصبح» (midnight); one ending at midnight stays «12 بالليل».
+    expect(hourWindow(at('2026-10-01T09:00:00Z'), at('2026-10-01T09:00:00Z')).to).toBe('12 الظهر');
+    expect(hourWindow(at('2026-10-01T07:00:00Z'), at('2026-10-01T09:00:00Z'))).toEqual({ from: '10 الصبح', to: '12 الظهر' });
+    expect(hourWindow(at('2026-10-01T07:00:00Z'), at('2026-10-01T09:00:00Z'), { locale: 'en' })).toEqual({ from: '10 AM', to: '12 PM' });
+    expect(hourWindow(at('2026-10-01T09:00:00Z'), at('2026-10-01T11:00:00Z'))).toEqual({ from: '12', to: '2 الظهر' });
   });
   it('a chip-sized range reads its first hour first (right-to-left isolate in Arabic)', () => {
     expect(formatHourRange(at('2026-10-01T13:00:00Z'), at('2026-10-01T15:00:00Z'))).toBe('\u20674–6\u2069 العصر');

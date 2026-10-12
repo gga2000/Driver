@@ -65,6 +65,7 @@ import { foodScheduleProblem } from './orders.config.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
 import { arrivalCountsForFees, type CancellationSubject } from '../pricing/index.js';
 import { EtaService } from '../routing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
@@ -246,7 +247,7 @@ export class OrdersService implements OnModuleInit {
     @Inject(ORDER_EVENTS) private readonly events: OrderEventEmitter,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(ORDERS_QUEUE) private readonly queue: Queue<OrderTimerJob>,
+    @Inject(ORDERS_QUEUE) queue: Queue<OrderTimerJob>,
     @Inject(ORDERS_TRIPS) private readonly trips: OrdersTripsPort,
     @Inject(ORDERS_PRICING) private readonly pricing: OrdersPricingPort,
     @Inject(MERCHANT_DIRECTORY) private readonly merchants: MerchantDirectory,
@@ -266,6 +267,15 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_UPLOADS) private readonly uploads?: OrdersUploadsPort,
   ) {
     this.promotions = promotions ?? new NoPromotions();
+    this.timers = new DurableTimers(queue, clock, () => uow.current());
+  }
+
+  /** FLW-22: every order timer has a durable copy (written with the order), so a lost Redis job only delays it. */
+  private readonly timers: DurableTimers<OrderTimerJob>;
+
+  /** The module binds the durable timer table and the sweeper at start-up. */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers.bind(store, sweeper);
   }
 
   private readonly logger = new Logger(OrdersService.name);
@@ -357,7 +367,7 @@ export class OrdersService implements OnModuleInit {
   }
 
   onModuleInit(): void {
-    this.queue.process((job) => this.handleTimer(job.name, job.data));
+    this.timers.process((job) => this.handleTimer(job.name, job.data));
   }
 
   // ───────────────────────── placing ─────────────────────────
@@ -584,6 +594,10 @@ export class OrdersService implements OnModuleInit {
           // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
           // Step 4 (o4): door pickup too, so ride habits can offer the same ride the same way.
           ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId, familyPreferred: input.familyPreferred === true, doorPickup: input.options?.doorPickup ?? false } } : {}),
+          // Errands and parcels: no merchant accepts them, so dispatch starts the courier on placement
+          // (`dispatch:courier-placed`) from the order's own pickup (the sender's door, the shop), the
+          // way `order.accepted` carries the merchant's point and the customer's.
+          ...(order.type === 'parcel' || order.type === 'errand' ? { pickup: input.pickup ?? null, dropoff: order.dropoff } : {}),
           ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
         });
         for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
@@ -593,7 +607,7 @@ export class OrdersService implements OnModuleInit {
           // Held: the kitchen sees nothing until the payer says yes; the request commits with the order.
           await this.households.requestApproval({ householdId: order.householdOrgId, orderId: order.id, requestedBy: ordererId, amountIqd: total, reason: askPayer });
           await this.emit(tx, 'order.awaiting_payer', ordererId, order, { householdId: order.householdOrgId, reason: askPayer, totalIqd: total, waitMin: HOUSEHOLD_RULES.approvalWaitMin });
-          await this.queue.add(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
+          await this.timers.schedule(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
         } else if (merchantType && profile) {
           await this.scheduleOffer(order, profile, now, tx);
         }
@@ -601,7 +615,7 @@ export class OrdersService implements OnModuleInit {
         // it survives a restart like every order timer); booked closer than that, nothing to remind.
         const remindAt = order.type === 'ride' && order.scheduledFor ? rideReminderAt(order.scheduledFor, now) : null;
         if (remindAt && order.scheduledFor) {
-          await this.queue.add(ORDER_JOBS.rideReminder, { orderId: order.id, refMs: order.scheduledFor.getTime() }, { delayMs: remindAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'rideReminder') });
+          await this.timers.schedule(ORDER_JOBS.rideReminder, { orderId: order.id, refMs: order.scheduledFor.getTime() }, { delayMs: remindAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'rideReminder') });
         }
         return this.view(order.id, tx);
       });
@@ -663,7 +677,7 @@ export class OrdersService implements OnModuleInit {
     const leadMin = profile.defaultPrepMin + (await this.busyExtra(profile, now)) + ORDERS_RULES.scheduledLeadMin;
     const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
     if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
-    else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
+    else await this.timers.schedule(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
   }
 
   /**
@@ -1007,7 +1021,7 @@ export class OrdersService implements OnModuleInit {
       await this.accept(offered, profile.defaultPrepMin, SYSTEM, tx, { auto: true });
       return;
     }
-    await this.queue.add(ORDER_JOBS.autoReject, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.merchantAcceptSec * 1000, jobId: jobKey('order', order.id, 'autoReject', now.getTime()) });
+    await this.timers.schedule(ORDER_JOBS.autoReject, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.merchantAcceptSec * 1000, jobId: jobKey('order', order.id, 'autoReject', now.getTime()) });
   }
 
   // ───────────────────────── merchant side ─────────────────────────
@@ -1043,7 +1057,7 @@ export class OrdersService implements OnModuleInit {
         deadline: deadline.toISOString(),
         prepMinutes: input.prepMinutes,
       });
-      await this.queue.add(ORDER_JOBS.partialTimeout, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.partialApprovalSec * 1000, jobId: jobKey('order', order.id, 'partial', now.getTime()) });
+      await this.timers.schedule(ORDER_JOBS.partialTimeout, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.partialApprovalSec * 1000, jobId: jobKey('order', order.id, 'partial', now.getTime()) });
       return this.view(order.id, tx);
     });
   }
@@ -1111,8 +1125,8 @@ export class OrdersService implements OnModuleInit {
       // The old checks carry the old promise as their ref and turn into no-ops; these replace them.
       const ref = promisedReadyAt.getTime();
       const untilReady = Math.max(0, ref - now.getTime());
-      await this.queue.add(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.readyOverdueMin * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
-      await this.queue.add(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.courierReleaseMin * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
+      await this.timers.schedule(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.readyOverdueMin * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
+      await this.timers.schedule(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.courierReleaseMin * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
       await this.emit(tx, 'order.prep_extended', actorId, next, {
         merchantOrgId: order.merchantOrgId,
         minutes,
@@ -1813,7 +1827,7 @@ export class OrdersService implements OnModuleInit {
           const present = profile?.lastHeartbeatAt && now.getTime() - profile.lastHeartbeatAt.getTime() <= ORDERS_RULES.heartbeatStaleMs;
           if (present) return;
           if (name === ORDER_JOBS.readyOverdue) {
-            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { cityId: order.cityId, merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
+            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { cityId: order.cityId, merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true }, jobKey('order.merchant_unresponsive', order.id, job.refMs ?? 0));
             return;
           }
           const trip = await this.trips.activeForOrder(order.id);
@@ -1835,7 +1849,7 @@ export class OrdersService implements OnModuleInit {
         case ORDER_JOBS.rideReminder: {
           // Only the booking it was set for, still waiting for its search (not cancelled, not taken).
           if (order.type !== 'ride' || order.state !== 'placed' || !order.scheduledFor || order.scheduledFor.getTime() !== job.refMs) return;
-          await this.emit(tx, 'order.ride_reminder', SYSTEM, order, { customerId: order.ordererId, scheduledFor: order.scheduledFor.toISOString(), searchAt: rideSearchStartsAt(order.scheduledFor).toISOString() });
+          await this.emit(tx, 'order.ride_reminder', SYSTEM, order, { customerId: order.ordererId, scheduledFor: order.scheduledFor.toISOString(), searchAt: rideSearchStartsAt(order.scheduledFor).toISOString() }, jobKey('order.ride_reminder', order.id, job.refMs));
           return;
         }
         default:
@@ -1884,8 +1898,8 @@ export class OrdersService implements OnModuleInit {
     };
     const next = await this.move(order, 'merchant_accepted', actorId, tx, { acceptedAt: now, promisedReadyAt }, accepted, opts.auto ? 'order.auto_accepted' : 'order.accepted');
     const ref = promisedReadyAt.getTime();
-    await this.queue.add(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.readyOverdueMin) * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
-    await this.queue.add(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.courierReleaseMin) * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
+    await this.timers.schedule(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.readyOverdueMin) * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
+    await this.timers.schedule(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.courierReleaseMin) * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
     return next;
   }
 
@@ -2076,7 +2090,7 @@ export class OrdersService implements OnModuleInit {
   }
 
   private async scheduleClose(order: OrderRecord, from: Date): Promise<void> {
-    await this.queue.add(ORDER_JOBS.autoClose, { orderId: order.id, refMs: from.getTime() }, { delayMs: ORDERS_RULES.autoCloseMs, jobId: jobKey('order', order.id, 'autoClose') });
+    await this.timers.schedule(ORDER_JOBS.autoClose, { orderId: order.id, refMs: from.getTime() }, { delayMs: ORDERS_RULES.autoCloseMs, jobId: jobKey('order', order.id, 'autoClose') });
   }
 
   /** `closed`: money settles (ledger subscribes) and points are allocated to participants. */
@@ -2291,9 +2305,10 @@ export class OrdersService implements OnModuleInit {
   }
 
   /** Cross-module events (contracts `DOMAIN_EVENT_PAYLOADS`) are validated against their shared contract here. */
-  private async emit(tx: Tx | undefined, type: string, actorId: string, order: OrderRecord, payload: object): Promise<void> {
+  /** `idempotencyKey`: a timer's announcement, said once however often its timer runs (FLW-22). */
+  private async emit(tx: Tx | undefined, type: string, actorId: string, order: OrderRecord, payload: object, idempotencyKey?: string): Promise<void> {
     const wire = isDomainEventType(type) ? encodeDomainEvent(type, payload as never) : (payload as Record<string, unknown>);
-    await this.events.emit(tx, { type, actorId, occurredAt: this.clock.now(), orderId: order.id, payload: wire }, { name: 'order', id: order.id });
+    await this.events.emit(tx, { type, actorId, occurredAt: this.clock.now(), orderId: order.id, payload: wire, ...(idempotencyKey ? { idempotencyKey } : {}) }, { name: 'order', id: order.id });
   }
 
   private async view(orderId: string, tx?: Tx): Promise<Order> {

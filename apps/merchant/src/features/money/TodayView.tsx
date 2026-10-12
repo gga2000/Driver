@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import type { CashHandover, MerchantCashAccount, MoneyToday, SettlementRequestView } from '@driver/contracts';
-import { Avatar, Button, ModalSheet, Skeleton, Text, usePulse, useTheme } from '@driver/ui';
+import { Avatar, Button, ModalSheet, OtpInput, Skeleton, Text, TextField, usePulse, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { Meter, Panel, PanelRow, Tag } from '@/components/Panel';
@@ -12,8 +12,8 @@ import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { balanceState, beforeFirstOrder, exposure, holderRows, moneyPill, requestBlocker, requestProgress } from './logic';
-import { useRequestMoney } from './queries';
+import { balanceState, beforeFirstOrder, exposure, holderRows, moneyPill, receiveAmount, receiveCodeReady, requestBlocker, requestProgress, type HolderRow } from './logic';
+import { useReceiveCourierCash, useRequestMoney } from './queries';
 
 const TONE_COLOR = { success: 'success', warning: 'warning', danger: 'danger', neutral: 'textMuted' } as const;
 
@@ -35,10 +35,11 @@ export function TodayView({
 }) {
   const theme = useTheme();
   const [receipt, setReceipt] = useState<CashHandover | null>(null);
+  const [receiving, setReceiving] = useState<HolderRow | null>(null);
   const start = (
     <>
       {cash ? <CashHero account={cash} first={beforeFirstOrder(cash, today?.orders ?? 0)} merchantOrgId={merchantOrgId} onReceipt={setReceipt} /> : <Skeleton height={300} radius={20} />}
-      {cash ? <HoldersPanel account={cash} /> : null}
+      {cash ? <HoldersPanel account={cash} onReceive={setReceiving} /> : null}
     </>
   );
   const end = (
@@ -61,6 +62,16 @@ export function TodayView({
         </View>
       )}
       <ReceiptSheet handover={receipt} onClose={() => setReceipt(null)} now={now} />
+      <ReceiveSheet
+        key={receiving?.key ?? 'none'}
+        holder={receiving}
+        merchantOrgId={merchantOrgId}
+        onClose={() => setReceiving(null)}
+        onDone={(h) => {
+          setReceiving(null);
+          if (h) setReceipt(h);
+        }}
+      />
     </>
   );
 }
@@ -302,7 +313,7 @@ function Step({ index, count, state, label, time }: { index: number; count: numb
 
 // ───────────────────────── who holds the money ─────────────────────────
 
-function HoldersPanel({ account }: { account: MerchantCashAccount }) {
+function HoldersPanel({ account, onReceive }: { account: MerchantCashAccount; onReceive: (r: HolderRow) => void }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -315,7 +326,14 @@ function HoldersPanel({ account }: { account: MerchantCashAccount }) {
         </Text>
       ) : (
         rows.map((r, i) => (
-          <PanelRow key={r.key} first={i === 0}>
+          <PanelRow
+            key={r.key}
+            first={i === 0}
+            // A courier's row opens «استلمت منه»: he hands the cash over at the counter with his daily code.
+            onPress={r.kind === 'courier' ? () => onReceive(r) : undefined}
+            testID={r.kind === 'courier' ? `receive-${r.key}` : undefined}
+            accessibilityLabel={r.kind === 'courier' ? t('merchant.money.receive_row_a11y', { name: r.name ?? t('merchant.money.holder_courier'), amount: amountParam(r.amountIqd) }) : undefined}
+          >
             {r.kind === 'courier' ? (
               <Avatar name={r.name ?? undefined} icon={r.name ? undefined : 'bike'} size={40} tone="warning" />
             ) : (
@@ -334,9 +352,12 @@ function HoldersPanel({ account }: { account: MerchantCashAccount }) {
               </View>
               <Meter value={r.share} color={r.kind === 'courier' ? theme.colors.warning : theme.colors.text} height={6} />
             </View>
-            <Text variant="bodyStrong" tabular align="end" style={{ minWidth: 96 }}>
-              {iqd(r.amountIqd, { locale })}
-            </Text>
+            <View style={{ alignItems: 'flex-end', gap: theme.space[1] }}>
+              <Text variant="bodyStrong" tabular align="end" style={{ minWidth: 96 }}>
+                {iqd(r.amountIqd, { locale })}
+              </Text>
+              {r.kind === 'courier' ? <Tag label={t('merchant.money.receive_button')} tone="warning" icon="wallet" /> : null}
+            </View>
           </PanelRow>
         ))
       )}
@@ -519,6 +540,74 @@ function ReceiptSheet({ handover, onClose, now }: { handover: CashHandover | nul
         <MIcon name="chat" size={18} color="textMuted" />
         <Text variant="footnote" color="textMuted">
           {t('merchant.money.receipt_whatsapp')}
+        </Text>
+      </View>
+    </ModalSheet>
+  );
+}
+
+// ───────────────────────── «استلمت منه» ─────────────────────────
+
+/**
+ * The courier hands the restaurant its cash at the counter: the amount starts at what he holds for
+ * it (never more), he reads his daily code from his app, and the owner confirms. The receipt opens
+ * after, the same as a hand-over confirmed any other way.
+ */
+function ReceiveSheet({ holder, merchantOrgId, onClose, onDone }: { holder: HolderRow | null; merchantOrgId: string; onClose: () => void; onDone: (h: CashHandover | null) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const toast = useCounterToast();
+  const receive = useReceiveCourierCash();
+  const [text, setText] = useState(() => (holder ? amountParam(holder.amountIqd) : ''));
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  // One key per opened sheet: a double tap or a retry after a dropped answer is one hand-over.
+  const [key] = useState(() => `tablet:${holder?.key ?? ''}:${Date.now().toString(36)}:${Math.floor(Math.random() * 1e9).toString(36)}`);
+  if (!holder) return null;
+  const { amountIqd, problem } = receiveAmount(text, holder.amountIqd);
+  const ready = problem === null && receiveCodeReady(code);
+  const name = holder.name ?? t('merchant.money.holder_courier');
+  const confirm = async () => {
+    if (!ready || receive.isPending) return;
+    setError(null);
+    try {
+      const after = await receive.mutateAsync({ merchantOrgId, courierId: holder.key, amountIqd, code, idempotencyKey: key });
+      toast.show({ message: t('merchant.money.receive_done', { amount: amountParam(amountIqd), name }), tone: 'success' });
+      onDone(after.handovers.filter((h) => h.courierId === holder.key).sort((a, b) => +new Date(b.at) - +new Date(a.at))[0] ?? null);
+    } catch (err) {
+      setCode('');
+      setError(apiErrorMessage(err, t('merchant.common.error'), locale));
+    }
+  };
+  return (
+    <ModalSheet
+      visible
+      onClose={onClose}
+      testID="receive-sheet"
+      title={t('merchant.money.receive_title', { name })}
+      subtitle={t('merchant.money.receive_holds', { amount: amountParam(holder.amountIqd) })}
+      footer={<Button testID="receive-confirm" label={t('merchant.money.receive_confirm', { amount: amountParam(amountIqd) })} fullWidth size="lg" disabled={!ready} loading={receive.isPending} onPress={() => void confirm()} />}
+    >
+      <TextField
+        testID="receive-amount"
+        label={t('merchant.money.receive_amount')}
+        value={text}
+        onChangeText={setText}
+        keyboardType="number-pad"
+        selectTextOnFocus
+        trailing={
+          <Text variant="label" color="textMuted" style={{ paddingHorizontal: theme.space[3] }}>
+            {t('merchant.item.currency')}
+          </Text>
+        }
+        error={problem === 'too_much' ? t('merchant.money.receive_too_much', { amount: amountParam(holder.amountIqd) }) : undefined}
+      />
+      <View style={{ gap: theme.space[2] }}>
+        <Text variant="label">{t('merchant.money.receive_code')}</Text>
+        <OtpInput testID="receive-code" value={code} onChange={setCode} length={4} error={!!error} accessibilityLabel={t('merchant.money.receive_code')} />
+        <Text variant="footnote" color={error ? 'dangerText' : 'textMuted'}>
+          {error ?? t('merchant.money.receive_code_hint')}
         </Text>
       </View>
     </ModalSheet>

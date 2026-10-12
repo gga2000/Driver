@@ -86,6 +86,21 @@ Exact origins only: Vercel preview links are not on the list. After changing it,
 then Deploy → staging (the setting reaches the API with the deploy). Phones send no origin and are
 never affected.
 
+## Links in messages
+
+The staging API puts four addresses in messages; set each only to an address the company owns:
+
+- `CONSOLE_BASE_URL`: staff alerts → the staging Console (`https://<FLY_CONSOLE_APP>.fly.dev`).
+- `SAFETY_LINK_BASE_URL`: the SOS emergency contact's page → the customer web's `/sos/`
+  (`https://driver-customer-iota.vercel.app/sos/`).
+- `SHARE_LINK_BASE_URL`: trip-share and phone-booking links → the customer web
+  (`https://driver-customer-iota.vercel.app`).
+- `NOTIFY_RECEIPT_BASE_URL` (optional): receipt links in WhatsApp receipts. No page serves them yet:
+  leave it unset (receipts say «تلگاه بالتطبيق»).
+
+Without one, staging still boots (a warning in the log) and those messages go out without the link.
+Production refuses to boot without any of the first three ([hosting.md](hosting.md#environment-variables-of-the-api)).
+
 ## Test sign-in numbers on staging
 
 Staging sends no real SMS. For trying the apps there are staging test numbers (0770 000 0100–0199, never

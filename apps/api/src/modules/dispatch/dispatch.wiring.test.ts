@@ -133,3 +133,74 @@ describe('dispatch ↔ trips / ledger ports', () => {
     expect(h.trips.created).toHaveLength(2);
   });
 });
+
+/** Errands and parcels have no merchant to accept them: dispatch starts the courier on `order.placed`. */
+describe('dispatch on order.placed for parcels and errands', () => {
+  const SENDER_DOOR = { zoneKey: 'zakur', pin: north(1) };
+  const placed = (orderId: string, extra: Record<string, unknown> = {}) => ({
+    orderId,
+    aggregateId: orderId,
+    // The shape orders emits (orders.service `order.placed`), errand / parcel part included.
+    payload: { type: 'parcel', cityId: 'aziziyah', merchantOrgId: null, totalIqd: 3_500, itemsTotalIqd: 0, paymentMethod: 'cash', minVehicleClass: null, scheduledFor: null, pickup: SENDER_DOOR, dropoff: { zoneKey: 'street_30' }, ...extra },
+  });
+  const requested = (h: H) => h.events.ofType('dispatch.requested');
+
+  it('a placed parcel gets exactly one courier request from the sender’s door, even when the event is delivered twice', async () => {
+    const h = dispatchHarness();
+    const subs = new DispatchSubscribers(h.orchestrator, h.trips, h.zones);
+    const e = placed('ord_p1');
+    await subs.onCourierPlaced(e);
+    await subs.onCourierPlaced(e); // outbox redelivery
+    expect(h.trips.created[0]).toEqual(expect.objectContaining({ orderId: 'ord_p1', vertical: 'parcel', pickup: SENDER_DOOR, dropoff: { zoneKey: 'street_30' } }));
+    expect(requested(h)).toHaveLength(1);
+    expect(await h.service.getRequest('trip-ord_p1')).toMatchObject({ vertical: 'parcel', policy: 'smart_broadcast', zoneId: 'zakur', pickup: north(1), dropoffZoneId: 'street_30', hot: false, readyAt: null, cashIqd: 3_500 });
+  });
+
+  it('a placed errand gets one courier request from the shop', async () => {
+    const h = dispatchHarness();
+    const subs = new DispatchSubscribers(h.orchestrator, h.trips, h.zones);
+    await subs.onCourierPlaced(placed('ord_e1', { type: 'errand', itemsTotalIqd: 7_000, totalIqd: 9_000, pickup: { zoneKey: 'centre' } }));
+    expect(h.trips.created).toEqual([expect.objectContaining({ orderId: 'ord_e1', vertical: 'errand', pickup: { zoneKey: 'centre' } })]);
+    expect(requested(h)).toHaveLength(1);
+    expect(await h.service.getRequest('trip-ord_e1')).toMatchObject({ vertical: 'errand', policy: 'auto_assign', hot: false, readyAt: null });
+  });
+
+  it('placed food (and rides) get no courier request; a parcel booked for later waits (no scheduled search yet)', async () => {
+    const h = dispatchHarness();
+    const subs = new DispatchSubscribers(h.orchestrator, h.trips, h.zones);
+    await subs.onCourierPlaced(placed('ord_f1', { type: 'food', merchantOrgId: 'rest_1', pickup: undefined, dropoff: undefined }));
+    await subs.onCourierPlaced(placed('ord_g1', { type: 'grocery_catalog', merchantOrgId: 'shop_1' }));
+    await subs.onCourierPlaced(placed('ord_r1', { type: 'ride', ride: { vertical: 'taxi', pickup: SENDER_DOOR, dropoff: null, quoteId: null } }));
+    await subs.onCourierPlaced(placed('ord_s1', { scheduledFor: '2026-10-03T15:00:00.000Z' }));
+    expect(h.trips.created).toEqual([]);
+    expect(requested(h)).toEqual([]);
+  });
+
+  it('accepted food is unchanged: courier from the kitchen, hot, timed to the promised ready time', async () => {
+    const h = dispatchHarness();
+    const subs = new DispatchSubscribers(h.orchestrator, h.trips, h.zones);
+    const readyAt = new Date(h.clock.now().getTime() + 15 * 60_000);
+    const accepted: DomainEventInput<'order.accepted'> = {
+      from: 'placed',
+      to: 'merchant_accepted',
+      orderType: 'food',
+      cityId: 'aziziyah',
+      merchantOrgId: 'rest_1',
+      prepMinutes: 15,
+      promisedReadyAt: readyAt,
+      minVehicleClass: 'bike',
+      auto: false,
+      partial: false,
+      pickup: { zoneKey: 'centre', pin: north(0) },
+      dropoff: { zoneKey: 'street_30' },
+      paymentMethod: 'cash',
+      totalIqd: 16_500,
+    };
+    await subs.onOrderAccepted({ type: 'order.accepted', orderId: 'ord_a1', aggregateId: 'ord_a1', payload: encodeDomainEvent('order.accepted', accepted) });
+    expect(h.trips.created).toEqual([expect.objectContaining({ orderId: 'ord_a1', vertical: 'food', minVehicleClass: 'bike', pickup: { zoneKey: 'centre', pin: north(0) } })]);
+    expect(await h.service.getRequest('trip-ord_a1')).toMatchObject({ vertical: 'food', policy: 'auto_assign', hot: true, readyAt: readyAt.getTime(), cashIqd: 16_500 });
+    // …and its order.placed starts nothing.
+    await subs.onCourierPlaced(placed('ord_a1', { type: 'food', merchantOrgId: 'rest_1' }));
+    expect(requested(h)).toHaveLength(1);
+  });
+});
