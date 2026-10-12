@@ -148,7 +148,8 @@ const DISHES: ReadonlyArray<[string, number, number]> = [
   ['سلطة', 1000, 2000],
 ];
 const RESTAURANT_NAMES = ['مطعم الريف', 'مطعم دجلة', 'مطعم الزهراء', 'مطعم السلطان', 'مطعم البيت العراقي', 'مطعم الكوثر', 'مطعم أبو علي', 'مطعم الواحة', 'مطعم النخيل', 'مطعم الفرات'];
-const TIERS: readonly CommissionTier[] = ['base', 'featured', 'featured', 'marketing', 'base'];
+// Two of the ten restaurants are new ones on the starter rate (5 %, Ali 2026-10-11).
+const TIERS: readonly CommissionTier[] = ['starter', 'featured', 'featured', 'marketing', 'base'];
 
 /** Rounds to the 500-IQD price step menus use (G-88: customer totals in multiples of 500). */
 const price500 = (n: number) => Math.max(500, Math.round(n / 500) * 500);
