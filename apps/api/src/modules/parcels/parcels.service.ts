@@ -53,7 +53,7 @@ import {
 } from './ports.js';
 
 const HOUR = 3_600_000;
-/** The receiver's link stops opening 48 h after sending, or once the parcel is closed (lane D). */
+/** How long the receiver's link opens (48 h after sending, or until the parcel closes); separate from the 2 h window to set the door (`PARCEL_RULES.doorWaitHours`). */
 const LINK_LIFE_MS = 48 * HOUR;
 /** The token in the link: 144 random bits, base64url (24 characters). Only its hash is stored. */
 const TOKEN_BYTES = 18;

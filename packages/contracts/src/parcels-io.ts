@@ -180,7 +180,7 @@ export type ParcelDoorPage = z.infer<typeof ParcelDoorPage>;
 
 export const SetParcelDoorInput = ParcelDoorPageInput.extend({
   pin: LatLng,
-  /** A short note about the door of the door (an upload made from the page), optional. */
+  /** The receiver's short note about their door (plain text, given to the courier), optional. */
   doorNote: z.string().max(200).optional(),
 });
 export type SetParcelDoorInput = z.infer<typeof SetParcelDoorInput>;
