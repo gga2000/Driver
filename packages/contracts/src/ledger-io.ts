@@ -90,6 +90,8 @@ export const ErrandMoneyPayload = z.object({
   /** Receipt total the shopper paid from float. */
   actualCostIqd: Iqd.nonnegative(),
   errandFeeIqd: Iqd.nonnegative(),
+  /** A batched second errand (Ali 2026-10-12): the shopper earns the batch share of the fee, as on an order. */
+  batchedSecond: z.boolean().default(false),
   serviceFeeIqd: Iqd.nonnegative().optional(),
   tipIqd: Iqd.nonnegative().default(0),
 });

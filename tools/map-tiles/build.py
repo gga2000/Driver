@@ -78,13 +78,14 @@ for f in town_seg + wide_seg:
         add('roads', part, {'cls': cc, 'name': n}, max(z0, 12))
 
 # water (regional extract covers the town too) ---------------------------------
-river_lines = []
+river_lines = []; river_polys = []
 for f in L(WIDE, 'w_water'):
     p = f['properties']; g = sg.shape(f['geometry']); st = p['subtype']; n = nm(p)
     if g.geom_type in ('Polygon', 'MultiPolygon'):
         a = g.area * 1e6  # ~ (100 m)^2 units
         z0 = 7 if a > 300 else 9 if a > 30 else 11 if a > 3 else 13 if a > 0.3 else 99
         if z0 < 99: add('water', g, {'kind': 'river', 'name': n}, z0)
+        if a > 3 and g.intersects(TOWNPOLY): river_polys.append(g)
     elif g.geom_type in ('LineString', 'MultiLineString'):
         if st == 'river':
             add('water', g, {'kind': 'centre', 'name': n}, 7); river_lines.append((n, g))
@@ -93,6 +94,29 @@ for f in L(WIDE, 'w_water'):
             if n: river_lines.append((n, g))
         elif st in ('stream', 'drain', 'ditch'):
             add('water', g, {'kind': 'canal', 'name': n}, 12)
+# the Tigris has depth (map audit, 2026-10-12): bands from the bank to the middle, light and silty at the edge and darker
+# where it runs deep (`d` 0 the whole river … 6 in the channel), and reeds along the bank (points, kind `reed`, `s` 0–2).
+# Within RIVER_M of the centre, from z12; the style lays the bands over the river's own colour.
+DEPTH_M = [0, 4, 9, 16, 25, 36, 50]
+lat0 = 32.9; mx = 111320 * math.cos(math.radians(lat0)); my = 110540
+import random as _rnd
+_rr = _rnd.Random(3)
+RIVER_M = 4500   # around the town only: the view people zoom into
+_near_r = sg.Point(CENTER[0] * mx, CENTER[1] * my).buffer(RIVER_M)
+for g in river_polys:
+    gm = shapely.affinity.scale(g, mx, my, origin=(0, 0)).buffer(0).intersection(_near_r)
+    if gm.is_empty: continue
+    for k, w in enumerate(DEPTH_M):
+        band = gm.buffer(-w) if w else gm
+        if band.is_empty: break
+        add('water', shapely.affinity.scale(band.simplify(1.5), 1 / mx, 1 / my, origin=(0, 0)), {'kind': 'depth', 'd': k}, 12)
+    edge = gm.boundary; d = 0.0
+    while d < edge.length:
+        pt = edge.interpolate(d); d += _rr.uniform(8, 20)
+        if pt.distance(_near_r.boundary) < 5: continue   # not along the cut at the edge of the radius
+        for _ in range(_rr.randint(1, 2)):
+            q = sg.Point(pt.x + _rr.uniform(-2.5, 2.5), pt.y + _rr.uniform(-2.5, 2.5))
+            add('water', sg.Point(q.x / mx, q.y / my), {'kind': 'reed', 's': _rr.randint(0, 2)}, 15)
 
 # landuse + palms (town extract only) ---------------------------------------------
 def poly_zoom(g, base):
@@ -277,6 +301,66 @@ for fi, (ly, g, p, z0, z1) in enumerate(list(F)):
         add('lanterns', sg.Point(c.x / mx, c.y / my), {'kind': 'glow'}, 16); nstr += 1
 print('lantern strings', nstr, 'lanterns', nlan, 'lamp posts', npost, 'palms', npalm, file=sys.stderr)
 
+# fields and the edge of town (map audit, 2026-10-12), within FIELDS_M of the centre:
+# - the farmland in long plots from z13 (landuse kind `plot`, `crop` 0 wheat … 4 ploughed), turned to each farm's own lie and
+#   kept out of town, with a narrow path between plots where the farm colour shows through;
+# - date palm clumps and dusty worn ground on the empty land between the houses at the edge of town (palm pieces in the
+#   `lanterns` layer with the street palms; `dust` patches in landuse, `d` 0–2).
+FIELDS_M, PLOT_W, PLOT_L = 4500, 60, 220
+_rf = _rnd.Random(11)
+near_c = sg.Point(cxm, cym).buffer(FIELDS_M)
+houses_m = [shapely.affinity.scale(g, mx, my, origin=(0, 0)) for (ly, g, p, *_ ) in F if ly == 'buildings' and p.get('kind') in ('house', 'mosque')]
+houses_m = [h for h in houses_m if near_c.intersects(h)]
+town_m = shapely.union_all([h.buffer(45, quad_segs=2) for h in houses_m]).buffer(-20)
+nplot = 0
+for ly, g, p, *_ in list(F):
+    if ly != 'landuse' or p.get('kind') != 'farm2': continue
+    gm = shapely.affinity.scale(g, mx, my, origin=(0, 0)).buffer(0).intersection(near_c).difference(town_m)
+    if gm.is_empty or gm.area < 4000: continue
+    rr = list(gm.minimum_rotated_rectangle.exterior.coords)
+    ang = math.degrees(math.atan2(rr[1][1] - rr[0][1], rr[1][0] - rr[0][0])); ctr = gm.centroid
+    rot = shapely.affinity.rotate(gm, -ang, origin=ctr)
+    x0, y0, x1, y1 = rot.bounds; yy = y0; row = 0
+    while yy < y1:
+        xx = x0 + (row % 2) * 20
+        while xx < x1:
+            w = PLOT_W * (0.7 + _rf.randrange(7) / 10)
+            part = sg.box(xx, yy, xx + w, yy + PLOT_L).intersection(rot)
+            if not part.is_empty and part.area > 300:
+                q = shapely.affinity.rotate(part, ang, origin=ctr).buffer(-1.2, join_style='mitre')
+                if not q.is_empty:
+                    k = _rf.randrange(10)
+                    add('landuse', shapely.affinity.scale(q, 1 / mx, 1 / my, origin=(0, 0)), {'kind': 'plot', 'crop': 0 if k < 3 else 1 if k < 5 else 2 if k < 7 else 3 if k < 9 else 4}, 13)
+                    nplot += 1
+            xx += w
+        yy += PLOT_L; row += 1
+water_tree = STRtree([shapely.affinity.scale(g, mx, my, origin=(0, 0)) for (ly, g, p, *_ ) in F if ly == 'water' and p.get('kind') == 'river'])
+house_tree_m = STRtree(houses_m)
+EDGE_M, CELL = 3200, 56
+nclump = nedge = ndust = 0
+for gx in range(int(cxm - EDGE_M), int(cxm + EDGE_M), CELL):
+    for gy in range(int(cym - EDGE_M), int(cym + EDGE_M), CELL):
+        x, y = gx + _rf.uniform(0, CELL), gy + _rf.uniform(0, CELL)
+        if math.hypot(x - cxm, y - cym) > EDGE_M: continue
+        c = sg.Point(x, y)
+        if len(house_tree_m.query(c, predicate='dwithin', distance=18)) or not len(house_tree_m.query(c, predicate='dwithin', distance=160)): continue
+        if len(street_tree.query(c, predicate='dwithin', distance=10)) or len(water_tree.query(c, predicate='dwithin', distance=15)): continue
+        k = _rf.random()
+        if k < 0.25:
+            add('landuse', to_deg(c.buffer(_rf.uniform(12, 26), quad_segs=4)), {'kind': 'dust', 'd': _rf.randrange(3)}, 14); ndust += 1
+        if k > 0.35:
+            nclump += 1
+            for _ in range(_rf.randint(2, 5)):
+                px, py = x + _rf.uniform(-12, 12), y + _rf.uniform(-12, 12)
+                if len(house_tree_m.query(sg.Point(px, py), predicate='dwithin', distance=4)): continue
+                ht = _rf.uniform(6, 10); nedge += 1
+                # two pieces a palm (a trunk and a star of fronds as one shape), so the groves stay light in the tiles
+                add('lanterns', to_deg(ngon(px, py, 0.25, 5)), {'kind': 'trunk', 'base': 0, 'hm': round(ht, 1)}, 16)
+                spin = _rf.random() * math.pi
+                star = sg.Polygon([(px + math.cos(spin + i * math.pi / 5) * (2.6 if i % 2 == 0 else 0.9), py + math.sin(spin + i * math.pi / 5) * (2.6 if i % 2 == 0 else 0.9)) for i in range(10)])
+                add('lanterns', to_deg(star), {'kind': 'frond', 'base': round(ht - 0.5, 1), 'hm': round(ht + 0.1, 1)}, 16)
+print('field plots', nplot, 'edge palm clumps', nclump, 'palms', nedge, 'dust', ndust, file=sys.stderr)
+
 # places (POIs) -----------------------------------------------------------------------
 for f in pois:
     p = f['properties']; n = nm(p)
@@ -344,11 +428,11 @@ for z in range(MINZ, MAXZ + 1):
                     if not clip.contains(g): g = g.intersection(clip)
                     if g.is_empty: continue
                     if g.geom_type == 'GeometryCollection':
-                        want = 'LineString' if lay in ('roads',) or (lay == 'water' and props['kind'] != 'river') else 'Polygon'
+                        want = 'LineString' if lay in ('roads',) or (lay == 'water' and props['kind'] not in ('river', 'depth')) else 'Polygon'
                         parts = [q for q in g.geoms if want in q.geom_type]
                         if not parts: continue
                         g = shapely.union_all(parts) if len(parts) > 1 else parts[0]
-                    if lay in ('roads',) or (lay == 'water' and props['kind'] != 'river'):
+                    if lay in ('roads',) or (lay == 'water' and props['kind'] not in ('river', 'depth', 'reed')):
                         if 'Polygon' in g.geom_type or 'Point' in g.geom_type: continue
                 g = shapely.transform(g, lambda c: c - np.array([ox, oy]))
                 layers.setdefault(lay, []).append({'geometry': g.wkt, 'properties': props})

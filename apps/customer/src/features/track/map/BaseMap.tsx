@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { runOnJS, useAnimatedReaction, useSharedValue } from 'react-native-reanimated';
-import type { CameraRef, MapRef, ViewStateChangeEvent } from '@maplibre/maplibre-react-native';
+import type { CameraRef, LayerProps, MapRef, ViewStateChangeEvent } from '@maplibre/maplibre-react-native';
 import * as golden from '@driver/map/golden';
 import { MAP_COLORS_LIGHT } from '@driver/map';
+import { WINDOW_SOURCE } from '@driver/map/pieces/windows';
 import { useLiteMode } from '@driver/ui';
 import { LIGHT_CHECK_MS } from './golden-setup';
+import { WINDOW_TOLERANCE } from './house-windows';
 import { LandmarkLayer } from './LandmarkLayer';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
+import { useHouseWindows } from './useHouseWindows';
 import { ZoneLayer } from './ZoneLayer';
 
 /**
@@ -40,6 +43,7 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
   const [light, setLight] = useState(() => golden.resolveLight(alwaysDay ? { light: 'day' } : {}).light);
   const style = useMemo(() => nativeGoldenStyle(golden, light), [light]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
+  const windows = useHouseWindows(map, light);
   const roadLayers = useMemo(() => style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'roads').map((l) => l.id), [style]);
   /** The streets on screen once the map settles, for a screen that asked. */
   const readRoads = () => {
@@ -82,6 +86,7 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
   };
   const settle = (e: { nativeEvent: ViewStateChangeEvent }) => {
     readRoads();
+    windows.dress();
     if (!driving.current) return;
     driving.current = false;
     labels.value = 1;
@@ -103,10 +108,19 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
         onRegionIsChanging={follow}
         onRegionDidChange={settle}
         onDidFailLoadingMap={onFail}
-        onDidFinishRenderingMapFully={readRoads}
+        onDidFinishRenderingMapFully={() => {
+          readRoads();
+          windows.dress();
+        }}
       >
         <ml.Camera ref={camera} initialViewState={{ center: [cam.lng.value, cam.lat.value], zoom: cam.zoom.value }} />
         <ml.Images images={images} />
+        {/* Windows, doors and roof walls on the houses up close (from z17). */}
+        <ml.GeoJSONSource id={WINDOW_SOURCE} data={windows.data} tolerance={WINDOW_TOLERANCE}>
+          {windows.layers.map((l) => (
+            <ml.Layer key={l.id} {...({ ...l, beforeId: golden.GOLDEN_FIRST_LABEL } as unknown as LayerProps)} />
+          ))}
+        </ml.GeoJSONSource>
       </ml.Map>
       {/* Neighbourhood names and landmarks over the tiles and under every pin the screen draws, as on the web. */}
       <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />

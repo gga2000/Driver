@@ -99,6 +99,12 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     { id: 'golden-land', type: 'background', paint: { 'background-color': p.land } },
     { id: 'golden-farm', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('farm2'), paint: { 'fill-color': p.farm, 'fill-opacity': fade(7, 0.8, 12, 0.7, 14, 0.35, 16, 0) } },
     { id: 'golden-urban', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('urban'), paint: { 'fill-color': p.urban } },
+    // the farmland in plots by crop, with paths between them; worn dusty ground at the edge of town
+    {
+      id: 'golden-plots', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('plot'), minzoom: 13,
+      paint: { 'fill-color': ['match', ['get', 'crop'], ...p.crops.slice(0, 4).flatMap((c, i) => [i, c]), p.crops[4]] as never, 'fill-opacity': fade(13, 0, 13.6, 0.9, 15, 0.9, 16.5, 0.6), 'fill-antialias': false },
+    },
+    { id: 'golden-dust', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('dust'), minzoom: 14, paint: { 'fill-color': ['match', ['get', 'd'], 0, p.dust[0], 1, p.dust[1], p.dust[2]] as never, 'fill-opacity': fade(14, 0, 14.6, 0.45), 'fill-antialias': false } },
     { id: 'golden-palms', type: 'fill', ...src, 'source-layer': 'palms', paint: { 'fill-color': p.palm } },
     // the ground says what it is: school yards sandy, parks and pitches green
     { id: 'golden-yard', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('school'), minzoom: 13, paint: { 'fill-color': p.yard, 'fill-outline-color': p.wall } },
@@ -106,7 +112,7 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
   ];
   if (rich) {
     // fields drawn in rows around town; they fade before the streets get close, where the rows would read as noise
-    L.push({ id: 'golden-furrows', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('farm2'), minzoom: 12.5, maxzoom: 15.3, paint: { 'fill-pattern': FURROW_PATTERN, 'fill-opacity': fade(12.5, 0, 13, 0.7, 14.8, 0.7, 15.3, 0) } });
+    L.push({ id: 'golden-furrows', type: 'fill', ...src, 'source-layer': 'landuse', filter: kindIn('farm2'), minzoom: 12.5, maxzoom: 13.6, paint: { 'fill-pattern': FURROW_PATTERN, 'fill-opacity': fade(12.5, 0, 13, 0.7, 13.6, 0) } });
     L.push({ id: 'golden-palm-crowns', type: 'fill', ...src, 'source-layer': 'palms', minzoom: 14.2, paint: { 'fill-pattern': PALM_PATTERN, 'fill-opacity': fade(14.2, 0, 15, 1) } });
   }
   if (rich && p.shadowOpacity > 0) {
@@ -130,6 +136,11 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     // a mud bank along the Tigris, under the water's own edge
     { id: 'golden-bank', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('river'), minzoom: 12, paint: { 'line-color': p.bank, 'line-width': zoom(12, 2, 15, 6, 18, 22), 'line-blur': fade(12, 1, 18, 8), 'line-opacity': 0.8 } },
     { id: 'golden-water', type: 'fill', ...src, 'source-layer': 'water', filter: kindIn('river'), paint: { 'fill-color': p.water } },
+    // depth: lighter, silty water at the banks, darkening towards the channel (town only, from z12)
+    {
+      id: 'golden-water-depth', type: 'fill', ...src, 'source-layer': 'water', filter: kindIn('depth'), minzoom: 12,
+      paint: { 'fill-color': ['match', ['get', 'd'], ...p.riverDepth.slice(0, 6).flatMap((c, i) => [i, c]), p.riverDepth[6]] as never, 'fill-opacity': fade(12, 0, 13, 1), 'fill-antialias': false },
+    },
     { id: 'golden-water-edge', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('river'), paint: { 'line-color': p.waterEdge, 'line-width': zoom(10, 0.6, 15, 1.4, 18, 3) } },
     { id: 'golden-river-line', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('centre'), maxzoom: 13, layout: ROUND, paint: { 'line-color': p.water, 'line-width': zoom(7, 3.5, 11, 5, 13, 2) } },
     { id: 'golden-canal', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('canal'), layout: ROUND, paint: { 'line-color': p.canal, 'line-width': zoom(10, 0.5, 14, 1, 16, 2.4, 18, 6), 'line-opacity': fade(9, 0.35, 12, 0.7, 14, 1) } },
@@ -145,6 +156,15 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
         },
       });
     }
+  }
+  if (rich) {
+    L.push({
+      id: 'golden-reeds', type: 'circle', ...src, 'source-layer': 'water', filter: kindIn('reed'), minzoom: 15,
+      paint: {
+        'circle-color': ['match', ['get', 's'], 0, p.reeds[0], 1, p.reeds[1], p.reeds[2]] as never, 'circle-blur': 0.4, 'circle-pitch-alignment': 'map',
+        'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 15, 0.8, 18, 5, 20, 20] as never, 'circle-opacity': fade(15, 0, 15.5, 1),
+      },
+    });
   }
   const road = { ...src, 'source-layer': 'roads' } as const;
   if (p.lampGlow && mode !== 'lite') {

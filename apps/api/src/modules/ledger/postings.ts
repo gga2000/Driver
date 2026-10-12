@@ -297,7 +297,7 @@ function redeemGroup(id: string, personId: string, points: number, at: Date, ref
 
 // ───────────────────────── errand / shop-for-me ─────────────────────────
 
-/** Actual cost (shopper paid from float), fee and tip as separate lines (domain §4). */
+/** Actual cost (shopper paid from float), fee and tip as separate lines (domain §4); a batched second errand splits only the fee. */
 export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderPostings {
   const e = ErrandMoneyPayload.parse(input);
   const refs: PostingRefs = { orderId: e.orderId, tripId: e.tripId };
@@ -308,7 +308,11 @@ export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderP
   const red = redemption(e.pointsRedeemed, serviceFee, e.errandFeeIqd, rules);
 
   b.add('errand_cost_actual', e.actualCostIqd, payer, shopper, 'receipt');
-  b.add('errand_fee', e.errandFeeIqd, payer, shopper);
+  // A batched second errand pays the shopper the batch share of the fee, the rest is the platform's,
+  // exactly as a batched second order (money §2, Ali 2026-10-12). The receipt is never split.
+  const shopperFee = e.batchedSecond ? Math.min(e.errandFeeIqd, pct(e.errandFeeIqd, rules.batchedSecondCourierShare)) : e.errandFeeIqd;
+  b.add('errand_fee', shopperFee, payer, shopper);
+  b.add('errand_fee', e.errandFeeIqd - shopperFee, payer, Accounts.platform, 'batched_margin');
   b.add('service_fee', serviceFee, payer, Accounts.platform);
   b.add('tip', e.tipIqd, payer, shopper);
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');

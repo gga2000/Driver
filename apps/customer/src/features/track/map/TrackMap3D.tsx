@@ -4,6 +4,7 @@ import type { CameraRef, LayerProps, MapRef } from '@maplibre/maplibre-react-nat
 import type { CourierPosition, OrderTracking } from '@driver/contracts';
 import * as golden from '@driver/map/golden';
 import { slowStretchLayers } from '@driver/map/pieces/moments';
+import { WINDOW_SOURCE } from '@driver/map/pieces/windows';
 import { Avatar, Icon, Text, useTheme, withAlpha } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
@@ -14,10 +15,12 @@ import { glidePos } from '../motion';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from '../queries';
 import { MAP_CREDIT } from './credit';
 import { LIGHT_CHECK_MS } from './golden-setup';
+import { WINDOW_TOLERANCE } from './house-windows';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';
 import { RecentreChip } from './RecentreChip';
 import { GlintLayer, StreetLifeLayers, type Road } from './StreetLifeLayers';
 import { PIN, Teardrop } from './Teardrop';
+import { useHouseWindows } from './useHouseWindows';
 import { useRoadGlide } from './useRoadGlide';
 
 type Pt = [number, number];
@@ -63,6 +66,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   const [houses, setHouses] = useState<{ ring: Pt[]; hm: number }[]>([]);
   const [bearing, setBearing] = useState(0);
   const [roads, setRoads] = useState<Road[] | null>(null);
+  const windows = useHouseWindows(map, light);
 
   const home = view.dropoff?.pin ?? view.trip?.stops.find((s) => s.mine && s.type === 'dropoff')?.target ?? null;
   const kitchen = view.merchant?.pin ?? null;
@@ -221,6 +225,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         onDidFailLoadingMap={onFail}
         onDidFinishRenderingMapFully={() => {
           findHouses();
+          windows.dress();
           void map.current?.getZoom().then(findRoads).catch(() => undefined);
         }}
         onRegionWillChange={(e) => {
@@ -233,6 +238,12 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
       >
         <ml.Camera ref={camera} maxZoom={19} initialViewState={kitchen ?? home ? { center: pt((kitchen ?? home)!), zoom: 16 } : { zoom: 14 }} />
         <ml.Images images={images} />
+        {/* Windows, doors and roof walls up close (from z17), under the street life, the route and the pins. */}
+        <ml.GeoJSONSource id={WINDOW_SOURCE} data={windows.data} tolerance={WINDOW_TOLERANCE}>
+          {windows.layers.map((l) => (
+            <ml.Layer key={l.id} {...({ ...l, beforeId: golden.GOLDEN_FIRST_LABEL } as unknown as LayerProps)} />
+          ))}
+        </ml.GeoJSONSource>
         {/* Street life under the route and pins (only from LIFE_MINZOOM). */}
         <StreetLifeLayers roads={roads} light={light} still={theme.reduceMotion} beforeId={golden.GOLDEN_FIRST_LABEL} />
         <ml.GeoJSONSource id={SRC.route} data={route} lineMetrics>
