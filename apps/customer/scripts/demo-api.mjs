@@ -3189,6 +3189,12 @@ const rajaa = await (async () => {
       const delivered = await carry(await send(2, { by: 'sender', dropoff: { zoneKey: 'zakur', pin: HER_DOOR } }), { deliver: true });
       console.log(`DEMO_API parcel waiting for the door: ${waiting.doorLink ?? '(no SHARE_LINK_BASE_URL)'}`);
       json(res, 200, { waiting: { parcelId: waiting.id, link: waiting.doorLink }, onTheWay, delivered });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
 // Food carts «عربانات» (2026-10-11): six Aziziyah carts (three open tonight around the souq garage,
 // Street 30 and the centre; two closed until their hour; one away till Ramadan).
 //   - POST /demo/carts?personId=…[&ticket=placed|ready]   follows كبدة أبو حيدر and عرانيس أبو سجاد;

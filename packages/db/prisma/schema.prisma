@@ -3988,6 +3988,9 @@ model ParcelSend {
   @@index([recipientPersonId, createdAt])
   @@index([orderId])
   @@map("parcel_sends")
+  @@schema("public")
+}
+
 /// A food cart «عربانة» (2026-10-11): a restaurant org that moves. Where it opened tonight, its usual
 /// hours and its away note; delivery orders go to the org like any kitchen.
 model FoodCart {
