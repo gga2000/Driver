@@ -1,4 +1,4 @@
-import type { ShopKind, SoldBy } from '@driver/contracts';
+import type { ShopKind, SoldBy } from '@driver/contracts/shopping';
 import type { CatalogService } from '../catalog/index.js';
 import type { OrgsService } from '../orgs/index.js';
 import type { ShoppingService } from './shopping.service.js';

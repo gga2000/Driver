@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { DailyBreadTime, DeliveryPoint } from '@driver/contracts';
+import type { DeliveryPoint } from '@driver/contracts';
+import type { DailyBreadTime } from '@driver/contracts/shopping';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 

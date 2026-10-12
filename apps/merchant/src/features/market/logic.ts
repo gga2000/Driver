@@ -1,4 +1,4 @@
-import type { PostPricesInput, StallPriceRow } from '@driver/contracts';
+import type { PostPricesInput, StallPriceRow } from '@driver/contracts/shopping';
 
 /**
  * «أسعار اليوم» (shopping, 2026-10-11): what the stall owner decided for each item this morning.

@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
-import { SHOPPING_RULES, type BakeryOwnerView, type ShopState } from '@driver/contracts';
+import { SHOPPING_RULES } from '@driver/contracts';
+import type { BakeryOwnerView, ShopState } from '@driver/contracts/shopping';
 import { formatClock } from '@driver/i18n';
 import { Button, Skeleton, Text, useTheme, withAlpha } from '@driver/ui';
 import { Loadable } from '@/components/Loadable';

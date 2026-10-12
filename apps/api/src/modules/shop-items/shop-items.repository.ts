@@ -1,4 +1,4 @@
-import type { SoldBy } from '@driver/contracts';
+import type { SoldBy } from '@driver/contracts/shopping';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 

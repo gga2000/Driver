@@ -3,14 +3,7 @@
  * API's views. Names and descriptions are the shop's own words (data), not app copy.
  */
 
-import type {
-  BakeryItemView,
-  BakeryView,
-  ProduceItemView,
-  ShoppingFront as ShoppingFrontView,
-  ShopState as ShopStateView,
-  StallView,
-} from '@driver/contracts';
+import type { BakeryItemView, BakeryView, ProduceItemView, ShoppingFront as ShoppingFrontView, ShopState as ShopStateView, StallView } from '@driver/contracts/shopping';
 
 /** How a produce item is sold: by the kilo on the scale, or by the piece (a watermelon). */
 export type SoldBy = ProduceItemView['soldBy'];

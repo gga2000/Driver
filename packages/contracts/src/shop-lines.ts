@@ -69,3 +69,23 @@ export const ErrandItemSpec = z
   })
   .refine((v) => (v.voiceUploadId === null) === (v.voiceSec === null), { message: 'voiceSec goes with voiceUploadId' });
 export type ErrandItemSpec = z.infer<typeof ErrandItemSpec>;
+
+/** The shopping side's weights, limits and timings (`shopping-io.ts` re-exports it). No money rule here. */
+export const SHOPPING_RULES = {
+  /** The scale: quarter-kilo steps up to 3 kilos (round 2 «الميزان»). */
+  weightStepG: WEIGHT_RULES.stepG,
+  weightMaxG: WEIGHT_RULES.maxG,
+  /** «وقّف شوية»: the pauses a baker can pick, in minutes. */
+  pauseMinutes: [15, 30, 60] as const,
+  /** «صمون كل يوم» delivery times (local hh:mm). */
+  dailyBreadTimes: ['06:30', '13:00', '19:00'] as const,
+  /** The order goes to the bakery this long before the delivery time. */
+  dailyBreadLeadMin: 35,
+  /** Standing bread orders one person may hold. */
+  maxDailyBread: 5,
+  /** Lots of one bread in one daily order. */
+  maxDailyPacks: 20,
+  /** Items a stall prices in one morning post. */
+  maxPostItems: 60,
+  /** A morning post counts as today's until local midnight. */
+} as const;

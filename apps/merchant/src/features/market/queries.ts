@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BakeryOwnerView, StallOwnerView } from '@driver/contracts';
+import type { BakeryOwnerView, StallOwnerView } from '@driver/contracts/shopping';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 

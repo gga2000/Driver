@@ -1,37 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import {
-  AZIZIYAH_ZONES,
-  DriverError,
-  SHOPPING_RULES,
-  localClock,
-  type Actor,
-  type AppShopView,
-  type AppShopsInput,
-  type BakeryOwnerView,
-  type BakeryView,
-  type DailyBreadInput,
-  type DailyBreadPatch,
-  type DailyBreadRef,
-  type DailyBreadTime,
-  type DailyBreadView,
-  type ErrandUploadInput,
-  type PhotoUploadTicket,
-  type DeliveryPoint,
-  type MerchantScope,
-  type PostPricesInput,
-  type ProduceItemView,
-  type SetBakeryStateInput,
-  type ShopInput,
-  type ShopKind,
-  type ShopModeView,
-  type ShoppingFront,
-  type ShoppingFrontInput,
-  type ShoppingPort,
-  type ShoppingReader,
-  type ShopState,
-  type StallOwnerView,
-  type StallView,
-} from '@driver/contracts';
+import { AZIZIYAH_ZONES, DriverError, localClock, type Actor, type PhotoUploadTicket, type DeliveryPoint, type MerchantScope } from '@driver/contracts';
+import { SHOPPING_RULES, type AppShopView, type AppShopsInput, type BakeryOwnerView, type BakeryView, type DailyBreadInput, type DailyBreadPatch, type DailyBreadRef, type DailyBreadTime, type DailyBreadView, type ErrandUploadInput, type PostPricesInput, type ProduceItemView, type SetBakeryStateInput, type ShopInput, type ShopKind, type ShopModeView, type ShoppingFront, type ShoppingFrontInput, type ShoppingPort, type ShoppingReader, type ShopState, type StallOwnerView, type StallView } from '@driver/contracts/shopping';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';

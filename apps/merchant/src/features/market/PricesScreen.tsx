@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Image } from 'expo-image';
 import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import type { StallOwnerView, StallPriceRow } from '@driver/contracts';
+import type { StallOwnerView, StallPriceRow } from '@driver/contracts/shopping';
 import { Button, EmptyState, Icon, Skeleton, Text, useTheme } from '@driver/ui';
 import { Loadable } from '@/components/Loadable';
 import { MIcon } from '@/components/MIcon';
