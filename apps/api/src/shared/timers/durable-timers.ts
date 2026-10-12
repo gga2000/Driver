@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { Clock } from '../clock.js';
 import { afterCommit, type UnitOfWork } from '../db/unit-of-work.js';
-import { assertJobId, type JobHandler, type Queue } from '../queue.js';
+import { assertJobId, jobKey, type JobHandler, type Queue } from '../queue.js';
 import type { TimerStore } from './timer.store.js';
 import type { TimerSweeper } from './timer.sweeper.js';
 
@@ -26,6 +26,9 @@ export interface DurableTimerOptions {
  * fired, put back on rollback), so a BullMQ retry and the sweeper firing one timer at once run it
  * once. Handlers still re-check the state they change (a timer whose copy is missing runs unguarded).
  *
+ * A self-rearming timer (`rearming`) keeps one copy per subject: arming it again while that copy is
+ * pending changes nothing, and its handler, having taken the copy, may schedule it again in place.
+ *
  * Until `bind` (unit tests and narrow harnesses) there is no copy: the job alone, still after commit.
  */
 export class DurableTimers<T> {
@@ -34,6 +37,7 @@ export class DurableTimers<T> {
   private sweeper: TimerSweeper | null = null;
   private handler: JobHandler<T> | null = null;
   private registered = false;
+  private readonly rowKeys = new Map<string, (data: T) => string>();
 
   constructor(
     private readonly queue: Queue<T>,
@@ -54,6 +58,14 @@ export class DurableTimers<T> {
     this.register();
   }
 
+  /**
+   * Timers named `name` keep one durable copy per `rowKey(data)` (their `jobId`), re-armed in place.
+   * Each arming's BullMQ job gets its own id (`rowKey.dueAtMs`): BullMQ keeps finished ids.
+   */
+  rearming(name: string, rowKey: (data: T) => string): void {
+    this.rowKeys.set(name, rowKey);
+  }
+
   /** The queue's handler: run by BullMQ and by the sweeper, each time inside `run`. */
   process(handler: JobHandler<T>): void {
     this.handler = handler;
@@ -63,10 +75,14 @@ export class DurableTimers<T> {
 
   async schedule(name: string, data: T, opts: DurableTimerOptions): Promise<void> {
     assertJobId(opts.jobId);
+    const rowKey = this.rowKeys.get(name);
+    if (rowKey && rowKey(data) !== opts.jobId) throw new Error(`timer ${name}: jobId ${opts.jobId} is not its row key ${rowKey(data)}`);
     const dueAt = this.clock.now().getTime() + Math.max(0, opts.delayMs);
-    const jobId = opts.jobId;
+    const jobId = rowKey ? jobKey(opts.jobId, dueAt) : opts.jobId;
     const tx = this.uow.current();
-    if (this.store) await this.store.schedule({ queue: this.queue.name, name, jobId: opts.jobId, data, dueAt: new Date(dueAt + TIMER_SWEEP_GRACE_MS) }, tx);
+    const written = this.store ? await this.store.schedule({ queue: this.queue.name, name, jobId: opts.jobId, data, dueAt: new Date(dueAt + TIMER_SWEEP_GRACE_MS) }, tx) : true;
+    // Already armed: its copy (and job) stand.
+    if (rowKey && !written) return;
     const enqueue = async () => {
       try {
         await this.queue.add(name, data, { jobId, delayMs: Math.max(0, dueAt - this.clock.now().getTime()) });
@@ -83,8 +99,9 @@ export class DurableTimers<T> {
     if (!handler) return;
     const store = this.store;
     if (!store) return handler(job);
+    const rowId = this.rowKeys.get(job.name)?.(job.data) ?? job.id;
     await this.uow.run(async (tx) => {
-      if ((await store.take(this.queue.name, job.id, this.clock.now(), tx)) === 'done') return;
+      if ((await store.take(this.queue.name, rowId, this.clock.now(), tx)) === 'done') return;
       await handler(job);
     });
   }

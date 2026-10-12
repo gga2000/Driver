@@ -120,6 +120,39 @@ describe('DurableTimers (FLW-22)', () => {
     expect((await sweeper.sweep()).fired).toBe(0);
   });
 
+  it('a re-arming timer keeps one copy per subject: armed again while pending it changes nothing; its handler re-arms it in place', async () => {
+    const clock = new FakeClock('2026-10-11T09:00:00Z');
+    const uow = new UnitOfWork(new NoDatabaseRunner());
+    const queue = new InMemoryQueue<Job>('trips.timers', () => clock.now());
+    const added = vi.spyOn(queue, 'add');
+    const store = new InMemoryTimerStore();
+    const timers = new DurableTimers(queue, clock, uow);
+    const key = (data: Job) => `trip.${data.id}.wait`;
+    timers.rearming('wait', key);
+    let again = 1;
+    timers.process(async (job) => {
+      if (again-- > 0) await timers.schedule('wait', job.data, { delayMs: 60_000, jobId: key(job.data) });
+    });
+    timers.bind(store, null);
+    for (let i = 0; i < 5; i++) {
+      await uow.run(() => timers.schedule('wait', { id: 't1' }, { delayMs: 600_000, jobId: 'trip.t1.wait' }));
+      clock.advance(10_000);
+    }
+    expect(store.rows).toHaveLength(1);
+    expect(added).toHaveBeenCalledTimes(1);
+    await expect(timers.schedule('wait', { id: 't1' }, { delayMs: 0, jobId: 'trip.t1.other' })).rejects.toThrow(/row key/);
+
+    clock.advance(600_000);
+    expect(await queue.drain()).toBe(1); // fired and re-armed itself
+    expect(store.rows).toHaveLength(1);
+    expect(store.rows[0]).toMatchObject({ jobId: 'trip.t1.wait', status: 'pending' });
+    expect(added).toHaveBeenCalledTimes(2);
+    expect(added.mock.calls.map((c) => c[2]?.jobId)).toEqual([`trip.t1.wait.${Date.parse('2026-10-11T09:10:00Z')}`, `trip.t1.wait.${clock.now().getTime() + 60_000}`]);
+    clock.advance(60_000);
+    expect(await queue.drain()).toBe(1);
+    expect(store.rows[0]).toMatchObject({ status: 'fired' });
+  });
+
   it('registers with the sweeper whichever comes first, bind or process', async () => {
     const clock = new FakeClock();
     const store = new InMemoryTimerStore();

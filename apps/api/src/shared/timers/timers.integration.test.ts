@@ -177,6 +177,27 @@ describe.skipIf(!url)('durable timers on Postgres (needs DATABASE_URL)', () => {
     await close();
   });
 
+  it('a handler that re-arms its timer leaves it pending once, and the sweeper that claimed it does not mark it fired', async () => {
+    const clock = new FakeClock(new Date());
+    const queue = q('rearm');
+    let again = true;
+    const { workers, close } = twoWorkers(queue, clock, async (job) => {
+      if (!again) return;
+      again = false;
+      await workers[0]!.timers.schedule('t', job.data, { delayMs: 60_000, jobId: 'trip.r.wait' });
+    });
+    const a = workers[0]!;
+    a.timers.rearming('t', () => 'trip.r.wait');
+    await a.uow.run(() => a.timers.schedule('t', { i: 0 }, { delayMs: 0, jobId: 'trip.r.wait' }));
+    await a.uow.run(() => a.timers.schedule('t', { i: 1 }, { delayMs: 0, jobId: 'trip.r.wait' }));
+    clock.advance(TIMER_SWEEP_GRACE_MS + 1_000);
+    expect((await a.sweeper.sweep()).fired).toBe(1);
+    const [row, ...more] = await rows(queue);
+    expect(more).toEqual([]);
+    expect(row).toMatchObject({ status: 'pending', attempts: 0, claimedUntil: null, data: { i: 0 } });
+    await close();
+  });
+
   it('retries with backoff, fails for good after max attempts, and reports it in the stats', async () => {
     const clock = new FakeClock(new Date());
     const queue = q('fail');
