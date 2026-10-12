@@ -207,7 +207,7 @@ export const DEMO_SHOPS: readonly SeedRestaurant[] = [
             key: 'kleicha',
             nameAr: 'كليچة تمر',
             nameEn: 'Date kleicha (6 pieces)',
-            descriptionAr: '6 حبات، خبز البيت',
+            descriptionAr: '6 قطع، خبز البيت',
             priceIqd: 2500,
             prepTimeMin: 2,
             taxonomy: 'sweets',

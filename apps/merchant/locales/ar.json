@@ -1992,7 +1992,7 @@
   "merchant.market.prices.yesterday": "البارحة {price}",
   "merchant.market.prices.no_yesterday": "أول مرة",
   "merchant.market.prices.per_kg": "للكيلو",
-  "merchant.market.prices.per_piece": "للحبة",
+  "merchant.market.prices.per_piece": "للقطعة",
   "merchant.market.prices.photo_today": "صورة اليوم",
   "merchant.market.prices.photo_old": "صورة البارحة، صوّر الجديدة",
   "merchant.market.prices.take": "صوّر",
