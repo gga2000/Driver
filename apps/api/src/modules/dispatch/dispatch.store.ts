@@ -76,6 +76,17 @@ export interface DispatchRequest {
   retries?: number;
 }
 
+/**
+ * Cash a driver took on a job that finished, until the ledger posts it (the posting follows the
+ * trip's completion through the outbox). Dispatch counts it toward his cap in that gap.
+ */
+export interface CashHold {
+  tripId: string;
+  amountIqd: number;
+  /** Epoch ms after which the hold is dropped even if no posting was seen (a trip that collected nothing). */
+  until: number;
+}
+
 export interface PolicyOverride {
   policy?: DispatchPolicyKind;
   suggestOnly?: boolean;
@@ -103,6 +114,11 @@ export interface DispatchStore {
   driverJobs(driverId: string): Promise<string[]>;
   addDriverJob(driverId: string, tripId: string): Promise<void>;
   removeDriverJob(driverId: string, tripId: string): Promise<void>;
+  /** His cash holds (expired ones included; the caller drops them). */
+  cashHolds(driverId: string): Promise<CashHold[]>;
+  /** Records a hold; the driver's holds live at most `ttlMs` in the store. */
+  addCashHold(driverId: string, hold: CashHold, ttlMs: number): Promise<void>;
+  removeCashHold(driverId: string, tripId: string): Promise<void>;
   /**
    * M2 review follow-up: runs `fn` while holding the driver's lock, so two accepts by the same driver
    * (different trips, two devices or two pods) cannot both pass the one-job / batching check before
@@ -122,6 +138,7 @@ const reqKey = (tripId: string) => `dispatch:req:${tripId}`;
 const activeKey = (cityId: string) => `dispatch:active:${cityId}`;
 const policyKey = (cityId: string) => `dispatch:policy:${cityId}`;
 const jobsKey = (driverId: string) => `dispatch:jobs:${driverId}`;
+const cashKey = (driverId: string) => `dispatch:cash:${driverId}`;
 export const lockKey = (tripId: string) => `dispatch:lock:${tripId}`;
 /** Review #28: who confirmed a booked ride (first confirm wins; the 22:00 deadline takes it as `system`). */
 export const bookedLockKey = (tripId: string) => `dispatch:booked:${tripId}`;
@@ -195,6 +212,18 @@ export class RedisDispatchStore implements DispatchStore {
     await this.redis.srem(jobsKey(driverId), tripId);
   }
 
+  async cashHolds(driverId: string): Promise<CashHold[]> {
+    return Object.values(await this.redis.hgetall(cashKey(driverId))).map((raw) => JSON.parse(raw) as CashHold);
+  }
+
+  async addCashHold(driverId: string, hold: CashHold, ttlMs: number): Promise<void> {
+    await this.redis.multi().hset(cashKey(driverId), hold.tripId, JSON.stringify(hold)).pexpire(cashKey(driverId), ttlMs).exec();
+  }
+
+  async removeCashHold(driverId: string, tripId: string): Promise<void> {
+    await this.redis.hdel(cashKey(driverId), tripId);
+  }
+
   async withDriverLock<T>(driverId: string, fn: () => Promise<T>): Promise<T> {
     const key = driverLockKey(driverId);
     const token = randomUUID();
@@ -221,6 +250,7 @@ export class InMemoryDispatchStore implements DispatchStore {
   private readonly locks = new Map<string, { owner: string; until: number }>();
   private readonly policies = new Map<string, PolicyOverride>();
   private readonly jobs = new Map<string, Set<string>>();
+  private readonly cash = new Map<string, Map<string, CashHold>>();
   /** Tail of each driver's lock queue: the next holder waits for it. */
   private readonly driverLocks = new Map<string, Promise<void>>();
 
@@ -284,6 +314,22 @@ export class InMemoryDispatchStore implements DispatchStore {
 
   async removeDriverJob(driverId: string, tripId: string): Promise<void> {
     this.jobs.get(driverId)?.delete(tripId);
+  }
+
+  async cashHolds(driverId: string): Promise<CashHold[]> {
+    return [...(this.cash.get(driverId)?.values() ?? [])].map((h) => ({ ...h }));
+  }
+
+  async addCashHold(driverId: string, hold: CashHold): Promise<void> {
+    const holds = this.cash.get(driverId) ?? new Map<string, CashHold>();
+    holds.set(hold.tripId, { ...hold });
+    this.cash.set(driverId, holds);
+  }
+
+  async removeCashHold(driverId: string, tripId: string): Promise<void> {
+    const holds = this.cash.get(driverId);
+    holds?.delete(tripId);
+    if (holds?.size === 0) this.cash.delete(driverId);
   }
 
   async withDriverLock<T>(driverId: string, fn: () => Promise<T>): Promise<T> {
