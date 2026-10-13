@@ -278,12 +278,12 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_HOUSEHOLDS) private readonly households?: OrdersHouseholdsPort,
     /** The one ETA (learned minutes) the honest-delay promise's ride is locked from at placement; absent = no lock. */
     @Optional() private readonly eta?: EtaService,
-    /** أكل بيت: whether home kitchens are open to customers in a city (`homeKitchens.launched`); absent = open. */
-    @Optional() @Inject(STOREFRONT_HOME) private readonly homeOpen?: StorefrontHome,
     /** Kilo-sold shop items (shop-items module); absent = no line may be weighed. */
     @Optional() @Inject(ORDERS_WEIGHED_ITEMS) private readonly weighed?: WeighedItemsPort,
     /** «دوّرلي» photos and voice notes are checked against it; absent = an errand line may carry none. */
     @Optional() @Inject(ORDERS_UPLOADS) private readonly uploads?: OrdersUploadsPort,
+    /** أكل بيت: whether home kitchens are open to customers in a city (`homeKitchens.launched`); absent = open. */
+    @Optional() @Inject(STOREFRONT_HOME) private readonly homeOpen?: StorefrontHome,
   ) {
     this.promotions = promotions ?? new NoPromotions();
     this.parcelReturnLock = new DistributedKeyedLock(uow, 'orders.parcel_return');
