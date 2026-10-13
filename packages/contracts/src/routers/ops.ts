@@ -27,6 +27,7 @@ import {
 import { DISH_PHOTO_REVIEW_ROLES, DishPhotoQueueInput, DishPhotoRow, KeepDishPhotoInput, KeepDishPhotoResult, TakeDownDishPhotoInput, TakeDownDishPhotoResult } from '../dish-photos-io.js';
 import { ConsolePickupSpotView, MerchantOrgInput, MoveKitchenInput, PICKUP_SPOT_CONSOLE_ROLES, PickupStoreRow, PickupStoresInput, SetPickupSpotInput } from '../merchant-io.js';
 import { ConfirmTopUpInput, TopUpConfirmation, TopUpLookupInput, TopUpLookupView } from '../topup-io.js';
+import { HomeKitchenApplication, HomeKitchenApplyInput } from '../home-kitchen-admin-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
 import { opsZonesRouter } from './zones.js';
@@ -120,6 +121,10 @@ export const opsRouter = router({
     .input(RecordCashReceiptInput)
     .output(CashReceiptView)
     .mutation(({ ctx, input }) => ctx.ops.recordCashReceipt(ctx.actor, input)),
+  /** أكل بيت: a cook applies for her own kitchen from the Merchant app (any signed-in person, one at a time). */
+  homeKitchenApply: protectedProcedure().input(HomeKitchenApplyInput).output(HomeKitchenApplication).mutation(({ ctx, input }) => ctx.ops.homeKitchenApply(ctx.actor, input)),
+  /** Her own application, for the Merchant app's gate (waiting, or turned down). */
+  myHomeKitchenApplication: protectedProcedure().output(HomeKitchenApplication).query(({ ctx }) => ctx.ops.myHomeKitchenApplication(ctx.actor)),
   merchantOnboarding: protectedProcedure(FIELD_OPS_ROLES)
     .input(MerchantOnboardingInput)
     .output(MerchantOnboardingView)

@@ -429,6 +429,9 @@ export const ERROR_TABLE = {
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
   cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
   prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // أكل بيت: a reservation he never took at the door is owed before he reserves again (Ali, 2026-10-11).
+  home_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
+  commission_tier_home_only: { retryHint: 'never', status: 'FORBIDDEN' },
   // Parcels طرود (2026-10-12): the parcel, the receiver's door link and its area, the photo.
   parcel_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   parcel_door_closed: { retryHint: 'never', status: 'CONFLICT' },

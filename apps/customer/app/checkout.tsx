@@ -39,6 +39,7 @@ import { EarnPill } from '@/features/food/EarnPill';
 import { priceItems } from '@/features/food/price-lines';
 import { closedLine, quoteStop } from '@/features/food/stopped';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote, usePlaceOrder } from '@/features/food/queries';
+import { slotWhen } from '@/features/home-food/format';
 import { useMyOrders } from '@/features/home/queries';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -120,8 +121,11 @@ export default function CheckoutScreen() {
   const dinnerAtMs = dinnerAt?.getTime() ?? null;
   const slots = useMemo(() => withDinnerSlot(plainSlots, dinnerAtMs !== null && dinnerDay === day ? new Date(dinnerAtMs) : null, (at) => ({ at, iftar: false })), [plainSlots, dinnerAtMs, dinnerDay, day]);
   const [slot, setSlot] = useState<string | null>(null);
+  // أكل بيت: a reservation's time was picked on her menu; it is the order's time and can't change here.
+  const reservedFor = cart.reservedFor ?? null;
+  const reservedAt = useMemo(() => (reservedFor ? new Date(reservedFor) : null), [reservedFor]);
   const chosen = slots.find((sl) => String(sl.at.getTime()) === slot) ?? slots[0] ?? null;
-  const scheduledFor = when === 'later' ? (chosen?.at ?? null) : null;
+  const scheduledFor = reservedAt ?? (when === 'later' ? (chosen?.at ?? null) : null);
   // FOOD-01/19: the fees are priced for the chosen slot (a pre-order after midnight is a different
   // night), and the ones placed are `orders.quote`'s, priced on the server's clock.
   const quote = useCartQuote(cart, dropoff, street, scheduledFor);
@@ -131,22 +135,22 @@ export default function CheckoutScreen() {
     const r = menu.data?.restaurant;
     if (!r || preset.current) return;
     preset.current = true;
-    if (r.open) return;
+    if (r.open || reservedFor) return;
     const first = firstOpenSlot(new Date(), r.hours ?? [], undefined, r.pauses ?? []);
     if (!first) return;
     setWhen('later');
     setDay(first.day);
     setSlot(null);
-  }, [menu.data]);
+  }, [menu.data, reservedFor]);
   // The dinner time, once the server gives it, is the chosen one (the rider may still pick another).
   const dinnerPreset = useRef<number | null>(null);
   useEffect(() => {
-    if (dinnerAtMs === null || dinnerDay === null || dinnerPreset.current === dinnerAtMs) return;
+    if (dinnerAtMs === null || dinnerDay === null || dinnerPreset.current === dinnerAtMs || reservedFor) return;
     dinnerPreset.current = dinnerAtMs;
     setWhen('later');
     setDay(dinnerDay);
     setSlot(String(dinnerAtMs));
-  }, [dinnerAtMs, dinnerDay]);
+  }, [dinnerAtMs, dinnerDay, reservedFor]);
   // Home's «على الفطور» (home roast 4, concept C): a dish added for iftar comes here on today's iftar
   // slot. The mark is taken once, for this cart's kitchen only; a closed kitchen's first slot still
   // wins, a time already picked stays, and with no iftar slot left it stays on "now".
@@ -351,6 +355,9 @@ export default function CheckoutScreen() {
         } catch {
           setProblem(t('error.price_changed'));
         }
+      } else if (reservedAt && errCode === 'order_schedule_invalid') {
+        // أكل بيت: the reserved time passed or filled up; her menu has the times still free.
+        setProblem(t('home_food.reserved_passed'));
       } else if (kind === 'new_customer_cash_cap') {
         setProblem(t('checkout.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) }));
       } else if (kind === 'merchant_paused') {
@@ -376,7 +383,10 @@ export default function CheckoutScreen() {
   const receiver = recipientName ? ({ kind: 'other', name: recipientName } as const) : ({ kind: 'me' } as const);
   const payLine = payCopy(amountParam(dueIqd ?? 0), payment, receiver);
   const etaMax = restaurant?.etaMaxMinutes ?? null;
-  const whenValue = !scheduledFor
+  const reservedWhen = reservedAt ? slotWhen(reservedAt, new Date()) : null;
+  const whenValue = reservedWhen
+    ? t('home_food.reserved_when', reservedWhen)
+    : !scheduledFor
     ? t('checkout.when_now')
     : chosen?.dinner
       ? t(dinnerTime.data?.lateByMin ? 'dinner.slot_after' : 'dinner.slot', { time: clock12(scheduledFor) })
@@ -650,8 +660,8 @@ export default function CheckoutScreen() {
             ) : null}
           </View>
         ) : null}
-        <ChoiceRow testID="checkout-row-when" icon="clock" label={t('checkout.row_when')} value={whenValue} open={open.when} onPress={() => toggle('when')} />
-        {chosen?.dinner && scheduledFor && dinnerTime.data ? (
+        <ChoiceRow testID="checkout-row-when" icon="clock" label={t('checkout.row_when')} value={whenValue} open={open.when && !reservedAt} onPress={() => toggle('when')} fixed={Boolean(reservedAt)} />
+        {chosen?.dinner && !reservedAt && scheduledFor && dinnerTime.data ? (
           <View testID="checkout-dinner-note" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[3] }}>
             <Icon name="food" size={16} color="accentText" />
             <Text variant="footnote" color="textMuted" style={{ flex: 1 }}>
@@ -662,7 +672,7 @@ export default function CheckoutScreen() {
             </Text>
           </View>
         ) : null}
-        {open.when ? (
+        {open.when && !reservedAt ? (
           <View style={{ gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[4] }}>
             <ChipGroup
               items={[
@@ -744,15 +754,16 @@ export default function CheckoutScreen() {
 }
 
 /** «يستلم: أنا · غيّر» — a choice already made, shown as one line until the person wants to change it (o9). */
-function ChoiceRow({ icon, label, value, open, onPress, divider, testID }: { icon: 'user' | 'clock'; label: string; value: string; open: boolean; onPress: () => void; divider?: boolean; testID?: string }) {
+function ChoiceRow({ icon, label, value, open, onPress, divider, fixed, testID }: { icon: 'user' | 'clock'; label: string; value: string; open: boolean; onPress: () => void; divider?: boolean; fixed?: boolean; testID?: string }) {
   const theme = useTheme();
   const t = useT();
   return (
     <Pressable
       testID={testID}
-      accessibilityRole="button"
-      accessibilityState={{ expanded: open }}
-      accessibilityLabel={t('checkout.row_change_a11y', { what: label, value })}
+      accessibilityRole={fixed ? 'text' : 'button'}
+      accessibilityState={fixed ? undefined : { expanded: open }}
+      accessibilityLabel={fixed ? `${label}: ${value}` : t('checkout.row_change_a11y', { what: label, value })}
+      disabled={fixed}
       onPress={onPress}
       style={({ pressed }) => ({
         flexDirection: 'row',
@@ -774,9 +785,11 @@ function ChoiceRow({ icon, label, value, open, onPress, divider, testID }: { ico
           {value}
         </Text>
       </Text>
-      <Text variant="label" weight={600} color="accentText">
-        {t('checkout.row_change')}
-      </Text>
+      {fixed ? null : (
+        <Text variant="label" weight={600} color="accentText">
+          {t('checkout.row_change')}
+        </Text>
+      )}
     </Pressable>
   );
 }

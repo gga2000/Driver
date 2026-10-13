@@ -822,6 +822,8 @@ model CatalogItem {
   photoLibrary    String?   @map("photo_library")
   /// p4 (Ali 2026-10-08): the shop's own uploaded photo shows at once; set when it was uploaded and Driver's team has not looked yet. NULL = nothing waiting.
   photoReviewPendingAt DateTime? @map("photo_review_pending_at")
+  /// أكل بيت (2026-10-11): how a home kitchen sells the dish: {mode:'ready', cooked, cookedOn} (stock = plates left) or {mode:'reserve', rule:{aheadMin, days, times, maxPerSlot}}. NULL = a restaurant's dish.
+  homeSale        Json?     @map("home_sale")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

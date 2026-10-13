@@ -555,8 +555,14 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!orgId) return [];
       const [owners, shop] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId)]);
       const base_ = deps.merchantAppUrl?.trim().replace(/\/+$/, '');
-      const next = base_ ? t('sms.merchant_activated_link', { link: `${base_}/setup` }, 'ar-IQ') : t('sms.merchant_activated_app', {}, 'ar-IQ');
-      return owners.map((to) => ({ ...base, template: 'merchant_activated' as const, to, params: { shop: shop ?? '', next } }));
+      // أكل بيت: a cook's kitchen opens on «أكلاتي», not shop setup; any other or missing type keeps /setup.
+      // Her texts say «ضيف أكلاتك», not «كمّل تجهيز محلك».
+      const home = p['type'] === 'home_kitchen';
+      const next = base_
+        ? t(home ? 'sms.home_kitchen_activated_link' : 'sms.merchant_activated_link', { link: `${base_}${home ? '/home-kitchen' : '/setup'}` }, 'ar-IQ')
+        : t(home ? 'sms.home_kitchen_activated_app' : 'sms.merchant_activated_app', {}, 'ar-IQ');
+      const template = home ? ('home_kitchen_activated' as const) : ('merchant_activated' as const);
+      return owners.map((to) => ({ ...base, template, to, params: { shop: shop ?? '', next } }));
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);

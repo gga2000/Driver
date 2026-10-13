@@ -5,6 +5,8 @@ import {
   type Actor,
   type AddLandmarkPhotoInput,
   type CashReceiptView,
+  type HomeKitchenApplication,
+  type HomeKitchenApplyInput,
   type LandmarksInput,
   type LandmarkPhotoView,
   type MerchantOnboardingInput,
@@ -35,6 +37,11 @@ export const CASH_TASK_SHARE_OF_CAP = 0.5;
 /** Wrong hand-over codes for one courier in a local day before his code locks until midnight. */
 export const HANDOVER_CODE_MAX_FAILURES = 5;
 const DAY_MS = 86_400_000;
+
+/** A cook's application as the Merchant app shows it (`draft` reads as waiting too). */
+function applicationView(o: OnboardingRecord): HomeKitchenApplication {
+  return { state: o.state === 'draft' ? 'submitted' : o.state, kitchenName: o.name, submittedAt: o.createdAt, rejectReason: o.state === 'rejected' ? (o.rejectReason ?? null) : null };
+}
 /** Cash receipts carry no city of their own; one city today (the audit page reads by city). */
 const CASH_CITY = 'aziziyah';
 
@@ -86,6 +93,8 @@ export class OpsService implements OpsPort, OnModuleInit {
 
   private readonly zones = new ZoneResolver();
   private readonly cashLock = new KeyedLock();
+  /** One cook's double tap on «أرسلي» makes one application (per person, in this process). */
+  private readonly applyLock = new KeyedLock();
   /** Wrong hand-over codes per `courierId:localDate`, shared by every API instance (review #22). */
   private readonly codeFailures: WindowCounter;
 
@@ -237,16 +246,21 @@ export class OpsService implements OpsPort, OnModuleInit {
     const zoneKey = this.zones.resolve(input.cityId, input.location.pin);
     if (!zoneKey) throw new DriverError('outside_zone');
     const location = { zoneKey, pin: input.location.pin };
+    // The home rate is a home kitchen's only; refused before anything is written.
+    if (input.type !== 'home_kitchen' && input.commissionTier === 'home') throw new DriverError('commission_tier_home_only');
     for (const id of [...input.menuPhotoUploadIds, ...(input.shopPhotoUploadId ? [input.shopPhotoUploadId] : [])]) await this.assertUpload(actor.personId, id);
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);
-    const org = await this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
+    // A home kitchen is a restaurant org; its storefront is marked home when staff approve it.
+    const org = await this.orgs.create({ type: input.type === 'home_kitchen' ? 'restaurant' : input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
     if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
       // A new restaurant starts on `starter` unless the visit named another tier; the rate commits with its
       // audit row below (the nested run joins this transaction).
-      await this.orgs.setMerchantSettings(org.id, { location, commissionTier: input.commissionTier });
+      // A home kitchen is always on the home rate (Ali, 2026-10-11: 10 %), never starter.
+      const commissionTier = input.type === 'home_kitchen' ? 'home' : input.commissionTier;
+      await this.orgs.setMerchantSettings(org.id, { location, commissionTier });
       const row = await this.repo.addOnboarding(
         {
           orgId: org.id,
@@ -292,13 +306,95 @@ export class OpsService implements OpsPort, OnModuleInit {
           action: 'store.commission_tier_set',
           subjectKind: 'store',
           subjectId: org.id,
-          summaryAr: `سجّل ${input.name} بعمولة ${Math.round(AZIZIYAH_MONEY_RULES.commission[input.commissionTier] * 10_000) / 100}%`,
-          detail: { from: null, to: input.commissionTier, onboardingId: row.id },
+          summaryAr: `سجّل ${input.name} بعمولة ${Math.round(AZIZIYAH_MONEY_RULES.commission[commissionTier] * 10_000) / 100}%`,
+          detail: { from: null, to: commissionTier, onboardingId: row.id },
         },
         tx,
       );
       return { onboardingId: row.id, merchantOrgId: org.id, state: row.state, menuPhotos: row.menuPhotoRefs.length, taskId: task.id, createdAt: row.createdAt };
     });
+  }
+
+  /**
+   * أكل بيت «سجّل مطبخك»: a cook applies for a home kitchen from the Merchant app. She is both the
+   * one who sent it and its contact, so the approvals guard (`approval_own_item`) keeps her from
+   * deciding on it; staff call her and approve or turn it down in the Console queue. One application
+   * at a time: while one waits, asking again returns it. Her name goes to the identity vault only;
+   * nothing here carries a commission or price (the server sets the home rate on approval).
+   */
+  async homeKitchenApply(actor: Actor, input: HomeKitchenApplyInput): Promise<HomeKitchenApplication> {
+    return this.applyLock.run(actor.personId, async () => {
+      // Only her own kitchen application counts: a shop field ops is still drafting with her as contact is another thing.
+      const waiting = (await this.repo.onboardingsOfContact(actor.personId)).find((o) => o.type === 'home_kitchen' && (o.state === 'draft' || o.state === 'submitted'));
+      if (waiting) return applicationView(waiting);
+      const zoneKey = this.zones.resolve(input.cityId, input.door);
+      if (!zoneKey) throw new DriverError('outside_zone');
+      const location = { zoneKey, pin: input.door };
+      await this.identity.nameIfMissing(actor.personId, input.cookName);
+      const org = await this.orgs.create({ type: 'restaurant', name: input.kitchenName, cityId: input.cityId, ownerId: actor.personId });
+      const now = this.clock.now();
+      return this.uow.run(async (tx) => {
+        // The home rate (10 %) commits with its audit row, as for any new store.
+        await this.orgs.setMerchantSettings(org.id, { location, commissionTier: 'home' });
+        const row = await this.repo.addOnboarding(
+          {
+            orgId: org.id,
+            cityId: input.cityId,
+            name: input.kitchenName,
+            type: 'home_kitchen',
+            contactPersonId: actor.personId,
+            location,
+            menuPhotoRefs: [],
+            shopPhotoRef: null,
+            notes: input.landmark ?? null,
+            state: 'submitted',
+            createdById: actor.personId,
+            createdAt: now,
+          },
+          tx,
+        );
+        await this.repo.addTask(
+          {
+            cityId: input.cityId,
+            kind: 'merchant_followup',
+            refId: row.id,
+            title: `اتصل بـ ${input.kitchenName} (مطبخ بيت) وتأكد من الباب`,
+            state: 'open',
+            assigneeId: null,
+            dueAt: new Date(now.getTime() + DAY_MS),
+            payload: { merchantOrgId: org.id, homeKitchen: true },
+            completedAt: null,
+            completedById: null,
+            createdAt: now,
+          },
+          tx,
+        );
+        await this.events.emit(
+          tx,
+          { actorId: actor.personId, type: 'merchant.onboarding_drafted', occurredAt: now, payload: { onboardingId: row.id, merchantOrgId: org.id, cityId: input.cityId, type: 'home_kitchen', menuPhotos: 0 } },
+          { name: 'org', id: org.id },
+        );
+        await this.audits?.record(
+          {
+            cityId: input.cityId,
+            actorId: actor.personId,
+            action: 'store.commission_tier_set',
+            subjectKind: 'store',
+            subjectId: org.id,
+            summaryAr: `سجّل ${input.kitchenName} (مطبخ بيت) بعمولة ${Math.round(AZIZIYAH_MONEY_RULES.commission.home * 10_000) / 100}%`,
+            detail: { from: null, to: 'home', onboardingId: row.id },
+          },
+          tx,
+        );
+        return applicationView(row);
+      });
+    });
+  }
+
+  /** Her latest application, for the Merchant app's gate. */
+  async myHomeKitchenApplication(actor: Actor): Promise<HomeKitchenApplication> {
+    const mine = (await this.repo.onboardingsOfContact(actor.personId)).find((o) => o.type === 'home_kitchen');
+    return mine ? applicationView(mine) : { state: 'none', kitchenName: null, submittedAt: null, rejectReason: null };
   }
 
   /** Stored tasks (mine or unassigned) plus cash to collect now: couriers at ≥ half their cap or over it. */
@@ -413,7 +509,8 @@ export class OpsService implements OpsPort, OnModuleInit {
           actorId: actor.personId,
           type: input.approve ? 'merchant.activated' : 'merchant.onboarding_rejected',
           occurredAt: now,
-          payload: { onboardingId: row.id, merchantOrgId: row.orgId, cityId: row.cityId, contactPersonId: row.contactPersonId, reason: input.reason ?? null },
+          // `type` from the stored row (never the applicant's word): a home kitchen's storefront is set up on it.
+          payload: { onboardingId: row.id, merchantOrgId: row.orgId, cityId: row.cityId, contactPersonId: row.contactPersonId, type: row.type, reason: input.reason ?? null },
         },
         { name: 'org', id: row.orgId },
       );
