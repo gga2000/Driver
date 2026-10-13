@@ -9,3 +9,5 @@ export { ROLE_READER } from './role-reader.js';
 export type { RoleReader } from './role-reader.js';
 export { CONSOLE_ORDER_RECIPIENT_PURPOSE, STAFF_READ_PURPOSES, VAULT_LOG_FAILED, VaultLogWriteError, accessorOf, swallowedVaultLogFailures } from './vault-log.js';
 export type { Accessor, AccessorKind } from './vault-log.js';
+export { BREAK_GLASS_ACTOR, staffTotpBreakGlass } from './staff-totp-break-glass.js';
+export type { StaffTotpBreakGlassInput, StaffTotpBreakGlassResult } from './staff-totp-break-glass.js';

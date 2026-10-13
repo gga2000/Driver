@@ -42,3 +42,18 @@ export function linkSecretFromEnv(env: NodeJS.ProcessEnv, name: string, opts: { 
   for (const key of [name, ...(opts.fallbacks ?? [])]) if (env[key]) return env[key]!;
   return randomBytes(32).toString('hex');
 }
+
+/**
+ * STAFF_TOTP_KEY (docs/api/staff-totp.md): the AES-256-GCM key that seals admin and finance
+ * authenticator secrets, 64 hex characters (`openssl rand -hex 32`), its own value. Null when it is
+ * fine; otherwise what is wrong (the boot check lists it, identity refuses to start without it).
+ */
+export function staffTotpKeyProblem(env: NodeJS.ProcessEnv): string | null {
+  const raw = env['STAFF_TOTP_KEY']?.trim() ?? '';
+  if (!raw) return 'STAFF_TOTP_KEY is not set: admin and finance cannot pass the authenticator step (64 hex characters, openssl rand -hex 32)';
+  if (!/^[0-9a-f]{64}$/i.test(raw)) return 'STAFF_TOTP_KEY must be 64 hex characters (openssl rand -hex 32)';
+  for (const other of ['JWT_SECRET', 'PHONE_HASH_PEPPER', 'UPLOADS_SECRET', 'SHARE_LINK_SECRET', 'SAFETY_LINK_SECRET']) {
+    if (env[other]?.trim() === raw) return `STAFF_TOTP_KEY must be its own value, not the same as ${other}`;
+  }
+  return null;
+}

@@ -6,7 +6,8 @@ import { EventsModule, EventsService } from '../events/index.js';
 import { EventOtpAlerts, EventsServiceAdapter, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { AuthCache, InProcessDropBus, RedisDropBus, authCacheTtlMsFromEnv, cachedIdentityRepository } from './auth-cache.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
-import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER, STAGING_TEST } from './identity.service.js';
+import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER, STAFF_TOTP, STAGING_TEST } from './identity.service.js';
+import { staffTotpConfigFromEnv } from './totp.js';
 import { stagingTestFromEnv } from './staging-test.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
@@ -56,6 +57,10 @@ import { SMS_PROVIDER } from './sms/provider.js';
     // DEPLOY_ENVIRONMENT=staging, never as staff. Unset = off. docs/api/staging-test-numbers.md.
     { provide: STAGING_TEST, useFactory: () => stagingTestFromEnv() },
     { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
+    // Admin and finance sign-in's authenticator step (docs/api/staff-totp.md): STAFF_TOTP_KEY seals the
+    // secrets (required on staging and production); STAFF_TOTP_DEMO=1 is the local demo's code autofill
+    // and stops the boot on a deployed server.
+    { provide: STAFF_TOTP, useFactory: () => staffTotpConfigFromEnv() },
     {
       provide: SessionService,
       useFactory: (repo: IdentityRepository, clock: Clock) => new SessionService(repo, clock, sessionConfigFromEnv()),

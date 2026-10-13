@@ -44,7 +44,7 @@ import { OnCallModule, OnCallService } from '../modules/on-call/index.js';
 import { GarageTaxiModule, GarageTaxiService } from '../modules/garage-taxi/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
-import { requestIdMiddleware } from '../shared/request-context.js';
+import { requestIdMiddleware, setRequestCaller } from '../shared/request-context.js';
 import { WINDOW_COUNTER, type WindowCounter } from '../shared/window-counter.js';
 import { RequestLimits, ipModeFromEnv } from './request-limits.js';
 
@@ -152,6 +152,9 @@ export class TrpcService {
         liveAuthError = isDriverError(err) ? err.code : 'token_invalid';
       }
     }
+    // The verified caller, for identity's own-role reads in this request (staff authenticator step).
+    const caller = auth ?? liveAuth;
+    if (caller) setRequestCaller({ personId: caller.sub, sessionId: caller.sid });
     return {
       // Perf z3: the same caller re-asking for the same trip gets its kept quote back (no new rows).
       pricing: { quote: (req) => this.pricing.keepQuote(req, auth ? `p:${auth.sub}` : ip ? `ip:${ip}` : null) },

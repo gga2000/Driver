@@ -9,6 +9,7 @@
 // PHONE_SHOTS=list only shoots the list as the demo seeded it (`DEMO_PHONE` on).
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { passStaffStep } from './staff-step.mjs';
 
 const CONSOLE = process.env.CONSOLE_URL ?? 'http://127.0.0.1:3396';
 const API = process.env.API_URL ?? 'http://127.0.0.1:3395';
@@ -44,6 +45,7 @@ else {
   await page.locator('input[inputmode="numeric"], input[autocomplete="one-time-code"]').last().fill(code ?? '');
 }
 await page.getByRole('button', { name: /^ادخل$/ }).click();
+await passStaffStep(page, API); // admin/finance authenticator step (docs/api/staff-totp.md)
 await page.waitForTimeout(1500);
 
 await page.goto(`${CONSOLE}/phone`, { waitUntil: 'networkidle' });

@@ -10,6 +10,7 @@ import {
   FREEZABLE_ROLES,
   searchScore,
   REVERIFY_AFTER_IDLE_DAYS,
+  SECOND_STEP_ROLE_KINDS,
   SHARED_PHONE_FORBIDDEN_ROLES,
   STAFF_SESSION_MAX_SEC,
   type Actor,
@@ -30,7 +31,10 @@ import {
   type RevokeRoleInput,
   type RoleGrant,
   type RoleKind,
+  type SecondStep,
   type SessionClaims,
+  type StaffTotpLockView,
+  type StaffTotpEnrolView,
   type TokenPair,
   type UpdateProfileInput,
   type VerifyOtpInput,
@@ -38,6 +42,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { requestCaller } from '../../shared/request-context.js';
 import { UnitOfWork, afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
 import { SelfReadLogWindow, selfReadLogWindowMsFromEnv } from './auth-cache.js';
 import { EventOtpAlerts, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
@@ -49,6 +54,8 @@ import { OtpGuard } from './rate-limit.js';
 import { isStagingTestNumber, STAFF_ROLES, type StagingTestConfig } from './staging-test.js';
 import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
+import { StaffTotpService } from './staff-totp.service.js';
+import { staffTotpConfigFromEnv, type StaffTotpConfig } from './totp.js';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms/provider.js';
 import type { WhatsAppPort } from '../../shared/messaging/whatsapp.js';
@@ -61,6 +68,8 @@ export const PHONE_PEPPER = Symbol('PHONE_PEPPER');
 export const OTP_REQUEST_GUARD = Symbol('OTP_REQUEST_GUARD');
 /** Staging test numbers' fixed code (`staging-test.ts`); null = off. */
 export const STAGING_TEST = Symbol('STAGING_TEST');
+/** The staff authenticator's key and demo switch (`totp.ts`, STAFF_TOTP_KEY / STAFF_TOTP_DEMO). */
+export const STAFF_TOTP = Symbol('STAFF_TOTP');
 
 type RequestOtp = z.infer<typeof RequestOtpInput>;
 type VerifyOtp = z.infer<typeof VerifyOtpInput>;
@@ -101,6 +110,7 @@ export class IdentityService implements IdentityPort {
   private readonly otp: OtpService;
   private readonly sessions: SessionService;
   private readonly guardians: GuardianService;
+  private readonly totp: StaffTotpService;
   private readonly selfReads: SelfReadLogWindow;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
@@ -116,11 +126,13 @@ export class IdentityService implements IdentityPort {
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
     @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort | null,
     @Optional() @Inject(STAGING_TEST) private readonly stagingTest: StagingTestConfig | null = null,
+    @Optional() @Inject(STAFF_TOTP) totpConfig?: StaffTotpConfig | null,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
     this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp ?? undefined, stagingTest);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
+    this.totp = new StaffTotpService(repo, events, clock, totpConfig ?? staffTotpConfigFromEnv());
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
   }
 
@@ -173,8 +185,10 @@ export class IdentityService implements IdentityPort {
       if (!isNew && this.isStagingTest(e164) && (await this.holdsStaffRole(person.id, tx))) throw new DriverError('forbidden');
       await this.markVerified(person.id, now, tx, isNew ? 'person.verified' : 'person.reverified', person.lastVerifiedAt === null);
       const staff = !isNew && (await this.holdsStaffRole(person.id, tx));
-      const { tokens } = await this.sessions.open(person.id, deviceId, tx, staff ? STAFF_SESSION_MAX_SEC : undefined);
-      return { personId: person.id, isNew, tokens };
+      const { session, tokens } = await this.sessions.open(person.id, deviceId, tx, staff ? STAFF_SESSION_MAX_SEC : undefined);
+      // Admin and finance: the session works for those roles only after the authenticator step.
+      const secondStep = staff ? await this.totp.step({ personId: person.id, sessionId: session.id }, tx) : null;
+      return { personId: person.id, isNew, tokens, ...(secondStep ? { secondStep } : {}) };
     });
   }
 
@@ -311,7 +325,27 @@ export class IdentityService implements IdentityPort {
 
   async hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean> {
     const roles = await this.repo.rolesOf(personId);
-    return roles.some((r) => r.kind === kind && r.frozenAt === null && (orgId === undefined || r.orgId === orgId));
+    if (!roles.some((r) => r.kind === kind && r.frozenAt === null && (orgId === undefined || r.orgId === orgId))) return false;
+    return !(SECOND_STEP_ROLE_KINDS.includes(kind) && (await this.callerOwesSecondStep(personId)));
+  }
+
+  /**
+   * Admin and finance sign-in's second step (docs/api/staff-totp.md): in a request whose caller is
+   * this person, from a session that has not passed the authenticator step, their own admin and
+   * finance grants do not count. The role gate refuses those procedures first (`totp_required`); this
+   * keeps every role check deeper in a service in step with it. Other people's roles and background
+   * work are never affected.
+   */
+  private async callerOwesSecondStep(personId: string): Promise<boolean> {
+    const caller = requestCaller();
+    if (!caller || caller.personId !== personId) return false;
+    const session = await this.repo.findSessionById(caller.sessionId);
+    return !session?.secondStepAt;
+  }
+
+  /** True while this session holds admin or finance but has not passed the authenticator step (the role gate asks). */
+  secondStepPending(actor: Actor): Promise<boolean> {
+    return this.totp.pending(actor);
   }
 
   /**
@@ -320,7 +354,9 @@ export class IdentityService implements IdentityPort {
    */
   async activeRoles(personId: string): Promise<RoleKind[]> {
     const roles = await this.repo.rolesOf(personId);
-    return [...new Set(roles.filter((r) => r.frozenAt === null).map((r) => r.kind))];
+    const kinds = [...new Set(roles.filter((r) => r.frozenAt === null).map((r) => r.kind))];
+    if (!kinds.some((k) => SECOND_STEP_ROLE_KINDS.includes(k)) || !(await this.callerOwesSecondStep(personId))) return kinds;
+    return kinds.filter((k) => !SECOND_STEP_ROLE_KINDS.includes(k));
   }
 
   /**
@@ -416,6 +452,7 @@ export class IdentityService implements IdentityPort {
       }
       const reverify = await this.reverificationRequired(personId, deviceId, tx);
       const roles = await this.repo.rolesOf(personId, tx);
+      const secondStep: SecondStep | null = sessionId && accessorId === personId ? await this.totp.step({ personId, sessionId }, tx) : null;
       return {
         personId,
         name: identity.name,
@@ -424,6 +461,7 @@ export class IdentityService implements IdentityPort {
         trustTier: person.trustTier,
         sharedFamilyPhone: person.sharedFamilyPhone,
         roles: roles.map(roleGrant),
+        secondStep,
         reverificationRequired: reverify,
         canWithdraw: !reverify,
         lastVerifiedAt: person.lastVerifiedAt,
@@ -1312,6 +1350,64 @@ export class IdentityService implements IdentityPort {
     const person = await this.repo.findPersonByPhoneHash(n.hash);
     if (person && (await this.holdsStaffRole(person.id))) return { code: null };
     return { code: this.stagingTest.code };
+  }
+
+  // ───────────────────────── staff authenticator (docs/api/staff-totp.md) ─────────────────────────
+
+  staffTotpEnrol(actor: Actor): Promise<{ secret: string; uri: string }> {
+    return this.totp.enrol(actor);
+  }
+
+  staffTotpConfirm(actor: Actor, code: string): Promise<{ recoveryCodes: string[] }> {
+    return this.totp.confirm(actor, code);
+  }
+
+  staffTotpVerify(actor: Actor, code: string): Promise<{ recoveryLeft: number | null }> {
+    return this.totp.verify(actor, code);
+  }
+
+  staffTotpDemoCode(actor: Actor): Promise<{ code: string | null }> {
+    return this.totp.demoCode(actor);
+  }
+
+  /** Staff locked out of the step right now, with their staff display name (a logged staff read). */
+  async staffTotpLocks(actor: Actor): Promise<StaffTotpLockView[]> {
+    const rows = await this.totp.locks();
+    if (rows.length === 0) return [];
+    const names = await this.displayNamesFor(rows.map((r) => r.personId), actor.personId, 'console_staff');
+    return rows.map((r) => ({ ...r, displayName: names[r.personId]?.displayName ?? null }));
+  }
+
+  /** Other staff who set up an authenticator in the last day (never the caller's own), with names (a logged staff read). */
+  async staffTotpEnrolments(actor: Actor): Promise<StaffTotpEnrolView[]> {
+    const rows = (await this.totp.enrolments()).filter((r) => r.personId !== actor.personId);
+    if (rows.length === 0) return [];
+    const names = await this.displayNamesFor(rows.map((r) => r.personId), actor.personId, 'console_staff');
+    return rows.map((r) => ({ ...r, displayName: names[r.personId]?.displayName ?? null }));
+  }
+
+  /**
+   * Before an admin clears someone's authenticator: his own fresh code, checked OUTSIDE any transaction
+   * (each try commits on its own, like the SMS code), with the same tries, lock and one-use rule.
+   */
+  confirmOwnStaffTotp(actor: Actor, code: string): Promise<void> {
+    return this.totp.confirmOwnCode(actor, code);
+  }
+
+  /**
+   * An admin clears another staff member's authenticator (Console «الموظفين»), inside the caller's
+   * unit of work: the set-up is deleted and every session of the person ends, so he signs in again and
+   * sets the app up anew. Nobody resets his own this way (`forbidden`). He hears of it (`staff.totp_reset`).
+   */
+  async resetStaffTotp(actor: Actor, personId: string): Promise<{ reset: boolean; ended: number }> {
+    if (personId === actor.personId) throw new DriverError('forbidden');
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person || person.deletedAt) throw new DriverError('person_not_found');
+      const reset = await this.totp.clear(actor, personId, tx);
+      const { ended } = await this.endAllSessions(actor, personId, 'admin');
+      return { reset, ended };
+    });
   }
 
   async devLastOtp(phone: string): Promise<{ phoneMasked: string; code: string | null }> {
