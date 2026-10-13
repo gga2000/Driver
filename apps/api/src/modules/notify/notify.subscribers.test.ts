@@ -556,7 +556,7 @@ describe('SMS twin still wanted', () => {
   });
 });
 
-describe('staff authenticator (staff.totp_locked, staff.totp_reset)', () => {
+describe('staff authenticator (staff.totp_locked, staff.totp_reset, staff.totp_enrolled)', () => {
   it('a locked step pushes every admin named; a reset tells the person who did it', async () => {
     const h = notifyHarness();
     const d = { ...deps(h), lookups: { ...lookups, firstName: async (id: string) => (id === 'p_noor' ? 'نور' : id === 'p_ali' ? 'علي' : null) } };
@@ -569,6 +569,11 @@ describe('staff authenticator (staff.totp_locked, staff.totp_reset)', () => {
     expect(await one(event('staff.totp_reset', { personId: 'p_noor', resetBy: 'p_ali', hadApp: true }))).toEqual([
       { template: 'staff_totp_reset', to: 'p_noor', params: { name: 'علي' } },
     ]);
+    // A new set-up: every other admin hears it (push, SMS twin), never the person himself.
+    expect(await one(event('staff.totp_enrolled', { personId: 'p_noor', adminIds: ['p_ali', 'p_noor'] }))).toEqual([
+      { template: 'staff_totp_enrolled', to: 'p_ali', params: { name: 'نور' } },
+    ]);
+    expect(await one(event('staff.totp_enrolled', { personId: 'p_ali', adminIds: ['p_ali'] }))).toEqual([]);
   });
 });
 

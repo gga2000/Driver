@@ -332,11 +332,11 @@ const stepThisRequest = new WeakMap<object, Promise<boolean>>();
 export async function assertSecondStep(ctx: AppContext, actor: Actor, roles: readonly RoleKind[] | undefined): Promise<void> {
   if (!roles || !roles.some((r) => SECOND_STEP_ROLE_KINDS.includes(r))) return;
   const identity = ctx.identity;
-  if (!identity.secondStepPending) return;
   const key = ctx.auth ?? ctx.liveAuth ?? null;
   let pending = key ? stepThisRequest.get(key) : undefined;
   if (!pending) {
-    pending = identity.secondStepPending(actor);
+    // Fail closed: an identity port that cannot tell whether the step was passed counts as "not passed".
+    pending = identity.secondStepPending ? identity.secondStepPending(actor) : Promise.resolve(true);
     if (key) {
       stepThisRequest.set(key, pending);
       pending.catch(() => stepThisRequest.delete(key));

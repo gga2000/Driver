@@ -129,6 +129,7 @@ export const NOTIFY_EVENT_TYPES = [
   // Staff authenticator (docs/api/staff-totp.md): a locked second step (admins), a reset (the person).
   'staff.totp_locked',
   'staff.totp_reset',
+  'staff.totp_enrolled',
   // Joy w4 / w6: the payer is asked; «شهرك» is ready on the 1st.
   'org.payer_approval_requested',
   'insights.month_ready',
@@ -883,6 +884,14 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!to) return [];
       const name = (by ? await L.firstName(by, 'notify_staff_totp_reset') : null) ?? t('push.staff_new_device.someone');
       return [{ ...base, template: 'staff_totp_reset' as const, to, params: { name }, data: { personId: to } }];
+    }
+    case 'staff.totp_enrolled': {
+      // «فلان ربط تطبيق مصادقة جديد»: every other admin the event names, never the person himself.
+      const personId = str(p['personId']);
+      const ids = Array.isArray(p['adminIds']) ? p['adminIds'].filter((x): x is string => typeof x === 'string' && x !== personId) : [];
+      if (!personId || ids.length === 0) return [];
+      const name = (await L.firstName(personId, 'notify_staff_totp_enrolled')) ?? t('push.staff_new_device.someone');
+      return ids.map((to) => ({ ...base, template: 'staff_totp_enrolled' as const, to, params: { name }, data: { personId } }));
     }
     case 'dispatch.zone_nudged': {
       // "Send drivers here" (maps program o5): one push per free driver around the busy zone.

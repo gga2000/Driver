@@ -31,6 +31,7 @@ import {
   StaffTotpDemoOutput,
   StaffTotpEnrolOutput,
   StaffTotpLockView,
+  StaffTotpEnrolView,
   StaffTotpResetInput,
   StaffTotpResetOutput,
   StaffTotpVerifyOutput,
@@ -91,6 +92,8 @@ export const identityRouter = router({
       }),
     /** Staff whose step is locked right now (the Console safety strip). */
     locks: protectedProcedure(['admin']).output(z.array(StaffTotpLockView)).query(({ ctx }) => ctx.identity.staffTotpLocks(ctx.actor)),
+    /** Other staff who set up an authenticator in the last day, first time or after a reset (the same strip). */
+    enrolments: protectedProcedure(['admin']).output(z.array(StaffTotpEnrolView)).query(({ ctx }) => ctx.identity.staffTotpEnrolments(ctx.actor)),
     /** Another staff member's authenticator, cleared and audited; needs the admin's own fresh code. */
     reset: protectedProcedure(['admin']).input(StaffTotpResetInput).output(StaffTotpResetOutput).mutation(({ ctx, input }) => ctx.controls.resetStaffTotp(ctx.actor, input)),
   }),

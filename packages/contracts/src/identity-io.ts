@@ -195,6 +195,9 @@ export const StaffTotpDemoOutput = z.object({ code: z.string().nullable() });
 /** A staff member whose authenticator step is locked after too many wrong codes (the Console safety strip). */
 export const StaffTotpLockView = z.object({ personId: z.string(), displayName: z.string().nullable(), lockedAt: z.coerce.date(), lockedUntil: z.coerce.date() });
 export type StaffTotpLockView = z.infer<typeof StaffTotpLockView>;
+/** A staff member who set up an authenticator (first time, or again after a reset) in the last day. */
+export const StaffTotpEnrolView = z.object({ personId: z.string(), displayName: z.string().nullable(), enrolledAt: z.coerce.date() });
+export type StaffTotpEnrolView = z.infer<typeof StaffTotpEnrolView>;
 
 export type Actor = { personId: string; sessionId: string; deviceId?: string };
 
@@ -222,11 +225,13 @@ export interface IdentityPort {
   /** The guardian's own children with their names (each read logged in the vault access log). */
   myChildren(actor: Actor): Promise<ChildView[]>;
   /** True while this session holds admin or finance but has not passed the authenticator step (the role gate asks). */
-  secondStepPending?(actor: Actor): Promise<boolean>;
+  secondStepPending(actor: Actor): Promise<boolean>;
   staffTotpEnrol(actor: Actor): Promise<z.infer<typeof StaffTotpEnrolOutput>>;
   staffTotpConfirm(actor: Actor, code: string): Promise<z.infer<typeof StaffTotpConfirmOutput>>;
   staffTotpVerify(actor: Actor, code: string): Promise<z.infer<typeof StaffTotpVerifyOutput>>;
   staffTotpDemoCode(actor: Actor): Promise<z.infer<typeof StaffTotpDemoOutput>>;
   staffTotpLocks(actor: Actor): Promise<StaffTotpLockView[]>;
+  /** Other staff who set up an authenticator within `STAFF_TOTP_RULES.enrolAlertHours` (the Console safety strip). */
+  staffTotpEnrolments(actor: Actor): Promise<StaffTotpEnrolView[]>;
 }
 

@@ -114,6 +114,7 @@ export {
   TRUSTED_CONTACTS_MAX,
   SecondStep,
   StaffTotpLockView,
+  StaffTotpEnrolView,
 } from './identity-io.js';
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';

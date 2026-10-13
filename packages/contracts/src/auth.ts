@@ -97,7 +97,7 @@ export const STAFF_ROLE_KINDS: readonly RoleKind[] = ['field_ops', 'dispatcher',
  */
 export const SECOND_STEP_ROLE_KINDS: readonly RoleKind[] = ['admin', 'finance'];
 /** Staff authenticator codes: 6 digits, 30-second steps, one step either side accepted, 5 wrong in a row lock it 15 minutes. */
-export const STAFF_TOTP_RULES = { digits: 6, stepSec: 30, window: 1, maxTries: 5, lockMinutes: 15, recoveryCodes: 8 } as const;
+export const STAFF_TOTP_RULES = { digits: 6, stepSec: 30, window: 1, maxTries: 5, lockMinutes: 15, recoveryCodes: 8, enrolAlertHours: 24 } as const;
 export const OTP_LENGTH = 6;
 export const OTP_MAX_ATTEMPTS = 5;
 /** THIN-21: a sign-in code works for 5 minutes (the adopted rule; tries and lock-out unchanged). */

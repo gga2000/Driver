@@ -15,6 +15,7 @@ Rules are server constants in `packages/contracts/src/auth.ts`:
 | `STAFF_TOTP_RULES.window` | 1 | the code one step before or after now is also accepted (phone clocks drift) |
 | `STAFF_TOTP_RULES.maxTries` / `lockMinutes` | 5 / 15 | 5 wrong codes in a row lock the step for 15 minutes |
 | `STAFF_TOTP_RULES.recoveryCodes` | 8 | one-time recovery codes given at set-up |
+| `STAFF_TOTP_RULES.enrolAlertHours` | 24 | how long a new set-up stays on the admins' alert strip |
 
 ## What a staff member sees (Console, `/login`)
 1. Phone, then the SMS code — unchanged.
@@ -46,9 +47,12 @@ step belongs to the session, not the person: every new sign-in asks again.
 | `verify` | signed in | an app code or a recovery code; passes the step |
 | `demoCode` | signed in | demo only, see below |
 | `locks` | admin | staff whose step is locked right now (the Console strip) |
+| `enrolments` | admin | other staff who set up an authenticator in the last 24 hours (the Console strip) |
 | `reset` | admin | clears another staff member's set-up (below) |
 
 ### Codes, replay and wrong tries
+- If the identity service cannot say whether a session passed the step, the gate treats it as not
+  passed (fails closed).
 - A code is accepted for the current step ±1. The step it matched is stored (`last_step`); that step and
   every older one are refused afterwards, so a code is never accepted twice.
 - Each try is counted before the code is compared, in its own statement outside the main transaction,
@@ -57,12 +61,18 @@ step belongs to the session, not the person: every new sign-in asks again.
   raises `staff.totp_locked`: a push to every admin and a row on the Console's alert strip for admins
   («فلان: 5 رموز مصادقة غلط ورا بعض …», linked to the staff page) until the lock ends.
 
+### A new set-up tells the other admins
+Every confirmed set-up — the first one, or a new one after a reset — raises `staff.totp_enrolled`: a push
+to every other admin (SMS if the push is not opened) and, for 24 hours, a row on their Console alert
+strip («فلان: ربط تطبيق مصادقة جديد الساعة …. إذا مو هو، صفّره»), linked to the staff page. An admin
+who did not expect it resets that person's authenticator there.
+
 ### Storage
 One row per staff member in `identity_vault.staff_totp` (migration `20261010620000_staff_totp`, ends with
 `driver_harden`):
 - the secret, **encrypted with AES-256-GCM** under `STAFF_TOTP_KEY`, a fresh IV each time and bound to
   the person (it cannot be moved to another row);
-- the recovery codes only as **salted scrypt hashes**, each removed when used (every use is an event,
+- the recovery codes (10 letters each from a 31-letter alphabet, drawn without bias) only as **salted scrypt hashes**, each removed when used (every use is an event,
   `staff.totp_recovery_used`);
 - the last used step, the wrong-try count and the lock.
 

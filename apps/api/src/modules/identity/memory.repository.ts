@@ -454,6 +454,13 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return [...this.staffTotps.values()].filter((r) => r.lockedUntil && r.lockedUntil > now).map((r) => this.totpState(r));
   }
 
+  async recentStaffTotpEnrolments(since: Date) {
+    return [...this.staffTotps.values()]
+      .filter((r) => r.confirmedAt && r.confirmedAt >= since)
+      .sort((a, b) => b.confirmedAt!.getTime() - a.confirmedAt!.getTime())
+      .map((r) => this.totpState(r));
+  }
+
   async readStaffTotp(personId: string, log: { accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx) {
     await this.logVaultAccess({ personId, ...log }, tx, { failClosed: true });
     const r = this.staffTotps.get(personId);

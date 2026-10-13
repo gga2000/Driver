@@ -87,6 +87,9 @@ export class StaffTotpService {
     const now = this.clock.now();
     if (!(await this.repo.confirmStaffTotp(actor.personId, { step: passed.step, recoveryHashes: recoveryCodes.map(hashRecoveryCode), now }))) throw new DriverError('totp_already_set');
     await this.pass(actor, now, 'enrolled');
+    // A new set-up (first time, or again after a reset) tells every other admin: push, SMS twin, strip row.
+    const adminIds = (await this.adminIds()).filter((id) => id !== actor.personId);
+    await this.events.emit(undefined, { actorId: actor.personId, type: 'staff.totp_enrolled', occurredAt: now, payload: { personId: actor.personId, adminIds } }, { name: 'person', id: actor.personId });
     return { recoveryCodes };
   }
 
@@ -138,7 +141,20 @@ export class StaffTotpService {
     return rows.filter((r) => r.lockedUntil).map((r) => ({ personId: r.personId, lockedUntil: r.lockedUntil!, lockedAt: new Date(r.lockedUntil!.getTime() - STAFF_TOTP_RULES.lockMinutes * 60_000) }));
   }
 
+  /** Set-ups confirmed within `STAFF_TOTP_RULES.enrolAlertHours` (the Console safety strip). */
+  async enrolments(): Promise<Array<{ personId: string; enrolledAt: Date }>> {
+    const since = new Date(this.clock.now().getTime() - STAFF_TOTP_RULES.enrolAlertHours * 3_600_000);
+    const rows = await this.repo.recentStaffTotpEnrolments(since);
+    return rows.filter((r) => r.confirmedAt).map((r) => ({ personId: r.personId, enrolledAt: r.confirmedAt! }));
+  }
+
   // ───────────────────────── internals ─────────────────────────
+
+  /** Active (not frozen) admins. */
+  private async adminIds(): Promise<string[]> {
+    const { people } = await this.repo.peopleWithRoles(['admin'], { limit: 50 });
+    return people.filter(({ roles }) => roles.some((r) => r.kind === 'admin' && r.frozenAt === null)).map(({ person }) => person.id);
+  }
 
   private async mustOwe(actor: Actor): Promise<void> {
     if (!(await this.required(actor.personId))) throw new DriverError('forbidden');
@@ -201,8 +217,7 @@ export class StaffTotpService {
     const until = new Date(now.getTime() + STAFF_TOTP_RULES.lockMinutes * 60_000);
     const lock = await this.repo.lockStaffTotp(personId, { now, until, maxTries: STAFF_TOTP_RULES.maxTries });
     if (lock.newly) {
-      const { people } = await this.repo.peopleWithRoles(['admin'], { limit: 50 });
-      const adminIds = people.filter(({ roles }) => roles.some((r) => r.kind === 'admin' && r.frozenAt === null)).map(({ person }) => person.id);
+      const adminIds = await this.adminIds();
       await this.events.emit(undefined, { actorId: personId, type: 'staff.totp_locked', occurredAt: now, payload: { personId, lockedUntil: until.toISOString(), minutes: STAFF_TOTP_RULES.lockMinutes, adminIds } }, { name: 'person', id: personId });
     }
     return lock;

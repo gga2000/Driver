@@ -34,6 +34,7 @@ import {
   type SecondStep,
   type SessionClaims,
   type StaffTotpLockView,
+  type StaffTotpEnrolView,
   type TokenPair,
   type UpdateProfileInput,
   type VerifyOtpInput,
@@ -1372,6 +1373,14 @@ export class IdentityService implements IdentityPort {
   /** Staff locked out of the step right now, with their staff display name (a logged staff read). */
   async staffTotpLocks(actor: Actor): Promise<StaffTotpLockView[]> {
     const rows = await this.totp.locks();
+    if (rows.length === 0) return [];
+    const names = await this.displayNamesFor(rows.map((r) => r.personId), actor.personId, 'console_staff');
+    return rows.map((r) => ({ ...r, displayName: names[r.personId]?.displayName ?? null }));
+  }
+
+  /** Other staff who set up an authenticator in the last day (never the caller's own), with names (a logged staff read). */
+  async staffTotpEnrolments(actor: Actor): Promise<StaffTotpEnrolView[]> {
+    const rows = (await this.totp.enrolments()).filter((r) => r.personId !== actor.personId);
     if (rows.length === 0) return [];
     const names = await this.displayNamesFor(rows.map((r) => r.personId), actor.personId, 'console_staff');
     return rows.map((r) => ({ ...r, displayName: names[r.personId]?.displayName ?? null }));

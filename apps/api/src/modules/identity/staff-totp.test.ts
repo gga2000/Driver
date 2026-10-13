@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, STAFF_TOTP_RULES } from '@driver/contracts';
 import { runWithRequestId, setRequestCaller } from '../../shared/request-context.js';
 import { harness } from './test-harness.js';
-import { base32Encode, findRecoveryHash, hashRecoveryCode, matchTotp, openSecret, otpauthUri, sealSecret, staffTotpConfigFromEnv, totpCode, totpStep } from './totp.js';
+import { base32Encode, findRecoveryHash, hashRecoveryCode, matchTotp, newRecoveryCodes, openSecret, otpauthUri, recoveryChars, sealSecret, staffTotpConfigFromEnv, totpCode, totpStep } from './totp.js';
 
 const ALI = '07700000001';
 const NOOR = '07700000004';
@@ -87,6 +87,15 @@ describe('the authenticator codes (RFC 6238)', () => {
     expect(a).not.toContain('ABCDE');
     expect(findRecoveryHash('abcde fghjk', [b, a])).toBe(b);
     expect(findRecoveryHash('ABCDE-FGHJM', [a, b])).toBeNull();
+  });
+
+  it('recovery codes: 8 of XXXXX-XXXXX, every letter equally likely (bytes 248 and up are drawn again)', () => {
+    const codes = newRecoveryCodes();
+    expect(codes).toHaveLength(8);
+    for (const c of codes) expect(c).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{5}-[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{5}$/);
+    // Bytes 0 and 31 both map to "A"; 248–255 would bias the first letters, so they are skipped.
+    const draws = [Buffer.from([248, 255, 0, 31, 250]), Buffer.from([1, 252, 30])];
+    expect(recoveryChars(4, () => draws.shift() ?? Buffer.from([2, 2, 2, 2]))).toBe('AAB9');
   });
 });
 
@@ -292,6 +301,31 @@ describe('an admin resets another staff member’s authenticator', () => {
 
     h.clock.advanceSeconds(31);
     expect((await h.login(NOOR, LAPTOP)).secondStep).toBe('enrol');
+  });
+
+  it('every new set-up, first time or after a reset, tells the other admins and shows on their strip for a day', async () => {
+    const { h, ali, noor } = await staff();
+    const a = await h.login(ALI, LAPTOP);
+    const { secret } = await enrol(h, a.actor);
+    // Ali is the only admin: nobody else to tell about his own set-up.
+    expect(h.events.last('staff.totp_enrolled')?.payload).toEqual({ personId: ali.personId, adminIds: [] });
+    h.clock.advanceSeconds(31);
+    const n = await h.login(NOOR, LAPTOP);
+    await enrol(h, n.actor);
+    expect(h.events.last('staff.totp_enrolled')?.payload).toEqual({ personId: noor.personId, adminIds: [ali.personId] });
+    expect((await h.service.staffTotpEnrolments(a.actor)).map((r) => r.personId)).toEqual([noor.personId]);
+
+    // Reset, then set up again: told again.
+    h.clock.advanceSeconds(31);
+    await h.service.confirmOwnStaffTotp(a.actor, totpCode(secret, totpStep(h.clock.now())));
+    await h.service.resetStaffTotp(a.actor, noor.personId);
+    h.clock.advanceSeconds(31);
+    const again = await h.login(NOOR, LAPTOP);
+    await enrol(h, again.actor);
+    expect(h.events.events.filter((e) => e.type === 'staff.totp_enrolled' && e.payload['personId'] === noor.personId)).toHaveLength(2);
+
+    h.clock.advanceMinutes(STAFF_TOTP_RULES.enrolAlertHours * 60 + 1);
+    expect(await h.service.staffTotpEnrolments(a.actor)).toEqual([]);
   });
 
   it('an admin who never set the app up cannot confirm a reset', async () => {

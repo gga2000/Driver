@@ -258,6 +258,8 @@ export interface IdentityRepository {
   staffTotpState(personId: string, tx?: Tx): Promise<StaffTotpState | null>;
   /** People whose step is locked at `now` (the Console safety strip). */
   lockedStaffTotps(now: Date, tx?: Tx): Promise<StaffTotpState[]>;
+  /** Set-ups confirmed at or after `since`, newest first (the enrolment alert on the safety strip). */
+  recentStaffTotpEnrolments(since: Date, tx?: Tx): Promise<StaffTotpState[]>;
   /**
    * The row with the sealed secret and the recovery hashes. Writes its VaultAccessLog row first
    * (fail closed: no log row, no secret), with `fieldsRead` naming what the caller is about to use.
@@ -676,6 +678,10 @@ export class PrismaIdentityRepository implements IdentityRepository {
 
   async lockedStaffTotps(now: Date, tx?: Tx) {
     return this.db(tx).staffTotp.findMany({ where: { lockedUntil: { gt: now } }, select: STAFF_TOTP_STATE, orderBy: { lockedUntil: 'desc' } });
+  }
+
+  async recentStaffTotpEnrolments(since: Date, tx?: Tx) {
+    return this.db(tx).staffTotp.findMany({ where: { confirmedAt: { gte: since } }, select: STAFF_TOTP_STATE, orderBy: { confirmedAt: 'desc' }, take: 50 });
   }
 
   async readStaffTotp(personId: string, log: { accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx) {

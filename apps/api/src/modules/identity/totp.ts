@@ -144,11 +144,24 @@ export function openSecret(key: Buffer, personId: string, sealed: string): strin
 const RECOVERY_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const SCRYPT = { N: 16384, r: 8, p: 1 } as const;
 
+/** The largest multiple of the alphabet's length a byte can hold (8 × 31): bytes from here up are drawn again. */
+const RECOVERY_BYTE_LIMIT = Math.floor(256 / RECOVERY_ALPHABET.length) * RECOVERY_ALPHABET.length;
+
+/** `count` letters of the recovery alphabet, each equally likely (rejection sampling, no modulo bias). */
+export function recoveryChars(count: number, random: (n: number) => Buffer = randomBytes): string {
+  let out = '';
+  while (out.length < count) {
+    for (const b of random(count)) {
+      if (b < RECOVERY_BYTE_LIMIT && out.length < count) out += RECOVERY_ALPHABET[b % RECOVERY_ALPHABET.length];
+    }
+  }
+  return out;
+}
+
 /** `XXXXX-XXXXX`: 10 characters of a 31-letter alphabet (about 49 bits each). */
 export function newRecoveryCodes(count: number = STAFF_TOTP_RULES.recoveryCodes): string[] {
   return Array.from({ length: count }, () => {
-    const bytes = randomBytes(10);
-    const chars = [...bytes].map((b) => RECOVERY_ALPHABET[b % RECOVERY_ALPHABET.length]).join('');
+    const chars = recoveryChars(10);
     return `${chars.slice(0, 5)}-${chars.slice(5)}`;
   });
 }

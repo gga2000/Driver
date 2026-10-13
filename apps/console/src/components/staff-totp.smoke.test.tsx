@@ -24,4 +24,11 @@ describe('staff authenticator (docs/api/staff-totp.md)', () => {
     expect(html).toContain('3:15');
     expect(html).toContain('href="/staff"');
   });
+
+  it('a new authenticator set-up by someone else: his name and when, linked to the staff page', () => {
+    const html = renderToString(<StaffLockRows rows={[]} enrolments={[{ personId: 'p2', displayName: 'نور', enrolledAt: new Date('2026-10-13T11:10:00Z') }]} />);
+    expect(html).toContain('نور: ربط تطبيق مصادقة جديد');
+    expect(html).toContain('2:10');
+    expect(html).toContain('href="/staff"');
+  });
 });
