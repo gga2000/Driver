@@ -156,6 +156,9 @@ export class SimulatorService implements OnModuleDestroy {
     const errandShare = this.errandShare(true);
     const plan = buildScenario(world, { orders: opts.orders, ...(errandShare !== undefined ? { errandShare } : {}) });
     clock.set(DEFAULT_DAY_START);
+    // طرود: the in-process city also opens parcels (the plan has some; not yet launched in Aziziyah's file).
+    const config = this.moduleRef.get(ConfigService, { strict: false });
+    if (!config.isLaunched(CITY, 'parcel')) config.setLaunchedVerticals(CITY, [...config.launchedVerticals(CITY), 'parcel']);
     const sim = new Simulation(this.services(), {
       world,
       plan,

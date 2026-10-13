@@ -88,6 +88,12 @@ describe('route guard', () => {
     expect(g('signedIn', ['share', '[token]'], true)).toBeNull();
   });
 
+  it("opens the parcel receiver's door page for anyone (signed out, signed in, mid-setup)", () => {
+    expect(g('signedOut', ['p', '[token]'], false, { welcomed: false })).toBeNull();
+    expect(g('signedIn', ['p', '[token]'])).toBeNull();
+    expect(g('signedIn', ['p', '[token]'], true)).toBeNull();
+  });
+
   it('tells the phone screen why the number is asked', () => {
     expect(signInReason('/checkout')).toBe('order');
     expect(signInReason('/rajaa/departure/d1')).toBe('book');

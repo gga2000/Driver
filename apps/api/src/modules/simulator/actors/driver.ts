@@ -259,6 +259,11 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
       if (ctx.t >= arrivedT + (run?.plan.boardingSec ?? 0) * 1000) await act(ctx, d, trip, 'complete', stop);
       return;
     }
+    // طرود: the sender hands the parcel over at the door.
+    if (trip.vertical === 'parcel') {
+      await act(ctx, d, trip, 'complete', stop);
+      return;
+    }
     // «دوّرلي»: he buys the list, records the receipt, then leaves the shops (the server waits for the receipt).
     if (trip.vertical === 'errand') {
       if (!d.online || !run || !stop.orderId) return;
@@ -289,6 +294,17 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
         trip.unreachableStarted.add(stop.id);
         await act(ctx, d, trip, 'unreachable', stop);
       }
+      return;
+    }
+  }
+  // طرود «رفضت تستلم»: the receiver refuses; the courier marks it at the door and brings it back to the
+  // sender, who pays both trips at the hand-back (the receiver is never charged).
+  if (trip.vertical === 'parcel' && run?.plan.parcelRefused && stop.orderId) {
+    const order = await ctx.call('driver.order', () => ctx.s.orders.get(stop.orderId!));
+    if (order && order.returnFareIqd == null) {
+      if (!d.online) return;
+      await ctx.call('driver.parcel_refused', () => ctx.s.orders.returnParcel(d.personId, stop.orderId!));
+      await refreshTrip(ctx, d, trip.tripId);
       return;
     }
   }

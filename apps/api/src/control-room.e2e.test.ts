@@ -224,7 +224,7 @@ describe('launch control room (e2e)', () => {
       const notOpen = { code: 'service_paused', message: 'خدمة الرجعة بعدها ما انفتحت. نبلشها قريب' };
       expect(await errOf(rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }))).toMatchObject(notOpen);
       expect(await errOf(rider.client.routes.requestBoard.post.mutate({ from: { label: 'كراج البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الصويرة' }, when: new Date(Date.now() + 120 * 60_000), seats: 3, privateCar: true, travellingAs: 'aila' }))).toMatchObject(notOpen);
-      expect((await anon().system.season.query({ cityId: 'aziziyah' })).launched).toEqual(['food', 'taxi', 'tuktuk']);
+      expect((await anon().system.season.query({ cityId: 'aziziyah' })).launched).toEqual(['food', 'taxi', 'tuktuk', 'parcel']);
       const config = app.get(ConfigService);
       const launch = config.launchedVerticals('aziziyah');
       config.setLaunchedVerticals('aziziyah', [...launch, 'intercity']);

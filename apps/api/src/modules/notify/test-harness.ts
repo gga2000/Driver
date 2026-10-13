@@ -72,7 +72,7 @@ export const PHONES: Record<string, string> = { cust: '+9647701110001', guardian
 /** 12:00 Baghdad. */
 export const NOON = '2026-10-04T09:00:00Z';
 
-export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort | null; smsBudget?: (clock: FakeClock) => NotifySmsBudget; start?: string; locale?: Record<string, Locale>; quietDay?: (at: Date) => Promise<boolean>; promoHold?: (at: Date) => Promise<PromoHold | null>; twinWanted?: (row: DeliveryRecord) => Promise<boolean> } = {}) {
+export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort | null; smsBudget?: (clock: FakeClock) => NotifySmsBudget; start?: string; locale?: Record<string, Locale>; quietDay?: (at: Date) => Promise<boolean>; promoHold?: (at: Date) => Promise<PromoHold | null>; twinWanted?: (row: DeliveryRecord) => Promise<boolean>; phones?: Record<string, string> } = {}) {
   const clock = new FakeClock(opts.start ?? NOON);
   const repo = new InMemoryNotifyRepository();
   const queue = new InMemoryQueue<NotifyJob>('notify', () => clock.now());
@@ -84,7 +84,7 @@ export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort |
   const contacts = {
     contact: async (personId: string, o: { phone: boolean; purpose: string }) => {
       if (o.phone) phoneReads.push(`${personId}:${o.purpose}`);
-      return { locale: opts.locale?.[personId] ?? ('ar-IQ' as Locale), phoneE164: o.phone ? (PHONES[personId] ?? null) : null };
+      return { locale: opts.locale?.[personId] ?? ('ar-IQ' as Locale), phoneE164: o.phone ? (opts.phones?.[personId] ?? PHONES[personId] ?? null) : null };
     },
   };
   const engine = new NotifyEngine(repo, { push: { expo: push, fcm: push }, sms, whatsapp }, contacts, queue, clock, { retryBaseMs: 1000, maxAttempts: 3, receiptDelaySec: 60 }, holdFrom(opts), opts.twinWanted, opts.smsBudget?.(clock));
