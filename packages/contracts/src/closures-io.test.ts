@@ -5,11 +5,11 @@ import {
   CLOSURE_READ_ROLES,
   CLOSURE_REPORT_ROLES,
   CLOSURE_REPORT_RULES,
-  AvoidedStreet,
   CloseStreetInput,
   ClosureView,
   ReportClosureInput,
 } from './closures-io.js';
+import { AvoidedStreet } from './closed-street.js';
 
 const P = (i: number) => ({ lat: 32.905 + i * 0.0001, lng: 45.06 });
 
