@@ -38,7 +38,7 @@ async function errandOn<H extends ReturnType<typeof ordersHarness>>(h: H, opts: 
     pickup: SHOPS,
     dropoff: { zoneKey: 'zakur', pin: HOME },
     lines: [
-      { freeText: 'بنادول', qty: 2, errandItem: errandItem(30_000) },
+      { freeText: 'شاحن تايب سي', qty: 2, errandItem: errandItem(30_000) },
       { freeText: 'صمون', qty: 10, errandItem: errandItem(30_000) },
     ],
   });
@@ -177,6 +177,35 @@ describe('«دوّرلي» is cash only for now', () => {
   });
 });
 
+describe('«دوّرلي» won’t fetch medicines, cigarettes or gas (Ali 2026-10-12)', () => {
+  const errandItem = { unit: 'piece' as const, where: { kind: 'near' as const }, ifMissing: 'call' as const, maxIqd: null, photoUploadId: null, voiceUploadId: null, voiceSec: null, listMaxIqd: 10_000 };
+  const input = (freeText: string) => ({ cityId: 'aziziyah', type: 'errand' as const, pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [{ freeText: 'صمون', qty: 4, errandItem }, { freeText, qty: 1, errandItem }] });
+
+  it.each(['دوا كحة', 'جگاير', 'قنينة غاز'])('«%s» is refused at the quote and at placement, nothing written', async (text) => {
+    const h = ordersHarness();
+    expect(await code(h.orders.quote('c1', input(text)))).toBe('errand_item_not_allowed');
+    expect(await code(h.orders.place('c1', input(text)))).toBe('errand_item_not_allowed');
+    expect(h.events.ofType('order.placed')).toEqual([]);
+  });
+
+  it('a fizzy drink is fine', async () => {
+    const h = ordersHarness();
+    expect((await h.orders.place('c1', input('مشروب غازي'))).type).toBe('errand');
+  });
+});
+
+describe('«دوّرلي» on a bike: up to 15 pieces, the value limit unchanged (Ali 2026-10-12)', () => {
+  const errandItem = { unit: 'piece' as const, where: { kind: 'near' as const }, ifMissing: 'call' as const, maxIqd: null, photoUploadId: null, voiceUploadId: null, voiceSec: null, listMaxIqd: null };
+  const place = (qty: number, unitPriceIqd: number) =>
+    ordersHarness().orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [{ freeText: 'دفتر', qty, unitPriceIqd, errandItem }] });
+
+  it('15 pieces within 25,000 go on a bike; 16 pieces, or more than 25,000, need a tuktuk', async () => {
+    expect((await place(15, 1_000)).minVehicleClass).toBe('bike');
+    expect((await place(16, 1_000)).minVehicleClass).toBe('tuktuk');
+    expect((await place(5, 6_000)).minVehicleClass).toBe('tuktuk');
+  });
+});
+
 describe('«دوّرلي» receipt by staff (orders.ops.recordErrandReceipt)', () => {
   const ops: Actor = { personId: 'ops_1', roles: ['dispatcher'] } as unknown as Actor;
   const staffAtShops = async (opts: { arrive?: boolean } = {}) => {
@@ -207,6 +236,16 @@ describe('«دوّرلي» receipt by staff (orders.ops.recordErrandReceipt)', (
     expect(await code(h.staff.errandReceipt(ops, { orderId: o.id, totalIqd: 9_500, reason: 'تصحيح' }))).toBe('order_state_conflict');
     expect((await h.repo.find(o.id))!.order.receiptTotalIqd).toBe(9_000);
     expect(h.audits).toHaveLength(1);
+  });
+
+  it('refused when the staff member ordered the errand or is the one carrying it (staff_own_account)', async () => {
+    const { h, o } = await staffAtShops();
+    const asCustomer = { personId: 'c1', roles: ['dispatcher'] } as unknown as Actor;
+    const asCourier = { personId: 'd1', roles: ['dispatcher'] } as unknown as Actor;
+    expect(await code(h.staff.errandReceipt(asCustomer, { orderId: o.id, totalIqd: 7_000, reason: 'وصلي' }))).toBe('staff_own_account');
+    expect(await code(h.staff.errandReceipt(asCourier, { orderId: o.id, totalIqd: 7_000, reason: 'وصلي' }))).toBe('staff_own_account');
+    expect((await h.repo.find(o.id))!.order.receiptTotalIqd).toBeNull();
+    expect(h.audits).toEqual([]);
   });
 
   it('works before «وصلت» reached us; refused for a food order, a bad photo, or before anyone took the errand', async () => {

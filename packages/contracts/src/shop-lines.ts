@@ -97,5 +97,50 @@ export const SHOPPING_RULES = {
   maxDailyPacks: 20,
   /** Items a stall prices in one morning post. */
   maxPostItems: 60,
-  /** A morning post counts as today's until local midnight. */
+  /**
+   * «دوّرلي» on a bike (Ali 2026-10-12): up to 15 pieces, where a food order's bike limit is 6. The
+   * bike's value limit (25,000) is unchanged; above either the errand needs a tuktuk.
+   */
+  errandBikeMaxPieces: 15,
 } as const;
+
+/** What a «دوّرلي» shopper won't fetch (Ali 2026-10-12): medicines, cigarettes and gas cylinders. */
+export const ERRAND_WONT_FETCH = ['medicine', 'cigarettes', 'gas'] as const;
+export type ErrandWontFetch = (typeof ERRAND_WONT_FETCH)[number];
+
+/** Spoken and written words for each, after `normaliseArabic` (ة→ه, أ/إ/آ→ا, گ/ک→ك, ى/ی/ئ→ي, no ء; Latin lower-cased). */
+const WONT_FETCH_WORDS: Readonly<Record<ErrandWontFetch, readonly string[]>> = {
+  medicine: ['دوا', 'دوه', 'دواي', 'ادويه', 'علاج', 'صيدليه', 'بنادول', 'panadol', 'بروفين', 'brufen'],
+  cigarettes: ['جكاير', 'جكايير', 'جكاره', 'سكاير', 'سكاره', 'سجاير', 'سجاره', 'سيجاره', 'سيكاره', 'تتن', 'معسل'],
+  gas: ['غاز'],
+};
+
+function normaliseArabic(word: string): string {
+  return word
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/[ىی]/g, 'ي')
+    .replace(/[گکك]/g, 'ك')
+    .replace(/ئ/g, 'ي')
+    .replace(/ء/g, '')
+    .replace(/ؤ/g, 'و')
+    .toLowerCase();
+}
+
+const PREFIXES = ['وبال', 'بال', 'وال', 'لل', 'ال', 'و', 'ب'] as const;
+
+/**
+ * Which kind of thing the shopper won't fetch an item's words name, or null. Whole words only, so
+ * «مشروب غازي» or «غازية» is not a gas cylinder; a leading و / ال / بال is looked through.
+ */
+export function errandWontFetch(text: string): ErrandWontFetch | null {
+  for (const w of normaliseArabic(text).split(/[^\p{L}]+/u)) {
+    if (!w) continue;
+    const forms = [w, ...PREFIXES.filter((p) => w.startsWith(p) && w.length - p.length >= 3).map((p) => w.slice(p.length))];
+    for (const kind of ERRAND_WONT_FETCH) {
+      if (forms.some((f) => WONT_FETCH_WORDS[kind].includes(f))) return kind;
+    }
+  }
+  return null;
+}

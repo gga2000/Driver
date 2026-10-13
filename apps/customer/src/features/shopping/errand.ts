@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { KnownShopName } from '@driver/contracts';
+import { errandWontFetch, KnownShopName, type ErrandWontFetch } from '@driver/contracts';
 
 /**
  * «دوّرلي» (Ali 2026-10-11: "the customer can type a list but it shouldn't be confined to food, they
@@ -51,6 +51,11 @@ export function blankItem(): ErrandItem {
     ifMissing: 'call',
     maxIqd: null,
   };
+}
+
+/** What the shopper won't fetch that the item's words name (Ali 2026-10-12: medicines, cigarettes, gas), or null. */
+export function wontFetch(item: Pick<ErrandItem, 'what'>): ErrandWontFetch | null {
+  return errandWontFetch(item.what);
 }
 
 /** An item is ready when it says what is wanted in some way, and a shop he knows has a name. */

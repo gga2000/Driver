@@ -105,7 +105,7 @@ export interface ScenarioOptions {
 /** What people send a shopper for in Aziziyah, with a fair guess of the price (dinars, per unit). */
 const ERRAND_ITEMS: ReadonlyArray<{ freeText: string; estimateIqd: number; maxQty: number }> = [
   { freeText: 'صمون', estimateIqd: 250, maxQty: 20 },
-  { freeText: 'بنادول', estimateIqd: 1_500, maxQty: 3 },
+  { freeText: 'معجون أسنان', estimateIqd: 1_500, maxQty: 3 },
   { freeText: 'حليب نيدو', estimateIqd: 9_000, maxQty: 2 },
   { freeText: 'طماطة كيلو', estimateIqd: 1_000, maxQty: 3 },
   { freeText: 'بيض طبقة', estimateIqd: 5_500, maxQty: 2 },
@@ -113,7 +113,7 @@ const ERRAND_ITEMS: ReadonlyArray<{ freeText: string; estimateIqd: number; maxQt
   { freeText: 'رصيد آسيا', estimateIqd: 5_000, maxQty: 2 },
   { freeText: 'شاي محمود', estimateIqd: 3_500, maxQty: 2 },
   { freeText: 'ركي', estimateIqd: 3_000, maxQty: 1 },
-  { freeText: 'دوه كحة', estimateIqd: 4_000, maxQty: 1 },
+  { freeText: 'شاحن موبايل', estimateIqd: 4_000, maxQty: 1 },
 ];
 
 /** «دوّرلي» runs from their own stream (`scenario:errands`): when, who, which shops, the list and the receipt. */

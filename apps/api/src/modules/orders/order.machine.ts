@@ -92,8 +92,9 @@ export const DISPUTABLE_STATES: readonly OrderState[] = ['delivered', 'completed
 /**
  * Smallest vehicle class for an order by value and item count (review A.16): bike ≤ 25,000 and ≤ 6
  * items, tuktuk ≤ 60,000, car above that; above 100,000 it is also a dispatcher-handled catering request.
+ * `bikeMaxItems` raises the bike's piece limit for one kind of order («دوّرلي»: 15); its value limit stays.
  */
-export function vehicleRequirement(itemsTotalIqd: number, itemCount: number): { minVehicleClass: VehicleClass; catering: boolean } {
-  const fit = ORDER_CAPS.find((c) => itemsTotalIqd <= c.maxItemsIqd && itemCount <= c.maxItemCount);
+export function vehicleRequirement(itemsTotalIqd: number, itemCount: number, bikeMaxItems?: number): { minVehicleClass: VehicleClass; catering: boolean } {
+  const fit = ORDER_CAPS.find((c) => itemsTotalIqd <= c.maxItemsIqd && itemCount <= (c.vehicleClass === 'bike' && bikeMaxItems !== undefined ? bikeMaxItems : c.maxItemCount));
   return { minVehicleClass: fit?.vehicleClass ?? 'car', catering: itemsTotalIqd > CATERING_ABOVE_IQD };
 }

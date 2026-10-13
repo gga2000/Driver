@@ -22,6 +22,7 @@ import {
   itemReady,
   stopsOf,
   useErrandDraft,
+  wontFetch,
   type ErrandItem,
 } from '@/features/shopping/errand';
 import { GreenBar } from '@/features/shopping/GreenBar';
@@ -46,7 +47,8 @@ export default function Dawwerli() {
   const { dropoff } = useDeliverTo();
   const draft = useErrandDraft();
   const items = draft.items;
-  const ready = items.length > 0 && items.every(itemReady);
+  const refused = items.some((i) => wontFetch(i) !== null);
+  const ready = items.length > 0 && items.every(itemReady) && !refused;
   const stops = stopsOf(items);
   const add = (start?: 'voice' | 'photo') =>
     router.push({ pathname: '/shopping/item', params: start ? { start } : {} });
@@ -67,6 +69,7 @@ export default function Dawwerli() {
   const fees = quote.data ? quote.data.deliveryFeeIqd + quote.data.serviceFeeIqd : null;
 
   const onSend = async () => {
+    if (refused) return toast.show({ message: t('shopping.wont_fetch_send'), tone: 'warning' });
     if (!ready) return toast.show({ message: t('shopping.dawwerli_not_ready') });
     if (!signedIn) return requireSignIn('/shopping/dawwerli');
     if (!dropoff) return toast.show({ message: t('cart.pick_place') });
@@ -182,6 +185,9 @@ export default function Dawwerli() {
         <AddButton icon="mic" label={t('shopping.add_voice')} onPress={() => add('voice')} />
         <AddButton icon="camera" label={t('shopping.add_photo')} onPress={() => add('photo')} />
       </View>
+      <Text variant="caption" color="textMuted">
+        {t('shopping.wont_fetch_note')}
+      </Text>
 
       {items.length ? (
         <View
@@ -286,6 +292,7 @@ function ItemRow({ item, first }: { item: ErrandItem; first: boolean }) {
   const qty = t(`shopping.qty_${item.unit}` as MessageKey, { n: item.qty });
   const title =
     item.what.trim() || (item.voice ? t('shopping.voice_item') : t('shopping.photo_item'));
+  const refused = wontFetch(item);
   return (
     <Pressable
       accessibilityRole="button"
@@ -361,6 +368,14 @@ function ItemRow({ item, first }: { item: ErrandItem; first: boolean }) {
           })}
           {item.maxIqd ? ` · ${t('shopping.max_line', { amount: formatAmount(item.maxIqd) })}` : ''}
         </Text>
+        {refused ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Icon name="x" size={14} color={theme.colors.danger} />
+            <Text variant="footnote" weight={600} color="danger" style={{ flexShrink: 1 }}>
+              {t(`shopping.wont_fetch_${refused}`)}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
