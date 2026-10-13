@@ -1,6 +1,6 @@
 import type { CartKind, CartSpot, WalkupLine, WalkupState } from '@driver/contracts';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
-import type { Tx } from '../../shared/db/unit-of-work.js';
+import { onRollback, type Tx } from '../../shared/db/unit-of-work.js';
 
 export interface FoodCartRecord {
   id: string;
@@ -162,9 +162,12 @@ export class InMemoryFoodCartsRepository implements FoodCartsRepository {
       .map(copyWalkup);
   }
 
-  async updateWalkup(id: string, from: readonly WalkupState[], patch: WalkupPatch): Promise<WalkupRecord | null> {
+  async updateWalkup(id: string, from: readonly WalkupState[], patch: WalkupPatch, tx?: Tx): Promise<WalkupRecord | null> {
     const w = this.walkups.find((x) => x.id === id);
     if (!w || !from.includes(w.state)) return null;
+    // Undone if the transaction rolls back, like a database row.
+    const was = copyWalkup(w);
+    onRollback(tx, () => void Object.assign(w, was));
     Object.assign(w, patch);
     return copyWalkup(w);
   }

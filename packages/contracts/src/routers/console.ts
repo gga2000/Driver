@@ -10,6 +10,7 @@ import {
   MerchantsListInput,
   MONEY_ALARM_ROLES,
   MoneyAlarm,
+  NotifyStuck,
   OUTBOX_REQUEUE_ROLES,
   OutboxRequeueInput,
   OutboxRequeueResult,
@@ -61,7 +62,7 @@ export const merchantsRouter = router({
     .query(({ ctx, input }) => ctx.console.merchants(input.cityId)),
 });
 
-/** `system.*`: outbox health (and the admin's requeue of failed rows), the money alarm, the day's SMS count and simulator controls. */
+/** `system.*`: outbox health (and the admin's requeue of failed rows), the money alarm, stuck outgoing messages, the day's SMS count and simulator controls. */
 export const systemRouter = router({
   outbox: protectedProcedure(CONSOLE_READ_ROLES)
     .output(OutboxView)
@@ -73,6 +74,9 @@ export const systemRouter = router({
   moneyAlarm: protectedProcedure(MONEY_ALARM_ROLES)
     .output(MoneyAlarm)
     .query(({ ctx }) => ctx.console.moneyAlarm()),
+  notifyStuck: protectedProcedure(CONSOLE_READ_ROLES)
+    .output(NotifyStuck)
+    .query(({ ctx }) => ctx.console.notifyStuck()),
   smsDay: protectedProcedure(CONSOLE_READ_ROLES)
     .output(SmsDayView)
     .query(({ ctx }) => ctx.console.smsDay()),

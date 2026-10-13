@@ -1,4 +1,4 @@
-import { RideCargo, TERMINAL_ORDER_STATES, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
+import { RideCargo, TERMINAL_ORDER_STATES, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass, type ErrandItemSpec } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
@@ -75,6 +75,12 @@ export interface OrderRecord {
    */
   promisedRideMin?: number | null;
   /**
+   * طرود (Ali, 2026-10-12): a refused parcel's trip back to the sender (`orders.return_fare_iqd`), priced by
+   * the server at the refusal and already added to `totalIqd` (and its delivery and service fees), so the
+   * sender pays both trips at the hand-back. Absent/null = no trip back.
+   */
+  returnFareIqd?: number | null;
+  /**
    * s1 «رمز المشوار» (`orders.start_code`): the 4 digits a ride placed for the night starts with. Never
    * on the `Order` view: tracking shows it to the orderer and the rider only, trips checks it.
    */
@@ -136,6 +142,11 @@ export interface OrderLineRecord {
   note: string | null;
   pointsEligible: boolean;
   substitution: LineUnavailability | null;
+  /** A weighed shop line (2026-10-11): grams and the kilo price snapshotted at placement; `unitPriceIqd` is the weighed price. */
+  weightG?: number | null;
+  perKgIqd?: number | null;
+  /** A «دوّرلي» item's details (errand orders). */
+  errandItem?: ErrandItemSpec | null;
 }
 
 export interface ParticipantRecord {
@@ -344,6 +355,7 @@ function orderFromRow(r: any): OrderRecord {
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
     promisedRideMin: r.promisedRideMin ?? null,
+    returnFareIqd: r.returnFareIqd ?? null,
     startCode: r.startCode ?? null,
     prepExtendedAt: r.prepExtendedAt ?? null,
     handedOverAt: r.handedOverAt ?? null,
@@ -387,6 +399,9 @@ function lineFromRow(r: any): OrderLineRecord {
     note: r.note,
     pointsEligible: r.pointsEligible,
     substitution: (r.substitution as LineUnavailability | null) ?? null,
+    weightG: r.weightG ?? null,
+    perKgIqd: r.perKgIqd ?? null,
+    errandItem: (r.errandItem as ErrandItemSpec | null) ?? null,
   };
 }
 
@@ -455,6 +470,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
           participantId: l.participantRef ? (byRef.get(l.participantRef) ?? null) : null,
           note: l.note,
           pointsEligible: l.pointsEligible,
+          weightG: l.weightG ?? null,
+          perKgIqd: l.perKgIqd ?? null,
+          errandItem: l.errandItem ? (l.errandItem as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
           createdAt: new Date(base + i),
         })),
       });

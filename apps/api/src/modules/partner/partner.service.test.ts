@@ -112,6 +112,8 @@ function harness(
     roads?: Array<readonly { lat: number; lng: number }[]>;
     lastFix?: { lat: number; lng: number } | null;
     rideOrder?: boolean;
+    /** A «دوّرلي» order: no merchant behind the pickup. */
+    errandOrder?: boolean;
     /** c9: the ride was booked for someone else, by this name. */
     rideFor?: string;
     places?: PartnerDeps['places'];
@@ -184,7 +186,9 @@ function harness(
       get: async (id) =>
         opts.rideFor
           ? order({ type: 'ride', merchantOrgId: null, participants: [{ id: 'pt1', role: 'rider', personId: 'mum', label: null, note: null }] as Order['participants'] })
-          : opts.rideOrder
+          : opts.errandOrder
+            ? order({ type: 'errand', merchantOrgId: null, lines: [] })
+            : opts.rideOrder
             ? order({ type: 'ride', merchantOrgId: null, ...(opts.rideCargo ? { rideCargo: opts.rideCargo } : {}) })
             : id === 'o2'
               ? order({ id: 'o2', paymentMethod: 'wallet' })
@@ -350,6 +354,12 @@ describe('PartnerService', () => {
     expect(roads).toEqual([[{ lat: 32.905, lng: 45.06 }, KITCHEN]]);
     expect(await harness({ online: true, offerTrip: t, roads: [] }).offerRoute(actor, { offerId: 'other' })).toMatchObject({ polyline6: null });
     expect(await harness({ online: true, offerTrip: t, roads: [], rideOrder: true }).offerRoute(actor, { offerId: 'do_1' })).toMatchObject({ polyline6: null });
+  });
+
+  it('the counter code is for our merchants only: a food pickup shows it, a دوّرلي pickup none', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    expect((await harness({ trips: [t] }).activeJob(actor))!.stops[0]!.pickupCode).toMatch(/^\d{4}$/);
+    expect((await harness({ trips: [trip('t1', t.stops, { vertical: 'errand' })], errandOrder: true }).activeJob(actor))!.stops[0]!.pickupCode).toBeNull();
   });
 
   it('«رمز المشوار» (ride s1): a night ride’s pickup still to do says a code is needed, never the code', async () => {

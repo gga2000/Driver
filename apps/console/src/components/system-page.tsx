@@ -29,6 +29,7 @@ export function SystemPage() {
           </div>
           <div className="space-y-5">
             <OutboxCard />
+            <NotifyStuckCard />
             <SmsDayCard />
           </div>
         </div>
@@ -246,6 +247,43 @@ function RequeueDialog({ ids, onClose }: { ids: string[] | null; onClose: () => 
     >
       <p className="text-sm text-text">{t('console.outbox_requeue_body')}</p>
     </Dialog>
+  );
+}
+
+/**
+ * Outgoing messages claimed for a send more than 5 minutes ago that never recorded an answer
+ * (`system.notifyStuck`; job machines log the same count to Sentry). Read only: nothing is resent.
+ */
+function NotifyStuckCard() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  const q = useQuery(trpc.system.notifyStuck.queryOptions(undefined, { enabled: signedIn, refetchInterval: 30_000, retry: queryRetry }));
+  const s = q.data;
+  const stuck = (s?.stuck ?? 0) > 0;
+  return (
+    <Card title={t('console.notify_stuck')} hint={t('console.notify_stuck_hint')} tone={stuck ? 'bad' : 'default'} actions={signedIn ? <LiveBadge seconds={30} updatedAt={q.dataUpdatedAt} fetching={q.isFetching} compact /> : undefined}>
+      {!signedIn && <NeedLogin />}
+      {q.error && <QueryError error={q.error} onRetry={() => void q.refetch()} />}
+      {signedIn && !s && q.isPending && <Skeleton className="h-16" />}
+      {s && <NotifyStuckView stuck={s.stuck} oldestSec={s.oldestSec} />}
+    </Card>
+  );
+}
+
+/** The stuck-messages count and what to do about it (no data fetching, so tests can render it). */
+export function NotifyStuckView({ stuck, oldestSec }: { stuck: number; oldestSec: number }) {
+  const any = stuck > 0;
+  return (
+    <>
+      <dl className="grid grid-cols-2 gap-3">
+        <Count k={t('console.notify_stuck_count')} v={stuck} tone={any ? 'bad' : undefined} />
+        <Count k={t('console.notify_stuck_oldest')} v={Math.floor(oldestSec / 60)} />
+      </dl>
+      <p className={cx('mt-3 flex items-center gap-2 text-sm', any ? 'text-bad' : 'text-text')} data-testid="notify-stuck-state">
+        {any ? <IconAlert size={16} className="shrink-0" /> : <IconCheckCircle size={16} className="shrink-0 text-ok" />}
+        {any ? t('console.notify_stuck_help') : t('console.notify_stuck_none')}
+      </p>
+    </>
   );
 }
 

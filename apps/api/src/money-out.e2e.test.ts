@@ -133,6 +133,77 @@ describe('money out: payouts, corrections and the courier hand-over', () => {
     expect((await app.get(LedgerService).balance('merchant_cash:m_fix')).amount).toBe(31_000);
   });
 
+  describe('one finance person posts at most 50,000 a Baghdad day without a second OK', () => {
+    let n = 0;
+    async function setup(): Promise<{ who: { personId: string; sessionId: string }; base: { cityId: string; fromAccount: string; toAccount: string; reason: string; incidentId: string } }> {
+      n += 1;
+      const who = { personId: await person(`0770009810${n}`, 'زينب', ['finance']), sessionId: 'e2e' };
+      const ticket = await app.get(SupportService).open(fin1, { cityId: 'aziziyah', kind: 'question', channel: 'phone', subject: 'تصحيحات اليوم' });
+      return { who, base: { cityId: 'aziziyah', fromAccount: 'platform', toAccount: `merchant_cash:m_cap${n}`, reason: 'payout typed short by mistake', incidentId: ticket.id } };
+    }
+
+    it('20,000 and 20,000 post alone; a third 20,000 the same day waits for a second OK and says why', async () => {
+      const { who, base } = await setup();
+      const room = app.get(ControlRoomService);
+      expect(await room.adjust(who, { ...base, amountIqd: 20_000 })).toMatchObject({ status: 'posted', queuedBecause: null });
+      expect(await room.adjust(who, { ...base, amountIqd: 20_000 })).toMatchObject({ status: 'posted', queuedBecause: null });
+      const third = await room.adjust(who, { ...base, amountIqd: 20_000 });
+      expect(third).toMatchObject({ status: 'pending_second_approval', queuedBecause: 'daily_cap' });
+      expect(third.approvalId).not.toBeNull();
+      expect((await app.get(LedgerService).balance(base.toAccount)).amount).toBe(40_000);
+      const [requested] = await audits(third.adjustmentId);
+      expect(requested).toMatchObject({ action: 'finance.adjustment_requested', detail: { queuedBecause: 'daily_cap' } });
+      // A small one that still fits under 50,000 posts alone.
+      expect(await room.adjust(who, { ...base, amountIqd: 10_000 })).toMatchObject({ status: 'posted' });
+      expect(await room.adjust(who, { ...base, amountIqd: 1 })).toMatchObject({ status: 'pending_second_approval', queuedBecause: 'daily_cap' });
+    });
+
+    it('a 30,000 correction still waits as before, for being above the line', async () => {
+      const { who, base } = await setup();
+      expect(await app.get(ControlRoomService).adjust(who, { ...base, amountIqd: 30_000 })).toMatchObject({ status: 'pending_second_approval', queuedBecause: 'above_line' });
+    });
+
+    it('corrections a colleague approved through the queue do not count toward the solo total', async () => {
+      const { who, base } = await setup();
+      const room = app.get(ControlRoomService);
+      const support = app.get(SupportService);
+      const big = await room.adjust(who, { ...base, amountIqd: 30_000 });
+      await support.approveRefund(fin2, { id: big.approvalId! });
+      await room.adjust(who, { ...base, amountIqd: 20_000 });
+      await room.adjust(who, { ...base, amountIqd: 20_000 });
+      const capped = await room.adjust(who, { ...base, amountIqd: 20_000 });
+      expect(capped.queuedBecause).toBe('daily_cap');
+      await support.approveRefund(fin2, { id: capped.approvalId! });
+      expect((await app.get(LedgerService).balance(base.toAccount)).amount).toBe(90_000);
+      // Solo so far: 40,000 (the 30,000 and the capped 20,000 were approved by fin2).
+      expect(await room.adjust(who, { ...base, amountIqd: 10_000 })).toMatchObject({ status: 'posted' });
+    });
+
+    it('the next Baghdad day starts again from 0', async () => {
+      const { who, base } = await setup();
+      const room = app.get(ControlRoomService);
+      const start = clock.now();
+      clock.set('2026-10-06T20:00:00Z'); // 23:00 in Baghdad
+      await room.adjust(who, { ...base, amountIqd: 25_000 });
+      await room.adjust(who, { ...base, amountIqd: 25_000 });
+      clock.set('2026-10-06T20:59:59Z');
+      expect(await room.adjust(who, { ...base, amountIqd: 1_000 })).toMatchObject({ queuedBecause: 'daily_cap' });
+      clock.set('2026-10-06T21:00:00Z'); // midnight in Baghdad, still 6 October in UTC
+      expect(await room.adjust(who, { ...base, amountIqd: 25_000 })).toMatchObject({ status: 'posted' });
+      expect(await room.adjust(who, { ...base, amountIqd: 25_000 })).toMatchObject({ status: 'posted' });
+      clock.set(start);
+    });
+
+    it('two 20,000 corrections sent at once after a solo 20,000: at most one posts alone', async () => {
+      const { who, base } = await setup();
+      const room = app.get(ControlRoomService);
+      await room.adjust(who, { ...base, amountIqd: 20_000 });
+      const both = await Promise.all([room.adjust(who, { ...base, amountIqd: 20_000 }), room.adjust(who, { ...base, amountIqd: 20_000 })]);
+      expect(both.map((r) => r.status).sort()).toEqual(['pending_second_approval', 'posted']);
+      expect((await app.get(LedgerService).balance(base.toAccount)).amount).toBe(40_000);
+    });
+  });
+
   it('nobody pays out to, or corrects, his own account or a shop he belongs to', async () => {
     const room = app.get(ControlRoomService);
     const support = app.get(SupportService);

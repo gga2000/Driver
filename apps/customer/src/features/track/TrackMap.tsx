@@ -17,6 +17,7 @@ import { useFollowCamera } from './map/useFollowCamera';
 import { useRoadGlide } from './map/useRoadGlide';
 import { vehicleKind, type VehicleKind } from './map/Vehicle';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from './queries';
+import { placeKind, placeWord } from './place-kind';
 import { storyShot } from './story';
 import { phaseOf } from './timeline';
 
@@ -148,7 +149,7 @@ function FlatTrackMap({ view, fix, stale, topInset, bottomInset, searching = fal
 
   // The courier is drawn over the pins: a name he would cover flips under its pin (QA 2026-10-07).
   const courierAt = fix?.pin ?? null;
-  const kitchenLabel = view.merchant?.name ?? t('track.kitchen_pin');
+  const kitchenLabel = view.merchant?.name ?? t(placeWord('track.kitchen_pin', placeKind(view.order)));
   const homeLabel = t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin');
   const sideOf = (at: LngLat, label: string) => placePinSide(at, label, courierAt, Boolean(minutes), camera.drawn, size);
 

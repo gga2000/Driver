@@ -10,8 +10,9 @@ import type { TFn } from '@/lib/i18n';
 /** j1: the four places of a job on the rail, in order. */
 export type RailStage = 0 | 1 | 2 | 3;
 
-export const RAIL_KEYS: Record<'food' | 'ride', readonly [MessageKey, MessageKey, MessageKey, MessageKey]> = {
+export const RAIL_KEYS: Record<'food' | 'ride' | 'errand', readonly [MessageKey, MessageKey, MessageKey, MessageKey]> = {
   food: ['partner.rail_kitchen', 'partner.rail_pickup', 'partner.rail_customer', 'partner.rail_handover'],
+  errand: ['partner.rail_shops', 'partner.rail_buy', 'partner.rail_customer', 'partner.rail_handover'],
   ride: ['partner.rail_rider', 'partner.rail_board', 'partner.rail_road', 'partner.rail_drop'],
 };
 

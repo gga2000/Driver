@@ -31,6 +31,7 @@ import { firstOpenSlot, preorderSlots } from '@/features/food/slots';
 import { dinnerStore, useDinnerPick } from '@/features/ride-habits/dinner-store';
 import { dinnerLine, withDinnerSlot } from '@/features/ride-habits/logic';
 import { useDinnerTime } from '@/features/ride-habits/queries';
+import { takeIftarOrder } from '@/features/season/iftar-order';
 import { IFTAR_MIN_LEAD_MIN, iftarLeadMinutes, timesFor, withIftarSlot } from '@/features/season/ramadan';
 import { useTimetable } from '@/features/season/use-timetable';
 import { useSeason } from '@/lib/use-season';
@@ -150,6 +151,21 @@ export default function CheckoutScreen() {
     setDay(dinnerDay);
     setSlot(String(dinnerAtMs));
   }, [dinnerAtMs, dinnerDay, reservedFor]);
+  // Home's «على الفطور» (home roast 4, concept C): a dish added for iftar comes here on today's iftar
+  // slot. The mark is taken once, for this cart's kitchen only; a closed kitchen's first slot still
+  // wins, a time already picked stays, and with no iftar slot left it stays on "now".
+  const iftarPreset = useRef(false);
+  useEffect(() => {
+    const r = menu.data?.restaurant;
+    if (!r || !cart.merchant || iftarPreset.current) return;
+    iftarPreset.current = true;
+    if (!takeIftarOrder(cart.merchant.id) || !r.open || when !== 'now' || slot !== null) return;
+    const at = plainSlots.find((sl) => sl.iftar)?.at;
+    if (!at) return;
+    setWhen('later');
+    setDay(0);
+    setSlot(String(at.getTime()));
+  }, [menu.data, cart.merchant, plainSlots, when, slot]);
   const [problem, setProblem] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
   const [kitchenNote, setKitchenNote] = useState('');

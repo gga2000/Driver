@@ -15,6 +15,10 @@
       "types": "./dist/router.d.ts",
       "default": "./dist/router.js"
     },
+    "./shopping": {
+      "types": "./dist/shopping-io.d.ts",
+      "default": "./dist/shopping-io.js"
+    },
     "./seeds": {
       "types": "./dist/seeds/aziziyah-restaurants.d.ts",
       "default": "./dist/seeds/aziziyah-restaurants.js"
