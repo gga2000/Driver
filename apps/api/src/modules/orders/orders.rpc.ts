@@ -33,6 +33,7 @@ import {
   type StaffChargeCourierInput,
   type StaffCloseOrderInput,
   type StaffCourierLostInput,
+  type StaffErrandReceiptInput,
   type StaffOpsSwitches,
   type StaffMarkDeliveredInput,
   type StuckOrder,
@@ -94,6 +95,10 @@ export class OrdersRpc implements OrdersPort {
 
   opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult> {
     return this.staffOrThrow().markDelivered(actor, input);
+  }
+
+  opsErrandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().errandReceipt(actor, input);
   }
 
   opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult> {

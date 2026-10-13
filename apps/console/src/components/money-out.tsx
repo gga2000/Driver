@@ -7,7 +7,7 @@ import { t } from '@driver/i18n';
 import { useEffect, useId, useState } from 'react';
 import { CITY_ID } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
-import { ACCOUNT_KEY, ACCOUNT_KINDS, accountId, adjustProblem, CHANNEL_KEY, DRIVER_CHANNELS, MERCHANT_CHANNELS, MONEY_OUT_ROLES, needsOwner, payAmountProblem, payKey, SECOND_OK_ABOVE_IQD, type AccountKind } from '@/lib/money-out';
+import { ACCOUNT_KEY, ACCOUNT_KINDS, accountId, adjustProblem, CHANNEL_KEY, DRIVER_CHANNELS, MERCHANT_CHANNELS, MONEY_OUT_ROLES, needsOwner, payAmountProblem, payKey, SECOND_OK_ABOVE_IQD, SOLO_DAILY_MAX_IQD, type AccountKind } from '@/lib/money-out';
 import { formatIqd } from '@/lib/format';
 import { parseAmount } from '@/lib/round';
 import { useTRPC } from '@/lib/trpc';
@@ -144,6 +144,7 @@ export function AdjustCard() {
       onSuccess: (r) => {
         toast({
           title: r.status === 'posted' ? t('console.adj_posted', { amount: formatIqd(r.amountIqd) }) : t('console.adj_waiting', { amount: formatIqd(r.amountIqd) }),
+          ...(r.queuedBecause === 'daily_cap' ? { body: t('console.adj_daily_cap', { amount: formatIqd(SOLO_DAILY_MAX_IQD) }) } : {}),
           tone: r.status === 'posted' ? 'ok' : 'default',
         });
         setAmount('');

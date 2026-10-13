@@ -63,6 +63,11 @@ neither). Up to 25,000 (`MoneyRules.adjustments.secondApproverAboveIqd`) it post
 (`support.refundApprovals`, kind `adjustment`, audit `finance.adjustment_requested`) until a different
 person who holds finance at that moment approves it; it then posts once, in the decision's transaction.
 Finance and admin roles are read live at both steps.
+One finance person's corrections posted alone stay within 50,000 a Baghdad calendar day
+(`MoneyRules.adjustments.soloDailyMaxIqd`, Ali 2026-10-12): one that would take his solo total for the
+day above it waits in the same queue, whatever its own size (`queuedBecause: 'daily_cap'`, and the
+Console says so); corrections a colleague approved don't count. His corrections run one at a time
+(per-person advisory lock in the transaction), so two sent at once can't both fit under the cap.
 
 ## Own accounts
 

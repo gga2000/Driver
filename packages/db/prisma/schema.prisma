@@ -1112,6 +1112,9 @@ model Order {
   /// The honest-delay promise's kitchen → door ride, locked at placement (Ali, 2026-10-07): the one ETA's learned
   /// minutes (router × the clamped correction); promise = promisedReadyAt + this. Null = no promise, or placed before it.
   promisedRideMin    Int?          @map("promised_ride_min")
+  /// طرود (Ali, 2026-10-12): the fare of a refused parcel's trip back to the sender, priced by the server at the
+  /// refusal and already in totalIqd (the sender pays both trips). Null = no trip back.
+  returnFareIqd      Int?          @map("return_fare_iqd")
   /// s1 «رمز المشوار» (ride step 3): the 4 digits a ride placed for the night needs before it starts; null otherwise.
   startCode          String?       @map("start_code")
   /// M-12 (Ali, 2026-10-04): when the kitchen used its one "+5 د" after accepting; null = not used.
@@ -1183,6 +1186,11 @@ model OrderLine {
   pointsEligible Boolean  @default(true) @map("points_eligible")
   /// Substitution flow (domain §4): proposed → accepted/declined.
   substitution   Json?
+  /// Shopping (2026-10-11): a weighed line's grams and the kilo price it was sold at (priced by the server).
+  weightG        Int?     @map("weight_g")
+  perKgIqd       Int?     @map("per_kg_iqd")
+  /// دوّرلي: the shopper's item card {where, ifMissing, maxIqd?, voiceUrl?, photoUrl?}; no names or phones.
+  errandItem     Json?    @map("errand_item")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -3923,6 +3931,136 @@ model RefundApproval {
   @@index([ticketId])
   @@index([orderId])
   @@map("refund_approvals")
+  @@schema("public")
+}
+
+/// طرود (Ali 2026-10-12): a parcel inside the city. The receiver is a person id (the name the sender
+/// gave lives in identity_vault under participant `parcel:<id>`); the door link's token is stored only
+/// as its sha-256. The courier order is placed once the door is set (`order_id`). Ids, the parcel's
+/// own words and money only. (`parcels` is the older per-order table from the M2 domain, unused so far.)
+model ParcelSend {
+  id                String    @id @default(cuid())
+  cityId            String    @map("city_id")
+  senderId          String    @map("sender_id")
+  clientRequestId   String    @map("client_request_id")
+  what              String
+  /// small | medium | large
+  size              String
+  declaredValueIqd  Int       @map("declared_value_iqd")
+  photoUploadId     String?   @map("photo_upload_id")
+  recipientPersonId String    @map("recipient_person_id")
+  /// DeliveryPoint (zone, pin, saved place).
+  pickup            Json
+  /// receiver | sender
+  doorBy            String    @map("door_by")
+  zoneKey           String    @map("zone_key")
+  dropoff           Json?
+  /// sender | receiver
+  payer             String
+  fareIqd           Int       @map("fare_iqd")
+  courierNote       String?   @map("courier_note")
+  pin               String
+  doorTokenHash     String?   @unique @map("door_token_hash")
+  doorDueAt         DateTime? @map("door_due_at")
+  doorSetAt         DateTime? @map("door_set_at")
+  orderId           String?   @map("order_id")
+  pinFails          Int       @default(0) @map("pin_fails")
+  pinVerifiedAt     DateTime? @map("pin_verified_at")
+  refusedAt         DateTime? @map("refused_at")
+  /// The receiver's texts (sent through notify; the number is read from the vault at send time).
+  /// When the door-link text goes (08:00 for a link made 23:00–08:00); null: none planned.
+  doorTextDueAt     DateTime? @map("door_text_due_at")
+  doorTextedAt      DateTime? @map("door_texted_at")
+  pinTextedAt       DateTime? @map("pin_texted_at")
+  /// The texted link's own token, sha-256 (the sender's shared link keeps its own).
+  textTokenHash     String?   @unique @map("text_token_hash")
+  /// Over a daily text limit: no text for this parcel, the sender shares the link.
+  textCapped        Boolean   @default(false) @map("text_capped")
+  /// The courier's photo of the parcel at the sender's door (their own upload).
+  pickupPhotoUploadId String? @map("pickup_photo_upload_id")
+  /// The receiver is the sender's trusted contact, household member or an earlier receiver (outside the sender cap).
+  receiverKnown     Boolean   @default(false) @map("receiver_known")
+  /// waiting_door | placed | cancelled
+  stage             String
+  cancelledAt       DateTime? @map("cancelled_at")
+  createdAt         DateTime  @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([senderId, clientRequestId])
+  @@index([senderId, createdAt])
+  @@index([stage, doorDueAt])
+  @@index([stage, doorTextDueAt])
+  @@index([recipientPersonId, createdAt])
+  @@index([orderId])
+  @@map("parcel_sends")
+  @@schema("public")
+}
+
+/// Shopping «السوق» (2026-10-11): how a stall's or bakery's catalog item sells.
+model ShopItem {
+  id         String   @id @default(cuid())
+  itemId     String   @unique @map("item_id")
+  orgId      String   @map("org_id")
+  /// 'kg' | 'piece' | 'lot'
+  soldBy     String   @map("sold_by")
+  piecesMin  Int?     @map("pieces_min")
+  piecesMax  Int?     @map("pieces_max")
+  piecesWord String?  @map("pieces_word")
+  /// Bakery lots: pieces for one lot's price (4 صمون بـ 1,000).
+  perLot     Int?     @map("per_lot")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@map("shop_items")
+  @@schema("public")
+}
+
+/// A stall's morning «أسعار اليوم», one row per item and local day.
+model ShopDayPost {
+  id            String   @id @default(cuid())
+  orgId         String   @map("org_id")
+  itemId        String   @map("item_id")
+  localDate     String   @map("local_date")
+  priceIqd      Int      @map("price_iqd")
+  photoUrl      String?  @map("photo_url")
+  fromYesterday Boolean  @default(false) @map("from_yesterday")
+  available     Boolean  @default(true)
+  postedAt      DateTime @map("posted_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([itemId, localDate])
+  @@index([orgId, localDate])
+  @@map("shop_day_posts")
+  @@schema("public")
+}
+
+/// «صمون كل يوم»: a standing bread order placed by the server each chosen day.
+model ShopDailyBread {
+  id           String   @id @default(cuid())
+  personId     String   @map("person_id")
+  cityId       String   @map("city_id")
+  orgId        String   @map("org_id")
+  itemId       String   @map("item_id")
+  packs        Int
+  /// Local hh:mm delivery time: '06:30' | '13:00' | '19:00'.
+  time         String
+  /// 0 = Sunday … 6 = Saturday.
+  days         Int[]
+  /// DeliveryPoint {zoneKey, pin?}.
+  dropoff      Json
+  courierNote  String?  @map("courier_note")
+  paused       Boolean  @default(false)
+  /// Local date of the last day an order was placed (one per day).
+  lastPlacedOn String?  @map("last_placed_on")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([personId])
+  @@index([time, paused])
+  @@index([orgId])
+  @@map("shop_daily_bread")
   @@schema("public")
 }
 

@@ -24,6 +24,7 @@ procedure that needs it refuses with `money_rule_off`. Shown in Arabic as «هذ
 | `orders.ops.switches` | query | dispatcher, support, finance, admin | — | `StaffOpsSwitches`: `disputeOutcomes` (allowed list, `void` and `stands` always in it), `agentLimitIqd`, `courierLostRefund`, `courierLostCharge`, `freeCancel`, `cookedFoodPayer`, `remakePay`. Read-only, no audit row; the Console greys out an action whose switch is off ("waits on Ali") before staff click. |
 | `orders.ops.cancel` | mutation | dispatcher, support, admin | `StaffCancelOrderInput` | `StaffActionResult` |
 | `orders.ops.markDelivered` | mutation | dispatcher, support, admin | `StaffMarkDeliveredInput` | `StaffActionResult` |
+| `orders.ops.recordErrandReceipt` | mutation | dispatcher, support, admin | `StaffErrandReceiptInput` | `StaffActionResult` |
 | `orders.ops.close` | mutation | dispatcher, support, admin | `StaffCloseOrderInput` | `StaffActionResult` |
 | `orders.ops.courierLost` | mutation | dispatcher, support, admin | `StaffCourierLostInput` | `StaffActionResult` |
 | `orders.ops.chargeCourier` | mutation | dispatcher, finance, admin | `StaffChargeCourierInput` | `StaffActionResult` |
@@ -35,6 +36,7 @@ The input shapes (`packages/contracts/src/order-staff-io.ts`) are below. `Reason
 ```ts
 StaffCancelOrderInput   { orderId: string(min 1), reason: Reason, onBehalfOfCustomer: boolean = false }
 StaffMarkDeliveredInput { orderId, reason, cashCollectedIqd?: int ≥ 0 }   // default: the order total
+StaffErrandReceiptInput { orderId, totalIqd: int > 0, reason, photoUploadId?: string | null }
 StaffCloseOrderInput    { orderId, reason }
 StaffCourierLostInput   { orderId, reason }
 StaffChargeCourierInput { orderId, reason }
@@ -62,6 +64,15 @@ What each procedure does:
 - **`markDelivered`**: from `picked_up` only. Takes the courier's normal delivery path, with cash
   collected (by default, the order total). The cash figure goes through the courier's own drop-off
   check: more than the order total is refused with `change_to_wallet_mismatch` and nothing is written.
+- **`recordErrandReceipt`**: «دوّرلي» only, when the shopper's receipt photo will not send. Ops
+  type the amount he reads out. It runs the same code as his own entry
+  ([errand-receipt.md](errand-receipt.md)): the server recomputes the total, and the order's state
+  does not move. It works while the shops stop is on its way or arrived, and is refused once the
+  pickup is completed (`order_state_conflict`), for a non-errand or for an errand nobody has taken. The photo is
+  optional. When given, it must be a stored upload of the courier's or of this staff member's
+  (`upload_invalid`). Each entry writes its own audit row, `order.errand_receipt_by_staff`, with
+  the amount and the reason, and emits `order.errand_receipt` with `byStaff: true` and `staffId`.
+  Every call is a real change (a second entry replaces the first), so it never returns `changed: false`.
 - **`close`**: from `delivered` or `completed`. Settles at once, without waiting the 2 h. It refuses
   a disputed order; use `resolveDispute` for that.
 - **`courierLost`**: from `picked_up`. Opens a `courier_lost` dispute and never re-dispatches. With

@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AZIZIYAH_MONEY_RULES, type Actor, type WalkupChoice } from '@driver/contracts';
@@ -8,6 +8,7 @@ import { CatalogRpc, CatalogService, FOOD_CART_TAG, type CatalogItemRecord } fro
 import { ConfigService } from './modules/config/index.js';
 import { CommissionTierService } from './modules/control-room/index.js';
 import { FOOD_CARTS_REPOSITORY, FoodCartsService, seedDemoCarts, type FoodCartsRepository } from './modules/food-carts/index.js';
+import { EventsService } from './modules/events/index.js';
 import { IdentityService } from './modules/identity/index.js';
 import { ORDERS_RULES } from './modules/orders/index.js';
 import { OrgsService } from './modules/orgs/index.js';
@@ -160,6 +161,27 @@ describe('food carts (AppModule)', () => {
     expect(rec!.commissionIqd).toBe(450);
     // A ticket is collected once.
     await expect(carts.collect(owner, { ...scope, walkupId: w.id, code: w.code })).rejects.toMatchObject({ code: 'walkup_state_conflict' });
+  });
+
+  it('collect is one transaction: a failing walkup_collected event leaves the ticket open', async () => {
+    const w = await carts.placeWalkup(customer(6), { cartId: liver.cartId, lines: [{ itemId: item('samoon'), qty: 1, choices: [] }] });
+    const scope = { merchantOrgId: liver.orgId };
+    const events = app.get(EventsService);
+    const real = events.emit.bind(events);
+    const spy = vi.spyOn(events, 'emit').mockImplementation(async (...args: Parameters<EventsService['emit']>) => {
+      if (args[1].type === 'food_cart.walkup_collected') throw new Error('outbox down');
+      return real(...args);
+    });
+    try {
+      await expect(carts.collect(owner, { ...scope, walkupId: w.id, code: w.code })).rejects.toThrow('outbox down');
+    } finally {
+      spy.mockRestore();
+    }
+    const rec = await app.get<FoodCartsRepository>(FOOD_CARTS_REPOSITORY).walkup(w.id);
+    expect(rec).toMatchObject({ state: 'placed', collectedAt: null, commissionIqd: 0 });
+    // The owner can collect it again once the event goes through.
+    await carts.collect(owner, { ...scope, walkupId: w.id, code: w.code });
+    expect(await app.get<FoodCartsRepository>(FOOD_CARTS_REPOSITORY).walkup(w.id)).toMatchObject({ state: 'collected' });
   });
 
   it('a newly registered cart sets no tier, so it resolves to the starter default', async () => {

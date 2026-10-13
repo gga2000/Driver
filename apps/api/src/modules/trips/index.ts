@@ -15,6 +15,7 @@ export type { TripEventEmitter, TripDomainEvent } from './events.adapter.js';
 export { DenyAllOfferCheck, ScriptedOfferCheck } from './offer-check.port.js';
 export type { TripOfferCheck, OfferCheckVerdict } from './offer-check.port.js';
 export { NoChangeToWallet } from './handover-check.port.js';
-export type { TripHandoverCheck, HandoverProblem } from './handover-check.port.js';
+export type { TripHandoverCheck, TripPickupGuard, HandoverProblem } from './handover-check.port.js';
+export type { DropoffGuardPort, DropoffGuardProblem } from './dropoff-guard.port.js';
 export { NoStartCodes } from './ride-safety.port.js';
 export type { TripStartCodes, TripRideNear } from './ride-safety.port.js';

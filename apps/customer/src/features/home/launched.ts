@@ -13,3 +13,15 @@ export function tileLaunched(id: ServiceId, launched: readonly Vertical[] | unde
   const needs = NEEDS[id];
   return !needs || (launched?.includes(needs) ?? false);
 }
+
+/** The coming-soon services that have a door in «وعدنا هم» at the end of home once they open (only طرود so far). */
+const DOORS: Partial<Record<ServiceId, Vertical>> = { parcel: 'parcel' };
+
+/**
+ * Whether a coming-soon service has opened in the city, so home shows its door instead of its «جاي قريب» chip.
+ * Until the server has said, it stays coming soon.
+ */
+export function doorOpen(id: ServiceId, launched: readonly Vertical[] | undefined): boolean {
+  const v = DOORS[id];
+  return !!v && (launched?.includes(v) ?? false);
+}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ConsoleNamesInput, DriversListInput, OrderSearchInput, orderTicketNumber } from '@driver/contracts';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { createInMemoryEvents } from '../events/index.js';
@@ -294,6 +294,14 @@ describe('ConsoleReadService', () => {
     expect(await w.reads.smsDay()).toEqual({ sent: 5, budget: 4500 });
     await w.id.counter.hit(SMS_DAY_KEY, SMS_DAY_MS, Number.MAX_SAFE_INTEGER); // a notification text
     expect((await w.reads.smsDay()).sent).toBe(6);
+  });
+
+  it('notifyStuck: the stuck outgoing-message count from notify; zero when notify is not wired', async () => {
+    const w = await world();
+    expect(await w.reads.notifyStuck()).toEqual({ stuck: 0, oldestSec: 0 });
+    const notify = { stuckSends: vi.fn(async () => ({ stuck: 3, oldestSec: 400 })) };
+    const reads = new ConsoleReadService(w.d.service, w.id.service, w.o.orders, w.l.caps, w.l.ledger, w.l.merchantCash, w.ev.events, w.orgs, new ScoringService(w.ev.events), w.d.clock, {} as never, {} as never, w.catalog, undefined, undefined, undefined, undefined, undefined, notify as never);
+    expect(await reads.notifyStuck()).toEqual({ stuck: 3, oldestSec: 400 });
   });
 
   it('simulator controls delegate to the live simulator (status, start, stop)', async () => {

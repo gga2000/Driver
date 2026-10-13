@@ -19,6 +19,9 @@ import {
   type PublicSeason,
   type QuietDaysView,
   ScreenSwitch,
+  LaunchSwitch,
+  type LaunchSwitchView,
+  type SetLaunchSwitchInput,
   type ScreenAudience,
   type ScreenSwitchView,
   type ScreensInput,
@@ -68,6 +71,10 @@ export const SCREEN_AR: Record<ScreenSwitch, string> = {
   orders_v2: 'طلباتي',
 };
 const AUDIENCE_AR: Record<ScreenAudience, string> = { off: 'مطفّية', staff: 'للموظفين بس', all: 'لكل الزبائن' };
+/** Arabic names of the services that open on their own (Console, audit log, refusal). */
+export const LAUNCH_AR: Record<LaunchSwitch, string> = { food_carts: 'العربانات' };
+/** Is this merchant org one of the services above? Bound by that service's module (controls cannot import it). */
+export type LaunchMemberOf = (merchantOrgId: string) => Promise<LaunchSwitch | null>;
 /** The two rows behind one screen switch: shown to staff, shown to everyone. */
 const screenKey = (key: ScreenSwitch, who: 'staff' | 'all') => `ui.${key}@${who}`;
 
@@ -141,6 +148,7 @@ export function loadState(maxActive: number | null, active: number, killed: bool
 export class ControlsService implements ControlsPort {
   private activeOrders: ActiveOrdersByZone = async () => new Map();
   private corridors: Array<{ id: string; name_ar: string }> = [];
+  private launchMember: LaunchMemberOf = async () => null;
   private readonly switchCache = new Map<string, { at: number; rows: KillSwitchRecord[] }>();
   private bannerCache: { at: number; rows: BannerRecord[] } | null = null;
   private quietCache: { at: number; rows: QuietRecord[] } | null = null;
@@ -156,6 +164,11 @@ export class ControlsService implements ControlsPort {
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly identity: IdentityService,
   ) {}
+
+  /** The food carts module binds which merchant orgs are carts, so a cart order meets its launch gate. */
+  bindLaunchMember(fn: LaunchMemberOf): void {
+    this.launchMember = fn;
+  }
 
   /** The orders module binds its live count (it owns orders; controls cannot import it). */
   bindActiveOrders(fn: ActiveOrdersByZone): void {
@@ -232,7 +245,8 @@ export class ControlsService implements ControlsPort {
       case 'corridor':
         return say('corridor', this.corridors.find((c) => c.id === s.key)?.name_ar ?? t('rajaa.fallback_corridor'));
       case 'screen':
-        // Never reached: no gate matches a screen row. The vertical's words are the safe fallback.
+      case 'launch':
+        // Never reached: no gate matches a screen or launch row. The vertical's words are the safe fallback.
         return say('vertical', s.key);
     }
   }
@@ -242,8 +256,13 @@ export class ControlsService implements ControlsPort {
    * switch's own customer message when set) or `zone_at_capacity` (honest wait, `retryAfterSec`).
    */
   async assertOrderAllowed(gate: OrderGate): Promise<void> {
+    // Launch scope first: a service the city has not opened takes no new order ("not open yet").
+    this.assertLaunched(gate.cityId, gate.vertical);
     const s = await this.blockingSwitch(gate);
     if (s) throw new DriverError('service_paused', { messageAr: await this.refusalFor(s, gate.cityId) });
+    // A cart's order (food, already past assertLaunched) also needs carts open in the city.
+    const member = gate.merchantOrgId ? await this.launchMember(gate.merchantOrgId) : null;
+    if (member) await this.assertLaunchOpen(gate.cityId, member);
     if (!gate.customerZone) return;
     const cap = (await this.repo.capacities(gate.cityId)).find((c) => c.zoneKey === gate.customerZone);
     if (!cap || cap.maxActive === null) return;
@@ -342,7 +361,7 @@ export class ControlsService implements ControlsPort {
     const [rows, caps, counts, t] = await Promise.all([this.repo.switches(cityId), this.repo.capacities(cityId), this.activeOrders(cityId), this.targets(cityId)]);
     const names = await this.names.of(rows.map((r) => r.setById));
     const views = rows
-      .filter((s) => s.scope !== 'screen' && (s.active || now.getTime() - s.setAt.getTime() < RECENT_MS))
+      .filter((s) => s.scope !== 'screen' && s.scope !== 'launch' && (s.active || now.getTime() - s.setAt.getTime() < RECENT_MS))
       .map((s) => this.switchView(s, this.labelOf(s, t), names, now))
       .sort((a, b) => Number(b.active) - Number(a.active) || b.setAt.getTime() - a.setAt.getTime());
     const on = views.filter((v) => v.active);
@@ -556,6 +575,107 @@ export class ControlsService implements ControlsPort {
     });
     this.switchCache.delete(input.cityId);
     return this.screenView(input.cityId, input.key, rows, await this.names.of([actor.personId]));
+  }
+
+  // ───────────────────────── opening a new service ─────────────────────────
+
+  /**
+   * Is this service open to customers in the city? Its `launch` row when there is one (active = open),
+   * else the city file. A read that fails uses the last rows read, else the city file: never open by error.
+   */
+  async launchOpen(cityId: string, key: LaunchSwitch): Promise<boolean> {
+    let rows: KillSwitchRecord[] | null;
+    try {
+      rows = await this.allSwitches(cityId);
+    } catch {
+      rows = this.switchCache.get(cityId)?.rows ?? null;
+    }
+    const row = rows?.find((r) => r.scope === 'launch' && r.key === key);
+    return row ? row.active : this.launchDefault(cityId, key);
+  }
+
+  /** The new-work gate: `service_paused` with «مو مفتوح بعد» words while the service is closed. */
+  async assertLaunchOpen(cityId: string, key: LaunchSwitch): Promise<void> {
+    if (!(await this.launchOpen(cityId, key))) throw new DriverError('service_paused', { messageAr: t('soon.not_open_yet', { name: LAUNCH_AR[key] }) });
+  }
+
+  private launchDefault(cityId: string, key: LaunchSwitch): boolean {
+    switch (key) {
+      case 'food_carts':
+        return this.config.foodCartsOpen(cityId);
+    }
+  }
+
+  /** Every row, live or not, through the same short cache as the gates (a launch row is read while off too). */
+  private async allSwitches(cityId: string): Promise<KillSwitchRecord[]> {
+    const now = this.clock.now().getTime();
+    const hit = this.switchCache.get(cityId);
+    if (hit && now - hit.at >= 0 && now - hit.at < SWITCH_CACHE_MS) return hit.rows;
+    const rows = await this.repo.switches(cityId);
+    this.switchCache.set(cityId, { at: now, rows });
+    return rows;
+  }
+
+  async launchSwitches(cityId: string): Promise<LaunchSwitchView[]> {
+    const rows = (await this.repo.switches(cityId)).filter((r) => r.scope === 'launch');
+    const names = await this.names.of(rows.map((r) => r.setById));
+    return LaunchSwitch.options.map((key) => this.launchView(cityId, key, rows.find((r) => r.key === key) ?? null, names));
+  }
+
+  private launchView(cityId: string, key: LaunchSwitch, row: KillSwitchRecord | null, names: Record<string, string | null>): LaunchSwitchView {
+    return {
+      cityId,
+      key,
+      open: row ? row.active : this.launchDefault(cityId, key),
+      fromDefault: row === null,
+      reason: row?.reason ?? null,
+      setBy: row?.setById ?? null,
+      setByName: row ? (names[row.setById] ?? null) : null,
+      setAt: row?.setAt ?? null,
+    };
+  }
+
+  async setLaunch(actor: Actor, input: z.output<typeof SetLaunchSwitchInput>): Promise<LaunchSwitchView> {
+    const now = this.clock.now();
+    const row = await this.uow.run(async (tx) => {
+      const saved = await this.repo.upsertSwitch(
+        {
+          cityId: input.cityId,
+          scope: 'launch',
+          key: input.key,
+          vertical: null,
+          target: targetOf('launch', input.key, null),
+          active: input.open,
+          holdDispatch: false,
+          messageAr: null,
+          reason: input.reason,
+          setById: actor.personId,
+          setAt: now,
+          expiresAt: null,
+        },
+        tx,
+      );
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'ops.launch_switch_set', occurredAt: now, payload: { cityId: input.cityId, key: input.key, open: input.open, reason: input.reason } },
+        { name: 'ops_control', id: `${input.cityId}:launch:${input.key}` },
+      );
+      await this.audits.record(
+        {
+          cityId: input.cityId,
+          actorId: actor.personId,
+          action: 'launch.set',
+          subjectKind: 'launch',
+          subjectId: input.key,
+          summaryAr: `${LAUNCH_AR[input.key]} صارت ${input.open ? 'مفتوحة للزبائن' : 'مسكّرة'}: ${input.reason}`,
+          detail: { key: input.key, open: input.open },
+        },
+        tx,
+      );
+      return saved;
+    });
+    this.switchCache.delete(input.cityId);
+    return this.launchView(input.cityId, input.key, row, await this.names.of([actor.personId]));
   }
 
   // ───────────────────────── status banner ─────────────────────────
