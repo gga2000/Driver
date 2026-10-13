@@ -362,12 +362,36 @@ for gx in range(int(cxm - EDGE_M), int(cxm + EDGE_M), CELL):
 print('field plots', nplot, 'edge palm clumps', nclump, 'palms', nedge, 'dust', ndust, file=sys.stderr)
 
 # places (POIs) -----------------------------------------------------------------------
+# Signposts (Ali, 2026-10-12): the places people give directions by carry `icon`, which the style draws as a standing
+# pin. Our own list (data/our-places.json, exported from the names-and-places page Ali fills in; not in the repo)
+# wins: when it is there, it names the neighbourhoods and its places replace the open-data ones of the same kind.
+def sign_kind(cat, n):
+    if any(k in n for k in ('جامع', 'مسجد', 'حسينية')) or 'worship' in cat: return 'mosque'
+    if 'صيدلية' in n or 'pharmacy' in cat: return 'pharmacy'
+    if any(k in n for k in ('فرن', 'مخبز', 'صمون')) or 'bakery' in cat: return 'bakery'
+    if cat in ('hospital', 'health_care', 'specialized_medical_facility', 'outpatient_care_facility') or any(k in n for k in ('مستشفى', 'مستوصف', 'مركز صحي')): return 'health'
+    if cat in ('place_of_learning', 'education', 'elementary_school', 'college_university') or any(k in n for k in ('مدرسة', 'ثانوية', 'متوسطة', 'كلية')): return 'school'
+    if cat == 'gas_station' or 'محطة وقود' in n or 'بانزين' in n: return 'fuel'
+    return None
+SIGN_RANK = {'mosque': 1, 'health': 1, 'fuel': 1, 'school': 2, 'pharmacy': 2, 'bakery': 2}
+ours_path = os.path.join(TOWN, 'our-places.json')
+ours = json.load(open(ours_path)) if os.path.exists(ours_path) else []
+our_kinds = {o['kind'] for o in ours if o.get('kind') != 'area'}
 for f in pois:
     p = f['properties']; n = nm(p)
     if not n: continue
     conf = p.get('confidence') or 0
-    add('places', sg.shape(f['geometry']), {'name': n, 'kind': p.get('basic_category') or 'other',
-        'rank': 1 if conf > 0.8 else 2 if conf > 0.5 else 3}, 14 if conf > 0.5 else 15)
+    icon = sign_kind(p.get('basic_category') or '', n)
+    if icon in our_kinds: continue
+    props = {'name': n, 'kind': p.get('basic_category') or 'other', 'rank': 1 if conf > 0.8 else 2 if conf > 0.5 else 3}
+    if icon: props.update(icon=icon, rank=SIGN_RANK[icon])
+    add('places', sg.shape(f['geometry']), props, 14 if conf > 0.5 or icon else 15)
+for o in ours:
+    if not isinstance(o.get('lng'), (int, float)) or not o.get('name'): continue
+    n = o['name'].translate(WESTERN_DIGITS); g = sg.Point(o['lng'], o['lat'])
+    if o['kind'] == 'area': add('localities', g, {'name': n, 'kind': 'area', 'rank': 6}, 13)
+    elif o['kind'] in SIGN_RANK: add('places', g, {'name': n, 'kind': o['kind'], 'icon': o['kind'], 'rank': SIGN_RANK[o['kind']]}, 14)
+print('places: ours', len(ours), 'signposts', sum(1 for x in F if x[0] == 'places' and 'icon' in x[2]), file=sys.stderr)
 
 # localities + neighbourhoods (divisions) ----------------------------------------------
 LOC = {'city': (1, 7), 'town': (2, 8), 'village': (3, 11), 'hamlet': (4, 12)}
