@@ -14,6 +14,7 @@ import {
   type StaffChargeCourierInput,
   type StaffCloseOrderInput,
   type StaffCourierLostInput,
+  type StaffErrandReceiptInput,
   type MerchantRemakeInput,
   type MerchantRemakeResult,
   type MerchantRemakeRule,
@@ -228,6 +229,28 @@ export class OrdersStaffService implements PlatformFailurePort {
       const next = await this.load(order.id, tx);
       const audit = await this.audit(tx, actor, next, 'order.ops_mark_delivered', `سجّل الطلب واصل: ${input.reason}`, { courierId: courier.courierId, cashCollectedIqd: cash ?? null, reason: input.reason });
       return this.result(next, true, 0, audit);
+    });
+  }
+
+  /**
+   * «دوّرلي»: the shopper's receipt photo would not send from the shops, so ops record the receipt
+   * for him with the amount he reads out (`OrdersService.opsErrandReceipt`: the same rules and server
+   * recompute as his own entry). Every entry changes the total, so each one is audited; the order's
+   * state does not move (the shops pickup is still the courier's tap).
+   */
+  async errandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult> {
+    return this.uow.run(async (tx) => {
+      const r = await this.orders.opsErrandReceipt(actor.personId, { orderId: input.orderId, totalIqd: input.totalIqd, photoUploadId: input.photoUploadId ?? null });
+      const summary = `سجّل وصل «دوّرلي» بدل المتسوّق: ${iqd(r.receiptIqd)} دينار، والمطلوب من الزبون ${iqd(r.totalIqd)} دينار. السبب: ${input.reason}`;
+      const audit = await this.audit(tx, actor, r.order, 'order.errand_receipt_by_staff', summary, {
+        receiptIqd: r.receiptIqd,
+        totalIqd: r.totalIqd,
+        cashDueIqd: r.cashDueIqd,
+        overCeiling: r.overCeiling,
+        photoUploadId: input.photoUploadId ?? null,
+        reason: input.reason,
+      });
+      return this.result(r.order, true, 0, audit);
     });
   }
 

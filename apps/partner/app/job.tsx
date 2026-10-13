@@ -25,6 +25,7 @@ import { speakOffer, stopSpeaking } from '@/features/offer/speak';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
 import { DoorCard } from '@/features/work/DoorCard';
 import { PickupSpotCard } from '@/features/work/PickupSpotCard';
+import { JobKindPanel, jobKindBlocks, nudgeJobKind } from '@/features/work/JobKindPanel';
 import { StartCodePanel } from '@/features/work/StartCodePanel';
 import { needsStartCode } from '@/features/work/start-code';
 import { useAutoArrive } from '@/features/work/useAutoArrive';
@@ -253,6 +254,8 @@ function JobView({
 
   const advance = async () => {
     if (!stop || !action || busy) return;
+    const kindBlock = action.kind === 'complete' ? jobKindBlocks(job, stop) : null;
+    if (kindBlock) return (toast.show({ message: t(kindBlock), tone: 'warning', icon: 'receipt' }), nudgeJobKind());
     if (action.kind === 'complete' && stop.type === 'dropoff' && !ride) {
       setPanel('handover');
       return;
@@ -513,7 +516,7 @@ function JobView({
             <>
               {queued ? <QueuedStrip sending={sending} text="partner.queued" /> : null}
               {gpsWeak ? <GpsWeakStrip weak={gpsWeak} /> : null}
-              <ProgressRail stage={stage} ride={ride} />
+              <ProgressRail stage={stage} ride={ride} errand={job.vertical === 'errand'} />
               <View style={{ gap: 2 }}>
                 {multi ? (
                   <Text variant="caption" color="textMuted" tabular>
@@ -562,6 +565,7 @@ function JobView({
 
               {/* Maps program r7: the kitchen's photos and note of where to collect, until he has the food. */}
               {stop.type === 'pickup' && stop.pickupSpot ? <PickupSpotCard spot={stop.pickupSpot} /> : null}
+              <JobKindPanel job={job} />
 
               {/* Maps program f6, a5: the saved place's door photos (its words and landmark lead the headline). */}
               {stop.type === 'dropoff' && stop.door ? (

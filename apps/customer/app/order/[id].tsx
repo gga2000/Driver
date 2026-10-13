@@ -50,6 +50,7 @@ import { AlmostThereCard, useTrackingMoments } from '@/features/track/AlmostTher
 import { KITCHEN_PROGRESS_H, KitchenProgress } from '@/features/track/KitchenProgress';
 import { kitchenStages, showKitchenProgress } from '@/features/track/kitchen-progress';
 import { LateBanner, useLatePromiseToast } from '@/features/track/LatePromise';
+import { placeKind, placeWord, type PlaceKind } from '@/features/track/place-kind';
 import { streetSwitchOffered } from '@/features/track/street-switch';
 import { TrackMap } from '@/features/track/TrackMap';
 import { apiErrorCode, apiErrorMessage, useApi, useApiClient } from '@/lib/api';
@@ -379,7 +380,7 @@ export default function OrderLiveScreen() {
   const canCancel = v && phase ? (ride ? rideCanCancel(phase) : !v.order.pickedUpAt) && live && phase !== 'unreachable' : false;
   // Off until orders.switchHandover exists (HUNT-01): see LIVE_STREET_SWITCH_ENABLED.
   const canStreet = v ? streetSwitchOffered(v.order, live) : false;
-  const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state) : null;
+  const statusHint = v && phase === 'cancelled' ? hintFor(v.order.state, placeKind(v.order)) : null;
   const banners = (lostMin !== null ? 1 : 0) + (phase === 'reassigning' ? 1 : 0) + (lateMin > 0 && phase !== 'reassigning' && eta ? 1 : 0);
   const bannersH = banners === 0 ? 0 : bannerStackH > 0 ? bannerStackH + theme.space[2] : banners * BANNER_H;
   // Joy l3: the kitchen's real steps in the collapsed sheet, from its yes until the courier has it.
@@ -656,7 +657,7 @@ export default function OrderLiveScreen() {
               {merchantThread && merchantThread.status !== 'not_open' ? (
                 <ActionRow
                   icon="chat"
-                  label={t('track.message_merchant')}
+                  label={t(placeWord('track.message_merchant', placeKind(v.order)))}
                   hint={merchantThread.unread > 0 ? t('chat.unread_label', { count: merchantThread.unread }) : undefined}
                   onPress={() => openChat('customer_merchant')}
                   testID="action-chat-merchant"
@@ -754,8 +755,8 @@ export default function OrderLiveScreen() {
   );
 }
 
-function hintFor(state: string): MessageKey | null {
-  if (state === 'merchant_rejected') return 'order.status.merchant_rejected_hint';
+function hintFor(state: string, kind: PlaceKind): MessageKey | null {
+  if (state === 'merchant_rejected') return placeWord('order.status.merchant_rejected_hint', kind);
   if (state === 'platform_cancelled') return 'order.status.platform_cancelled_hint';
   return null;
 }

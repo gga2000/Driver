@@ -73,6 +73,7 @@ import {
   Textarea,
   useToast,
 } from './ui';
+import { LaunchCard } from './launch-card';
 import { ScreensCard } from './screens-card';
 import { SeasonsCard } from './seasons-card';
 import { UnmetSearchesCard } from './unmet-searches-card';
@@ -169,6 +170,7 @@ export function ControlsPage() {
       )}
       {view.data && (
         <div className="mt-6 space-y-5">
+          <LaunchCard signedIn={signedIn} canOpen={roles.has('admin')} canClose={canSwitch} />
           <ScreensCard signedIn={signedIn} canShow={roles.has('admin')} canOff={canSwitch} />
           <SeasonsCard signedIn={signedIn} canEdit={roles.has('admin')} />
           <UnmetSearchesCard signedIn={signedIn} />

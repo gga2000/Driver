@@ -32,6 +32,21 @@ export const StaffMarkDeliveredInput = z.object({
 });
 export type StaffMarkDeliveredInput = z.infer<typeof StaffMarkDeliveredInput>;
 
+/**
+ * «دوّرلي»: the receipt photo would not send from the shops, so ops record the receipt for the
+ * shopper with the amount he reads out (docs/api/errand-receipt.md). Same rules as his own entry:
+ * errand only, before the shops pickup completes, the server recomputes the total. The photo, sent
+ * to support another way, is optional; when given it must be a stored upload.
+ */
+export const StaffErrandReceiptInput = z.object({
+  orderId: z.string().min(1),
+  /** What the receipt says, in whole dinars. */
+  totalIqd: Iqd.positive(),
+  reason: Reason,
+  photoUploadId: z.string().min(1).nullable().optional(),
+});
+export type StaffErrandReceiptInput = z.infer<typeof StaffErrandReceiptInput>;
+
 export const StaffCloseOrderInput = z.object({ orderId: z.string().min(1), reason: Reason });
 export type StaffCloseOrderInput = z.infer<typeof StaffCloseOrderInput>;
 

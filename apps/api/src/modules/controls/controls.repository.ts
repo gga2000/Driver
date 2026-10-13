@@ -7,7 +7,7 @@ import type { IftarOverrides } from './prayer-times.js';
  * What a row in `ops_kill_switches` is: a kill switch, or (`screen`) one audience of a redesigned
  * customer screen, keyed `ui.<name>@staff` / `ui.<name>@all` (W6; `active` = shown to that audience).
  */
-export type SwitchScope = KillScope | 'screen';
+export type SwitchScope = KillScope | 'screen' | 'launch';
 
 /** `ops_kill_switches`: one row per `<scope>:<key>:<vertical|*>` target in a city. */
 export interface KillSwitchRecord {

@@ -15,10 +15,10 @@ import { ReportClosedRow } from './ReportClosed';
  */
 
 /** j1: four places in a row — done ones ticked, the current one lit in the accent, the rest waiting. */
-export function ProgressRail({ stage, ride }: { stage: RailStage; ride: boolean }) {
+export function ProgressRail({ stage, ride, errand = false }: { stage: RailStage; ride: boolean; errand?: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const keys = RAIL_KEYS[ride ? 'ride' : 'food'];
+  const keys = RAIL_KEYS[ride ? 'ride' : errand ? 'errand' : 'food'];
   return (
     <View testID="job-rail" accessible accessibilityRole="progressbar" accessibilityLabel={t('partner.rail_a11y', { n: stage + 1, name: t(keys[stage]) })} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
       {keys.map((k, i) => {

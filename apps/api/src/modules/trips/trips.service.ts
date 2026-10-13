@@ -31,7 +31,8 @@ import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.
 import { assessFix } from './position-guard.js';
 import { SuspicionCounter, type SuspicionReason } from './position-suspicion.js';
 import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
-import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.js';
+import { NoChangeToWallet, type TripHandoverCheck, type TripPickupGuard } from './handover-check.port.js';
+import type { DropoffGuardPort } from './dropoff-guard.port.js';
 import { NoStartCodes, type TripRideNear, type TripStartCodes } from './ride-safety.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
@@ -53,6 +54,8 @@ export const TRIPS_QUEUE = Symbol('TRIPS_QUEUE');
 /** Edge-case review B.24: no driver update for 10 min while inside the dropoff geofence → server completes the ride. */
 export const RIDE_AUTOCOMPLETE_AFTER_MS = 10 * 60_000;
 const RIDE_VERTICALS: readonly Vertical[] = ['taxi', 'tuktuk'];
+/** The verticals a courier carries goods on (a refused parcel's trip back is only on one of these). */
+const COURIER_VERTICALS: readonly Vertical[] = ['food', 'grocery', 'errand', 'parcel'];
 const SYSTEM = 'system';
 
 /** A ride pickup a position fix came close to; its ETA is asked after the fix's transaction commits. */
@@ -119,6 +122,9 @@ export interface DeviceStamp {
   idempotencyKey?: string | undefined;
 }
 
+/** Trips whose pickups are people boarding (الرجعة seats, خطوط children): no pickup guard applies. */
+const SEAT_RUNS: ReadonlySet<string> = new Set(['intercity', 'khat']);
+
 /**
  * Trips (plan Step 4): the logistics object. Every courier or driver job is a Trip with ordered
  * Stops; once accepted, the trip's state is derived from its stops. Arrival is armed by the 60 m
@@ -172,10 +178,23 @@ export class TripsService implements OnModuleInit {
 
   /** "الخردة علينا": the orders module's check of a drop-off's cash; until bound, no change-to-wallet passes. */
   private handoverCheck: TripHandoverCheck = new NoChangeToWallet();
+  private pickupGuard: TripPickupGuard | null = null;
+
+  /** «دوّرلي»: orders binds its pickup guard here at start-up (an errand's receipt before its shops stop completes). */
+  bindPickupGuard(guard: TripPickupGuard): void {
+    this.pickupGuard = guard;
+  }
 
   /** Orders binds its hand-over check here at start-up (orders imports trips, so trips cannot inject it). */
   bindHandoverCheck(check: TripHandoverCheck): void {
     this.handoverCheck = check;
+  }
+
+  /** طرود: the parcel drop-off guard (the receiver's code); none bound, drop-offs complete as before. */
+  private dropoffGuard: DropoffGuardPort | null = null;
+
+  bindDropoffGuard(guard: DropoffGuardPort): void {
+    this.dropoffGuard = guard;
   }
 
   /** s1: the night-ride codes live on the orders; until orders binds them no ride needs one. */
@@ -690,10 +709,21 @@ export class TripsService implements OnModuleInit {
         return this.view(tripId, tx);
       }
       if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
+      // طرود: a parcel's drop-off needs the receiver's code (or a release, or it is the trip back); read-only, before any write.
+      if (this.dropoffGuard && trip.vertical === 'parcel' && stop.type === 'dropoff' && stop.orderId) {
+        const problem = await this.dropoffGuard.check(stop.orderId, { stopId: stop.id, target: stop.target });
+        if (problem) throw new DriverError(problem);
+      }
       // Maps program f11: a delivery photo is this courier's own stored upload.
       if (handover.photoUploadId && !(this.photos && (await this.photos.owns(handover.photoUploadId, driverId)))) throw new DriverError('handover_photo_invalid');
       const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
+      // «دوّرلي»: the shops stop waits for the shopper's receipt. Orders decides from the order alone (trips
+      // passes the stop's order, never a kind); read-only, before any write. Seat runs (الرجعة, خطوط) never ask.
+      if (stop.type === 'pickup' && stop.orderId && this.pickupGuard && !SEAT_RUNS.has(trip.vertical)) {
+        const refused = await this.pickupGuard.problem(stop.orderId);
+        if (refused) throw new DriverError(refused);
+      }
       // "الخردة علينا": cash above the order's total is only the customer's change going to his wallet,
       // checked against the order (cash, recomputed, capped) before anything is written.
       if (handover.changeToWalletIqd !== undefined || (stop.type === 'dropoff' && handover.cashCollectedIqd !== undefined)) {
@@ -774,6 +804,45 @@ export class TripsService implements OnModuleInit {
       await this.repo.updateStop(stop.id, { state: 'skipped', skippedAt: now, skipReason: reason }, now, tx);
       await this.emit(tx, 'stop.skipped', actorId, tripId, { stopId, stopType: stop.type, reason }, { orderId: stop.orderId ?? undefined, ...opts });
       await this.rederive(trip, actorId, tx);
+      return this.view(tripId, tx);
+    });
+  }
+
+  /**
+   * طرود (Ali, 2026-10-12) «رفضت تستلم»: the receiver refused the parcel, so the courier brings it back to
+   * the sender on the same trip. In one transaction: the hand-back drop-off at `back` is added after every
+   * stop (seq max + 1) FIRST, then the receiver's door stop is skipped (`parcel_refused`) — skipping first
+   * would leave nothing unfinished and complete the trip. The hand-back completes through `completeStop`
+   * like any drop-off (parcels' guard, asked with `{ stopId, target }`, lets it through without the
+   * receiver's code; the door never). The added stop is handled as `attachOrder`'s are: stored, the trip
+   * re-derived, the live views told by the trip events (tracking and the ETA read the stops). Only a parcel
+   * order on a courier trip; khat, intercity and rides are `order_type_not_supported`. A replay (the door
+   * already skipped for the refusal and the hand-back stop there) returns the trip as it stands, no event.
+   */
+  async returnStop(tripId: string, orderId: string, courierId: string, back: Pick<NewStop, 'target' | 'zoneKey' | 'placeId'>, reason = 'parcel_refused'): Promise<Trip> {
+    return this.uow.run(async (tx) => {
+      const trip = await this.loadForCourier(tripId, courierId, tx);
+      if (!COURIER_VERTICALS.includes(trip.vertical)) throw new DriverError('order_type_not_supported');
+      const stops = await this.repo.stopsOf(tripId, tx);
+      const mine = stops.filter((s) => s.orderId === orderId);
+      if (mine.length === 0) throw new DriverError('stop_not_found');
+      // Replay: the door was already skipped for the refusal and the hand-back stop follows it.
+      const refused = mine.find((s) => s.type === 'dropoff' && s.state === 'skipped' && s.skipReason === reason);
+      if (refused && mine.some((s) => s.type === 'dropoff' && s.seq > refused.seq)) return this.view(tripId, tx);
+      const door = mine.find((s) => s.type === 'dropoff' && !isStopFinished(s.state));
+      if (isTerminal(trip.state)) throw new DriverError('trip_state_conflict');
+      // The parcel is on board (its pickup done) and its door stop still open.
+      if (!door || !pickedUpFor(stops, orderId)) throw new DriverError('stop_state_conflict');
+      const now = this.clock.now();
+      await this.repo.addStops(tripId, [{ orderId, type: 'dropoff', zoneKey: back.zoneKey, target: back.target ?? null, placeId: back.placeId ?? null }], now, tx);
+      // The new stop is the last one (seq max + 1); repositories differ in what `addStops` returns.
+      const added = (await this.repo.stopsOf(tripId, tx)).reduce((a, b) => (b.seq > a.seq ? b : a));
+      await this.repo.updateStop(door.id, { state: 'skipped', skippedAt: now, skipReason: reason }, now, tx);
+      // The refusal ends any «ما يرد» wait at that door.
+      const current = trip.unreachableStartedAt ? await this.repo.updateTrip(tripId, { unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, now, tx) : trip;
+      await this.emit(tx, 'stop.skipped', courierId, tripId, { stopId: door.id, stopType: door.type, reason }, { orderId });
+      await this.emit(tx, 'trip.parcel_returning', courierId, tripId, { orderId, stopId: added.id, skippedStopId: door.id }, { orderId });
+      await this.rederive(current, courierId, tx);
       return this.view(tripId, tx);
     });
   }

@@ -156,12 +156,12 @@ describe('launch controls', () => {
 
   it('quiet days: by Baghdad date, every city or one city; cleared ones go; never in the past, at most 15 days', async () => {
     const h = await harness('2026-11-12T20:30:00Z'); // 23:30 Baghdad, 12 Nov
-    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary', accent: true, ramadan: null, homeCard: null, launched: ['food', 'taxi', 'tuktuk'] });
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: false, celebrations: true, sounds: true, promos: true, quietUntil: null, kind: 'ordinary', accent: true, ramadan: null, homeCard: null, launched: ['food', 'taxi', 'tuktuk', 'parcel'] });
     const q = await h.svc.setQuietDays(ALI, { cityId: null, startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء' });
     expect(q).toMatchObject({ active: false, setByName: 'علي', startsOn: '2026-11-13' });
     expect((await h.svc.season({ cityId: 'aziziyah' })).quiet).toBe(false);
     h.clock.advanceMinutes(31); // 00:01 Baghdad, 13 Nov
-    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: '2026-11-13', kind: 'quiet', accent: false, ramadan: null, homeCard: null, launched: ['food', 'taxi', 'tuktuk'] });
+    expect(await h.svc.season({ cityId: 'aziziyah' })).toEqual({ quiet: true, celebrations: false, sounds: false, promos: false, quietUntil: '2026-11-13', kind: 'quiet', accent: false, ramadan: null, homeCard: null, launched: ['food', 'taxi', 'tuktuk', 'parcel'] });
     expect(await h.svc.isQuietDay(h.clock.now())).toBe(true);
     expect((await h.svc.quietDays())[0]).toMatchObject({ id: q.id, active: true });
     h.clock.set('2026-11-13T21:00:00Z'); // 00:00 Baghdad, 14 Nov

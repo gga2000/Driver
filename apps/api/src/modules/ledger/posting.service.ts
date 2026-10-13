@@ -7,6 +7,7 @@ import {
   SubscriptionChargePayload,
   type DepartureCancelledPayload,
   type DriverCancelledPayload,
+  type FoodCartWalkupCollectedPayload,
   type DomainEventInput,
   type LateMeterPayload,
   type MoneyRules,
@@ -23,6 +24,7 @@ import {
   postDepartureCancelled,
   postDriverCancelled,
   postErrand,
+  postFoodCartWalkupCommission,
   postLateMeter,
   postMerchantLateReject,
   postOrderClosed,
@@ -176,6 +178,11 @@ export class PostingService {
   /** M-17: the customer's credit when the merchant rejected after accepting (off until Ali says yes). */
   async merchantLateReject(input: DomainEventInput<'order.rejected'>): Promise<RecordAllResult> {
     return this.record([postMerchantLateReject(input)]);
+  }
+
+  /** A cart walk-over ticket collected: the pickup commission the cart owner owes on it, once per ticket. */
+  async foodCartWalkup(input: FoodCartWalkupCollectedPayload): Promise<RecordAllResult> {
+    return this.record([postFoodCartWalkupCommission(input)]);
   }
 
   async departureCancelled(input: DepartureCancelledPayload): Promise<RecordAllResult> {

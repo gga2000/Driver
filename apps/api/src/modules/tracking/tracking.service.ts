@@ -47,7 +47,7 @@ import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 export interface TrackingOrdersPort {
   aggregate(orderId: string): Promise<{
     order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null; promisedRideMin?: number | null; startCode?: string | null };
-    lines: Array<{ id: string; catalogItemId: string | null; freeText: string | null; qty: number; unitPriceIqd: number; modifiers: Array<{ priceIqd?: number } & Record<string, unknown>>; participantId: string | null; note: string | null; substitution: { state: string } | null }>;
+    lines: Array<{ id: string; catalogItemId: string | null; freeText: string | null; qty: number; unitPriceIqd: number; modifiers: Array<{ priceIqd?: number } & Record<string, unknown>>; participantId: string | null; note: string | null; substitution: { state: string } | null; weightG?: number | null }>;
     participants: Array<{ personId: string | null }>;
   }>;
   get(orderId: string): Promise<Order>;
@@ -757,6 +757,7 @@ export class TrackingService implements TrackingPort {
         totalIqd: l.qty * (l.unitPriceIqd + mods),
         participantId: l.participantId,
         note: l.note,
+        ...(l.weightG ? { weightG: l.weightG } : {}),
       };
     });
   }

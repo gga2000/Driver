@@ -16,6 +16,7 @@ import { useInsights } from '@/features/insights/queries';
 import { ratingText, STANDING_DAYS, STANDING_MIN_ORDERS, standingOf, type StandingRow } from '@/features/insights/standing';
 import { unregisterPush } from '@/features/notify/Push';
 import { closedToast, CloseStoreSheet } from '@/features/store/StoreSheets';
+import { useShopMode } from '@/features/market/queries';
 import { useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { localDayKey, localParts } from '@/lib/calendar';
@@ -56,6 +57,7 @@ export function ShopScreen() {
   const toast = useCounterToast();
   const { wide } = useLayout();
   const { store, stores, canSeeMoney } = useCurrentStore();
+  const shopKind = useShopMode(store?.orgId ?? null, store?.type === 'grocer').data?.kind ?? null;
   const orgId = store?.orgId ?? null;
   const status = useStoreStatus(orgId);
   const hours = useStoreHours(orgId);
@@ -105,6 +107,8 @@ export function ShopScreen() {
   const grid = { flexDirection: wide ? ('row' as const) : ('column' as const), flexWrap: 'wrap' as const, gap: theme.space[3] };
   const cell = wide ? { flexBasis: '31%' as const, flexGrow: 1 } : undefined;
   const tiles: { id: string; icon: MIconName; title: string; hint: string; href: Parameters<typeof router.push>[0]; owner?: boolean }[] = [
+    // السوق: a produce stall's «أسعار اليوم» or a bakery's «الفرن».
+    ...(shopKind === 'produce_stall' ? [{ id: 'market', icon: 'camera' as const, title: t('merchant.market.prices.title'), hint: t('merchant.market.tile.prices_hint'), href: '/market/prices' as const }] : shopKind === 'bakery' ? [{ id: 'market', icon: 'flame' as const, title: t('merchant.market.oven.title'), hint: t('merchant.market.tile.oven_hint'), href: '/market/oven' as const }] : []),
     { id: 'staff', icon: 'people', title: t('merchant.more.staff'), hint: t('merchant.more.staff_hint'), href: '/staff', owner: true },
     { id: 'printer', icon: 'printer', title: t('merchant.printer.title'), hint: t('merchant.more.printer_hint'), href: '/printer' },
     { id: 'deals', icon: 'tag', title: t('merchant.more.deals'), hint: t('merchant.more.deals_hint'), href: '/deals' },
