@@ -12,6 +12,9 @@ export type SignKind = 'mosque' | 'school' | 'health' | 'pharmacy' | 'bakery' | 
 export const SIGN_KINDS: readonly SignKind[] = ['mosque', 'school', 'health', 'pharmacy', 'bakery', 'fuel'];
 export const SIGN_MINZOOM = 14.6;
 export const signImageId = (kind: SignKind) => `golden-sign-${kind}`;
+/** Food signs stand as pins; every other kind is a quiet mark on the ground (Ali, 2026-10-13: food first, the rest calm). */
+export const FOOD_SIGNS: readonly SignKind[] = ['bakery'];
+export const markImageId = (kind: SignKind) => `golden-mark-${kind}`;
 
 /** Each kind's colour: warm and earthy, readable under cream glyphs, never blue or teal. */
 export const SIGN_COLOURS: Record<SignKind, string> = {
@@ -168,13 +171,43 @@ export function signImage(kind: SignKind, night = false): PatternImage {
   return { width: w, height: h, data };
 }
 
+const MW = 22; // a quiet mark, in 1× px: the glyph alone on a faint cream disc, laid flat on the ground
+
+/** One quiet mark: the kind's glyph in a softened colour on a faint disc, so the place is there without calling out. */
+export function markImage(kind: SignKind, night = false): PatternImage {
+  const w = MW * SCALE, h = MW * SCALE, c0 = MW / 2, r = MW / 2 - 1;
+  const data = new Uint8Array(w * h * 4);
+  const ink = hex(SIGN_COLOURS[kind]);
+  const disc = hex(night ? '#2A1F17' : '#FFF6E6');
+  const segs = GLYPHS[kind].flatMap(flattenPath).flatMap((l) => l.slice(1).map((b, k) => [l[k]!, b] as const));
+  const gs = (r * 1.25) / 24;
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      const x = (px + 0.5) / SCALE, y = (py + 0.5) / SCALE;
+      const aDisc = Math.max(0, Math.min(1, 0.5 - (Math.hypot(x - c0, y - c0) - r) * SCALE)) * 0.55;
+      let gd = Infinity;
+      const gx = (x - c0) / gs + 12, gy = (y - c0) / gs + 12;
+      for (const [a, b] of segs) gd = Math.min(gd, segDist(gx, gy, a, b));
+      const aGlyph = Math.max(0, Math.min(1, (0.95 - gd) * gs * SCALE + 0.5));
+      const a = aGlyph + aDisc * (1 - aGlyph);
+      const i = (py * w + px) * 4;
+      for (let k = 0; k < 3; k++) data[i + k] = Math.round(a ? (ink[k]! * aGlyph + disc[k]! * aDisc * (1 - aGlyph)) / a : 0);
+      data[i + 3] = Math.round(a * 255);
+    }
+  }
+  return { width: w, height: h, data };
+}
+
 const cache = new Map<string, Record<string, PatternImage>>();
 /** Every signpost image for a light (night has warmer, dimmer cream), memoised: drawing them costs a few ms. */
 export function signImages(night: boolean): Record<string, PatternImage> {
   const key = night ? 'n' : 'd';
   let imgs = cache.get(key);
   if (!imgs) {
-    imgs = Object.fromEntries(SIGN_KINDS.map((k) => [signImageId(k), signImage(k, night)]));
+    imgs = Object.fromEntries([
+      ...FOOD_SIGNS.map((k) => [signImageId(k), signImage(k, night)] as const),
+      ...SIGN_KINDS.filter((k) => !FOOD_SIGNS.includes(k)).map((k) => [markImageId(k), markImage(k, night)] as const),
+    ]);
     cache.set(key, imgs);
   }
   return imgs;
