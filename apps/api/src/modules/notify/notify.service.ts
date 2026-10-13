@@ -9,10 +9,12 @@ import {
   type LaunchInterestInput,
   LaunchService,
   type MyLaunchInterests,
+  NOTIFY_STUCK_AFTER_SEC,
   type NotifyApp,
   type NotifyLogInput,
   type NotifyPort,
   type NotifyPreferences,
+  type NotifyStuck,
   type RegisterDeviceInput,
   type SetNotifyPreferencesInput,
   type UnregisterDeviceInput,
@@ -196,6 +198,17 @@ export class NotifyService implements NotifyPort {
   async log(_actor: Actor, input: NotifyLogInput): Promise<DeliveryLogRow[]> {
     const rows = await this.wired().repo.log({ personId: input.personId, orderId: input.orderId, limit: input.limit });
     return rows.map(toLogRow);
+  }
+
+  /**
+   * Messages claimed for a send more than `NOTIFY_STUCK_AFTER_SEC` ago that never recorded an
+   * outcome (the process died between the claim and the provider's answer). Read only: nothing is
+   * resent, since the message may already have gone (`system.notifyStuck`, the job-machine log).
+   */
+  async stuckSends(): Promise<NotifyStuck> {
+    const now = this.clock.now().getTime();
+    const r = await this.wired().repo.stuckClaims(new Date(now - NOTIFY_STUCK_AFTER_SEC * 1000));
+    return { stuck: r.count, oldestSec: r.oldestClaimedAt ? Math.max(0, Math.floor((now - r.oldestClaimedAt.getTime()) / 1000)) : 0 };
   }
 
   // ───────────────────────── module hooks ─────────────────────────

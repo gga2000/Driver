@@ -14,6 +14,7 @@
 //   - POST /demo/active-order?personId=<id>[&accept=0]  places and accepts (or not) a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
+//   - GET /demo/market lists the seeded stalls and bakeries «السوق» with their org ids;
 //   - POST /demo/popular  24 town orders at مطعم خالد so «الأكثر طلباً بالعزيزية» shows (joy o8);
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
 //   - POST /demo/night?on=1|0  the street asleep (/food after midnight): every kitchen closed now and opening at its
@@ -40,6 +41,8 @@
 //   - POST /demo/booked-ride?personId=…[&state=looking|confirmed]    review #28: a ride booked for tomorrow 7:30,
 //                                                                     drivers asked until 22:00 or حسين confirmed
 //   - POST /demo/khat-bus?personId=…[&state=coming|away|…]           N14 «وين الباص»: a خطوط run for the first child
+//   - POST /demo/parcels?personId=…                                  طرود: a parcel waiting for its door (link in the log),
+//                                                                     one on the way, one delivered with its photos
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
@@ -54,10 +57,12 @@ const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const { createApp } = await load('bootstrap.js');
 const { OrdersService } = await load('modules/orders/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
-const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
+const { CatalogRpc, CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
 const { ControlsService } = await load('modules/controls/index.js');
 
 const PORT = Number(process.env.PORT ?? 3200);
+// طرود: the receiver's door link (`<base>/p/<token>`) points at the studio's customer web app in the demo.
+process.env.SHARE_LINK_BASE_URL ??= 'http://localhost:8081';
 const KITCHEN_MS = Number(process.env.DEMO_KITCHEN_MS ?? 20_000);
 const app = await createApp();
 // The studio opens every service so all screens stay reviewable; launch day itself is the city file's
@@ -76,7 +81,18 @@ const controls = app.get(ControlsService);
 // The four launch kitchens, then the demo-only café, juice bar, sweets and ice cream shops so every food
 // door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
 const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
-const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
+// أكل بيت: four demo home kitchens (@driver/contracts/demo-home-kitchens; never in `pnpm db:seed`), and
+// home cooking opened in the studio (the city file keeps it closed until Ali opens it).
+const { DEMO_HOME_KITCHENS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-home-kitchens.js', import.meta.url))).href);
+const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_HOME_KITCHENS, 'demo-owner'))];
+if (process.env.DEMO_HOME_KITCHENS !== '0') {
+  const { ConfigService } = await load('modules/config/index.js');
+  app.get(ConfigService).setHomeKitchensOpen('aziziyah', true);
+}
+// The shopping side «السوق» (2026-10-11): two produce stalls with today's and yesterday's prices, two
+// bakeries (one paused for 30 minutes), all demo-only (never in `pnpm db:seed`).
+const { ShoppingService, seedDemoShops } = await load('modules/shopping/index.js');
+const marketShops = await seedDemoShops(orgs, catalog, app.get(ShoppingService), { ownerId: 'demo-owner' });
 // Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
 {
   const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
@@ -141,6 +157,7 @@ app.use('/demo/active-order', async (req, res) => {
   }
 });
 
+app.use('/demo/market', (_req, res) => json(res, 200, marketShops));
 app.use('/demo/seed', (_req, res) => json(res, 200, seeded.map((s) => ({ key: s.seed.key, orgId: s.orgId, name: s.seed.nameAr }))));
 
 // Joy o8 «الأكثر طلباً بالعزيزية»: 24 town orders at مطعم خالد (scheduled for tomorrow, so they wait and
@@ -159,6 +176,30 @@ app.use('/demo/popular', async (req, res) => {
         if (i < 20) lines.push({ catalogItemId: khalid.itemIds.get('lentil_soup'), qty: 1 });
         if (i % 2 === 0) lines.push({ catalogItemId: khalid.itemIds.get('pepsi'), qty: 1 });
         await orders.place(`demo-town-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines, paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: tomorrow });
+      }
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// أكل بيت: real reservations at مطبخ أم حسين so the reserve sheet shows a full time
+// — her chicken biryani's first time fully booked (8 of 8).
+let homeBookedSeeded = false;
+app.use('/demo/home-booked', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/home-booked' });
+    if (!homeBookedSeeded) {
+      homeBookedSeeded = true;
+      const umHussein = seeded.find((s) => s.seed.key === 'um_hussein');
+      for (const [key, qtys] of [['biryani', [2, 2, 2, 2]]]) {
+        const itemId = umHussein.itemIds.get(key);
+        const { days } = await app.get(CatalogRpc).homeSlots({ actor: null, ip: null }, { merchantId: umHussein.orgId, itemId });
+        const at = days[0].slots[0].at;
+        for (const [i, qty] of qtys.entries()) {
+          await orders.place(`demo-home-${key}-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: umHussein.orgId, lines: [{ catalogItemId: itemId, qty }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: at });
+        }
       }
     }
     json(res, 200, { ok: true });
@@ -401,7 +442,7 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false } = {}) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false, accept = true } = {}) {
   const input = {
     cityId: 'aziziyah',
     type: 'food',
@@ -425,6 +466,7 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
     statedTenderIqd = tender >= totalIqd ? tender : tenderOptions(totalIqd)[1];
   }
   const placed = await orders.place(personId, { ...input, ...(statedTenderIqd ? { statedTenderIqd } : {}) });
+  if (!accept) return placed.id;
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
   if (cooking) await orders.markPreparing('demo-staff', { orderId: placed.id });
   return placed.id;
@@ -544,6 +586,10 @@ async function scenario(personId, name, opts = {}) {
     await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
   }
+  if (name === 'placed') {
+    // Sent and not yet accepted: the kitchen-waiting screen (/kitchen/[id]) with its ring.
+    return { orderId: await placeAccepted(personId, 20, undefined, null, { accept: false }) };
+  }
   if (name === 'kitchen') {
     // Joy l3/l2: the kitchen said yes and has not started; no courier yet. /demo/track/kitchen moves
     // the kitchen on, /demo/track/assign brings the courier (the reveal plays on an open screen).
@@ -600,7 +646,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
@@ -3073,6 +3119,118 @@ const rajaa = await (async () => {
         friends.push(id);
       }
       json(res, 200, { code, friends });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── طرود (parcels, 2026-10-12) ─────────────────────────
+//
+//   POST /demo/parcels?personId=<id>   → {waiting: {parcelId, link}, onTheWay: {parcelId, orderId}, delivered: {parcelId, orderId}}
+//
+// Three parcels from the person's home (or the town centre) to «أم حيدر»: one waiting for her to mark her
+// door (its link is printed to the log: open it to see the receiver's page), one a courier picked up and
+// is bringing (the sender marked the door), and one delivered with the receipt code, with the pickup and
+// door photos. The photos are read from DEMO_PARCEL_PHOTOS (default /mnt/project-files/parcels/photos)
+// when that folder is there; otherwise the parcels have none.
+{
+  const { existsSync: parcelPhotosThere, readFileSync: readParcelPhoto } = await import('node:fs');
+  const { ParcelsService } = await load('modules/parcels/index.js');
+  const { SavedPlacesService: ParcelPlaces } = await load('modules/places/index.js');
+  const parcels = app.get(ParcelsService);
+  const parcelPlaces = app.get(ParcelPlaces);
+  const photoDir = process.env.DEMO_PARCEL_PHOTOS ?? '/mnt/project-files/parcels/photos';
+  const parcelPhoto = async (ownerId, file) => {
+    const path = join(photoDir, file);
+    if (!parcelPhotosThere(path)) return null;
+    const bytes = readParcelPhoto(path);
+    const store = app.get(PHOTO_STORE);
+    const ticket = await store.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: bytes.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await store.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/jpeg', bytes });
+    return ticket.uploadId;
+  };
+  const RECEIVER = { from: 'typed', name: 'أم حيدر', phone: '07703452210' };
+  /** Near the big mosque in Zakur: where «أم حيدر» marked her door on the parcels already on their way. */
+  const HER_DOOR = { lat: 32.8893, lng: 45.0731 };
+  let parcelSeq = 0;
+  const tripFor = async (orderId, from, to) => {
+    for (let i = 0; i < 5; i++) {
+      const trip = await trips.activeForOrder(orderId);
+      if (trip) return trip;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // Dispatch does not build parcel trips yet: the demo builds the courier trip itself (pickup → the door).
+    const trip = await trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'parcel',
+      orders: [{ orderId, minVehicleClass: null }],
+      stops: [
+        { orderId, type: 'pickup', zoneKey: from.zoneKey, target: from.pin },
+        { orderId, type: 'dropoff', zoneKey: to.zoneKey, target: to.pin },
+      ],
+    });
+    await dispatch.orchestrator.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'parcel', zoneId: from.zoneKey, pickup: from.pin, dropoffZoneId: to.zoneKey, minVehicleClass: null, cashIqd: 0 });
+    return trip;
+  };
+
+  app.use('/demo/parcels', async (req, res) => {
+    try {
+      const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/parcels?personId=…' });
+      const as = { personId, sessionId: 'demo' };
+      if (!(await identity.me(as)).name) await identity.setName(as, 'علي');
+      const home = (await parcelPlaces.mine(personId)).find((p) => p.label === 'home') ?? null;
+      const pickup = home?.pin ? { zoneKey: home.zoneId, pin: home.pin } : { zoneKey: 'centre', pin: { lat: 32.9051, lng: 45.0607 } };
+      const what = ['ملابس العيد', 'مفاتيح البيت', 'دوا لبيبي'];
+      const send = async (n, door, extra = {}) => {
+        parcelSeq += 1;
+        const dropZoneKey = door.by === 'receiver' ? door.zoneKey : 'zakur';
+        const { fareIqd } = await parcels.quote(as, { cityId: 'aziziyah', pickup, dropZoneKey, size: 'small' });
+        const photoUploadId = await parcelPhoto(personId, 'received.jpg');
+        return parcels.send(as, {
+          cityId: 'aziziyah',
+          clientRequestId: `demo-parcel-${parcelSeq}-${Date.now()}`,
+          what: what[n],
+          size: n === 1 ? 'small' : 'medium',
+          declaredValueIqd: [40_000, 5_000, 15_000][n],
+          ...(photoUploadId ? { photoUploadId } : {}),
+          recipient: RECEIVER,
+          pickup,
+          door,
+          payer: 'sender',
+          fareIqd,
+          ...extra,
+        });
+      };
+      const carry = async (sent, { deliver }) => {
+        const orderId = sent.orderId;
+        const trip = await tripFor(orderId, pickup, { zoneKey: 'zakur', pin: HER_DOOR });
+        const courierId = await newCourier(pickup.pin, { photo: true });
+        await assign(orderId, courierId);
+        const up = await stopOf(trip.id, 'pickup');
+        await trips.reportPosition(courierId, { tripId: trip.id, pin: pickup.pin, at: new Date(), bearing: 160, speedKmh: 0 });
+        await trips.arrive(trip.id, up.id, courierId, { pin: pickup.pin });
+        const upPhoto = await parcelPhoto(courierId, 'trunk.jpg');
+        await trips.completeStop(trip.id, up.id, courierId, upPhoto ? { handover: { photoUploadId: upPhoto } } : {});
+        if (!deliver) {
+          await startMover(trip.id, courierId, [pickup.pin, { lat: (pickup.pin.lat + HER_DOOR.lat) / 2, lng: (pickup.pin.lng + HER_DOOR.lng) / 2 }, HER_DOOR], 20);
+          return { parcelId: sent.id, orderId };
+        }
+        const drop = await stopOf(trip.id, 'dropoff');
+        await trips.reportPosition(courierId, { tripId: trip.id, pin: HER_DOOR, at: new Date(), bearing: 135, speedKmh: 0 });
+        await trips.arrive(trip.id, drop.id, courierId, { pin: HER_DOOR });
+        await parcels.checkPin({ personId: courierId, sessionId: 'demo' }, { orderId, pin: sent.pin });
+        const dropPhoto = await parcelPhoto(courierId, 'door-handover.jpg');
+        await trips.completeStop(trip.id, drop.id, courierId, { handover: { ...(dropPhoto ? { photoUploadId: dropPhoto } : {}) } });
+        return { parcelId: sent.id, orderId };
+      };
+      const waiting = await send(0, { by: 'receiver', zoneKey: 'zakur' });
+      const onTheWay = await carry(await send(1, { by: 'sender', dropoff: { zoneKey: 'zakur', pin: HER_DOOR } }), { deliver: false });
+      const delivered = await carry(await send(2, { by: 'sender', dropoff: { zoneKey: 'zakur', pin: HER_DOOR } }), { deliver: true });
+      console.log(`DEMO_API parcel waiting for the door: ${waiting.doorLink ?? '(no SHARE_LINK_BASE_URL)'}`);
+      json(res, 200, { waiting: { parcelId: waiting.id, link: waiting.doorLink }, onTheWay, delivered });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

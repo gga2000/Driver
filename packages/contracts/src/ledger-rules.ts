@@ -13,9 +13,9 @@ const Rate = z.number().min(0).max(1);
  * Restaurant commission tier (money §1); the base is the item subtotal after merchant-funded discounts (G-87).
  * `starter` (Ali, 2026-10-11): a new restaurant's rate for its first two months. Nothing moves it off
  * starter by itself: the Console reminds finance after `STARTER_COMMISSION.reviewAfterDays` and a person
- * picks the next tier. `featured` is a rate only; it never changes where a store is listed.
+ * picks the next tier. `home`: أكل بيت, a home cook's kitchen (Ali, 2026-10-11: 10 %). `featured` is a rate only; it never changes where a store is listed.
  */
-export const CommissionTier = z.enum(['starter', 'base', 'featured', 'marketing', 'pickup']);
+export const CommissionTier = z.enum(['starter', 'base', 'featured', 'marketing', 'pickup', 'home']);
 export type CommissionTier = z.infer<typeof CommissionTier>;
 
 /** The tiers a restaurant can be put on (`pickup` is the rate of pickup orders, not a store's tier). */
@@ -92,7 +92,7 @@ export const AZIZIYAH_GUARANTEE_SHIFTS: readonly PeakShift[] = [
 ];
 
 export const MoneyRules = z.object({
-  commission: z.object({ starter: Rate, base: Rate, featured: Rate, marketing: Rate, pickup: Rate }),
+  commission: z.object({ starter: Rate, base: Rate, featured: Rate, marketing: Rate, pickup: Rate, home: Rate }),
   serviceFeeIqd: Iqd.nonnegative(),
   /**
    * J-D6 (Ali, 2026-10-05): `feeIqd` is charged on an order below the restaurant's own minimum
@@ -155,7 +155,12 @@ export const MoneyRules = z.object({
   }),
   newCustomerCash: z.object({ maxOrderIqd: Iqd.positive(), firstOrders: z.number().int().positive() }),
   merchant: z.object({ exposureCapIqd: Iqd.positive(), defaultMode: SettlementMode }),
-  adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative() }),
+  /**
+   * G-85 corrections: one above `secondApproverAboveIqd` waits for a second finance person; so does one
+   * that would take what this person posted alone today (Baghdad day) above `soloDailyMaxIqd`
+   * (Ali, 2026-10-12: 50,000 a day).
+   */
+  adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative(), soloDailyMaxIqd: Iqd.nonnegative().default(50_000) }),
   /** G-86: platform → driver payout when the platform owes the driver more than this (or weekly). */
   driverPayoutAboveIqd: Iqd.nonnegative(),
   /**
@@ -301,7 +306,7 @@ export function bookedFallbackCompensationIqd(rules: Pick<MoneyRules, 'bookedRid
 }
 
 export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
-  commission: { starter: 0.05, base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05 },
+  commission: { starter: 0.05, base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05, home: 0.1 },
   serviceFeeIqd: 500,
   smallOrder: { belowIqd: 5000, feeIqd: 500 },
   batchedSecondCourierShare: 0.7,
@@ -330,7 +335,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   },
   newCustomerCash: { maxOrderIqd: 25000, firstOrders: 3 },
   merchant: { exposureCapIqd: 300000, defaultMode: 'nightly_courier' },
-  adjustments: { secondApproverAboveIqd: 25000 },
+  adjustments: { secondApproverAboveIqd: 25000, soloDailyMaxIqd: 50000 },
   driverPayoutAboveIqd: 20000,
   // G-91 switched off by Ali on 2026-10-06 (open decision): no top-ups, nothing shown in the apps.
   guarantee: { enabled: false, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_GUARANTEE_SHIFTS], roles: ['courier'] },

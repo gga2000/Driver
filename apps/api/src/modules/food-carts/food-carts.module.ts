@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { CatalogModule } from '../catalog/index.js';
-import { ConfigModule } from '../config/index.js';
+import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule } from '../identity/index.js';
 import { OrgsModule } from '../orgs/index.js';
@@ -10,7 +10,7 @@ import { FoodCartsService } from './food-carts.service.js';
 
 /** Food carts «عربانات»: the list, follows, walk-over tickets and the Merchant app's cart mode. */
 @Module({
-  imports: [CatalogModule, ConfigModule, EventsModule, IdentityModule, OrgsModule],
+  imports: [CatalogModule, ControlsModule, EventsModule, IdentityModule, OrgsModule],
   providers: [
     {
       provide: FOOD_CARTS_REPOSITORY,

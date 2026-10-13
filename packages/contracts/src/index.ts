@@ -62,6 +62,7 @@ export * from './khat-io.js';
 export * from './fleet-io.js';
 export * from './ops-io.js';
 export * from './menu-photos-io.js';
+export * from './shop-lines.js';
 export * from './food-carts-io.js';
 export * from './dish-photos-io.js';
 export * from './merchant-admin-io.js';
@@ -80,6 +81,7 @@ export * from './notify-io.js';
 export * from './control-room-io.js';
 export * from './support-io.js';
 export * from './account-close-io.js';
+export * from './parcels-io.js';
 export * from './errors.js';
 export * from './request-limits.js';
 export { transformer } from './transformer.js';
@@ -114,5 +116,8 @@ export {
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';
 export * from './food-doors.js';
+export * from './home-kitchens.js';
+// Schemas live with the routers that parse them; apps only need the types (the customer bundle skips them).
+export type * from './home-kitchen-admin-io.js';
 export * from './featured.js';
 export * from './weights.js';

@@ -185,6 +185,8 @@ hot shift he is asked «المكيّفة شغالة اليوم؟» on home (docs
 `POST /demo/souq-offer?who=tuktuk|taxi` offers him a ride whose rider carries bags and a gas cylinder
 («عنده غراض: …» on the card), `POST /demo/souq-job?who=…` the same ride accepted. Shots: `SHOTS=souq`.
 
+طرود (`scripts/demo/32-parcel.mjs`, `src/features/parcel/`): `POST /demo/parcel?who=courier&step=to_pickup|at_pickup|to_dropoff|at_dropoff[&payer=sender]` gives the courier a parcel job (the answer carries the receipt `pin`); the pickup photo, the code pad and «رفضت تستلم» show in the job's kind slot (`JobKindPanel`). Shots: `SHOTS=parcel`.
+
 ## Known gaps (wave 1)
 
 - Background location is built (`src/lib/background-location.native.ts`, maps program SP1 f2): while

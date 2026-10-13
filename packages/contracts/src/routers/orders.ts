@@ -32,7 +32,7 @@ import { AtRiskInput, AtRiskOrder, EventLog, OrderLedgerLine, OrderReplay, Order
 import { protectedProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 import { SUPPORT_DESK_ROLES } from './support.js';
-import { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from '../order-staff-io.js';
+import { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffErrandReceiptInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from '../order-staff-io.js';
 
 /** Merchant-side roles; the API additionally checks the role is scoped to the order's merchant org. */
 export const MERCHANT_ROLES: readonly RoleKind[] = ['merchant_staff', 'merchant_owner'];
@@ -111,6 +111,8 @@ export const ordersRouter = router({
     cancel: protectedProcedure(ORDER_OPS_ROLES).input(StaffCancelOrderInput).output(StaffActionResult).mutation(({ ctx, input }) => ctx.orders.opsCancel(ctx.actor, input)),
     /** The courier handed it over but his app did not record it: picked_up → delivered (cash as collected). */
     markDelivered: protectedProcedure(ORDER_OPS_ROLES).input(StaffMarkDeliveredInput).output(StaffActionResult).mutation(({ ctx, input }) => ctx.orders.opsMarkDelivered(ctx.actor, input)),
+    /** «دوّرلي»: the shopper's receipt photo would not send; ops record the receipt for him (before the shops pickup completes). */
+    recordErrandReceipt: protectedProcedure(ORDER_OPS_ROLES).input(StaffErrandReceiptInput).output(StaffActionResult).mutation(({ ctx, input }) => ctx.orders.opsErrandReceipt(ctx.actor, input)),
     /** Close a delivered order (or completed ride) now: money settles as on the 2-h auto-close. */
     close: protectedProcedure(ORDER_OPS_ROLES).input(StaffCloseOrderInput).output(StaffActionResult).mutation(({ ctx, input }) => ctx.orders.opsClose(ctx.actor, input)),
     /** NTF-13: the courier disappeared with the food; never re-dispatched. The refund is behind `COURIER_LOST_REFUND`. */

@@ -9,12 +9,12 @@ export type { CapsPort, CashRiskPort, CapStatus, JobExposure, DriverCapProfileRe
 export { MerchantCashService } from './merchant-cash.service.js';
 export { PostingService } from './posting.service.js';
 export { AdjustmentService } from './adjustments.service.js';
-export type { Adjustment, FinanceActor } from './adjustments.service.js';
+export type { Adjustment, FinanceActor, ParkReason } from './adjustments.service.js';
 export { NightlyJob } from './nightly.job.js';
 export type { MoneyClosureSource } from './nightly.job.js';
 export { ShiftGuaranteeService, EventsShiftActivity, SHIFT_ACTIVITY, windowStats, GUARANTEE_SETTLE_LOOKBACK_DAYS } from './guarantee.js';
 export type { ShiftActivity, ShiftActivitySource, ActivityEvent, ActivityEvents, GuaranteePayout } from './guarantee.js';
-export { guaranteeGroupId } from './postings.js';
+export { courierDeliveryIqd, guaranteeGroupId } from './postings.js';
 export { LedgerFacade } from './ledger.facade.js';
 export { LEDGER_SUBSCRIBED_EVENTS } from './ledger.subscribers.js';
 export { settlementReference, keyedSettlementReference, matchTransfer } from './settlement-ref.js';

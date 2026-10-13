@@ -1,3 +1,4 @@
+import type { OrdersUploadsPort } from './catalog.port.js';
 import { createHash } from 'node:crypto';
 import { AZIZIYAH_MONEY_RULES, type LatLng, type PlaceOrderInput } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
@@ -10,6 +11,7 @@ import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter, type EtaCorrection } from '../routing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { RecordingOrderEvents } from './events.adapter.js';
+import type { OrdersControlsPort } from './controls.port.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository } from './orders.repository.js';
 import { OrdersService, type OrdersCashRiskPort, type OrderTimerJob } from './orders.service.js';
@@ -159,7 +161,7 @@ export class FakePromotions extends MerchantDealsPromotions implements Promotion
  * `etaCorrection` gives it a learned correction (on the harness clock); placement locks the promise's
  * ride from it.
  */
-export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection } = {}) {
+export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection; controls?: OrdersControlsPort; uploads?: OrdersUploadsPort } = {}) {
   const clock = new FakeClock(start);
   const eta = new EtaService(new StraightLineRouter(), opts.etaCorrection?.(clock));
   const uow = new UnitOfWork(new NoDatabaseRunner());
@@ -210,7 +212,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     },
     // Opening hours and minimum: none until a test saves a storefront (`catalog.saveStorefront`).
     storefront: (orgId) => catalog.storefront(orgId),
-  }, promotions, undefined, {
+  }, promotions, opts.controls, {
     // C-04: wallet balances by payer (customer or household); unset = 0.
     balanceIqd: async ({ customerId, householdId }) => wallets.get(householdId ? `household:${householdId}` : `customer:${customerId}`) ?? 0,
     // W-02: points balances by person (`points:<id>`); unset = 0.
@@ -222,13 +224,14 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
       const resolve = placeZones.resolve;
       return resolve ? { resolve } : undefined;
     },
-  }, orgsHouseholds(orgs), eta);
+  }, orgsHouseholds(orgs), eta, undefined, opts.uploads);
   orders.onModuleInit();
   // c9/s3: a ride for someone else, as OrdersModule binds it (identity stood in for).
   const riderIdentity = new FakeRiderIdentity(people);
   orders.bindRiders(identityRiders(riderIdentity, orgsHouseholds(orgs)));
   // "الخردة علينا": as OrdersModule binds it at start-up.
   trips.bindStartCodes({ codeOf: (orderId) => orders.startCodeOf(orderId) });
+  trips.bindPickupGuard({ problem: (orderId) => orders.errandPickupProblem(orderId) });
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
 
   // FLW-22: the durable copies of both modules' timers, as the modules bind them; `sweeper.sweep()` fires

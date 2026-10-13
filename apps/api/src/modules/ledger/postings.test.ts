@@ -12,6 +12,7 @@ import {
   postDepartureCancelled,
   postDriverCancelled,
   postErrand,
+  postFoodCartWalkupCommission,
   postLateMeter,
   postMerchantLateReject,
   postOrderClosed,
@@ -27,7 +28,7 @@ import {
   type PostingGroup,
   LATE_TAXI_MEMO,
 } from './postings.js';
-import { workedExample } from './test-harness.js';
+import { ledgerHarness, workedExample } from './test-harness.js';
 
 const at = new Date('2026-10-03T12:00:00Z');
 
@@ -463,6 +464,42 @@ describe('points on platform revenue (decisions §2)', () => {
   it('referral: 200 points per side; the referrer side drops at his monthly cap', () => {
     expect(nets(postReferral({ refereeId: 'b', referrerId: 'a', referrerWithinCap: true, occurredAt: at, rules }))).toEqual({ points_pool: -400, 'points:a': 200, 'points:b': 200 });
     expect(nets(postReferral({ refereeId: 'b', referrerId: 'a', referrerWithinCap: false, occurredAt: at, rules }))).toEqual({ points_pool: -200, 'points:b': 200 });
+  });
+});
+
+describe('food cart walk-over ticket', () => {
+  const at = new Date('2026-10-12T10:00:00Z');
+  // The food-carts module's own figure: the pickup tier on the ticket total, saved on the ticket.
+  const ticket = (over = {}) => ({ walkupId: 'w1', cartId: 'cart1', merchantOrgId: 'm1', occurredAt: at, totalIqd: 10000, commissionIqd: Math.round(10000 * rules.commission.pickup), ...over });
+
+  it('a 10,000 دينار ticket posts the 500 pickup commission merchant → platform, like a cash pickup order', () => {
+    expect(ticket().commissionIqd).toBe(500);
+    const g = postFoodCartWalkupCommission(ticket())!;
+    expect(() => validateGroup(g)).not.toThrow();
+    expect(g.id).toBe('food_cart_walkup:w1:commission');
+    expect(g.kind).toBe('money');
+    expect(g.refs).toEqual({});
+    expect(g.lines).toEqual([{ type: 'commission_accrued', amount: 500, fromAccount: 'merchant_cash:m1', toAccount: 'platform', memo: 'commission:pickup:walkup:w1' }]);
+    // The same accounts, line type and tier as a restaurant's cash pickup order on the same 10,000.
+    const pickup = postOrderClosed(workedExample({ itemsSubtotalIqd: 10000, commissionTier: 'pickup', courierId: undefined, deliveryFeeIqd: 0, tipIqd: 0 }), rules).money;
+    const restaurant = pickup.lines.find((l) => l.type === 'commission_accrued')!;
+    expect({ ...restaurant, memo: undefined }).toEqual({ ...g.lines[0], memo: undefined });
+    expect(g.lines[0]!.memo!.startsWith(`${restaurant.memo}:`)).toBe(true);
+  });
+
+  it('nothing to post without commission; a commission above the total is refused', () => {
+    expect(postFoodCartWalkupCommission(ticket({ commissionIqd: 0 }))).toBeNull();
+    expect(() => postFoodCartWalkupCommission(ticket({ commissionIqd: 10001 }))).toThrow(RangeError);
+  });
+
+  it('replaying the same ticket posts once: the cart owner owes 500, the platform earned 500', async () => {
+    const h = ledgerHarness();
+    await h.posting.foodCartWalkup(ticket());
+    await h.posting.foodCartWalkup(ticket());
+    expect((await h.repo.all()).map((e) => [e.type, e.amount, e.postingGroupId])).toEqual([['commission_accrued', 500, 'food_cart_walkup:w1:commission']]);
+    expect((await h.ledger.balance('merchant_cash:m1')).amount).toBe(-500);
+    expect((await h.ledger.balance('platform')).amount).toBe(500);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
   });
 });
 

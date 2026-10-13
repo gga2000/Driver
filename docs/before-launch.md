@@ -65,8 +65,7 @@ we can't open to the public without it.
 | The gold evening map on the courier and customer phones: works on the web; phones wait for the Expo account (§2) | Probably | `docs/specs/2026-10-09-map-golden-hour-design.md` |
 | The courier's «اتصال · قريباً» button stays until calls are built (§1 "Phone calls"; Ali 2026-10-09 said keep it) | No | `apps/partner/app/job.tsx` |
 | The shift guarantee (G-91) is built but switched off (`MoneyRules.guarantee.enabled = false`); Ali decides whether to pay it, the amount for 9–11 h shifts, couriers only, and a minimum online time | No | `docs/api/shift-guarantee.md` |
-| Food carts (عربانات): on phones the owner's «فتحت هنا» can't read the phone's location yet, because the Merchant app has no location module. He sets the spot by moving the map (the web version uses the browser's location). Add `expo-location` to the Merchant app with the next development build. Carts are also off at launch until Ali opens them (`foodCarts.launched` in the city file) | No (carts are off at launch) | `docs/api/food-carts.md`, `apps/merchant/src/features/cart/position.ts` |
-| Food carts: the 5 % on a collected walk-over ticket is saved on the ticket and the `food_cart.walkup_collected` event, but nothing posts it to the ledger yet, so it is never billed and does not show on the cart's statement. Lane A builds the posting; it must land before carts take real walk-over money | No (carts are off at launch); yes before carts open | `apps/api/src/modules/food-carts/food-carts.service.ts` (collect), `docs/api/food-carts.md` |
+| Food carts (عربانات): on phones the owner's «فتحت هنا» can't read the phone's location yet, because the Merchant app has no location module. He sets the spot by moving the map (the web version uses the browser's location). Add `expo-location` to the Merchant app with the next development build. Carts are open (Ali, 2026-10-12), so owners on phones need this soon | Yes, carts are open | `docs/api/food-carts.md`, `apps/merchant/src/features/cart/position.ts` |
 | Launch content: 50+ landmarks and meeting points with photos, canned support replies, a full dress rehearsal, kill switches tested | Yes | launch playbook §7 |
 
 ## 4. Parents' WhatsApp messages (خطوط), notes for when we build it
@@ -166,3 +165,18 @@ Still to build:
 - The WhatsApp sign-in template is called `driver_otp` in one place and `otp_login` in another: settle on
   one name before submitting templates to Meta.
 - OTPIQ, after Ali signs up: ask for the sender name **Driver** (row in section 2).
+
+## 9. Senior audit leftovers: built, parked until launch prep
+
+Added 2026-10-13 when Ali closed the senior audit thread ("add those to the to do later"). Everything else
+from the audit is on `main`. Ali's plain-language steps for items 2–4 are kept in the project's private
+audit notes (`audit/system/r5/ali-steps.md`, outside this repo); every secret goes only into GitHub or
+Fly, never into a chat.
+
+| What it does | Where | Blocks launch | How to pick it up |
+|---|---|---|---|
+| Admin and finance type a 6-digit authenticator-app code after the SMS code on the Console; backup codes; an admin can reset someone else's; other admins are told about every new setup (Ali chose "Yes, before launch", 13 Oct) | PR #330, branch `claude/project-thread-u6yai6-staff-totp`, migration slot 620000 | Yes (Ali's choice) | Lands after the migrations at 600000 and 610000. Merge `main` in, run the checks, get a fresh `reviewed:<sha>` label, merge. Then: Staging setup creates `STAFF_TOTP_KEY` for staging; production needs it set on Fly before the deploy (the API refuses to boot without it). Every admin and finance person sets up their app the same day it goes live. Details: `docs/api/staff-totp.md` on the branch |
+| Ali's setup: protect `main` on GitHub (ruleset: no deletion, pull request, checks `ci` `e2e-postgres` `review-gate`, no force push) and the two Vercel deploy hooks (`VERCEL_DEPLOY_HOOK_CUSTOMER`, `VERCEL_DEPLOY_HOOK_MERCHANT` in the GitHub `production` environment) | Ali | Yes | Needed before the release-safety change below can merge |
+| Safer releases: only a commit with green checks ships, websites deploy after the API, backup has its own environment, money files need review | PR #225, branch `claude/project-thread-u6yai6-release-safety` | Yes | After Ali's two setup steps: merge `main` in (it has conflicts), re-run checks, fresh label, merge |
+| Nightly database backup | `backup` environment in GitHub | Yes | Needs a storage bucket (Cloudflare R2 or similar) and its secrets in the `backup` environment; then run the first backup and test a restore |
+| Run Staging setup once more, then Deploy staging | Ali | No (test server only) | Gives the test server its link addresses and the authenticator key |

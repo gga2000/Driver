@@ -46,6 +46,8 @@ export const MerchantStore = z.object({
   type: z.enum(['restaurant', 'grocer']),
   cityId: z.string(),
   role: MerchantStoreRole,
+  /** أكل بيت: a home cook's kitchen (the app adds its home-kitchen screens). Absent = false. */
+  home: z.boolean().optional(),
 });
 export type MerchantStore = z.infer<typeof MerchantStore>;
 
@@ -80,6 +82,8 @@ export const BoardLine = z.object({
   menuItemId: z.string().nullable().optional(),
   /** The owner's ticket kind for this dish (k4/j6 override); absent or null = guess from the name. */
   kind: DishKind.nullable().optional(),
+  /** A weighed shop line: the grams to weigh out («1.5 كيلو» on the ticket); absent otherwise. */
+  weightG: z.number().int().nullable().optional(),
 });
 export type BoardLine = z.infer<typeof BoardLine>;
 

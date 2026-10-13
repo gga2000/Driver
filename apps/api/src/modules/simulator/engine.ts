@@ -10,6 +10,7 @@ import {
   type DrainableQueue,
   type DriverRun,
   type DoorCashRecord,
+  type ErrandReceiptRecord,
   type HandoverRecord,
   type HotWaitRecord,
   type ObservedOffer,
@@ -41,7 +42,10 @@ export interface EngineOptions {
   dayStart: Date;
   /** Live mode: sim seconds per real second. In-process: 1 (the fake clock is the sim clock). */
   speed?: number;
-  /** In-process: the app's in-memory timer queues, drained as the fake clock advances. */
+  /**
+   * The app's in-memory timer queues, drained at every tick: in-process as the fake clock advances,
+   * and in a lock-step live run (tests, `fixedStep`) whose app clock follows the sim's time.
+   */
   queues?: readonly DrainableQueue[];
   /** In-process: moves the app's fake clock. Absent in live mode. */
   advanceClock?: (ms: number) => Date;
@@ -74,6 +78,7 @@ export class Simulation implements SimContext {
   readonly hotWaits: HotWaitRecord[] = [];
   readonly handovers: HandoverRecord[] = [];
   readonly doorCash = new Map<string, DoorCashRecord>();
+  readonly errandReceipts = new Map<string, ErrandReceiptRecord>();
   readonly acceptedOffers: AcceptedOfferRecord[] = [];
   readonly offers: ObservedOffer[] = [];
 
@@ -233,12 +238,10 @@ export class Simulation implements SimContext {
 
   /** Advances the fake clock by `dtSec` (in-process) and runs one step of every actor. */
   async tick(dtSec: number): Promise<void> {
-    if (this.opts.advanceClock) {
-      this.t = this.opts.advanceClock(dtSec * 1000).getTime();
-      await this.drainTimers();
-    } else {
-      this.t += dtSec * 1000;
-    }
+    if (this.opts.advanceClock) this.t = this.opts.advanceClock(dtSec * 1000).getTime();
+    else this.t += dtSec * 1000;
+    // In-process, and live runs in lock-step (tests): the app's timers due by now fire before anyone acts.
+    await this.drainTimers();
     if (this.t - this.lastRetryDrainT >= 60_000) {
       this.lastRetryDrainT = this.t;
       await this.call('events.drain', () => this.s.events.drain());
@@ -340,6 +343,7 @@ export class Simulation implements SimContext {
       freeCancelSeen: false,
       answersAt: null,
       lastCourierId: null,
+      shoppedT: null,
     };
   }
 
@@ -497,6 +501,7 @@ export class Simulation implements SimContext {
       hotWaits: [...this.hotWaits],
       handovers: [...this.handovers],
       doorCash: [...this.doorCash.values()],
+      errandReceipts: [...this.errandReceipts.values()],
       acceptedOffers: [...this.acceptedOffers],
       merchants,
       guarantee: { covered, offers: offerAnswers, windows },

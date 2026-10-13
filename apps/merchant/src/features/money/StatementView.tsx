@@ -203,6 +203,11 @@ function DayHeader({ label, orders, netIqd }: { label: string; orders: number; n
   );
 }
 
+/** "#4821" for an order; a cart walk-over ticket (paid to the cart in hand) says so instead. */
+function lineRef(line: StatementOrderLine, t: ReturnType<typeof useT>): string {
+  return line.walkup ? t('merchant.statement.walkup_ref') : t('merchant.statement.order_ref', { ref: ticketNumber(line.orderId) });
+}
+
 function PayTag({ line }: { line: StatementOrderLine }) {
   const t = useT();
   return <Tag label={t(`merchant.statement.pay_${line.payment}` as TKey)} tone={PAY_TONE[line.payment]} />;
@@ -227,7 +232,7 @@ function PhoneLine({ line, first }: { line: StatementOrderLine; first: boolean }
       <View style={{ flex: 1, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
           <Text variant="bodyStrong" tabular>
-            {t('merchant.statement.order_ref', { ref: ticketNumber(line.orderId) })}
+            {lineRef(line, t)}
           </Text>
           <Text variant="caption" color="textMuted" tabular>
             {clock12(line.at)}
@@ -236,7 +241,7 @@ function PhoneLine({ line, first }: { line: StatementOrderLine; first: boolean }
         </View>
         <Text variant="caption" color="textMuted" tabular>
           {[
-            iqd(line.itemsIqd, { locale }),
+            line.walkup ? t('merchant.statement.walkup_paid') : iqd(line.itemsIqd, { locale }),
             line.commissionPct !== null ? `${t('merchant.statement.commission_line', { pct: line.commissionPct })} ${iqd(-line.commissionIqd, { locale })}` : null,
             line.discountIqd > 0 ? discountText(line, t) : null,
           ]
@@ -285,7 +290,7 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
             >
               <View style={{ flex: col.order, flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
                 <Text variant="bodyStrong" tabular>
-                  {t('merchant.statement.order_ref', { ref: ticketNumber(l.orderId) })}
+                  {lineRef(l, t)}
                 </Text>
                 <Text variant="caption" color="textMuted" tabular>
                   {clock12(l.at)}
@@ -294,8 +299,8 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
               <View style={{ flex: col.pay }}>
                 <PayTag line={l} />
               </View>
-              <Text variant="body" tabular align="end" style={{ flex: col.items }}>
-                {amountParam(l.itemsIqd)}
+              <Text variant="body" tabular align="end" {...(l.walkup ? { color: 'textMuted' as const } : {})} style={{ flex: col.items }}>
+                {l.walkup ? '—' : amountParam(l.itemsIqd)}
               </Text>
               <View style={{ flex: col.discount, alignItems: 'flex-end' }}>
                 {l.discountIqd > 0 ? (
