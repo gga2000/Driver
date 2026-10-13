@@ -1238,6 +1238,8 @@ export class OrdersService implements OnModuleInit {
     if (by.kind === 'courier' && (!trip || trip.courierId !== by.courierId)) throw new DriverError('forbidden');
     if (!trip?.courierId) throw new DriverError('order_state_conflict');
     const courierId = trip.courierId;
+    // Staff never record a receipt on their own errand or on one they carry (as refunds and payouts refuse).
+    if (by.kind === 'staff' && (by.staffId === order.ordererId || by.staffId === courierId)) throw new DriverError('staff_own_account');
     const pickup = trip.stops.find((st) => st.orderId === order.id && st.type === 'pickup') ?? null;
     const open = by.kind === 'courier' ? pickup?.state === 'arrived' : pickup?.state === 'arrived' || pickup?.state === 'pending';
     if (!pickup || !open) throw new DriverError('order_state_conflict');

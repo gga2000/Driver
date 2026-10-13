@@ -238,6 +238,16 @@ describe('«دوّرلي» receipt by staff (orders.ops.recordErrandReceipt)', (
     expect(h.audits).toHaveLength(1);
   });
 
+  it('refused when the staff member ordered the errand or is the one carrying it (staff_own_account)', async () => {
+    const { h, o } = await staffAtShops();
+    const asCustomer = { personId: 'c1', roles: ['dispatcher'] } as unknown as Actor;
+    const asCourier = { personId: 'd1', roles: ['dispatcher'] } as unknown as Actor;
+    expect(await code(h.staff.errandReceipt(asCustomer, { orderId: o.id, totalIqd: 7_000, reason: 'وصلي' }))).toBe('staff_own_account');
+    expect(await code(h.staff.errandReceipt(asCourier, { orderId: o.id, totalIqd: 7_000, reason: 'وصلي' }))).toBe('staff_own_account');
+    expect((await h.repo.find(o.id))!.order.receiptTotalIqd).toBeNull();
+    expect(h.audits).toEqual([]);
+  });
+
   it('works before «وصلت» reached us; refused for a food order, a bad photo, or before anyone took the errand', async () => {
     const early = await staffAtShops({ arrive: false });
     expect(await early.h.staff.errandReceipt(ops, { orderId: early.o.id, totalIqd: 7_000, reason: 'ماكو نت عنده' })).toMatchObject({ changed: true });
