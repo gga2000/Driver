@@ -108,7 +108,7 @@ export const SHOPPING_RULES = {
 export const ERRAND_WONT_FETCH = ['medicine', 'cigarettes', 'gas'] as const;
 export type ErrandWontFetch = (typeof ERRAND_WONT_FETCH)[number];
 
-/** Spoken and written words for each, after `normaliseArabic` (ة→ه, أ/إ/آ→ا, گ→ك, ى→ي, ئ→ي, no ء; Latin lower-cased). */
+/** Spoken and written words for each, after `normaliseArabic` (ة→ه, أ/إ/آ→ا, گ/ک→ك, ى/ی/ئ→ي, no ء; Latin lower-cased). */
 const WONT_FETCH_WORDS: Readonly<Record<ErrandWontFetch, readonly string[]>> = {
   medicine: ['دوا', 'دوه', 'دواي', 'ادويه', 'علاج', 'صيدليه', 'بنادول', 'panadol', 'بروفين', 'brufen'],
   cigarettes: ['جكاير', 'جكايير', 'جكاره', 'سكاير', 'سكاره', 'سجاير', 'سجاره', 'سيجاره', 'سيكاره', 'تتن', 'معسل'],
@@ -120,8 +120,8 @@ function normaliseArabic(word: string): string {
     .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
     .replace(/[أإآ]/g, 'ا')
     .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/[گك]/g, 'ك')
+    .replace(/[ىی]/g, 'ي')
+    .replace(/[گکك]/g, 'ك')
     .replace(/ئ/g, 'ي')
     .replace(/ء/g, '')
     .replace(/ؤ/g, 'و')

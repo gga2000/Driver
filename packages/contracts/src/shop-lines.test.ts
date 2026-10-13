@@ -43,6 +43,9 @@ describe('«دوّرلي» won’t-fetch words (Ali 2026-10-12)', () => {
     expect(errandWontFetch('وجگاير')).toBe('cigarettes');
     expect(errandWontFetch('والأدوية')).toBe('medicine');
     expect(errandWontFetch('شاحن USB، وغاز')).toBe('gas');
+    // Persian keyboards: keheh ک and yeh ی.
+    expect(errandWontFetch('سکاير')).toBe('cigarettes');
+    expect(errandWontFetch('سیگارة')).toBe('cigarettes');
   });
 
   it('leaves everyday things alone, a fizzy drink and tools included', () => {
