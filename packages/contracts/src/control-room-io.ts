@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { RoleKind } from './auth.js';
-import type { Actor, EndAllSessionsInput, EndAllSessionsOutput } from './identity-io.js';
+import type { Actor, EndAllSessionsInput, EndAllSessionsOutput, StaffTotpResetInput, StaffTotpResetOutput } from './identity-io.js';
 import { CityId, Iqd, Vertical } from './common.js';
 import { CommissionTier, MerchantCommissionTier } from './ledger-rules.js';
 import { HhMm, LocalDate } from './store-hours.js';
@@ -799,6 +799,8 @@ export interface ControlsPort {
   setLaunch(actor: Actor, input: z.output<typeof SetLaunchSwitchInput>): Promise<LaunchSwitchView>;
   /** Admins: every session of a staff member ends on every device (`identity.endAllSessions`), audited. */
   endAllSessions(actor: Actor, input: z.output<typeof EndAllSessionsInput>): Promise<z.output<typeof EndAllSessionsOutput>>;
+  /** Admins: another staff member's authenticator is cleared (he sets it up again), confirmed with the admin's own code, audited. */
+  resetStaffTotp(actor: Actor, input: z.output<typeof StaffTotpResetInput>): Promise<z.output<typeof StaffTotpResetOutput>>;
 }
 
 /** `ctx.controlRoom`: approvals, the cash desk and the metrics wall (`modules/control-room`). */

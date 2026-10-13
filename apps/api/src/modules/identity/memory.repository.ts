@@ -10,6 +10,8 @@ import type {
   RoleRecord,
   RosterPage,
   SessionRecord,
+  StaffTotpRecord,
+  StaffTotpState,
   VaultAccessLogRecord,
   ChildIdentityRecord,
   ParticipantIdentityRecord,
@@ -41,6 +43,8 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   readonly sessions: SessionRecord[] = [];
   readonly otps: OtpRecord[] = [];
   readonly guardianLinks: GuardianLinkRecord[] = [];
+  /** Twin of the vault's staff authenticator table, by person id. */
+  readonly staffTotps = new Map<string, StaffTotpRecord>();
   private seq = 0;
   private readonly journals = new WeakMap<object, Array<() => void>>();
 
@@ -312,7 +316,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   }
 
   async createSession(input: { personId: string; deviceId: string | null; refreshTokenHash: string; expiresAt: Date; now: Date }, tx?: Tx) {
-    const s: SessionRecord = { id: this.id('sess'), personId: input.personId, deviceId: input.deviceId, refreshTokenHash: input.refreshTokenHash, previousRefreshTokenHash: null, expiresAt: input.expiresAt, rotatedAt: null, revokedAt: null, createdAt: input.now };
+    const s: SessionRecord = { id: this.id('sess'), personId: input.personId, deviceId: input.deviceId, refreshTokenHash: input.refreshTokenHash, previousRefreshTokenHash: null, expiresAt: input.expiresAt, rotatedAt: null, revokedAt: null, secondStepAt: null, createdAt: input.now };
     this.sessions.push(s);
     this.added(tx, this.sessions, s);
     return s;
@@ -330,7 +334,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return this.sessions.find((s) => s.previousRefreshTokenHash === hash) ?? null;
   }
 
-  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx) {
+  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId' | 'secondStepAt'>>, tx?: Tx) {
     const s = this.sessions.find((x) => x.id === id);
     if (!s) throw new Error(`session ${id} not found`);
     this.keep(tx, s);
@@ -437,6 +441,90 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   async guardianLinksOf(guardianId: string) {
     return this.guardianLinks.filter((g) => g.guardianId === guardianId);
   }
+  private totpState(r: StaffTotpRecord): StaffTotpState {
+    return { personId: r.personId, confirmedAt: r.confirmedAt, failedAttempts: r.failedAttempts, lockedUntil: r.lockedUntil };
+  }
+
+  async staffTotpState(personId: string) {
+    const r = this.staffTotps.get(personId);
+    return r ? this.totpState(r) : null;
+  }
+
+  async lockedStaffTotps(now: Date) {
+    return [...this.staffTotps.values()].filter((r) => r.lockedUntil && r.lockedUntil > now).map((r) => this.totpState(r));
+  }
+
+  async readStaffTotp(personId: string, log: { accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx) {
+    await this.logVaultAccess({ personId, ...log }, tx, { failClosed: true });
+    const r = this.staffTotps.get(personId);
+    return r ? { ...r, recoveryHashes: [...r.recoveryHashes] } : null;
+  }
+
+  async startStaffTotp(personId: string, secretEnc: string, _now: Date, tx?: Tx) {
+    const r = this.staffTotps.get(personId);
+    if (r?.confirmedAt) return false;
+    if (r) {
+      this.keep(tx, r);
+      Object.assign(r, { secretEnc, lastStep: null, recoveryHashes: [] });
+      return true;
+    }
+    const fresh: StaffTotpRecord = { personId, secretEnc, confirmedAt: null, failedAttempts: 0, lockedUntil: null, lastStep: null, recoveryHashes: [] };
+    this.staffTotps.set(personId, fresh);
+    this.journal(tx, () => this.staffTotps.delete(personId));
+    return true;
+  }
+
+  async confirmStaffTotp(personId: string, input: { step: number; recoveryHashes: string[]; now: Date }, tx?: Tx) {
+    const r = this.staffTotps.get(personId);
+    if (!r || r.confirmedAt) return false;
+    this.keep(tx, r);
+    Object.assign(r, { confirmedAt: input.now, lastStep: input.step, recoveryHashes: [...input.recoveryHashes], failedAttempts: 0, lockedUntil: null });
+    return true;
+  }
+
+  async claimStaffTotpAttempt(personId: string, input: { now: Date; maxTries: number }) {
+    const r = this.staffTotps.get(personId);
+    if (!r) return null;
+    const lapsed = r.lockedUntil !== null && r.lockedUntil <= input.now;
+    if (r.lockedUntil && !lapsed) return null;
+    if (!lapsed && r.failedAttempts >= input.maxTries) return null;
+    r.failedAttempts = lapsed ? 1 : r.failedAttempts + 1;
+    if (lapsed) r.lockedUntil = null;
+    return { attempts: r.failedAttempts };
+  }
+
+  async lockStaffTotp(personId: string, input: { now: Date; until: Date; maxTries: number }) {
+    const r = this.staffTotps.get(personId);
+    if (!r) return { lockedUntil: null, newly: false };
+    if (r.failedAttempts >= input.maxTries && (!r.lockedUntil || r.lockedUntil <= input.now)) {
+      r.lockedUntil = input.until;
+      return { lockedUntil: r.lockedUntil, newly: true };
+    }
+    return { lockedUntil: r.lockedUntil, newly: false };
+  }
+
+  async useStaffTotpStep(personId: string, step: number) {
+    const r = this.staffTotps.get(personId);
+    if (!r || (r.lastStep !== null && r.lastStep >= step)) return false;
+    Object.assign(r, { lastStep: step, failedAttempts: 0, lockedUntil: null });
+    return true;
+  }
+
+  async useStaffTotpRecovery(personId: string, hash: string) {
+    const r = this.staffTotps.get(personId);
+    if (!r || !r.recoveryHashes.includes(hash)) return null;
+    Object.assign(r, { recoveryHashes: r.recoveryHashes.filter((h) => h !== hash), failedAttempts: 0, lockedUntil: null });
+    return { left: r.recoveryHashes.length };
+  }
+
+  async deleteStaffTotp(personId: string, tx?: Tx) {
+    const r = this.staffTotps.get(personId);
+    if (!r) return false;
+    this.staffTotps.delete(personId);
+    this.journal(tx, () => this.staffTotps.set(personId, r));
+    return true;
+  }
+
   async roleKindsEver(personId: string) {
     return [...new Set(this.roles.filter((r) => r.personId === personId).map((r) => r.kind))];
   }
@@ -466,6 +554,7 @@ export class InMemoryIdentityRepository implements IdentityRepository {
       });
     }
     this.removeWhere(tx, this.children, (c) => c.guardianId === personId);
+    await this.deleteStaffTotp(personId, tx);
     for (const [id, p] of [...this.participantNames]) {
       if (p.personId !== personId && p.givenById !== personId) continue;
       this.participantNames.delete(id);

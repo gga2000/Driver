@@ -1,5 +1,5 @@
 import { initTRPC, TRPCError } from '@trpc/server';
-import type { RoleKind, SessionClaims } from './auth.js';
+import { SECOND_STEP_ROLE_KINDS, type RoleKind, type SessionClaims } from './auth.js';
 import type { Actor, IdentityPort } from './identity-io.js';
 export type { Actor, IdentityPort } from './identity-io.js';
 import type { CityPricingConfig } from './city-config.js';
@@ -319,14 +319,48 @@ async function allowedFor(ctx: AppContext, personId: string, roles: readonly Rol
   return roles.some((k) => set.has(k));
 }
 
+/** Whether this session still owes the authenticator step, asked once per HTTP request like the roles. */
+const stepThisRequest = new WeakMap<object, Promise<boolean>>();
+
+/**
+ * Admin and finance sign-in's second step (docs/api/staff-totp.md): a procedure open to admin or
+ * finance, called from a session that holds one of them but has not passed the authenticator step,
+ * is judged on its other roles only; when those don't admit the caller it is refused with
+ * `totp_required` (the Console then asks for the code). Identity also leaves those roles out of the
+ * caller's own role reads in such a session, so a check deeper in a service agrees with this gate.
+ */
+export async function assertSecondStep(ctx: AppContext, actor: Actor, roles: readonly RoleKind[] | undefined): Promise<void> {
+  if (!roles || !roles.some((r) => SECOND_STEP_ROLE_KINDS.includes(r))) return;
+  const identity = ctx.identity;
+  if (!identity.secondStepPending) return;
+  const key = ctx.auth ?? ctx.liveAuth ?? null;
+  let pending = key ? stepThisRequest.get(key) : undefined;
+  if (!pending) {
+    pending = identity.secondStepPending(actor);
+    if (key) {
+      stepThisRequest.set(key, pending);
+      pending.catch(() => stepThisRequest.delete(key));
+    }
+  }
+  if (!(await pending)) return;
+  const rest = roles.filter((r) => !SECOND_STEP_ROLE_KINDS.includes(r));
+  if (rest.length === 0 || !(await allowedFor(ctx, actor.personId, rest))) throw new DriverError('totp_required');
+}
+
 /**
  * Requires a valid access token; with `roles`, requires at least one of them (live lookup, so a
- * revoked or frozen role takes effect on the next request, not at token expiry).
+ * revoked or frozen role takes effect on the next request, not at token expiry). Admin and finance
+ * count only after the session passed the authenticator step (`assertSecondStep`).
  */
 export function protectedProcedure(roles?: readonly RoleKind[]) {
   return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, path, type, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
+    try {
+      await assertSecondStep(ctx, actor, roles);
+    } catch (err) {
+      throw toTrpcError(err);
+    }
     if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
     if (ctx.limits?.checkStaff && isStaffProcedure(roles)) {
       try {

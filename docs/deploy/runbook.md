@@ -93,6 +93,7 @@ migration as failed and refuses to run anything else until it is resolved.
 | Redis password | `fly secrets set --config deploy/fly/redis.toml REDIS_PASSWORD=…` and the same in the API's `REDIS_URL` | a few seconds of "redis unavailable"; outbox rows wait |
 | `UPLOADS_SECRET` | `fly secrets set` | photo links already open stop working; they are re-issued on the next screen load |
 | `SHARE_LINK_SECRET`, `SAFETY_LINK_SECRET` | `fly secrets set --config deploy/fly/api.toml <NAME>=$(openssl rand -hex 32)`, each its own value | trip-share and SOS links already sent stop opening; rotate outside a live SOS |
+| `STAFF_TOTP_KEY` | **only with a plan**: a new key cannot open the secrets sealed with the old one, so every admin and finance member must set the authenticator up again. Set the new value with `fly secrets set`, then clear each person's set-up (Console › الموظفين, or the break-glass script in [staff-totp.md](../api/staff-totp.md)) | admin and finance sign in, then set the app up again |
 | `FLY_API_TOKEN`, `CLOUDFLARE_API_TOKEN` | create a new one, replace the GitHub secret, revoke the old one | none |
 | `PHONE_HASH_PEPPER` | **never** | changing it would make every account unknown |
 | `BACKUP_PASSPHRASE` | new value in GitHub; keep the old one as long as old backups exist | none |

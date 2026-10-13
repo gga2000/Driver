@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test as setup } from '@playwright/test';
+import { passStaffStep } from '../scripts/staff-step.mjs';
 
 /** Signs in once as علي (every role) through the real /login page; the pages reuse the session. */
 setup('sign in as the admin', async ({ page }) => {
@@ -18,6 +19,8 @@ setup('sign in as the admin', async ({ page }) => {
     await page.locator('input[inputmode="numeric"], input[autocomplete="one-time-code"]').last().fill(code);
   }
   await page.getByRole('button', { name: /^ادخل$/ }).click();
+  // Admin and finance: the authenticator step (set up the first time; docs/api/staff-totp.md).
+  await passStaffStep(page, process.env.E2E_API_URL!);
   await expect(page).not.toHaveURL(/\/login/, { timeout: 20_000 });
   await page.context().storageState({ path: 'e2e/.auth/admin.json' });
 });

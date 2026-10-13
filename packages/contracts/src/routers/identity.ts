@@ -26,6 +26,14 @@ import {
   RequestOtpOutput,
   RevokeGuardianLinkInput,
   RevokeRoleInput,
+  StaffTotpCodeInput,
+  StaffTotpConfirmOutput,
+  StaffTotpDemoOutput,
+  StaffTotpEnrolOutput,
+  StaffTotpLockView,
+  StaffTotpResetInput,
+  StaffTotpResetOutput,
+  StaffTotpVerifyOutput,
   UpdateProfileInput,
   VerifyOtpInput,
   VerifyOtpOutput,
@@ -63,6 +71,29 @@ export const identityRouter = router({
    * audit row lives with the Console's trail, so `ctx.controls` runs it (identity cannot write there).
    */
   endAllSessions: protectedProcedure(['admin']).input(EndAllSessionsInput).output(EndAllSessionsOutput).mutation(({ ctx, input }) => ctx.controls.endAllSessions(ctx.actor, input)),
+  /**
+   * Admin and finance sign-in's second step (docs/api/staff-totp.md). Signed in by SMS code only, those
+   * roles are refused (`totp_required`) until `verify` (or the first `confirm`) passes on this session.
+   */
+  authenticator: router({
+    /** First time: a new secret for the authenticator app (QR + text); refused once one is confirmed. */
+    enrol: protectedProcedure().output(StaffTotpEnrolOutput).mutation(({ ctx }) => ctx.identity.staffTotpEnrol(ctx.actor)),
+    /** The first code from the app confirms it; the 8 recovery codes come back once, never again. */
+    confirm: protectedProcedure().input(StaffTotpCodeInput).output(StaffTotpConfirmOutput).mutation(({ ctx, input }) => ctx.identity.staffTotpConfirm(ctx.actor, input.code)),
+    /** A code from the app, or one recovery code; 5 wrong in a row lock the step for 15 minutes. */
+    verify: protectedProcedure().input(StaffTotpCodeInput).output(StaffTotpVerifyOutput).mutation(({ ctx, input }) => ctx.identity.staffTotpVerify(ctx.actor, input.code)),
+    /** Demo mode only (STAFF_TOTP_DEMO, never on a deployed server): the code to fill in, like the dev SMS code. */
+    demoCode: protectedProcedure()
+      .output(StaffTotpDemoOutput)
+      .query(({ ctx }) => {
+        if (ctx.env.nodeEnv === 'production') throw new DriverError('dev_only');
+        return ctx.identity.staffTotpDemoCode(ctx.actor);
+      }),
+    /** Staff whose step is locked right now (the Console safety strip). */
+    locks: protectedProcedure(['admin']).output(z.array(StaffTotpLockView)).query(({ ctx }) => ctx.identity.staffTotpLocks(ctx.actor)),
+    /** Another staff member's authenticator, cleared and audited; needs the admin's own fresh code. */
+    reset: protectedProcedure(['admin']).input(StaffTotpResetInput).output(StaffTotpResetOutput).mutation(({ ctx, input }) => ctx.controls.resetStaffTotp(ctx.actor, input)),
+  }),
   linkGuardian: protectedProcedure().input(LinkGuardianInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.linkGuardian(ctx.actor, input)),
   consentGuardianLink: protectedProcedure().input(ConsentGuardianLinkInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.consentGuardianLink(ctx.actor, input)),
   revokeGuardianLink: protectedProcedure().input(RevokeGuardianLinkInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.revokeGuardianLink(ctx.actor, input)),

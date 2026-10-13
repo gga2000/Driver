@@ -27,6 +27,10 @@ export const DEFAULT_SAFETY_PREFS: SafetyPrefs = { autoShareRajaa: false, autoSh
 const ContactInput = z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20), relation: EmergencyRelation.optional() });
 const ContactView = z.object({ name: z.string(), phoneMasked: z.string(), relation: EmergencyRelation.nullable().optional() });
 
+/** The authenticator step a staff session still owes: set it up (first time), or type a code. */
+export const SecondStep = z.enum(['enrol', 'code']);
+export type SecondStep = z.infer<typeof SecondStep>;
+
 export const MeView = z.object({
   personId: z.string(),
   name: z.string().nullable(),
@@ -36,6 +40,11 @@ export const MeView = z.object({
   trustTier: z.string(),
   sharedFamilyPhone: z.boolean(),
   roles: z.array(RoleGrant),
+  /**
+   * Staff sign-in (docs/api/staff-totp.md): `enrol` or `code` while this session still owes the
+   * authenticator step (admin and finance count only after it); null or absent when nothing is owed.
+   */
+  secondStep: SecondStep.nullable().optional(),
   /** Edge-case §7: true when guardian/driver roles and wallet withdrawal are frozen until OTP re-verification. */
   reverificationRequired: z.boolean(),
   canWithdraw: z.boolean(),
@@ -126,6 +135,8 @@ export const VerifyOtpOutput = z.object({
   personId: z.string(),
   isNew: z.boolean(),
   tokens: TokenPair,
+  /** Admin and finance: the authenticator step this new session owes before those roles work (docs/api/staff-totp.md). */
+  secondStep: SecondStep.nullable().optional(),
 });
 
 /** `device` lets a client report its fingerprint on refresh; an unknown one triggers re-verification (edge-case §7). */
@@ -168,6 +179,23 @@ export const DevLastOtpOutput = z.object({ phoneMasked: z.string(), code: z.stri
 export const StagingTestCodeInput = z.object({ phone: z.string().min(7).max(20) });
 export const StagingTestCodeOutput = z.object({ code: z.string().nullable() });
 
+/**
+ * Staff authenticator (docs/api/staff-totp.md). `code` is the app's 6 digits, or one recovery code
+ * (`XXXXX-XXXXX`, dash and case optional) where a recovery code is accepted.
+ */
+const TotpCode = z.string().trim().min(6).max(16);
+export const StaffTotpEnrolOutput = z.object({ secret: z.string(), uri: z.string() });
+export const StaffTotpCodeInput = z.object({ code: TotpCode });
+export const StaffTotpConfirmOutput = z.object({ recoveryCodes: z.array(z.string()) });
+export const StaffTotpVerifyOutput = z.object({ recoveryLeft: z.number().int().nonnegative().nullable() });
+export const StaffTotpResetInput = z.object({ personId: z.string().min(1), code: z.string().regex(/^\d{6}$/) });
+export const StaffTotpResetOutput = z.object({ reset: z.boolean(), ended: z.number().int().nonnegative() });
+/** Demo only: the code the caller's own authenticator would show now; null outside demo mode. */
+export const StaffTotpDemoOutput = z.object({ code: z.string().nullable() });
+/** A staff member whose authenticator step is locked after too many wrong codes (the Console safety strip). */
+export const StaffTotpLockView = z.object({ personId: z.string(), displayName: z.string().nullable(), lockedAt: z.coerce.date(), lockedUntil: z.coerce.date() });
+export type StaffTotpLockView = z.infer<typeof StaffTotpLockView>;
+
 export type Actor = { personId: string; sessionId: string; deviceId?: string };
 
 /** What the identity module exposes to the transport. Implemented by apps/api, consumed by the router. */
@@ -193,5 +221,12 @@ export interface IdentityPort {
   registerChild(actor: Actor, input: z.infer<typeof RegisterChildInput>): Promise<z.infer<typeof RegisterChildOutput>>;
   /** The guardian's own children with their names (each read logged in the vault access log). */
   myChildren(actor: Actor): Promise<ChildView[]>;
+  /** True while this session holds admin or finance but has not passed the authenticator step (the role gate asks). */
+  secondStepPending?(actor: Actor): Promise<boolean>;
+  staffTotpEnrol(actor: Actor): Promise<z.infer<typeof StaffTotpEnrolOutput>>;
+  staffTotpConfirm(actor: Actor, code: string): Promise<z.infer<typeof StaffTotpConfirmOutput>>;
+  staffTotpVerify(actor: Actor, code: string): Promise<z.infer<typeof StaffTotpVerifyOutput>>;
+  staffTotpDemoCode(actor: Actor): Promise<z.infer<typeof StaffTotpDemoOutput>>;
+  staffTotpLocks(actor: Actor): Promise<StaffTotpLockView[]>;
 }
 

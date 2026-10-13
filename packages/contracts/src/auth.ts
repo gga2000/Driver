@@ -91,6 +91,13 @@ export const REFRESH_TOKEN_TTL_SEC = 30 * 24 * 60 * 60;
 export const STAFF_SESSION_MAX_SEC = 12 * 60 * 60;
 /** The Console's roles; holding one puts a person on the staff session rules. */
 export const STAFF_ROLE_KINDS: readonly RoleKind[] = ['field_ops', 'dispatcher', 'support', 'finance', 'admin'];
+/**
+ * Roles that count only in a session that passed the authenticator step (docs/api/staff-totp.md): after
+ * the SMS code, admin and finance confirm a code from their authenticator app before either role works.
+ */
+export const SECOND_STEP_ROLE_KINDS: readonly RoleKind[] = ['admin', 'finance'];
+/** Staff authenticator codes: 6 digits, 30-second steps, one step either side accepted, 5 wrong in a row lock it 15 minutes. */
+export const STAFF_TOTP_RULES = { digits: 6, stepSec: 30, window: 1, maxTries: 5, lockMinutes: 15, recoveryCodes: 8 } as const;
 export const OTP_LENGTH = 6;
 export const OTP_MAX_ATTEMPTS = 5;
 /** THIN-21: a sign-in code works for 5 minutes (the adopted rule; tries and lock-out unchanged). */

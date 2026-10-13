@@ -82,6 +82,8 @@ const AUDITED = [
   'identity.closeAccount.close',
   // Admins cut a staff member off every device («الموظفين»).
   'identity.endAllSessions',
+  // Admins clear another staff member's authenticator (docs/api/staff-totp.md).
+  'identity.authenticator.reset',
   // Admins put failed outbox rows back on the queue: the audit row commits with the requeue.
   'system.requeueOutbox',
 ];

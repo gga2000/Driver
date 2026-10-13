@@ -166,6 +166,8 @@ export const NotifyTemplateId = z.enum([
   'console_unwatched_alert',
   'console_live_down_alert',
   'staff_new_device',
+  'staff_totp_locked',
+  'staff_totp_reset',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -818,6 +820,25 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     app: 'any',
     push: { title: 'push.staff_new_device.title', body: 'push.staff_new_device.body', androidChannel: 'offers', deepLink: 'driver://safety' },
     primary: ['push'],
+    quietHours: 'send',
+  },
+  // A staff member's authenticator step locked after 5 wrong codes in a row: every admin, push, any hour.
+  staff_totp_locked: {
+    id: 'staff_totp_locked',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.staff_totp_locked.title', body: 'push.staff_totp_locked.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // An admin cleared this staff member's authenticator: he hears it at once (push, SMS twin after 60 s).
+  staff_totp_reset: {
+    id: 'staff_totp_reset',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.staff_totp_reset.title', body: 'push.staff_totp_reset.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.

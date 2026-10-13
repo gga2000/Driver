@@ -112,6 +112,8 @@ export {
   SafetyPrefs,
   DEFAULT_SAFETY_PREFS,
   TRUSTED_CONTACTS_MAX,
+  SecondStep,
+  StaffTotpLockView,
 } from './identity-io.js';
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';

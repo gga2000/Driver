@@ -556,6 +556,22 @@ describe('SMS twin still wanted', () => {
   });
 });
 
+describe('staff authenticator (staff.totp_locked, staff.totp_reset)', () => {
+  it('a locked step pushes every admin named; a reset tells the person who did it', async () => {
+    const h = notifyHarness();
+    const d = { ...deps(h), lookups: { ...lookups, firstName: async (id: string) => (id === 'p_noor' ? 'نور' : id === 'p_ali' ? 'علي' : null) } };
+    const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+    expect(NOTIFY_EVENT_TYPES).toEqual(expect.arrayContaining(['staff.totp_locked', 'staff.totp_reset']));
+    expect(await one(event('staff.totp_locked', { personId: 'p_noor', minutes: 15, adminIds: ['p_ali', 'p_noor'] }))).toEqual([
+      { template: 'staff_totp_locked', to: 'p_ali', params: { name: 'نور', minutes: '15' } },
+    ]);
+    expect(await one(event('staff.totp_locked', { personId: 'p_noor', minutes: 15, adminIds: [] }))).toEqual([]);
+    expect(await one(event('staff.totp_reset', { personId: 'p_noor', resetBy: 'p_ali', hadApp: true }))).toEqual([
+      { template: 'staff_totp_reset', to: 'p_noor', params: { name: 'علي' } },
+    ]);
+  });
+});
+
 describe('staff.new_device', () => {
   it('pushes every admin the event names, never the staff member himself', async () => {
     const h = notifyHarness();
