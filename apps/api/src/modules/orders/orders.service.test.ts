@@ -137,7 +137,7 @@ describe('OrdersService — server-side line pricing (review C2)', () => {
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 1 }, { freeText: 'كباب مجاني', qty: 5, unitPriceIqd: 0 }, { freeText: 'خبز', qty: 1, unitPriceIqd: 99999 }] }));
     expect(o.itemsTotalIqd).toBe(5000);
-    const errand = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const errand = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'شاحن من محل الموبايلات', qty: 1, unitPriceIqd: 7000 }] });
     expect(errand.itemsTotalIqd).toBe(7000);
     expect(await code(h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ catalogItemId: 'kebab', qty: 1 }] }))).toBe('catalog_item_unavailable');
   });
@@ -264,7 +264,7 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     const a = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: a.id, prepMinutes: 15 });
     await h.tripFor(a.id);
-    const errand = (who: string) => h.orders.place(who, { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur', pin: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const errand = (who: string) => h.orders.place(who, { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur', pin: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } }, lines: [{ freeText: 'شاحن من محل الموبايلات', qty: 1, unitPriceIqd: 7000 }] });
     const e = await errand('c2');
     // Dispatch hands him the errand while he still carries the food order.
     const t2 = await h.trips.createForOrders({

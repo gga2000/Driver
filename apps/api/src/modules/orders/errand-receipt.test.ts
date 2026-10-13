@@ -38,7 +38,7 @@ async function errandOn<H extends ReturnType<typeof ordersHarness>>(h: H, opts: 
     pickup: SHOPS,
     dropoff: { zoneKey: 'zakur', pin: HOME },
     lines: [
-      { freeText: 'بنادول', qty: 2, errandItem: errandItem(30_000) },
+      { freeText: 'شاحن تايب سي', qty: 2, errandItem: errandItem(30_000) },
       { freeText: 'صمون', qty: 10, errandItem: errandItem(30_000) },
     ],
   });
@@ -174,6 +174,35 @@ describe('«دوّرلي» is cash only for now', () => {
     const input = { cityId: 'aziziyah', type: 'errand' as const, paymentMethod: 'wallet' as const, pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [{ freeText: 'صمون', qty: 4, errandItem }] };
     expect(await code(h.orders.place('c1', input))).toBe('errand_cash_only');
     expect(h.events.ofType('order.placed')).toEqual([]);
+  });
+});
+
+describe('«دوّرلي» won’t fetch medicines, cigarettes or gas (Ali 2026-10-12)', () => {
+  const errandItem = { unit: 'piece' as const, where: { kind: 'near' as const }, ifMissing: 'call' as const, maxIqd: null, photoUploadId: null, voiceUploadId: null, voiceSec: null, listMaxIqd: 10_000 };
+  const input = (freeText: string) => ({ cityId: 'aziziyah', type: 'errand' as const, pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [{ freeText: 'صمون', qty: 4, errandItem }, { freeText, qty: 1, errandItem }] });
+
+  it.each(['دوا كحة', 'جگاير', 'قنينة غاز'])('«%s» is refused at the quote and at placement, nothing written', async (text) => {
+    const h = ordersHarness();
+    expect(await code(h.orders.quote('c1', input(text)))).toBe('errand_item_not_allowed');
+    expect(await code(h.orders.place('c1', input(text)))).toBe('errand_item_not_allowed');
+    expect(h.events.ofType('order.placed')).toEqual([]);
+  });
+
+  it('a fizzy drink is fine', async () => {
+    const h = ordersHarness();
+    expect((await h.orders.place('c1', input('مشروب غازي'))).type).toBe('errand');
+  });
+});
+
+describe('«دوّرلي» on a bike: up to 15 pieces, the value limit unchanged (Ali 2026-10-12)', () => {
+  const errandItem = { unit: 'piece' as const, where: { kind: 'near' as const }, ifMissing: 'call' as const, maxIqd: null, photoUploadId: null, voiceUploadId: null, voiceSec: null, listMaxIqd: null };
+  const place = (qty: number, unitPriceIqd: number) =>
+    ordersHarness().orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: SHOPS, dropoff: { zoneKey: 'zakur', pin: HOME }, lines: [{ freeText: 'دفتر', qty, unitPriceIqd, errandItem }] });
+
+  it('15 pieces within 25,000 go on a bike; 16 pieces, or more than 25,000, need a tuktuk', async () => {
+    expect((await place(15, 1_000)).minVehicleClass).toBe('bike');
+    expect((await place(16, 1_000)).minVehicleClass).toBe('tuktuk');
+    expect((await place(5, 6_000)).minVehicleClass).toBe('tuktuk');
   });
 });
 

@@ -64,7 +64,7 @@ describe('errands and parcels at placement (dispatch starts on order.placed)', (
     const p = await h.orders.place('c1', parcel());
     expect(h.events.ofType('order.placed').find((e) => e.orderId === p.id)?.payload).toMatchObject({ type: 'parcel', merchantOrgId: null, pickup: SENDER_DOOR, dropoff: { zoneKey: 'zakur', pin: HOME }, scheduledFor: null });
     const shop = { zoneKey: 'street_30' };
-    const e = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: shop, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const e = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: shop, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'شاحن من محل الموبايلات', qty: 1, unitPriceIqd: 7000 }] });
     expect(h.events.ofType('order.placed').find((x) => x.orderId === e.id)?.payload).toMatchObject({ type: 'errand', pickup: shop, dropoff: { zoneKey: 'zakur' } });
     const f = await h.orders.place('c1', h.foodInput());
     expect(h.events.ofType('order.placed').find((x) => x.orderId === f.id)?.payload).not.toHaveProperty('pickup');

@@ -59,3 +59,13 @@ The invariant `errand_paid_equals_receipt_plus_fees` checks each delivered erran
 
 - The rule itself: the customer pays the receipt, and over the ceiling the shopper calls first and the receipt is never blocked.
 - Wallet errands: the server refuses them for now (`errand_cash_only` at placement), because a receipt raises the total after a wallet hold was placed. The customer app only sends cash. If Ali allows the wallet, the receipt needs a balance check first.
+
+## What «دوّرلي» carries (Ali, 2026-10-12)
+
+- **Bike up to 15 pieces.** An errand's smallest vehicle is a bike while the list is ≤ 15 pieces and
+  ≤ 25,000 دينار by the customer's prices (`SHOPPING_RULES.errandBikeMaxPieces`); above either it needs a
+  tuktuk. Food and grocery orders keep the bike's 6-item limit (`ORDER_CAPS`).
+- **Won't fetch medicines, cigarettes or gas cylinders.** `errandWontFetch(text)` in
+  `@driver/contracts` reads each line's words (normalised Arabic, whole words, «مشروب غازي» is fine);
+  `orders.quote` and `orders.place` refuse such a list with `errand_item_not_allowed` before any
+  pricing, and the customer's item screen flags the line before it can be added.

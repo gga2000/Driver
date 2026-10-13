@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
+  errandWontFetch,
+  SHOPPING_RULES,
   baghdadMonth,
   baghdadMonthRange,
   DriverError,
@@ -446,6 +448,7 @@ export class OrdersService implements OnModuleInit {
     const preferredDriverId = await this.rideBooking(ordererId, input, now);
     assertNotScheduledCourierOrder(input);
     assertErrandCash(input);
+    assertErrandItems(input);
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
@@ -768,6 +771,7 @@ export class OrdersService implements OnModuleInit {
   async quote(ordererId: string, raw: PlaceInput): Promise<OrderQuote> {
     const input = PlaceOrderInput.parse(raw);
     assertNotScheduledCourierOrder(input);
+    assertErrandItems(input);
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: true });
     await this.assertControls(input, p.merchantType, p.profile);
@@ -938,7 +942,8 @@ export class OrdersService implements OnModuleInit {
     const pointsIqd = pointsRedeemed * ORDERS_RULES.pointValueIqd;
     const priceIqd = Math.max(0, beforePoints - pointsIqd);
     const { totalIqd, changeIqd } = payable(input.type, input.paymentMethod, priceIqd);
-    const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount) : null;
+    // «دوّرلي» on a bike takes up to 15 pieces (Ali 2026-10-12); a food or grocery bike still 6. Same value cap.
+    const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount, input.type === 'errand' ? SHOPPING_RULES.errandBikeMaxPieces : undefined) : null;
     return { merchantType, profile, newLines, itemsTotal, fees, discount, minOrderIqd, smallOrderFee, points, pointsRedeemed, pointsIqd, totalIqd, changeIqd, caps };
   }
 
@@ -2440,6 +2445,12 @@ function assertNotScheduledCourierOrder(input: { type: OrderType; scheduledFor?:
  */
 function assertErrandCash(input: { type: OrderType; paymentMethod: string }): void {
   if (input.type === 'errand' && input.paymentMethod !== 'cash') throw new DriverError('errand_cash_only');
+}
+
+/** «دوّرلي» (Ali 2026-10-12): no medicines, cigarettes or gas cylinders on the list, refused before any pricing. */
+function assertErrandItems(input: { type: OrderType; lines: ReadonlyArray<{ freeText?: string | null | undefined }> }): void {
+  if (input.type !== 'errand') return;
+  if (input.lines.some((l) => l.freeText && errandWontFetch(l.freeText) !== null)) throw new DriverError('errand_item_not_allowed');
 }
 
 /** "سلّمته" (S-M4) is recorded on a ready order, or right after the courier confirmed the pickup himself. */
