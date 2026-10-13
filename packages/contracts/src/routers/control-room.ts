@@ -25,6 +25,7 @@ import {
   PublicSeason,
   QuietDaysView,
   ScreenSwitchView,
+  LaunchSwitchView,
   ScreensInput,
   SeasonInput,
   SeasonView,
@@ -34,6 +35,7 @@ import {
   SetKillSwitchInput,
   SetQuietDaysInput,
   SetScreenSwitchInput,
+  SetLaunchSwitchInput,
   SetZoneCapacityInput,
   SettlementExport,
   SettlementExportInput,
@@ -109,6 +111,23 @@ export const opsControlsRouter = router({
         if (!allowed) throw new DriverError('forbidden');
       }
       return ctx.controls.setScreen(ctx.actor, input);
+    }),
+  /** Services that open on their own inside a launched vertical (food carts), and whether each is open. */
+  launches: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(ControlsInput)
+    .output(z.array(LaunchSwitchView))
+    .query(({ ctx, input }) => ctx.controls.launchSwitches(input.cityId)),
+  /** Any controller may close a service; opening it to customers is an admin's call (Ali 2026-10-12). */
+  setLaunch: protectedProcedure(CONTROL_ROLES)
+    .input(SetLaunchSwitchInput)
+    .output(LaunchSwitchView)
+    .mutation(async ({ ctx, input }) => {
+      if (input.open) {
+        let allowed = false;
+        for (const kind of SCREEN_ON_ROLES) if (await ctx.identity.hasRole(ctx.actor.personId, kind)) allowed = true;
+        if (!allowed) throw new DriverError('forbidden');
+      }
+      return ctx.controls.setLaunch(ctx.actor, input);
     }),
 });
 
