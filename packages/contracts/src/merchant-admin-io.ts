@@ -7,6 +7,7 @@ import { DisputeKind, PaymentMethod } from './order.js';
 import { DealType } from './deals.js';
 import { DISH_LABELS, DishLabel } from './catalog-io.js';
 import { DishKind } from './dish-kind.js';
+import type { HomeKitchenDish, HomeKitchenView, SaveHomeDishInput, SetHomeTodayInput } from './home-kitchen-admin-io.js';
 import type { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from './habits-io.js';
 
 /**
@@ -398,6 +399,11 @@ export const StatementOrderLine = z.object({
   /** Courier-waiting / cancellation fees paid to the merchant on this order. */
   feesIqd: Iqd,
   netIqd: Iqd,
+  /**
+   * A cart («عربانة») walk-over ticket, not an order: `orderId` is the ticket id; the customer paid
+   * the cart in hand, so only the pickup commission he owes on it is in the ledger (`itemsIqd` 0).
+   */
+  walkup: z.boolean().optional(),
 });
 export type StatementOrderLine = z.infer<typeof StatementOrderLine>;
 
@@ -691,6 +697,12 @@ export interface MerchantAdminPort {
   /** Joy h5 «مطاعمنا»: the kitchen's story (staff read; the owner writes and decides if it shows). */
   storyGet(actor: Actor, input: MerchantScope): Promise<KitchenStoryView>;
   storySet(actor: Actor, input: z.output<typeof SetKitchenStoryInput>): Promise<KitchenStoryView>;
+  /** أكل بيت: the cook's dishes, today's plates and coming reservations (owner and staff). */
+  homeGet(actor: Actor, input: MerchantScope): Promise<HomeKitchenView>;
+  /** أكل بيت: a new dish or an edit, with how it sells (owner). */
+  homeSaveDish(actor: Actor, input: SaveHomeDishInput): Promise<HomeKitchenDish>;
+  /** أكل بيت: today's plates of a ready dish (owner and staff). */
+  homeSetToday(actor: Actor, input: SetHomeTodayInput): Promise<HomeKitchenDish>;
   /** «مين سوّى شنو»: the day's kitchen actions with who did each (owner only; staff FORBIDDEN). */
   activityToday(actor: Actor, input: z.output<typeof ActivityTodayInput>): Promise<MerchantActivity>;
   /** One order's kitchen actions with who did each (owner only; staff FORBIDDEN). */

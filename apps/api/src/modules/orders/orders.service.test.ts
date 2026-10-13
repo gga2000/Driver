@@ -137,7 +137,7 @@ describe('OrdersService — server-side line pricing (review C2)', () => {
     const h = ordersHarness();
     const o = await h.orders.place('c1', h.foodInput({ lines: [{ catalogItemId: 'kebab', qty: 1 }, { freeText: 'كباب مجاني', qty: 5, unitPriceIqd: 0 }, { freeText: 'خبز', qty: 1, unitPriceIqd: 99999 }] }));
     expect(o.itemsTotalIqd).toBe(5000);
-    const errand = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const errand = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'شاحن من محل الموبايلات', qty: 1, unitPriceIqd: 7000 }] });
     expect(errand.itemsTotalIqd).toBe(7000);
     expect(await code(h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur' }, lines: [{ catalogItemId: 'kebab', qty: 1 }] }))).toBe('catalog_item_unavailable');
   });
@@ -264,7 +264,7 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     const a = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: a.id, prepMinutes: 15 });
     await h.tripFor(a.id);
-    const errand = (who: string) => h.orders.place(who, { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur', pin: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const errand = (who: string) => h.orders.place(who, { cityId: 'aziziyah', type: 'errand', pickup: { zoneKey: 'centre' }, dropoff: { zoneKey: 'zakur', pin: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } }, lines: [{ freeText: 'شاحن من محل الموبايلات', qty: 1, unitPriceIqd: 7000 }] });
     const e = await errand('c2');
     // Dispatch hands him the errand while he still carries the food order.
     const t2 = await h.trips.createForOrders({
@@ -279,6 +279,8 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     await h.trips.offer(t2.id);
     await h.trips.accept(t2.id, 'd1', { vehicleClass: 'tuktuk' }, { assignedByDispatch: true });
     await h.deliver();
+    // The shops stop needs the receipt first (errand pickup guard); staff record it, as the photo is optional there.
+    await h.orders.opsErrandReceipt('s1', { orderId: e.id, totalIqd: 7000 });
     await h.pickup(t2.id);
     await h.dropoff(t2.id, { cashCollectedIqd: (await h.orders.get(e.id)).totalIqd });
     const collected = h.events.ofType('order.cash_collected').find((x) => x.orderId === e.id)!.payload['errand'] as ErrandMoneyPayload;
@@ -290,6 +292,7 @@ describe('OrdersService — server-locked fees, promo-only discounts, capped tip
     // A single errand (a courier holding nothing else) keeps the whole fee.
     const solo = await errand('c3');
     const t3 = await h.tripFor(solo.id, { driverId: 'd2' });
+    await h.orders.opsErrandReceipt('s1', { orderId: solo.id, totalIqd: 7000 });
     await h.pickup(t3.id, 'd2');
     await h.dropoff(t3.id, { cashCollectedIqd: (await h.orders.get(solo.id)).totalIqd, driverId: 'd2' });
     const soloFact = h.events.ofType('order.cash_collected').find((x) => x.orderId === solo.id)!.payload['errand'] as ErrandMoneyPayload;

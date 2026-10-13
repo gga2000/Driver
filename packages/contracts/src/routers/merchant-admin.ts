@@ -48,6 +48,7 @@ import {
 } from '../merchant-admin-io.js';
 import { DecideMenuShotInput, MenuPhotoRequestRef, MenuPhotoRequestView, RequestMenuPhotosInput } from '../menu-photos-io.js';
 import { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from '../habits-io.js';
+import { HomeKitchenDish, HomeKitchenView, SaveHomeDishInput, SetHomeTodayInput } from '../home-kitchen-admin-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Coarse gate; the API checks the role is scoped to `merchantOrgId` and owner-only where noted. */
@@ -134,6 +135,12 @@ export const merchantAdminRouter = router({
     get: p.input(MerchantScope).output(MerchantPotView).query(({ ctx, input }) => ctx.merchantAdmin.potGet(ctx.actor, input)),
     set: p.input(SetPotInput).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potSet(ctx.actor, input)),
     clear: p.input(MerchantScope).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potClear(ctx.actor, input)),
+  }),
+  /** أكل بيت (home-kitchen mode): her dishes and reservations; the owner saves dishes, owner and staff set today's plates. */
+  home: router({
+    get: p.input(MerchantScope).output(HomeKitchenView).query(({ ctx, input }) => ctx.merchantAdmin.homeGet(ctx.actor, input)),
+    saveDish: p.input(SaveHomeDishInput).output(HomeKitchenDish).mutation(({ ctx, input }) => ctx.merchantAdmin.homeSaveDish(ctx.actor, input)),
+    setToday: p.input(SetHomeTodayInput).output(HomeKitchenDish).mutation(({ ctx, input }) => ctx.merchantAdmin.homeSetToday(ctx.actor, input)),
   }),
   /** «مطاعمنا» (joy h5): the owner's lines and the year; shown to customers only when he says so (owner writes). */
   story: router({

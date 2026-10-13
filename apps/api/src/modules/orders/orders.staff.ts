@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DriverError,
   encodeDomainEvent,
   orderTicketNumber,
@@ -14,6 +15,7 @@ import {
   type StaffChargeCourierInput,
   type StaffCloseOrderInput,
   type StaffCourierLostInput,
+  type StaffErrandReceiptInput,
   type MerchantRemakeInput,
   type MerchantRemakeResult,
   type MerchantRemakeRule,
@@ -26,13 +28,13 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import type { PostingGroup } from '../ledger/index.js';
+import { courierDeliveryIqd, type PostingGroup } from '../ledger/index.js';
 import type { OrderDomainEvent } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory } from './merchants.port.js';
 import { MERCHANT_ORDER_TYPES } from './order.machine.js';
 import { ORDERS_RULES } from './orders.config.js';
 import { ORDERS_REPOSITORY, type OrderRecord, type OrdersRepository } from './orders.repository.js';
-import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
+import { homeNoShowOwedIqd, ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 import { ORDER_OUTCOME_RULES, type DisputeOutcome, type OrderOutcomeRules } from './outcomes.config.js';
 import type { RefundApprovalRecord, RefundApprovalsService } from './refund-approvals.js';
 import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
@@ -228,6 +230,28 @@ export class OrdersStaffService implements PlatformFailurePort {
       const next = await this.load(order.id, tx);
       const audit = await this.audit(tx, actor, next, 'order.ops_mark_delivered', `سجّل الطلب واصل: ${input.reason}`, { courierId: courier.courierId, cashCollectedIqd: cash ?? null, reason: input.reason });
       return this.result(next, true, 0, audit);
+    });
+  }
+
+  /**
+   * «دوّرلي»: the shopper's receipt photo would not send from the shops, so ops record the receipt
+   * for him with the amount he reads out (`OrdersService.opsErrandReceipt`: the same rules and server
+   * recompute as his own entry). Every entry changes the total, so each one is audited; the order's
+   * state does not move (the shops pickup is still the courier's tap).
+   */
+  async errandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult> {
+    return this.uow.run(async (tx) => {
+      const r = await this.orders.opsErrandReceipt(actor.personId, { orderId: input.orderId, totalIqd: input.totalIqd, photoUploadId: input.photoUploadId ?? null });
+      const summary = `سجّل وصل «دوّرلي» بدل المتسوّق: ${iqd(r.receiptIqd)} دينار، والمطلوب من الزبون ${iqd(r.totalIqd)} دينار. السبب: ${input.reason}`;
+      const audit = await this.audit(tx, actor, r.order, 'order.errand_receipt_by_staff', summary, {
+        receiptIqd: r.receiptIqd,
+        totalIqd: r.totalIqd,
+        cashDueIqd: r.cashDueIqd,
+        overCeiling: r.overCeiling,
+        photoUploadId: input.photoUploadId ?? null,
+        reason: input.reason,
+      });
+      return this.result(r.order, true, 0, audit);
     });
   }
 
@@ -505,6 +529,52 @@ export class OrdersStaffService implements PlatformFailurePort {
     const to = `merchant_cash:${order.merchantOrgId}`;
     await this.ports.ledger.recordAll({ id: groupId, kind: 'money', occurredAt: this.clock.now(), refs: { orderId: order.id }, lines: [{ type: 'credit_issued', amount: order.itemsTotalIqd, fromAccount: 'platform', toAccount: to, memo }], controls: [{ account: to, net: order.itemsTotalIqd }] }, tx);
     return order.itemsTotalIqd;
+  }
+
+  /**
+   * أكل بيت no-show (Ali, 2026-10-11): a reserved home dish was cooked for him and he never took it at
+   * the door. Driver pays the cook the dish price in full, and the same amount goes on his wallet as
+   * owed — collected with his next cash order (M-3 «ينضاف لطلبك الجاي»); until it is paid he can't
+   * reserve again (`home_reservation_owed`). He also owes the delivery fee he saw at checkout, and the
+   * courier who made the trip is paid for it (Ali, 2026-10-12 «Customer pays»): his part goes to his
+   * earnings (`driver:`, never `cash:`: no cash changed hands), the batch margin to the platform, and
+   * a merchant free-delivery deal's gap is paid by the platform so the courier still gets all his part.
+   * One idempotent group per order; returns what the customer owes.
+   */
+  async homeNoShow(order: OrderRecord, tx: Tx, courier: { courierId: string; tripId?: string | null; batchedSecond?: boolean } | null = null): Promise<number> {
+    if (!order.merchantOrgId || order.itemsTotalIqd <= 0) return 0;
+    const groupId = `order:${order.id}:home_no_show`;
+    if (await this.ports.ledger.hasGroup(groupId, tx)) return 0;
+    const cook = `merchant_cash:${order.merchantOrgId}`;
+    const payer = payerAccount(order);
+    const fee = courier ? order.deliveryFeeIqd : 0;
+    // The same sum the order event's owedIqd carries, so the two never drift.
+    const owed = homeNoShowOwedIqd(order, courier !== null);
+    const owedFee = owed - order.itemsTotalIqd;
+    const courierPart = courier ? courierDeliveryIqd({ deliveryFeeIqd: fee, batchedSecond: courier.batchedSecond }, AZIZIYAH_MONEY_RULES) : 0;
+    const fromPayer = Math.min(courierPart, owedFee);
+    const driver = courier ? `driver:${courier.courierId}` : '';
+    // One line each, as a cancellation fee is (postings.ts): Driver owes the cook and the courier now, he owes Driver.
+    const lines: PostingGroup['lines'] = [{ type: 'cancellation_fee', amount: order.itemsTotalIqd, fromAccount: payer, toAccount: cook, memo: 'home_no_show' }];
+    if (fromPayer > 0) lines.push({ type: 'delivery_fee', amount: fromPayer, fromAccount: payer, toAccount: driver, memo: 'home_no_show' });
+    if (courierPart > fromPayer) lines.push({ type: 'delivery_fee', amount: courierPart - fromPayer, fromAccount: 'platform', toAccount: driver, memo: 'home_no_show:delivery_deal' });
+    if (owedFee > fromPayer) lines.push({ type: 'delivery_fee', amount: owedFee - fromPayer, fromAccount: payer, toAccount: 'platform', memo: courier?.batchedSecond ? 'batched_margin' : 'delivery_margin' });
+    await this.ports.ledger.recordAll(
+      {
+        id: groupId,
+        kind: 'money',
+        occurredAt: this.clock.now(),
+        refs: { orderId: order.id, ...(courier?.tripId ? { tripId: courier.tripId } : {}) },
+        lines,
+        controls: [
+          { account: cook, net: order.itemsTotalIqd },
+          { account: payer, net: -owed },
+          ...(courier ? [{ account: driver, net: courierPart }] : []),
+        ],
+      },
+      tx,
+    );
+    return owed;
   }
 
   // ───────────────────────── the stuck list and the watchdog ─────────────────────────

@@ -14,6 +14,7 @@ import { ControlsModule, ControlsService } from '../controls/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { ZonesModule, ZonesService } from '../zones/index.js';
 import { foodDeliveryFee } from './area.js';
+import { HomeKitchenActivation } from './home-kitchen-activation.js';
 import { MERCHANT_SETUP_CATALOG, MerchantSetupService, setupCatalogOf, type SetupCatalogPort } from './setup.service.js';
 import {
   MERCHANT_AREA,
@@ -69,6 +70,7 @@ import {
       provide: MERCHANT_CATALOG,
       useFactory: (catalog: CatalogService): MerchantCatalogPort => ({
         itemNames: async (orgId, ids) => new Map((await catalog.itemsOf(orgId, ids)).map((i) => [i.id, i.nameAr])),
+        isHomeKitchen: async (orgId) => Boolean((await catalog.storefront(orgId))?.home),
         itemKinds: async (orgId, ids) => {
           const kinds = new Map<string, DishKind>();
           for (const i of await catalog.itemsOf(orgId, ids)) {
@@ -138,6 +140,8 @@ import {
       inject: [CatalogService],
     },
     MerchantSetupService,
+    // أكل بيت: a cook's kitchen approved in the Console becomes a home kitchen at the 10% tier.
+    HomeKitchenActivation,
     { provide: MERCHANT_SETUP_LINE, useExisting: MerchantSetupService },
     MerchantService,
   ],

@@ -99,6 +99,8 @@ export interface MerchantCatalogPort {
   storefrontHours?(orgId: string): Promise<WeeklyWindow[] | null>;
   /** The customer storefront's tags (what it sells, for shops from before «شنو تبيع؟»); null without one. */
   storefrontTags?(orgId: string): Promise<string[] | null>;
+  /** أكل بيت: true when the store is a home cook's kitchen. */
+  isHomeKitchen?(orgId: string): Promise<boolean>;
   /** Writes the store's own weekly hours onto its customer storefront (the card's open/closed). */
   mirrorHours?(orgId: string, windows: readonly WeeklyWindow[]): Promise<void>;
 }
@@ -200,7 +202,8 @@ export class MerchantService implements MerchantPort {
       }
       if (org.type !== 'restaurant' && org.type !== 'grocer') continue;
       const role = g.kind === OWNER || byOrg.get(org.id)?.role === 'owner' ? 'owner' : 'staff';
-      byOrg.set(org.id, { orgId: org.id, name: org.name, type: org.type, cityId: org.cityId, role });
+      const home = (await this.catalog.isHomeKitchen?.(org.id)) ?? false;
+      byOrg.set(org.id, { orgId: org.id, name: org.name, type: org.type, cityId: org.cityId, role, ...(home ? { home } : {}) });
     }
     return [...byOrg.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.orgId.localeCompare(b.orgId));
   }

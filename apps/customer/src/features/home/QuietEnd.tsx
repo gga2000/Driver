@@ -1,6 +1,8 @@
 import { Pressable, View } from 'react-native';
 import { Icon, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
+import { doorOpen } from './launched';
 import { SERVICES, type ServiceId } from './ServicesRow';
 
 /** The soft chips' drawn height; `hitSlop` makes each a full tap target. */
@@ -14,41 +16,45 @@ const CHIP_H = 32;
 export function QuietEnd({ onSoon, bye }: { onSoon: (id: ServiceId) => void; bye: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const soon = SERVICES.filter((s) => s.soon);
+  // A service that has opened leaves the line: its door is in «وعدنا هم» just above.
+  const launched = useSeason().launched;
+  const soon = SERVICES.filter((s) => s.soon && !doorOpen(s.id, launched));
   const slop = Math.max(0, (theme.hitTarget - CHIP_H) / 2);
   return (
     <View testID="home-soon" style={{ gap: theme.space[8], paddingTop: theme.space[2] }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: theme.space[2], rowGap: theme.space[3] }}>
-        <Icon name="bell" size={16} color="textMuted" />
-        <Text variant="footnote" color="textMuted">
-          {t('home.soon_line')}
-        </Text>
-        {soon.map((s) => (
-          <Pressable
-            key={s.id}
-            testID={`service-${s.id}`}
-            accessibilityRole="button"
-            accessibilityLabel={t('soon.a11y', { name: t(s.label) })}
-            accessibilityHint={t('home.soon_notify')}
-            hitSlop={{ top: slop, bottom: slop }}
-            onPress={() => {
-              theme.haptic('selection');
-              onSoon(s.id);
-            }}
-            style={({ pressed }) => ({
-              minHeight: CHIP_H,
-              justifyContent: 'center',
-              paddingHorizontal: theme.space[3],
-              borderRadius: theme.radius.pill,
-              backgroundColor: pressed ? theme.colors.border : theme.colors.surfaceSunken,
-            })}
-          >
-            <Text variant="footnote" weight={600} compact>
-              {t(s.label)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      {soon.length > 0 ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: theme.space[2], rowGap: theme.space[3] }}>
+          <Icon name="bell" size={16} color="textMuted" />
+          <Text variant="footnote" color="textMuted">
+            {t('home.soon_line')}
+          </Text>
+          {soon.map((s) => (
+            <Pressable
+              key={s.id}
+              testID={`service-${s.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t('soon.a11y', { name: t(s.label) })}
+              accessibilityHint={t('home.soon_notify')}
+              hitSlop={{ top: slop, bottom: slop }}
+              onPress={() => {
+                theme.haptic('selection');
+                onSoon(s.id);
+              }}
+              style={({ pressed }) => ({
+                minHeight: CHIP_H,
+                justifyContent: 'center',
+                paddingHorizontal: theme.space[3],
+                borderRadius: theme.radius.pill,
+                backgroundColor: pressed ? theme.colors.border : theme.colors.surfaceSunken,
+              })}
+            >
+              <Text variant="footnote" weight={600} compact>
+                {t(s.label)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {bye ? (
         <View testID="home-bye" style={{ alignItems: 'center', gap: 2 }}>
           <Text variant="section" face="voice" color="accentText" align="center">

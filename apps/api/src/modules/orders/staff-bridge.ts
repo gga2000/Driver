@@ -28,4 +28,6 @@ export interface OrdersStaffBridge {
 /** W3 M-2 (NTF-11): the free fee when the platform failed this order (null = the normal fee stands). */
 export interface PlatformFailurePort {
   freeFeeFor(order: OrderRecord, trip: Trip | null, fee: CancellationFee): Promise<CancellationFee | null>;
+  /** أكل بيت: a reservation nobody took at the door — the cook and the courier paid, the customer owes both (Ali, 2026-10-11/12). */
+  homeNoShow?(order: OrderRecord, tx: Tx, courier?: { courierId: string; tripId?: string | null; batchedSecond?: boolean } | null): Promise<number>;
 }

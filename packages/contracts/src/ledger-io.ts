@@ -220,6 +220,25 @@ export const MerchantSettlementRequestedPayload = z.object({
 });
 export type MerchantSettlementRequestedPayload = z.input<typeof MerchantSettlementRequestedPayload>;
 
+/**
+ * `food_cart.walkup_collected`: a cart («عربانة») owner handed over a walk-over ticket and took the
+ * cash in person. The platform's share is the restaurants' pickup commission on the ticket total,
+ * computed and saved on the ticket by the food-carts module; the ledger posts it as a debt the cart's
+ * merchant account owes (group `food_cart_walkup:<walkupId>:commission`). `occurredAt` comes from
+ * the event envelope (`ledgerPayload`).
+ */
+export const FoodCartWalkupCollectedPayload = z.object({
+  walkupId: z.string().min(1),
+  cartId: z.string().min(1),
+  merchantOrgId: z.string().min(1),
+  occurredAt: z.coerce.date(),
+  totalIqd: Iqd.nonnegative(),
+  commissionIqd: Iqd.nonnegative(),
+});
+export type FoodCartWalkupCollectedPayload = z.input<typeof FoodCartWalkupCollectedPayload>;
+/** Memo prefix of a walk-over ticket's commission line: the pickup tier (`commission:pickup`), then `:walkup:<ticket id>`. */
+export const WALKUP_COMMISSION_MEMO = 'commission:pickup:walkup:';
+
 // ───────────────────────── router IO ─────────────────────────
 
 export const StatementLine = z.object({
