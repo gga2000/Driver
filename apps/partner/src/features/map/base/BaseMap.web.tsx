@@ -10,6 +10,7 @@ import { demandGlowLayers, type DemandCell } from '@driver/map/pieces/demand';
 import { closedStreetsLayers } from '@driver/map/pieces/closed-streets';
 import type { ClosedGeoJSON } from '../closed';
 import { courierGoldenStyle, goldenLightFor, LIGHT_CHECK_MS, MAP_URLS } from './golden-map';
+import { bindHouseWindows } from './house-windows';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps, ClosedDrawn } from './types';
 import { LandmarkLayer } from './LandmarkLayer';
@@ -225,8 +226,10 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
     let raf = 0;
     let map: MlMap | null = null;
     let stopFallback: (() => void) | null = null;
-    import('maplibre-gl')
-      .then((mod) => {
+    let win: typeof import('@driver/map/pieces/windows') | null = null;
+    Promise.all([import('maplibre-gl'), goldenOn.current ? import('@driver/map/pieces/windows').catch(() => null) : null])
+      .then(([mod, w]) => {
+        win = w;
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         if (cancelled || !container.current) return;
         return (goldenOn.current ? prepareGolden(maplibregl).catch(() => {
@@ -258,9 +261,12 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
           if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
         };
         m.once('load', putZones);
-        // The glow goes on as soon as a style (the first, or a new light's) can take it; 'load' alone can wait on tiles.
+        // Windows, doors and roof walls on the houses up close (our map only, from z17).
+        const windows = win ? bindHouseWindows(m, win) : null;
+        // The glow and the windows go on as soon as a style (the first, or a new light's) can take them; 'load' alone can wait on tiles.
         m.on('styledata', () => {
           if (!m.getSource(GLOW)) drawGlow(m);
+          if (goldenOn.current) windows?.add(lightRef.current);
         });
         // N20: the closed streets the same way (after the glow, so a new style draws them over it).
         m.on('styledata', () => {

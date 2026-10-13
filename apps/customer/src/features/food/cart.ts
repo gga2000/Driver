@@ -61,6 +61,11 @@ export interface CartState {
   lines: CartLine[];
   /** People referenced by lines (kept with the cart so it is self-contained). */
   people: CartPerson[];
+  /**
+   * أكل بيت: the reserved time (ISO) when the cart is a home kitchen's reservation; the order is a
+   * pre-order at exactly that time. Any new cart (clear, placed, another kitchen) drops it.
+   */
+  reservedFor?: string | null;
 }
 
 export const EMPTY_CART: CartState = { merchant: null, lines: [], people: [] };
@@ -118,7 +123,7 @@ export function addLine(cart: CartState, merchant: CartMerchant, line: NewCartLi
   const lines = existing
     ? base.lines.map((l) => (l === existing ? { ...l, qty: Math.min(MAX_QTY, l.qty + line.qty), basePriceIqd: line.basePriceIqd, modifiers: line.modifiers } : l))
     : [...base.lines, { ...line, qty: Math.min(MAX_QTY, line.qty), key: opts.key ?? newLineKey() }];
-  return { ok: true, cart: prunePeople({ merchant, lines, people }), merged: Boolean(existing) };
+  return { ok: true, cart: prunePeople({ ...base, merchant, lines, people }), merged: Boolean(existing) };
 }
 
 /** Quantity 0 removes the line. */

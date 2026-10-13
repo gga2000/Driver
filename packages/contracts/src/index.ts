@@ -117,5 +117,8 @@ export {
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';
 export * from './food-doors.js';
+export * from './home-kitchens.js';
+// Schemas live with the routers that parse them; apps only need the types (the customer bundle skips them).
+export type * from './home-kitchen-admin-io.js';
 export * from './featured.js';
 export * from './weights.js';

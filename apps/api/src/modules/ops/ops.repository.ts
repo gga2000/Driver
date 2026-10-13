@@ -34,7 +34,7 @@ export interface OnboardingRecord {
   orgId: string;
   cityId: string;
   name: string;
-  type: 'restaurant' | 'grocer';
+  type: 'restaurant' | 'grocer' | 'home_kitchen';
   contactPersonId: string;
   location: DeliveryPoint;
   menuPhotoRefs: string[];
@@ -93,6 +93,8 @@ export interface OpsRepository {
   decidePhoto(id: string, patch: { state: 'approved' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<LandmarkPhotoRecord | null>;
   onboardingsIn(states: readonly OnboardingRecord['state'][], limit: number, tx?: Tx): Promise<OnboardingRecord[]>;
   onboarding(id: string, tx?: Tx): Promise<OnboardingRecord | null>;
+  /** The onboardings one person is the contact of, newest first (a cook's own application). */
+  onboardingsOfContact(personId: string, tx?: Tx): Promise<OnboardingRecord[]>;
   /** Applies the decision only while the draft is `draft` / `submitted`; null when it was decided already. */
   decideOnboarding(id: string, patch: { state: 'active' | 'rejected'; reviewedById: string; reviewedAt: Date; rejectReason: string | null }, tx?: Tx): Promise<OnboardingRecord | null>;
   /** Open tasks pointing at `refId` (an onboarding's follow-up). */
@@ -202,6 +204,13 @@ export class InMemoryOpsRepository implements OpsRepository {
 
   async onboardingsIn(states: readonly OnboardingRecord['state'][], limit: number): Promise<OnboardingRecord[]> {
     return this.onboardings.filter((o) => states.includes(o.state)).slice(0, limit).map((o) => ({ ...o, menuPhotoRefs: [...o.menuPhotoRefs] }));
+  }
+
+  async onboardingsOfContact(personId: string): Promise<OnboardingRecord[]> {
+    return this.onboardings
+      .filter((o) => o.contactPersonId === personId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((o) => ({ ...o, menuPhotoRefs: [...o.menuPhotoRefs] }));
   }
 
   async onboarding(id: string): Promise<OnboardingRecord | null> {
@@ -335,6 +344,10 @@ export class PrismaOpsRepository implements OpsRepository {
     return (await this.db(tx).merchantOnboarding.findMany({ where: { state: { in: [...states] } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit })).map(onboardingFrom);
   }
 
+  async onboardingsOfContact(personId: string, tx?: Tx): Promise<OnboardingRecord[]> {
+    return (await this.db(tx).merchantOnboarding.findMany({ where: { contactPersonId: personId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 20 })).map(onboardingFrom);
+  }
+
   async onboarding(id: string, tx?: Tx): Promise<OnboardingRecord | null> {
     const r = await this.db(tx).merchantOnboarding.findUnique({ where: { id } });
     return r ? onboardingFrom(r) : null;
@@ -374,7 +387,7 @@ function onboardingFrom(r: any): OnboardingRecord {
     orgId: r.orgId,
     cityId: r.cityId,
     name: r.name,
-    type: r.type === 'grocer' ? 'grocer' : 'restaurant',
+    type: r.type === 'grocer' || r.type === 'home_kitchen' ? r.type : 'restaurant',
     contactPersonId: r.contactPersonId,
     location: r.location,
     menuPhotoRefs: r.menuPhotoRefs,

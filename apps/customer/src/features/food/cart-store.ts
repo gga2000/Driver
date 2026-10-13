@@ -58,7 +58,8 @@ const KEY = 'driver.customer.cart';
 const INITIAL: CartStoreState = { loaded: false, cart: EMPTY_CART, placed: null, people: [] };
 
 function isCart(x: unknown): x is CartState {
-  return !!x && typeof x === 'object' && Array.isArray((x as CartState).lines) && Array.isArray((x as CartState).people);
+  const c = x as CartState;
+  return !!x && typeof x === 'object' && Array.isArray(c.lines) && Array.isArray(c.people) && (c.reservedFor == null || typeof c.reservedFor === 'string');
 }
 
 export function createCartStore(store: KeyValueStorage) {
@@ -150,6 +151,11 @@ export function createCartStore(store: KeyValueStorage) {
       const { line, merchant, person } = removed;
       const res = addLine(state.cart, merchant, line, { key: line.key, ...(person ? { person } : {}) });
       if (res.ok) emit({ ...state, cart: res.cart });
+    },
+    /** أكل بيت: the cart becomes a reservation at `at` (ISO), or an ordinary cart again (null). */
+    setReservedFor(at: string | null) {
+      if (state.cart.lines.length === 0 && at !== null) return;
+      emit({ ...state, cart: { ...state.cart, reservedFor: at } });
     },
     replaceCart(cart: CartState) {
       emit({ ...state, cart });
