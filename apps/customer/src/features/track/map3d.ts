@@ -1,4 +1,4 @@
-import type { OrderTracking } from '@driver/contracts';
+import type { AvoidedStreet, OrderTracking, SlowStretchReason } from '@driver/contracts';
 import type { TrackingMoment } from '@driver/map/golden';
 import type { LngLat } from './geo';
 import { buildPath, pointAt, projectOnPath, type Path } from './motion';
@@ -147,4 +147,26 @@ export function slowStretchShape(path: Path | null, stretch: { fromM: number; to
   const coords = b - a >= SLOW_MIN_M ? slice(path, a, b) : null;
   if (!coords) return none;
   return { line: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { part: 'slow' }, geometry: { type: 'LineString', coordinates: coords } }] }, mid: pointAt(path, (a + b) / 2) };
+}
+
+/**
+ * N20 «شارع مسدود» (Ali approved 2026-10-11): the closed streets the courier's route was bent around, as the order map
+ * draws them (`closedStreetsGeoJSON` from `@driver/map/pieces/closed-streets`). None once he is at the door: the ride is over.
+ */
+export function closuresOnMap(moment: TrackingMoment, closures: readonly AvoidedStreet[] | null | undefined): readonly AvoidedStreet[] {
+  return moment === 'arrived' || !closures ? [] : closures;
+}
+
+export type ClosedDetourLine = { key: 'track.closed_detour' } | { key: 'track.closed_detour_named'; name: string };
+
+/**
+ * N20: the order sheet's one line about the way round («… مسدود اليوم، فالدليفري دار من فرع ثاني»), naming the street
+ * that costs him most when field ops gave it a name. Nothing when the route avoided none, or when the running-late banner
+ * already says a closed street is why (`lateReason`): one line per screen.
+ */
+export function closedDetourLine(closures: readonly AvoidedStreet[] | null | undefined, lateReason: SlowStretchReason | null | undefined): ClosedDetourLine | null {
+  if (!closures || closures.length === 0 || lateReason === 'closed') return null;
+  const worst = closures.reduce((a, b) => (b.extraMin > a.extraMin ? b : a));
+  const name = worst.nameAr?.trim();
+  return name ? { key: 'track.closed_detour_named', name } : { key: 'track.closed_detour' };
 }

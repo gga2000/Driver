@@ -329,6 +329,9 @@ const { tenderOptions } = await import('@driver/contracts');
 // `late_credit` puts it past the honest-delay threshold, so the order's next read posts the credit.
 // `late_traffic` (N6 «ليش متأخر»): `late_apology`, picked up and on the way, with the market street on
 // his way home learned slow, so the route names a traffic stretch (`late_apology` itself shows the kitchen one).
+// `closed_street` (N20 «شارع مسدود»): picked up, standing at the start of the way home, with «شارع السوق» closed
+// today across the middle of it, so the route bends round it and carries `closures` (the map stripes it; the sheet
+// says «شارع السوق مسدود اليوم، فالدليفري دار من فرع ثاني»). Each call adds one more closure for today.
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
@@ -577,6 +580,20 @@ async function scenario(personId, name, opts = {}) {
     eta.factor = async (from) => (Math.hypot(from.lat - jam.lat, (from.lng - jam.lng) * 0.84) < 0.006 ? 1.6 : 1);
     return r;
   }
+  if (name === 'closed_street') {
+    const r = await scenario(personId, 'on_the_way');
+    stopMover(r.tripId);
+    await trips.reportPosition(r.courierId, { tripId: r.tripId, pin: TO_HOME[1], at: new Date(), bearing: 150, speedKmh: 0 });
+    // The stretch between 40 % and 55 % of the way from him to the door, closed till midnight.
+    const at = (k) => ({ lat: TO_HOME[1].lat + (HOME.lat - TO_HOME[1].lat) * k, lng: TO_HOME[1].lng + (HOME.lng - TO_HOME[1].lng) * k });
+    const { ClosuresService, CLOSURES_REPOSITORY } = await load('modules/closures/index.js');
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    await app.get(CLOSURES_REPOSITORY).create({ cityId: 'aziziyah', path: [at(0.4), at(0.475), at(0.55)], reason: 'works', nameAr: 'شارع السوق', lengthM: 350, startsAt: now, endsAt: midnight, closedById: 'demo-ops' });
+    await app.get(ClosuresService).reload();
+    return r;
+  }
   if (name === 'late_credit' || name === 'late_apology') {
     // Past one of the honest-delay promise's steps (MoneyRules.latePromise): the next read sends the
     // apology (+ apologyAfterMin) or posts the credit (+ afterMin; the apology went out on the way).
@@ -646,7 +663,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'closed_street', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {

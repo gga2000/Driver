@@ -7,10 +7,12 @@ import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-g
 import { buildMapStyle, buildPlacedZonesGeoJSON, LAYER, RTL_TEXT_PLUGIN_URL, SOURCE } from '@driver/map';
 import { fallBackToOriginalMap, goldenImages, type FallbackMap, type GoldenLight } from '@driver/map/golden';
 import { demandGlowLayers, type DemandCell } from '@driver/map/pieces/demand';
+import { closedStreetsLayers } from '@driver/map/pieces/closed-streets';
+import type { ClosedGeoJSON } from '../closed';
 import { courierGoldenStyle, goldenLightFor, LIGHT_CHECK_MS, MAP_URLS } from './golden-map';
 import { bindHouseWindows } from './house-windows';
 import { SvgBase } from './SvgBase';
-import type { BaseMapProps } from './types';
+import type { BaseMapProps, ClosedDrawn } from './types';
 import { LandmarkLayer } from './LandmarkLayer';
 import { ZoneLayer } from './ZoneLayer';
 import { MAP_COLORS_NIGHT, useMapColors } from './mapColors';
@@ -135,7 +137,54 @@ function putGlow(m: MlMap, cells: readonly DemandCell[], light: GoldenLight, sti
   }
 }
 
-function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom, glow, onGlow, onFail }: BaseMapProps & { onFail: () => void }) {
+const CLOSED = 'closed-streets';
+
+/** The closed streets' line layers go just under the first name layer: over the glow, under the names. */
+function closedBefore(m: MlMap): string | undefined {
+  return m.getStyle().layers.find((l) => l.type === 'symbol' && !l.id.startsWith(CLOSED))?.id;
+}
+
+/**
+ * N20: the closed streets the road goes around, drawn into the map (rust and cream stripes, a barrier at each
+ * end) over the busy-zone glow and under the street names; the screen draws the road, pins and him over the
+ * map. The «مسدود» label only where the style has glyphs (the Golden hour map); else the screen draws it.
+ * Added again after every style swap, like the glow; later roads only swap the data. Null = not drawn.
+ */
+function putClosed(m: MlMap, data: ClosedGeoJSON, light: GoldenLight): ClosedDrawn | null {
+  const src = m.getSource<GeoJSONSource>(CLOSED);
+  if (src) {
+    src.setData(data as never);
+    return { lines: true, labels: Boolean(m.getLayer(`${CLOSED}-label`)) };
+  }
+  // Nothing closed on this road and nothing drawn yet: leave the map alone.
+  if (data.features.length === 0) return null;
+  try {
+    const glyphs = Boolean(m.getStyle().glyphs);
+    const before = closedBefore(m);
+    m.addSource(CLOSED, { type: 'geojson', data: data as never });
+    for (const layer of closedStreetsLayers({ source: CLOSED, light, id: CLOSED })) {
+      if (layer.type === 'symbol') {
+        if (glyphs) m.addLayer(layer as Parameters<MlMap['addLayer']>[0]);
+      } else m.addLayer(layer as Parameters<MlMap['addLayer']>[0], before);
+    }
+    return { lines: true, labels: glyphs };
+  } catch {
+    // The style is still loading: its 'styledata' draws them.
+    return null;
+  }
+}
+
+/** A glow added after the closed streets lands over them: put the streets back on top of it. */
+function keepClosedOverGlow(m: MlMap) {
+  const ids = m.getStyle().layers.map((l) => l.id);
+  const lastGlow = ids.reduce((last, id, i) => (id.startsWith(GLOW) ? i : last), -1);
+  const firstClosed = ids.findIndex((id) => id.startsWith(CLOSED));
+  if (lastGlow < 0 || firstClosed < 0 || lastGlow < firstClosed) return;
+  const before = closedBefore(m);
+  for (const id of ids) if (id.startsWith(CLOSED) && !id.endsWith('-label')) m.moveLayer(id, before);
+}
+
+function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, landmarkNameZoom, glow, onGlow, closed, onClosed, onFail }: BaseMapProps & { onFail: () => void }) {
   const still = useTheme().reduceMotion;
   const zonesQuery = useZoneMap();
   const { map: mapColors, night } = useMapColors();
@@ -156,6 +205,14 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
     const g = glowRef.current;
     if (!g.cells) return;
     if (putGlow(m, g.cells, glowLight(), g.still)) g.onGlow?.(true);
+  };
+  const closedRef = useRef({ data: closed, onClosed });
+  closedRef.current = { data: closed, onClosed };
+  const drawClosed = (m: MlMap) => {
+    const c = closedRef.current;
+    if (!c.data) return;
+    const drawn = putClosed(m, c.data, glowLight());
+    if (drawn) c.onClosed?.(drawn);
   };
   const container = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -210,6 +267,11 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         m.on('styledata', () => {
           if (!m.getSource(GLOW)) drawGlow(m);
           if (goldenOn.current) windows?.add(lightRef.current);
+        });
+        // N20: the closed streets the same way (after the glow, so a new style draws them over it).
+        m.on('styledata', () => {
+          if (!m.getSource(CLOSED)) drawClosed(m);
+          else keepClosedOverGlow(m);
         });
         // The palm pattern (and any other Golden hour image) for whichever light is showing.
         m.on('styleimagemissing', (e: { id: string }) => {
@@ -309,6 +371,16 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
 
   // The screen draws its own glow again if this map goes (WebGL lost, low-data mode).
   useEffect(() => () => glowRef.current.onGlow?.(false), []);
+
+  // A new road, or one that no longer goes round anything: swap the closed streets.
+  useEffect(() => {
+    const m = mapRef.current;
+    if (m && closed) drawClosed(m);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closed]);
+
+  // The screen draws the closed streets itself if this map goes.
+  useEffect(() => () => closedRef.current.onClosed?.({ lines: false, labels: false }), []);
 
   useEffect(() => {
     if (zonesQuery.data) mapRef.current?.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesQuery.data));

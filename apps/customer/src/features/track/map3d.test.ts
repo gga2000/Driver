@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { inRing, litBuilding, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from './map3d';
+import { closedStreetsGeoJSON } from '@driver/map/pieces/closed-streets';
+import { closedDetourLine, closuresOnMap, inRing, litBuilding, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from './map3d';
 import { buildPath } from './motion';
 
 const road = buildPath([
@@ -88,5 +89,42 @@ describe('3D order map: the slow stretch (N6)', () => {
     const p = slowStretchPath(null, v, null)!;
     expect(p.pts).toEqual([{ lat: 32.9, lng: 45.06 }, { lat: 32.901, lng: 45.06 }]);
     expect(slowStretchPath(road, v, null)).toBe(road);
+  });
+});
+
+describe('N20 closed streets: the map and the sheet line', () => {
+  const street = (id: string, extraMin: number, nameAr: string | null = null) => ({
+    id,
+    path: [
+      { lat: 32.9, lng: 45.06 },
+      { lat: 32.9005, lng: 45.0605 },
+    ],
+    reason: 'works' as const,
+    nameAr,
+    endsAt: new Date('2026-10-11T20:00:00Z'),
+    extraMin,
+  });
+  it('draws the closed streets until he is at the door', () => {
+    expect(closuresOnMap('on_the_way', [street('a', 2)])).toHaveLength(1);
+    expect(closuresOnMap('kitchen', [street('a', 2)])).toHaveLength(1);
+    expect(closuresOnMap('arrived', [street('a', 2)])).toHaveLength(0);
+    expect(closuresOnMap('near', undefined)).toHaveLength(0);
+  });
+  it('the shared piece gets the stretch, both barriers and the short label', () => {
+    const fc = closedStreetsGeoJSON(closuresOnMap('on_the_way', [street('a', 2)]), () => 'شارع مسدود');
+    const parts = fc.features.map((f) => f.properties.part);
+    expect(parts.filter((p) => p === 'closed')).toHaveLength(1);
+    expect(parts.filter((p) => p === 'bar')).toHaveLength(2);
+    expect(fc.features.find((f) => f.properties.part === 'label')?.properties.label).toBe('شارع مسدود');
+  });
+  it('one line: generic, or the costliest street by name', () => {
+    expect(closedDetourLine([street('a', 2)], null)).toEqual({ key: 'track.closed_detour' });
+    expect(closedDetourLine([street('a', 1, 'شارع السوق'), street('b', 4, ' شارع الجسر ')], null)).toEqual({ key: 'track.closed_detour_named', name: 'شارع الجسر' });
+    expect(closedDetourLine([street('a', 4), street('b', 1, 'شارع السوق')], 'traffic')).toEqual({ key: 'track.closed_detour' });
+  });
+  it('nothing without closures, or when the late banner already says a closed street', () => {
+    expect(closedDetourLine(undefined, null)).toBeNull();
+    expect(closedDetourLine([], null)).toBeNull();
+    expect(closedDetourLine([street('a', 2, 'شارع السوق')], 'closed')).toBeNull();
   });
 });

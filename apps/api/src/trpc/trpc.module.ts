@@ -31,6 +31,7 @@ import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { ControlsModule, ControlsService } from '../modules/controls/index.js';
 import { ZoneChecksService, ZonesModule, ZonesService } from '../modules/zones/index.js';
+import { ClosuresModule, ClosuresService } from '../modules/closures/index.js';
 import { AccountCloseService, ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { SafetyModule, SafetyService } from '../modules/safety/index.js';
@@ -107,6 +108,7 @@ export class TrpcService {
     private readonly accountClose: AccountCloseService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
+    private readonly closures: ClosuresService,
     private readonly zoneChecks: ZoneChecksService,
     private readonly safety: SafetyService,
     private readonly insights: InsightsService,
@@ -196,6 +198,7 @@ export class TrpcService {
       accountClose: this.accountClose,
       support: this.support,
       zones: this.zones,
+      closures: this.closures,
       zoneChecks: this.zoneChecks,
       safety: this.safety,
       referrals: this.referrals,
@@ -241,5 +244,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, ShoppingModule, FoodCartsModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, ParcelsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, ShoppingModule, FoodCartsModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, ClosuresModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, ParcelsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

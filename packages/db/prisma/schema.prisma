@@ -3938,6 +3938,36 @@ model RefundApproval {
   @@schema("public")
 }
 
+/// N20 «شارع مسدود» (Ali, 2026-10-11): a street field ops closed for today. Every route goes around it
+/// until `endsAt` (the next Baghdad midnight unless ops picked an earlier hour) or until it is opened early.
+/// Ids and places only; who did it is a staff person id.
+model StreetClosure {
+  id         String    @id @default(cuid())
+  cityId     String    @map("city_id")
+  /// The closed stretch along the street: [{lat, lng}, ...], two or more points.
+  path       Json
+  /// works | funeral | water | other (CHECK in the migration).
+  reason     String
+  /// What ops call it («شارع المستشفى»); shown to couriers and customers. NULL = no name.
+  nameAr     String?   @map("name_ar")
+  lengthM    Int       @map("length_m")
+  startsAt   DateTime  @map("starts_at")
+  endsAt     DateTime  @map("ends_at")
+  closedById String    @map("closed_by_id")
+  openedAt   DateTime? @map("opened_at")
+  openedById String?   @map("opened_by_id")
+  /// ops | courier (CHECK in the migration). A courier's report routes nothing until confirmed.
+  source        String    @default("ops")
+  confirmedAt   DateTime? @map("confirmed_at")
+  confirmedById String?   @map("confirmed_by_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, endsAt])
+  @@map("street_closures")
+  @@schema("public")
+}
+
 /// طرود (Ali 2026-10-12): a parcel inside the city. The receiver is a person id (the name the sender
 /// gave lives in identity_vault under participant `parcel:<id>`); the door link's token is stored only
 /// as its sha-256. The courier order is placed once the door is set (`order_id`). Ids, the parcel's

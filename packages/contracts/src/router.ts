@@ -34,6 +34,7 @@ import { phoneBookingsRouter } from './routers/phone-booking.js';
 import { inboxRouter } from './routers/inbox.js';
 import { onCallRouter } from './routers/on-call.js';
 import { garageTaxiRouter } from './routers/garage-taxi.js';
+import { closuresRouter } from './routers/closures.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -96,6 +97,7 @@ export const appRouter = router({
   wallet: walletRouter,
   household: householdRouter,
   partner: partnerRouter,
+  closures: closuresRouter,
   merchant: merchantRouter,
   chat: chatRouter,
   tracking: trackingRouter,

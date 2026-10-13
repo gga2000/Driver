@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
 import { distanceM, type LngLat } from '../geo';
 import { SLOW_COPY } from '../late-promise';
-import { litBuilding, momentOf, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from '../map3d';
+import { closuresOnMap, litBuilding, momentOf, routeGeoJSON, routeParts, slowStretchPath, slowStretchShape } from '../map3d';
 import { glidePos } from '../motion';
 import { bindHouseWindows } from './house-windows-web';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from '../queries';
@@ -20,9 +20,10 @@ import { PIN, Teardrop } from './Teardrop';
 import { useRoadGlide } from './useRoadGlide';
 
 type Golden = typeof import('@driver/map/golden');
+type ClosedPieces = typeof import('@driver/map/pieces/closed-streets');
 type Pt = [number, number];
 
-const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', life: 'track-life', slow: 'track-slow' } as const;
+const SRC = { route: 'track-route', glow: 'track-glow', lit: 'track-lit', life: 'track-life', slow: 'track-slow', closed: 'track-closed' } as const;
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 /** The route redraws at most this often while the courier glides (the marker itself moves every frame). */
 const ROUTE_REDRAW_MS = 250;
@@ -57,6 +58,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   const container = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const goldenRef = useRef<Golden | null>(null);
+  const closedRef = useRef<ClosedPieces | null>(null);
   const lightRef = useRef<ReturnType<Golden['resolveLight']>['light'] | null>(null);
   const [ready, setReady] = useState(false);
   const [follow, setFollow] = useState(true);
@@ -75,10 +77,13 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   // N6 «ليش متأخر»: the slow stretch the server names once the delivery is past its apology step.
   const slow = roadQuery.data?.slowStretch ?? null;
   const routeFrom = roadQuery.data?.from ?? null;
+  // N20 «شارع مسدود»: the closed streets his route was bent around, drawn where they are.
+  const closures = roadQuery.data?.closures ?? null;
+  const closedLabel = t('track.slow_closed_map');
 
   // Everything the frame loop and map callbacks read, without re-creating the map.
-  const live = useRef({ moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion, slow, routeFrom, view });
-  live.current = { moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion, slow, routeFrom, view };
+  const live = useRef({ moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion, slow, routeFrom, view, closures, closedLabel });
+  live.current = { moment, kitchen, home, pickedUp, follow, topInset, bottomInset, reduce: theme.reduceMotion, slow, routeFrom, view, closures, closedLabel };
   const failRef = useRef(onFail);
   failRef.current = onFail;
 
@@ -132,6 +137,8 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     const slowShape = s.moment === 'arrived' ? null : slowStretchShape(slowStretchPath(motion.path.value, s.view, s.routeFrom), s.slow, here?.d ?? 0);
     m.getSource<GeoJSONSource>(SRC.slow)?.setData(slowShape?.line ?? EMPTY);
     slowMid.current = slowShape?.mid ?? null;
+    const closed = closedRef.current;
+    m.getSource<GeoJSONSource>(SRC.closed)?.setData(closed ? (closed.closedStreetsGeoJSON(closuresOnMap(s.moment, s.closures), () => s.closedLabel) as GeoJSON.FeatureCollection) : EMPTY);
   };
 
   // ── the map, created once ──
@@ -142,13 +149,14 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     let lightTimer: ReturnType<typeof setInterval> | undefined;
     let stopFallback: (() => void) | undefined;
     let map: MlMap | null = null;
-    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces/moments'), import('@driver/map/pieces/windows')])
-      .then(async ([mod, golden, pieces, win]) => {
+    Promise.all([import('maplibre-gl'), import('@driver/map/golden'), import('@driver/map/pieces/moments'), import('@driver/map/pieces/windows'), import('@driver/map/pieces/closed-streets')])
+      .then(async ([mod, golden, pieces, win, closedPieces]) => {
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
         await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
         ensureMaplibreCss();
         goldenRef.current = golden;
+        closedRef.current = closedPieces;
         lightRef.current = golden.resolveLight().light;
         const style = () =>
           golden.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode: 'customer', light: lightRef.current!, riseAt: golden.TRACKING_RISE_ZOOM }).style as unknown as StyleSpecification;
@@ -189,6 +197,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           m.addSource(SRC.lit, { type: 'geojson', data: EMPTY });
           m.addSource(SRC.life, { type: 'geojson', data: EMPTY });
           m.addSource(SRC.slow, { type: 'geojson', data: EMPTY });
+          m.addSource(SRC.closed, { type: 'geojson', data: EMPTY });
           // Windows, doors and roof walls up close, under the street life, the route and the pins.
           windows.add(light);
           const before = m.getLayer(golden.GOLDEN_FIRST_LABEL) ? golden.GOLDEN_FIRST_LABEL : undefined;
@@ -197,6 +206,8 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           for (const layer of golden.goldenTrackingLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit })) m.addLayer(layer as never, before);
           // The slow stretch over the road ahead, still under the street names.
           for (const layer of pieces.slowStretchLayers({ source: SRC.slow, light, id: 'track-slow' })) m.addLayer(layer as never, before);
+          // N20: the closed streets he goes around, striped with a barrier at each end, under the street names too.
+          for (const layer of closedPieces.closedStreetsLayers({ source: SRC.closed, light, id: 'track-closed' })) m.addLayer(layer as never, before);
           paint();
           // The roads arrive with the tiles: build the street scene once they are in.
           m.once('idle', rebuildLife);
@@ -316,7 +327,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     paint();
     if (live.current.follow) frame(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moment, ready, roadQuery.data?.polyline6, slow?.fromM, slow?.toM, slow?.reason]);
+  }, [moment, ready, roadQuery.data?.polyline6, slow?.fromM, slow?.toM, slow?.reason, closures]);
 
   // Each position update: keep him and the door in the shot, and one glint along the road ahead.
   const fixKey = fix ? `${fix.at.getTime()}` : 'none';
