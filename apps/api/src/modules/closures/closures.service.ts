@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import { CLOSURE_LIMITS, CLOSURE_REPORT_RULES, CloseStreetInput, DriverError, haversineM, type Actor, type ConfirmClosureInput, type ReportClosureInput, type ReportClosureResult, type ClosuresInput, type ClosuresPort, type ClosureView, type LatLng, type OpenStreetInput, type SnapClosureInput, type SnappedClosure } from '@driver/contracts';
+import { CLOSURE_LIMITS, CLOSURE_REPORT_RULES, CloseStreetInput } from '@driver/contracts/closures';
+import { DriverError, haversineM, type Actor, type ConfirmClosureInput, type ReportClosureInput, type ReportClosureResult, type ClosuresInput, type ClosuresPort, type ClosureView, type LatLng, type OpenStreetInput, type SnapClosureInput, type SnappedClosure } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { DistributedKeyedLock } from '../../shared/db/advisory-lock.js';

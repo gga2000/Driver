@@ -1,4 +1,5 @@
-import { CLOSURE_EDIT_ROLES, PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { CLOSURE_EDIT_ROLES } from '@driver/contracts/closures';
 import type { MessageKey } from '@driver/i18n';
 import { INBOX_READ_ROLES, ON_CALL_READ_ROLES, PHONE_BOOKING_ROLES } from '@driver/contracts';
 

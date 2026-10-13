@@ -6,7 +6,7 @@ import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
 import { VehicleColour, VehicleFeature } from './vehicle-features.js';
-import { AvoidedStreet } from './closures-io.js';
+import { AvoidedStreet } from './closed-street.js';
 
 /** How an ETA was worked out: on real roads (OSRM) or by the straight-line estimate (`travelMinutes`). */
 export const EtaBasis = z.enum(['road', 'estimated']);

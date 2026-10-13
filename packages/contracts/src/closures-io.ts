@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { RoleKind } from './auth.js';
 import { CityId, LatLng } from './common.js';
+import { ClosedStreet, ClosureReason } from './closed-street.js';
 import type { Actor } from './identity-io.js';
 import { PARTNER_DRIVING_ROLES } from './partner-io.js';
 
@@ -49,25 +50,6 @@ export const CLOSURE_LIMITS = {
   minLengthM: 20,
   nameMax: 60,
 } as const;
-
-/** Why the street is closed: works (أشغال), a funeral tent (عزا), water (مي), anything else (غيره). */
-export const ClosureReason = z.enum(['works', 'funeral', 'water', 'other']);
-export type ClosureReason = z.infer<typeof ClosureReason>;
-
-/** A closed street as everyone else sees it (customer map, courier's job, Console list). */
-export const ClosedStreet = z.object({
-  id: z.string(),
-  path: z.array(LatLng).min(2),
-  reason: ClosureReason,
-  /** What ops called it («شارع المستشفى»); null = no name (show «شارع مسدود»). */
-  nameAr: z.string().nullable(),
-  endsAt: z.coerce.date(),
-});
-export type ClosedStreet = z.infer<typeof ClosedStreet>;
-
-/** A closed street a route was sent around, and the whole minutes the way around adds (0 = under a minute). */
-export const AvoidedStreet = ClosedStreet.extend({ extraMin: z.number().int().nonnegative() });
-export type AvoidedStreet = z.infer<typeof AvoidedStreet>;
 
 /** A closure in the Console: who closed it, how long it is, and whether it is still closed. */
 export const ClosureView = ClosedStreet.extend({

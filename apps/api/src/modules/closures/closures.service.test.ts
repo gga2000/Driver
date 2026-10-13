@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { describe, expect, it } from 'vitest';
-import { CLOSURE_REPORT_RULES, DriverError, haversineM, ReportClosureInput, type Actor, type AppContext, type LatLng, type RoleKind } from '@driver/contracts';
+import { CLOSURE_REPORT_RULES, ReportClosureInput } from '@driver/contracts/closures';
+import { DriverError, haversineM, type Actor, type AppContext, type LatLng, type RoleKind } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
 import { FakeClock } from '../../shared/clock.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';

@@ -2,7 +2,8 @@
 
 import dynamic from 'next/dynamic';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CLOSURE_EDIT_ROLES, CLOSURE_LIMITS, ClosureReason, type ClosureView, type LatLng } from '@driver/contracts';
+import { ClosureReason, type ClosureView, type LatLng } from '@driver/contracts';
+import { CLOSURE_EDIT_ROLES, CLOSURE_LIMITS } from '@driver/contracts/closures';
 import { t } from '@driver/i18n';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { formatClock } from '@/lib/format';
