@@ -49,8 +49,13 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010570000 | shopping | shopping thread | stalls' daily prices, bakery items, «صمون كل يوم», weighed and دوّرلي order lines (after 540000 home cooks, 550000 carts, 560000 lane A) |
 | 20261010580000 | parcel_sends | parcels thread | طرود: send, receiver sets the door (reserved 10-12) |
 | 20261010590000 | home_kitchens | home cooks thread | أكل بيت: `catalog_items.home_sale` (ready today / by reservation). Was 540000; re-stamped after carts landed first (2026-10-12) |
+| 20261010600000 | notify_stuck_claims_index | lane D | (status, sent_at) index for the every-minute stuck-send count (#321 follow-up) |
 | 20261010610000 | street_closures | lane A | N20 «شارع مسدود», closed streets for today (re-stamped 560000 → 610000; 600000 went to #323's notify index) |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, was `20261010140000`)
 and #38 (lane B, `20261010220000`). #38 re-stamps to the next free timestamp when it lands. Trips steps 1–6
 re-stamped to `20261010340000`–`20261010390000` (coordinator, 22:37Z); they merge after lane A's `20261010310000`.
+
+Indexes built `CONCURRENTLY` (outbox_event_id_index, notify_stuck_claims_index): if the build fails midway Postgres keeps an
+INVALID index that `IF NOT EXISTS` then skips. Fix: `DROP INDEX CONCURRENTLY <name>;`, delete the failed row from
+`_prisma_migrations` (`prisma migrate resolve --rolled-back <migration>`), then deploy again.
