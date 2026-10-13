@@ -10,7 +10,7 @@ import { platePng } from '../door-photo.mjs';
 const WEBM = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(64)]);
 const SHOPS = { zoneKey: 'hashimi', pin: { lat: 32.8968, lng: 45.0662 } };
 const HOME = { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } };
-const PHARMACY = { lat: 32.8975, lng: 45.0671 };
+const PHONE_SHOP = { lat: 32.8975, lng: 45.0671 };
 
 export default async function register(demo) {
   const { services, CITY } = demo;
@@ -49,7 +49,7 @@ export default async function register(demo) {
       pickup: SHOPS,
       dropoff: HOME,
       lines: [
-        line('بنادول أدفانس', 1, { unit: 'box', where: { kind: 'known', name: 'صيدلية الشفاء', pin: PHARMACY }, ifMissing: 'call', maxIqd: 6000, photoUploadId: photo }),
+        line('شاحن تايب سي', 1, { unit: 'piece', where: { kind: 'known', name: 'موبايلات النور', pin: PHONE_SHOP }, ifMissing: 'call', maxIqd: 6000, photoUploadId: photo }),
         line('حليب نيدو الكبير', 1, { unit: 'piece', where: near, ifMissing: 'similar', voiceUploadId: voice, voiceSec: 9 }),
         line('طماطة', 1, { unit: 'kg', where: near, ifMissing: 'skip' }),
         line('صمون', 2, { unit: 'piece', where: near, ifMissing: 'skip' }),
