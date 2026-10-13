@@ -3961,6 +3961,7 @@ model StreetClosure {
 
   @@index([cityId, endsAt])
   @@map("street_closures")
+  @@schema("public")
 }
 
 /// طرود (Ali 2026-10-12): a parcel inside the city. The receiver is a person id (the name the sender
