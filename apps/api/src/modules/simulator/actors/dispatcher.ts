@@ -21,6 +21,7 @@ export const DISPATCHER_BEHAVIOUR = {
 const FITS: Partial<Record<Vertical, ReadonlyArray<DriverRun['def']['vehicle']>>> = {
   food: ['bike', 'tuktuk', 'car'],
   grocery: ['bike', 'tuktuk', 'car'],
+  parcel: ['bike', 'tuktuk', 'car'],
   errand: ['bike', 'tuktuk', 'car'],
   taxi: ['car'],
   tuktuk: ['tuktuk'],

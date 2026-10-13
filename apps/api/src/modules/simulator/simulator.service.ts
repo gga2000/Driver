@@ -45,8 +45,15 @@ export interface RunResult {
 export const DEFAULT_LIVE_SPEED = 60;
 const LIVE_TICK_MS = 1000;
 
-/** Live start options: the Console contract, plus a tick interval tests may shorten (not exposed over tRPC). */
-export type LiveStartInput = z.infer<typeof SimulatorStartInput> & { speed?: number | undefined; tickMs?: number | undefined };
+/**
+ * Live start options: the Console contract, plus test-only knobs (not exposed over tRPC): a shorter
+ * tick interval, and `fixedStep` (lock-step), which moves the sim by exactly `tickMs × speed` per
+ * tick instead of by the real time since the last one, so a slow machine slows the run down instead
+ * of making its steps bigger, and has each tick fire the app's in-memory timers due at the sim's time
+ * (for a test whose app clock follows `liveNow()`). Off by default: the Console's live mode keeps
+ * pace with the wall clock.
+ */
+export type LiveStartInput = z.infer<typeof SimulatorStartInput> & { speed?: number | undefined; tickMs?: number | undefined; fixedStep?: boolean | undefined };
 
 interface LiveRun {
   sim: Simulation;
@@ -149,6 +156,9 @@ export class SimulatorService implements OnModuleDestroy {
     const errandShare = this.errandShare(true);
     const plan = buildScenario(world, { orders: opts.orders, ...(errandShare !== undefined ? { errandShare } : {}) });
     clock.set(DEFAULT_DAY_START);
+    // طرود: the in-process city also opens parcels (the plan has some; not yet launched in Aziziyah's file).
+    const config = this.moduleRef.get(ConfigService, { strict: false });
+    if (!config.isLaunched(CITY, 'parcel')) config.setLaunchedVerticals(CITY, [...config.launchedVerticals(CITY), 'parcel']);
     const sim = new Simulation(this.services(), {
       world,
       plan,
@@ -209,7 +219,9 @@ export class SimulatorService implements OnModuleDestroy {
     const errandShare = this.errandShare(false);
     const plan = buildScenario(world, { orders: Math.max(1, Math.round((input.ordersPerHour * DAY_MINUTES) / 60)), ...(errandShare !== undefined ? { errandShare } : {}) });
     const now = this.clock.now();
-    const sim = new Simulation(this.services(), { world, plan, dayStart: now, speed, appNow: () => this.clock.now() });
+    // Lock-step (tests): the sim also fires the app's timers at its own time, as the in-process run does.
+    const queues = input.fixedStep ? { queues: this.timerQueues() } : {};
+    const sim = new Simulation(this.services(), { world, plan, dayStart: now, speed, appNow: () => this.clock.now(), ...queues });
     await sim.setup();
     const tickMs = input.tickMs ?? LIVE_TICK_MS;
     const run: LiveRun = { sim, input, speed, tickMs, startedAt: now, busy: false, lastReal: Date.now(), wallStart: Date.now(), timer: undefined as unknown as NodeJS.Timeout };
@@ -220,13 +232,13 @@ export class SimulatorService implements OnModuleDestroy {
     return this.status();
   }
 
-  /** One live step: real time since the last step × speed, never two at once. */
+  /** One live step: real time since the last step × speed (or `tickMs` × speed with `fixedStep`), never two at once. */
   async liveTick(run: LiveRun): Promise<void> {
     if (run.busy || this.live !== run) return;
     run.busy = true;
     try {
       const now = Date.now();
-      const dtSec = ((now - run.lastReal) / 1000) * run.speed;
+      const dtSec = ((run.input.fixedStep ? run.tickMs : now - run.lastReal) / 1000) * run.speed;
       run.lastReal = now;
       await run.sim.tick(dtSec);
       const p = run.sim.progress();
@@ -302,6 +314,14 @@ export class SimulatorService implements OnModuleDestroy {
   /** The manual offers the simulated ops desk has sent in the current live run (empty when stopped). */
   liveDeskOverrides(): readonly DeskOverride[] {
     return this.live?.sim.dispatcher.overrides ?? [];
+  }
+
+  /**
+   * The current live run's own time (null when none runs). Tests drive the app's clock from it, so
+   * the app's timers and the simulated people share one time source however slow the machine is.
+   */
+  liveNow(): Date | null {
+    return this.live ? new Date(this.live.sim.t) : null;
   }
 
   /** The full report of the last run (in-process or live). */

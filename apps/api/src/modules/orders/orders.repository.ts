@@ -75,6 +75,12 @@ export interface OrderRecord {
    */
   promisedRideMin?: number | null;
   /**
+   * طرود (Ali, 2026-10-12): a refused parcel's trip back to the sender (`orders.return_fare_iqd`), priced by
+   * the server at the refusal and already added to `totalIqd` (and its delivery and service fees), so the
+   * sender pays both trips at the hand-back. Absent/null = no trip back.
+   */
+  returnFareIqd?: number | null;
+  /**
    * s1 «رمز المشوار» (`orders.start_code`): the 4 digits a ride placed for the night starts with. Never
    * on the `Order` view: tracking shows it to the orderer and the rider only, trips checks it.
    */
@@ -349,6 +355,7 @@ function orderFromRow(r: any): OrderRecord {
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
     promisedRideMin: r.promisedRideMin ?? null,
+    returnFareIqd: r.returnFareIqd ?? null,
     startCode: r.startCode ?? null,
     prepExtendedAt: r.prepExtendedAt ?? null,
     handedOverAt: r.handedOverAt ?? null,

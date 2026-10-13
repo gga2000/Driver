@@ -11,6 +11,8 @@ export const CUSTOMER_BEHAVIOUR = {
   ridePatienceMin: 12,
   /** Food with no courier this long after it is ready: the customer cancels. */
   foodPatienceAfterReadyMin: 30,
+  /** A parcel no courier has picked up this long after it was placed: the sender cancels. */
+  parcelPatienceMin: 30,
   /** After delivery: rates the courier (most give 5, some 3); the rest let it auto-close. */
   rateAfterDelivery: 0.5,
   fiveStars: 0.85,
@@ -58,6 +60,30 @@ export async function placeOrder(ctx: SimContext, run: OrderRun): Promise<void> 
     }
     run.orderId = order.id;
     run.state = order.state;
+    return;
+  }
+
+  // طرود: the sender's parcel from home, paid in cash by the sender; placing it starts the courier
+  // search (dispatch:courier-placed builds the parcel trip from the order's pickup and drop-off).
+  if (p.kind === 'parcel') {
+    const parcel = await ctx.call('customer.place', () =>
+      ctx.s.orders.place(run.customerId, {
+        cityId: CITY,
+        type: 'parcel',
+        pickup: { zoneKey: zoneAt(c.home), pin: c.home },
+        dropoff: { zoneKey: p.dropoffZone, pin: p.dropoffPin },
+        options: { doorPickup: true },
+        paymentMethod: 'cash',
+        clientRequestId: `sim-parcel-${p.key}`,
+      }),
+    );
+    if (!parcel) {
+      run.placeError = 'refused';
+      run.terminal = true;
+      return;
+    }
+    run.orderId = parcel.id;
+    run.state = parcel.state;
     return;
   }
 
@@ -223,6 +249,13 @@ export async function customerStep(ctx: SimContext, run: OrderRun, order: Order)
       run.cancelTried = true;
       await ctx.call('customer.cancel_wait', () => ctx.s.orders.cancel(run.customerId, { orderId: run.orderId!, reason: 'no_driver' }));
     }
+    return;
+  }
+
+  // A parcel no courier took: the sender cancels it (free before pickup).
+  if (order.type === 'parcel' && order.state === 'placed' && !run.cancelTried && ctx.t - run.placedT > CUSTOMER_BEHAVIOUR.parcelPatienceMin * 60_000) {
+    run.cancelTried = true;
+    await ctx.call('customer.cancel_wait', () => ctx.s.orders.cancel(run.customerId, { orderId: run.orderId!, reason: 'no_courier' }));
     return;
   }
 
