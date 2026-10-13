@@ -34,13 +34,16 @@ describe('signposts', () => {
     }
   });
 
-  it('reads the icon paths, arcs and curves included', () => {
-    const [semi] = flattenPath('M6 20.5v-5a6 6 0 0 1 12 0v5');
+  it('reads the icon paths, curves and mirrored curves included', () => {
+    const [semi] = flattenPath('M6 20.5v-5c0-3.3 2.7-6 6-6s6 2.7 6 6v5');
     expect(semi![0]).toEqual([6, 20.5]);
     const top = Math.min(...semi!.map((p) => p[1]));
     expect(top).toBeCloseTo(9.5, 1);
     expect(semi!.at(-1)![0]).toBeCloseTo(18, 5);
     expect(semi!.at(-1)![1]).toBeCloseTo(20.5, 5);
+    // the mirrored half rises as high as the first
+    const left = semi!.filter((p) => p[0] < 12), right = semi!.filter((p) => p[0] > 12);
+    expect(Math.min(...right.map((p) => p[1]))).toBeCloseTo(Math.min(...left.map((p) => p[1])), 0);
   });
 
   it('registers the signs with the map images and draws them from the places layer', () => {

@@ -28,24 +28,24 @@ export const SIGN_COLOURS: Record<SignKind, string> = {
 
 // 24×24 line glyphs in the app's icon style (1.9 px round strokes).
 const GLYPHS: Record<SignKind, string[]> = {
-  mosque: ['M3.5 20.5h17', 'M6 20.5v-5a6 6 0 0 1 12 0v5', 'M12 9V7', 'M13.2 4.6a1.7 1.7 0 1 1-2-2.2 1.4 1.4 0 0 0 2 2.2z', 'M10.6 20.5v-2.2a1.4 1.4 0 0 1 2.8 0v2.2'],
+  mosque: ['M3.5 20.5h17', 'M6 20.5v-5c0-3.3 2.7-6 6-6s6 2.7 6 6v5', 'M12 9V7', 'M12 4.2v.1', 'M10.6 20.5v-2.2c0-1.9 2.8-1.9 2.8 0v2.2'],
   school: ['M12 6.6C10 5.1 7 4.6 4 5.1v13.2c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5.1c-3-.5-6 0-8 1.5z', 'M12 6.6v13.2'],
-  health: ['M5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z', 'M9 8v8', 'M15 8v8', 'M9 12h6'],
+  health: ['M4.5 4.5h15v15h-15z', 'M9 8v8', 'M15 8v8', 'M9 12h6'],
   pharmacy: ['M9.5 4.5h5v5h5v5h-5v5h-5v-5h-5v-5h5z'],
   bakery: ['M3 18.5c0-6.6 4-10.5 9-10.5s9 3.9 9 10.5z', 'M7.6 12.6l1.6 2.4', 'M11.2 10.9l1.6 2.6', 'M14.8 12.6l1.6 2.4'],
-  fuel: ['M5.5 20V5.5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1V20', 'M4 20h12', 'M8 8h5', 'M14.5 11h2a1 1 0 0 1 1 1v4.5a1.3 1.3 0 0 0 2.6 0V9l-2.4-2.4'],
-};
+  fuel: ['M5.5 20V4.5h9V20', 'M4 20h12', 'M8 8h5', 'M14.5 11h3v5.5c0 1.7 2.6 1.7 2.6 0V9l-2.4-2.4'],
+}
 
 type Pt = [number, number];
 
-/** An SVG path (M L H V C A Z, absolute or relative) as polylines. */
+/** An SVG path (M L H V C S Z, absolute or relative) as polylines. */
 export function flattenPath(d: string): Pt[][] {
   const toks = d.match(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)/g) ?? [];
   const out: Pt[][] = [];
   let line: Pt[] = [];
   let i = 0;
   let cmd = '';
-  let x = 0, y = 0, sx = 0, sy = 0;
+  let x = 0, y = 0, sx = 0, sy = 0, cx2 = 0, cy2 = 0;
   const num = () => Number(toks[i++]);
   const push = (px: number, py: number) => { x = px; y = py; line.push([x, y]); };
   while (i < toks.length) {
@@ -63,18 +63,17 @@ export function flattenPath(d: string): Pt[][] {
       case 'L': push(ox + num(), oy + num()); break;
       case 'H': push(ox + num(), y); break;
       case 'V': push(x, oy + num()); break;
-      case 'C': {
-        const [x1, y1, x2, y2, ex, ey] = [ox + num(), oy + num(), ox + num(), oy + num(), ox + num(), oy + num()];
+      case 'C':
+      case 'S': {
+        // S mirrors the last control point (only after a curve, as the glyphs use it)
+        const [x1, y1] = cmd.toUpperCase() === 'S' ? [2 * x - cx2, 2 * y - cy2] : [ox + num(), oy + num()];
+        const [x2, y2, ex, ey] = [ox + num(), oy + num(), ox + num(), oy + num()];
         const [x0, y0] = [x, y];
         for (let k = 1; k <= 12; k++) {
           const t = k / 12, u = 1 - t;
           push(u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * ex, u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * ey);
         }
-        break;
-      }
-      case 'A': {
-        const rx0 = num(), ry0 = num(), rot = num(), large = num(), sweep = num(), ex = ox + num(), ey = oy + num();
-        arc(x, y, rx0, ry0, rot, large, sweep, ex, ey).forEach(([px, py]) => push(px, py));
+        cx2 = x2; cy2 = y2;
         break;
       }
       case 'Z':
@@ -88,38 +87,21 @@ export function flattenPath(d: string): Pt[][] {
   return out;
 }
 
-// SVG endpoint arc → points (the spec's centre parameterisation).
-function arc(x1: number, y1: number, rx: number, ry: number, rotDeg: number, large: number, sweep: number, x2: number, y2: number): Pt[] {
-  const phi = (rotDeg * Math.PI) / 180, c = Math.cos(phi), s = Math.sin(phi);
-  const dx = (x1 - x2) / 2, dy = (y1 - y2) / 2;
-  const xp = c * dx + s * dy, yp = -s * dx + c * dy;
-  rx = Math.abs(rx); ry = Math.abs(ry);
-  const lam = (xp * xp) / (rx * rx) + (yp * yp) / (ry * ry);
-  if (lam > 1) { rx *= Math.sqrt(lam); ry *= Math.sqrt(lam); }
-  const num = rx * rx * ry * ry - rx * rx * yp * yp - ry * ry * xp * xp;
-  const k = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, num / (rx * rx * yp * yp + ry * ry * xp * xp)));
-  const cxp = (k * rx * yp) / ry, cyp = (-k * ry * xp) / rx;
-  const cx = c * cxp - s * cyp + (x1 + x2) / 2, cy = s * cxp + c * cyp + (y1 + y2) / 2;
-  const ang = (ux: number, uy: number, vx: number, vy: number) => Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
-  const t1 = ang(1, 0, (xp - cxp) / rx, (yp - cyp) / ry);
-  let dt = ang((xp - cxp) / rx, (yp - cyp) / ry, (-xp - cxp) / rx, (-yp - cyp) / ry);
-  if (!sweep && dt > 0) dt -= 2 * Math.PI;
-  if (sweep && dt < 0) dt += 2 * Math.PI;
-  const n = Math.max(2, Math.ceil(Math.abs(dt) / (Math.PI / 12)));
-  const pts: Pt[] = [];
-  for (let j = 1; j <= n; j++) {
-    const t = t1 + (dt * j) / n;
-    pts.push([cx + rx * Math.cos(t) * c - ry * Math.sin(t) * s, cy + rx * Math.cos(t) * s + ry * Math.sin(t) * c]);
-  }
-  return pts;
-}
-
 function segDist(px: number, py: number, a: Pt, b: Pt): number {
   const dx = b[0] - a[0], dy = b[1] - a[1];
   const l2 = dx * dx + dy * dy;
   const t = l2 ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / l2)) : 0;
   return Math.hypot(px - a[0] - t * dx, py - a[1] - t * dy);
 }
+
+// how much of a glyph stroke (1.9 px on the 24-grid) covers the point (gx, gy), the grid scaled by gs × SCALE
+function glyphAlpha(kind: SignKind, gx: number, gy: number, px: number): number {
+  let gd = Infinity;
+  for (const l of glyphLines(kind)) for (let k = 1; k < l.length; k++) gd = Math.min(gd, segDist(gx, gy, l[k - 1]!, l[k]!));
+  return Math.max(0, Math.min(1, (0.95 - gd) * px + 0.5));
+}
+const lines = new Map<SignKind, Pt[][]>();
+const glyphLines = (kind: SignKind) => lines.get(kind) ?? lines.set(kind, GLYPHS[kind].flatMap(flattenPath)).get(kind)!;
 
 const hex = (c: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) as [number, number, number];
 
@@ -134,8 +116,6 @@ export function signImage(kind: SignKind, night = false): PatternImage {
   const body = hex(SIGN_COLOURS[kind]);
   const cream = hex(night ? '#F2DDBE' : '#FFF6E6');
   const shade = hex('#3C220A');
-  // glyph segments with their padded boxes, so each pixel only measures the few strokes near it
-  const segs = GLYPHS[kind].flatMap(flattenPath).flatMap((l) => l.slice(1).map((b, k) => { const a = l[k]!; return [a, b, Math.min(a[0], b[0]) - 1.5, Math.max(a[0], b[0]) + 1.5, Math.min(a[1], b[1]) - 1.5, Math.max(a[1], b[1]) + 1.5] as const; }));
   const gs = (R * 1.2) / 24; // glyph scale in 1× px
   // the point: tangent lines from the tip to the head circle
   const half = Math.asin(R / (TIP - CY));
@@ -152,10 +132,7 @@ export function signImage(kind: SignKind, night = false): PatternImage {
       const sd = Math.min(dc, inTri ? -dTri : dTri);
       const aShape = Math.max(0, Math.min(1, 0.5 - sd * SCALE));
       const inner = Math.max(0, Math.min(1, 0.5 - (sd + 1.6) * SCALE)); // inside the 1.6 px cream rim
-      let gd = Infinity;
-      const gx = (x - CX) / gs + 12, gy = (y - CY) / gs + 12;
-      if (dc < -1) for (const [a, b, x0, x1, y0, y1] of segs) if (gx >= x0 && gx <= x1 && gy >= y0 && gy <= y1) gd = Math.min(gd, segDist(gx, gy, a, b));
-      const aGlyph = Math.max(0, Math.min(1, (0.95 - gd) * gs * SCALE + 0.5));
+      const aGlyph = dc < -1 ? glyphAlpha(kind, (x - CX) / gs + 12, (y - CY) / gs + 12, gs * SCALE) : 0;
       // a little shadow under the tip so the sign stands on the street
       const sh = Math.max(0, 1 - Math.hypot((x - CX) / 6, (y - TIP) / 1.6)) * 0.35;
       const c = (k: 0 | 1 | 2) => {
@@ -179,16 +156,12 @@ export function markImage(kind: SignKind, night = false): PatternImage {
   const data = new Uint8Array(w * h * 4);
   const ink = hex(SIGN_COLOURS[kind]);
   const disc = hex(night ? '#2A1F17' : '#FFF6E6');
-  const segs = GLYPHS[kind].flatMap(flattenPath).flatMap((l) => l.slice(1).map((b, k) => [l[k]!, b] as const));
   const gs = (r * 1.25) / 24;
   for (let py = 0; py < h; py++) {
     for (let px = 0; px < w; px++) {
       const x = (px + 0.5) / SCALE, y = (py + 0.5) / SCALE;
       const aDisc = Math.max(0, Math.min(1, 0.5 - (Math.hypot(x - c0, y - c0) - r) * SCALE)) * 0.55;
-      let gd = Infinity;
-      const gx = (x - c0) / gs + 12, gy = (y - c0) / gs + 12;
-      for (const [a, b] of segs) gd = Math.min(gd, segDist(gx, gy, a, b));
-      const aGlyph = Math.max(0, Math.min(1, (0.95 - gd) * gs * SCALE + 0.5));
+      const aGlyph = glyphAlpha(kind, (x - c0) / gs + 12, (y - c0) / gs + 12, gs * SCALE);
       const a = aGlyph + aDisc * (1 - aGlyph);
       const i = (py * w + px) * 4;
       for (let k = 0; k < 3; k++) data[i + k] = Math.round(a ? (ink[k]! * aGlyph + disc[k]! * aDisc * (1 - aGlyph)) / a : 0);
