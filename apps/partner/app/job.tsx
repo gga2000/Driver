@@ -24,7 +24,6 @@ import { SlipNote } from '@/features/offer/SlipParts';
 import { speakOffer, stopSpeaking } from '@/features/offer/speak';
 import { openNav, setNavApp, useNavApp, type NavApp } from '@/features/work/nav';
 import { DoorCard } from '@/features/work/DoorCard';
-import { JobKindPanel } from '@/features/work/JobKindPanel';
 import { PickupSpotCard } from '@/features/work/PickupSpotCard';
 import { JobKindPanel, jobKindBlocks, nudgeJobKind } from '@/features/work/JobKindPanel';
 import { StartCodePanel } from '@/features/work/StartCodePanel';
@@ -558,7 +557,6 @@ function JobView({
               {/* f3: a gift and the customer's wallet top-up are one ink card (the top-up confirms with a slide). */}
               <DoorMoneyCard gift={giftNote(stop)} topUp={topUp && stop.type === 'dropoff'} stop={stop} />
               <JobNotes job={job} stop={stop} ride={ride} />
-              <JobKindPanel job={job} />
 
               {/* Maps program r7: the kitchen's photos and note of where to collect, until he has the food. */}
               {stop.type === 'pickup' && stop.pickupSpot ? <PickupSpotCard spot={stop.pickupSpot} /> : null}
