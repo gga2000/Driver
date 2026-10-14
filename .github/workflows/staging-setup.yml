@@ -105,7 +105,7 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           # Web sites allowed to call the staging API from a browser (exact origins, comma-separated).
-          CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app,https://driver-partner.vercel.app' }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS || 'https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app,https://driver-partner-ashen.vercel.app' }}
           # The customer web app: SOS links open its /sos/ page, trip-share links its /share/ page.
           CUSTOMER_WEB: ${{ vars.SHARE_BASE_URL || 'https://driver-customer-iota.vercel.app' }}
           # The staging test numbers' sign-in code (docs/api/staging-test-numbers.md), chosen by a person
