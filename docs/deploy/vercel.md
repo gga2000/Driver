@@ -34,7 +34,7 @@ the «ابدأ الشغل» tap (browser autoplay rule), keep-screen-on uses Wak
 A third project, `driver-partner`, Root Directory **`apps/partner`** (`apps/partner/vercel.json`,
 `apps/partner/scripts/vercel-build.sh`), same `EXPO_PUBLIC_API_URL` and the same map variables as the
 customer site (`EXPO_PUBLIC_MAP_TILES_URL`, `EXPO_PUBLIC_MAP_GLYPHS_URL`). Its address
-(`https://driver-partner.vercel.app`) must also be in the staging API's `CORS_ORIGINS`. It is for trying
+(`https://driver-partner-ashen.vercel.app`) must also be in the staging API's `CORS_ORIGINS`. It is for trying
 the partner app on staging from a browser: background location while the screen is off and push only
 work in the phone app. Every page is `noindex`.
 
