@@ -8,10 +8,11 @@ export const opsZonesRouter = router({
     .input(ZonesInput)
     .output(z.array(ZonePlacementView))
     .query(({ ctx, input }) => ctx.zones.list(input.cityId)),
+  /** Every app map, no sign-in: the outlines and names only, never who drew them or drivers' answers. */
   map: publicProcedure
     .input(ZonesInput)
     .output(z.array(ZonePlacementView))
-    .query(({ ctx, input }) => ctx.zones.list(input.cityId)),
+    .query(async ({ ctx, input }) => (await ctx.zones.list(input.cityId)).map((zone) => ({ ...zone, placedBy: null, checks: undefined }))),
   place: protectedProcedure(ZONE_EDIT_ROLES)
     .input(PlaceZoneInput)
     .output(ZonePlacementView)
