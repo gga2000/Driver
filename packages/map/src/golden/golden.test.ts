@@ -7,6 +7,8 @@ import {
   GOLDEN_FONTS,
   GOLDEN_PALETTES,
   GOLDEN_SOURCE,
+  GOLDEN_ZONE_NAMES_SOURCE,
+  GOLDEN_ZONES_SOURCE,
   LANDMARK_PARTS,
   LANDMARK_RISE,
   goldenImages,
@@ -55,6 +57,26 @@ describe('buildGoldenStyle', () => {
         expect(new Set(ids(style)).size).toBe(style.layers.length);
       }
     }
+  });
+  it('draws the Console neighbourhoods on customer and lite only, under the houses, never the AI drafts', () => {
+    for (const mode of MODES) {
+      const style = buildGoldenStyle({ ...base, light: 'golden', mode, zoneNames: true });
+      const zoneIds = style.layers.filter((l) => 'source' in l && (l.source === GOLDEN_ZONES_SOURCE || l.source === GOLDEN_ZONE_NAMES_SOURCE)).map((l) => l.id);
+      if (mode === 'customer' || mode === 'lite') {
+        expect(style.sources[GOLDEN_ZONES_SOURCE]).toMatchObject({ type: 'geojson' });
+        expect(style.sources[GOLDEN_ZONE_NAMES_SOURCE]).toMatchObject({ type: 'geojson' });
+        expect(zoneIds).toEqual(['golden-zone-wash', 'golden-zone-edge', 'golden-zone-names']);
+        for (const id of zoneIds) expect(style.layers.find((l) => l.id === id)).toMatchObject({ filter: ['!=', ['get', 'placement'], 'draft'] });
+        expect(ids(style).indexOf('golden-zone-edge')).toBeLessThan(ids(style).indexOf('golden-roofs'));
+        expect(ids(style).indexOf('golden-zone-names')).toBeGreaterThan(ids(style).indexOf('golden-roofs'));
+      } else {
+        // courier and Console lay their own zone layers on this source
+        expect(style.sources[GOLDEN_ZONES_SOURCE]).toBeUndefined();
+        expect(zoneIds).toEqual([]);
+      }
+    }
+    // names stay off until the app stops drawing its own
+    expect(ids(buildGoldenStyle({ ...base, light: 'day', mode: 'customer' }))).not.toContain('golden-zone-names');
   });
   it('reads only the layers the tiles carry and only the fonts glyphs.py writes', () => {
     const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'courier' });

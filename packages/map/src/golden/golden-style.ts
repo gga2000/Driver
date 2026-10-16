@@ -29,6 +29,11 @@ export interface GoldenStyleOptions {
   mode?: GoldenMode;
   /** Zoom where houses start rising into 3D (customer/courier only); the order map uses TRACKING_RISE_ZOOM. */
   riseAt?: number;
+  /**
+   * Paint the Console zones' names on the ground (customer and lite). Off by default while an app
+   * still draws the names itself; their edges show either way once the app fills `GOLDEN_ZONES_SOURCE`.
+   */
+  zoneNames?: boolean;
 }
 
 /** The vector source id; the font stacks live in `fonts.ts` so pieces can import them alone. */
@@ -41,6 +46,15 @@ export const GOLDEN_ATTRIBUTION = '© OpenStreetMap contributors, Overture Maps 
  * stay readable on top of them: `map.addLayer(route, GOLDEN_FIRST_LABEL)`.
  */
 export const GOLDEN_FIRST_LABEL = 'golden-street-names';
+/**
+ * The GeoJSON source for the neighbourhoods drawn in the Console zones page (`buildPlacedZonesGeoJSON`
+ * of `ops.zones.map`). Same id as the original map's `SOURCE.zones`, so an app that already fills it
+ * draws the edges on our map too. Courier and Console bring their own zone layers, so only customer
+ * and lite get these.
+ */
+export const GOLDEN_ZONES_SOURCE = 'zones';
+/** With `zoneNames`: one point per neighbourhood (`buildPlacedZoneCentroidsGeoJSON`), so each name is painted once. */
+export const GOLDEN_ZONE_NAMES_SOURCE = 'zone-names';
 
 /** The light and sun a style was built for: the light drives the palette, the sun the shadows. */
 export function resolveLight(opts: Pick<GoldenStyleOptions, 'light' | 'now'> = {}): { light: GoldenLight; sun: SunPosition } {
@@ -409,6 +423,45 @@ function labelLayers(p: GoldenPalette): LayerSpecification[] {
 }
 
 /**
+ * The neighbourhoods Ali draws in the Console (Ali, 2026-10-14: "Console zones"): a faint wash and a fine
+ * dotted edge lying on the ground under the houses, gone by the time the camera is down in the streets.
+ * Drafts (the AI's first guess) never show: only outlines someone placed or drivers confirmed.
+ */
+function zoneLayers(p: GoldenPalette, names: boolean): [LayerSpecification[], LayerSpecification[]] {
+  const real = ['!=', ['get', 'placement'], 'draft'] as never;
+  const ground: LayerSpecification[] = [
+    {
+      id: 'golden-zone-wash', type: 'fill', source: GOLDEN_ZONES_SOURCE, filter: real, maxzoom: 17.4,
+      paint: { 'fill-color': p.area, 'fill-opacity': fade(12.5, 0.07, 15.5, 0.05, 17.2, 0) },
+    },
+    {
+      id: 'golden-zone-edge', type: 'line', source: GOLDEN_ZONES_SOURCE, filter: real, maxzoom: 17.6,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': p.area, 'line-dasharray': [0.1, 2.2],
+        'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 12.5, 1.4, 15, 2.8, 17, 4.4] as never,
+        'line-opacity': fade(12.5, 0.7, 16, 0.62, 17.5, 0),
+      },
+    },
+  ];
+  const L: LayerSpecification[] = [];
+  if (names) {
+    L.push({
+      id: 'golden-zone-names', type: 'symbol', source: GOLDEN_ZONE_NAMES_SOURCE, filter: real, minzoom: 13, maxzoom: 17.6,
+      layout: {
+        'text-field': ['get', 'name_ar'] as never, 'text-font': [...GOLDEN_FONTS.bold], 'text-pitch-alignment': 'map', 'text-rotation-alignment': 'map',
+        'text-size': ['interpolate', ['exponential', 2], ['zoom'], 13, 12, 14, 15, 15, 20, 16, 30, 17, 46] as never, 'text-allow-overlap': true, 'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': p.area, 'text-halo-color': p.labelHalo, 'text-halo-width': 1, 'text-halo-blur': 2,
+        'text-opacity': fade(13, 0, 13.6, p.windowGlow ? 0.7 : 0.66, 16.4, p.windowGlow ? 0.56 : 0.52, 17.4, 0),
+      },
+    });
+  }
+  return [ground, L];
+}
+
+/**
  * The Golden hour (عصرية) basemap as code: the real Aziziyah from our own PMTiles, coloured by the
  * light of the hour, with Arabic labels in the brand font. Apps add their own route and pin layers
  * on top (before `GOLDEN_FIRST_LABEL`) and register `goldenImages()` and the PMTiles protocol.
@@ -436,6 +489,16 @@ export function buildGoldenStyle(opts: GoldenStyleOptions): StyleSpecification {
       position: [1.15, sun.az, Math.min(75, Math.max(30, 90 - sun.alt))],
     },
   };
+  if (mode === 'customer' || mode === 'lite') {
+    style.sources[GOLDEN_ZONES_SOURCE] = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+    if (opts.zoneNames) style.sources[GOLDEN_ZONE_NAMES_SOURCE] = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+    // edges on the ground under the roofs; names over the roofs, where the tile area names sit
+    const [ground, names] = zoneLayers(p, opts.zoneNames ?? false);
+    const roofs = style.layers.findIndex((l) => l.id === 'golden-roofs');
+    style.layers.splice(roofs < 0 ? style.layers.length : roofs, 0, ...ground);
+    const areas = style.layers.findIndex((l) => l.id === 'golden-area-names');
+    style.layers.splice(areas < 0 ? style.layers.length : areas + 1, 0, ...names);
+  }
   if (mode === 'courier' || mode === 'customer') {
     // a warm sky over every tilted view, and far streets fading into haze so the near street stays sharp
     style.sky = {
