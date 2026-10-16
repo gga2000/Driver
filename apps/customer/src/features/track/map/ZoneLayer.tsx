@@ -29,7 +29,7 @@ export interface ZoneLayerProps {
 }
 
 /** The zone outlines and their centres: the live placements once loaded, the built-in ones before. */
-function useZoneShapes() {
+export function useZoneShapes() {
   const api = useApi();
   const liveZones = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, ZONE_SHAPES_QUERY));
   const zones = useMemo(() => (liveZones.data ? buildPlacedZonesGeoJSON(liveZones.data) : ZONES), [liveZones.data]);
