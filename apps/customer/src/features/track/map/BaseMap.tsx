@@ -13,7 +13,7 @@ import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } f
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { useHouseWindows } from './useHouseWindows';
-import { ZoneLayer } from './ZoneLayer';
+import { useZoneShapes } from './ZoneLayer';
 
 /**
  * Phones: the Golden hour map through MapLibre Native when the build has it and the map's files are
@@ -41,7 +41,13 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
   const driving = useRef(false);
   const labels = useSharedValue(1);
   const [light, setLight] = useState(() => golden.resolveLight(alwaysDay ? { light: 'day' } : {}).light);
-  const style = useMemo(() => nativeGoldenStyle(golden, light), [light]);
+  // The Console's neighbourhoods: edges and one painted name each, as data in the style (#339).
+  const { zones, centroids } = useZoneShapes();
+  const style = useMemo(() => {
+    const s = nativeGoldenStyle(golden, light, 'customer', { zoneNames: true });
+    const fill = (id: string, data: GeoJSON.FeatureCollection) => (s.sources[id] ? { ...s.sources[id], data } : undefined);
+    return { ...s, sources: { ...s.sources, [golden.GOLDEN_ZONES_SOURCE]: fill(golden.GOLDEN_ZONES_SOURCE, zones), [golden.GOLDEN_ZONE_NAMES_SOURCE]: fill(golden.GOLDEN_ZONE_NAMES_SOURCE, centroids) } } as typeof s;
+  }, [light, zones, centroids]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
   const windows = useHouseWindows(map, light);
   const roadLayers = useMemo(() => style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'roads').map((l) => l.id), [style]);
@@ -122,8 +128,7 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
           ))}
         </ml.GeoJSONSource>
       </ml.Map>
-      {/* Neighbourhood names and landmarks over the tiles and under every pin the screen draws, as on the web. */}
-      <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
+      {/* Landmarks over the tiles and under every pin the screen draws, as on the web (our map paints the neighbourhood names). */}
       <LandmarkLayer drawn={drawn} cam={cam} size={size} opacity={labels} coveredTop={coveredTop ?? 0} coveredBottom={coveredBottom ?? 0} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
     </View>
   );
