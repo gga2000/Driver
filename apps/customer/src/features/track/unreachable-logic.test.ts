@@ -18,6 +18,8 @@ describe('unreachable: where he stands (f18, L-10)', () => {
     expect(standingLine(t, 'حيدر', 40)).toBe('حيدر واقف هنا · 40 متر من بابك');
     expect(standingLine(t, 'حيدر', 10)).toBe('حيدر واقف عند بابك');
     expect(standingLine(t, null, null)).toBe('الدليفري واقف عند بابك');
+    // HUNT-02: «بالشارع» orders are met on the street, whatever the distance.
+    expect(standingLine(t, 'حيدر', 40, true)).toBe('حيدر ينطرك بالشارع قريب من الدبوس');
   });
   it('time left runs to the (possibly extended) fail time, never below zero', () => {
     const fail = new Date('2026-10-06T12:07:00Z');

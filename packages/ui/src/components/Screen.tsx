@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactElement, type ReactNode, type Ref } from 'react';
-import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type RefreshControlProps, type StyleProp, type ViewStyle } from 'react-native';
+import { ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type RefreshControlProps, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 
@@ -16,6 +16,8 @@ export interface ScreenProps {
   contentStyle?: StyleProp<ViewStyle>;
   /** The scroll view, for screens that jump to a section (home → food rails). */
   scrollRef?: Ref<ScrollView>;
+  /** Decoration behind everything (home's sky and paper grain): fills the screen under the status bar, never takes a touch. */
+  backdrop?: ReactNode;
   testID?: string;
 }
 
@@ -26,7 +28,7 @@ export const MAX_CONTENT_WIDTH = 560;
  * Every app screen sits in this: cream background, safe areas, one centred column. The content is
  * the page's `main` landmark on the web.
  */
-export function Screen({ children, scroll = true, padded = true, edges = ['top'], footer, refreshControl, contentStyle, scrollRef, testID }: ScreenProps) {
+export function Screen({ children, scroll = true, padded = true, edges = ['top'], footer, refreshControl, contentStyle, scrollRef, backdrop, testID }: ScreenProps) {
   const theme = useTheme();
   // A pinned footer draws a hairline only while content continues under it, so a card cut at the
   // scroll edge reads as "more below" instead of a stray sliver above the button.
@@ -45,6 +47,11 @@ export function Screen({ children, scroll = true, padded = true, edges = ['top']
   };
   return (
     <SafeAreaView testID={testID} edges={edges} style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      {backdrop ? (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          {backdrop}
+        </View>
+      ) : null}
       {scroll ? (
         <ScrollView
           ref={scrollRef}

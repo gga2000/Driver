@@ -80,7 +80,7 @@ export function TicketArt({ scale = 1 }: { scale?: number }) {
         </View>
       </View>
       <View style={{ position: 'absolute', bottom: -6, end: -12, transform: [{ rotate: '2deg' }] }}>
-        <StatusPill tone="info" icon="bike" live label={t('merchant.courier.on_the_way', { minutes: 4 })} />
+        <StatusPill tone="neutral" icon="bike" live label={t('merchant.courier.on_the_way', { minutes: 4 })} />
       </View>
     </View>
   );

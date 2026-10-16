@@ -7,8 +7,9 @@ import { RecordingEventEmitter } from './events.adapter.js';
 import { PrismaIdentityRepository } from './identity.repository.js';
 import { IdentityService } from './identity.service.js';
 import { hashPhone } from './phone.js';
-import { SessionService } from './session.service.js';
+import { REFRESH_REUSE_GRACE_SEC, SessionService } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
+import { VaultLogWriteError, swallowedVaultLogFailures } from './vault-log.js';
 
 /**
  * Identity against a real Postgres (plan Step 2 integration): no PII on `people`, one vault row per
@@ -25,7 +26,8 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
   const events = new RecordingEventEmitter();
   const pepper = `it-${Date.now().toString(36)}`;
   const sessions = new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: 'integration-secret' }], activeKid: 'k1' });
-  const service = new IdentityService(repo, events, sms, clock, new UnitOfWork(prisma), pepper, sessions);
+  const uow = new UnitOfWork(prisma);
+  const service = new IdentityService(repo, events, sms, clock, uow, pepper, sessions);
   const phone = `0770${Date.now().toString().slice(-7)}`;
   const e164 = `+964${phone.slice(1)}`;
   let personId = '';
@@ -87,9 +89,21 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
   it('a retired refresh token presented again revokes the session although the refresh rolls back', async () => {
     const { session, tokens } = await sessions.open(personId, null);
     const next = await service.refresh(tokens.refreshToken);
+    clock.advanceSeconds(REFRESH_REUSE_GRACE_SEC + 1);
     await expect(service.refresh(tokens.refreshToken)).rejects.toSatisfy((e: unknown) => e instanceof DriverError && e.code === 'refresh_reused');
     expect((await prisma.prisma.session.findUnique({ where: { id: session.id } }))?.revokedAt).not.toBeNull();
     await expect(service.refresh(next.refreshToken)).rejects.toSatisfy((e: unknown) => e instanceof DriverError && e.code === 'refresh_reused');
+  });
+
+  it('SEC-09: the same phone retrying a lost refresh inside the grace keeps the session', async () => {
+    const phoneInfo = { fingerprint: `it-grace-${Date.now().toString(36)}`, platform: 'android' as const };
+    const device = await repo.createDevice({ personId, fingerprint: phoneInfo.fingerprint, platform: 'android', appVersion: null, verifiedAt: clock.now(), now: clock.now() });
+    const { session, tokens } = await sessions.open(personId, device.id);
+    await service.refresh(tokens.refreshToken, phoneInfo);
+    const retried = await service.refresh(tokens.refreshToken, phoneInfo);
+    const claims = await service.verifyAccessToken(retried.accessToken);
+    expect(claims.sid).toBe(session.id);
+    expect((await prisma.prisma.session.findUnique({ where: { id: session.id } }))?.revokedAt).toBeNull();
   });
 
   it('profile read writes a vault access log row with the reason', async () => {
@@ -108,6 +122,82 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     expect(out).toEqual({ [personId]: { displayName: 'حيدر ك.', deleted: false } });
     const rows = await prisma.prisma.vaultAccessLog.findMany({ where: { personId, purpose: 'console_names_it' } });
     expect(rows).toHaveLength(before + 1);
-    expect(rows.at(-1)).toMatchObject({ accessorId: staff, fieldsRead: ['name'] });
+    expect(rows.at(-1)).toMatchObject({ accessorId: staff, accessorKind: 'person', accessorRef: null, fieldsRead: ['name'] });
+  });
+
+  it('vault_accessor_fk: the system, a share link and an SOS link read as kind + ref, with no person in accessor_id', async () => {
+    await service.firstNamesFor([personId], 'system:khat', 'khat_sweep_page_it');
+    await service.firstNamesFor([personId], 'share:lnk_it', 'share_trip_it');
+    await service.firstNamesFor([personId], 'sos_link:inc_it', 'sos_link_it');
+    await service.notifyContact(personId, { phone: true, purpose: 'notify:it' });
+    const rows = await prisma.prisma.vaultAccessLog.findMany({ where: { personId, purpose: { in: ['khat_sweep_page_it', 'share_trip_it', 'sos_link_it', 'notify:it'] } }, orderBy: { createdAt: 'asc' } });
+    expect(rows.map((r) => [r.accessorId, r.accessorKind, r.accessorRef, r.purpose])).toEqual([
+      [null, 'system', 'system:khat', 'khat_sweep_page_it'],
+      [null, 'share_link', 'share:lnk_it', 'share_trip_it'],
+      [null, 'sos_link', 'sos_link:inc_it', 'sos_link_it'],
+      [null, 'system', 'system:notify', 'notify:it'],
+    ]);
+    // The repository's records name the reader either way.
+    expect((await repo.vaultAccessLogs(personId)).find((l) => l.purpose === 'share_trip_it')).toMatchObject({ accessorId: 'share:lnk_it', accessorKind: 'share_link' });
+  });
+
+  it('a failed log insert inside a transaction is rolled back to its savepoint: the caller’s writes commit, the failure is counted', async () => {
+    const before = swallowedVaultLogFailures();
+    // An accessor that looks like a person but is not one: the insert breaks the foreign key.
+    const ghost = 'cghostaccessor000000000000';
+    const contact = await uow.run(async (tx) => {
+      await repo.updatePerson(personId, { locale: 'en' }, tx);
+      const read = await service.phoneForCall(personId, ghost, 'masked_call_it');
+      // The transaction is still usable after the failed insert (no 25P02).
+      await repo.updatePerson(personId, { sharedFamilyPhone: true }, tx);
+      return read;
+    });
+    expect(contact).toBe(e164);
+    expect(swallowedVaultLogFailures()).toBe(before + 1);
+    const person = await prisma.prisma.person.findUniqueOrThrow({ where: { id: personId } });
+    expect(person).toMatchObject({ locale: 'en', sharedFamilyPhone: true });
+    expect(await prisma.prisma.vaultAccessLog.count({ where: { personId, purpose: 'masked_call_it' } })).toBe(0);
+    await repo.updatePerson(personId, { locale: 'ar-IQ', sharedFamilyPhone: false });
+  });
+
+  it('a Console staff read whose log row cannot be written returns no data (fail closed)', async () => {
+    const before = swallowedVaultLogFailures();
+    await expect(service.displayNamesFor([personId], 'cghoststaff00000000000000', 'console_names')).rejects.toBeInstanceOf(VaultLogWriteError);
+    expect(swallowedVaultLogFailures()).toBe(before);
+  });
+
+  it('the access log stays append-only: the reject_mutation trigger is still on it', async () => {
+    const triggers = await prisma.prisma.$queryRaw<Array<{ tgname: string }>>`
+      SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'identity_vault' AND c.relname = 'vault_access_logs' AND NOT t.tgisinternal`;
+    expect(triggers.map((t) => t.tgname)).toContain('vault_access_logs_append_only');
+    await expect(prisma.prisma.$executeRaw`UPDATE "identity_vault"."vault_access_logs" SET "purpose" = 'tampered' WHERE "person_id" = ${personId}`).rejects.toBeTruthy();
+    await expect(prisma.prisma.$executeRaw`DELETE FROM "identity_vault"."vault_access_logs" WHERE "person_id" = ${personId}`).rejects.toBeTruthy();
+  });
+  it('account close: vault row, sessions, devices and codes go, roles are revoked, the person row stays; twice is a no-op', async () => {
+    const other = `0771${Date.now().toString().slice(-7)}`;
+    const otherE164 = `+964${other.slice(1)}`;
+    clock.advanceSeconds(31);
+    await service.requestOtp({ phone: other, purpose: 'login' });
+    const res = await service.verifyOtp({ phone: other, code: sms.lastCodeFor(otherE164)!, device: { fingerprint: `it-close-${other}`, platform: 'web' } });
+    await service.grantRole({ personId: 'system:it', sessionId: 'it' }, { personId: res.personId, kind: 'courier' });
+    await service.attachVaultRef(res.personId, 'documentRefs', { ref: 'up_it_close', kind: 'photo', recordId: 'doc_it' });
+    expect(await service.storedFileRefs(res.personId, personId)).toEqual(['up_it_close']);
+    expect((await service.accountCloseState(res.personId)).closable).toBe(true);
+
+    const sessionIds = (await prisma.prisma.session.findMany({ where: { personId: res.personId }, select: { id: true } })).map((x) => x.id);
+    expect(sessionIds.length).toBeGreaterThan(0);
+    expect(await service.closeAccount(res.personId, personId)).toBe(true);
+    // Each deleted session is announced as signed out (notify drops its push tokens on it).
+    const signedOut = events.events.filter((e) => e.type === 'session.signed_out' && e.payload['personId'] === res.personId).map((e) => e.payload['sessionId']);
+    expect(signedOut.sort()).toEqual([...sessionIds].sort());
+    const db = prisma.prisma;
+    expect(await db.personIdentity.findUnique({ where: { personId: res.personId } })).toBeNull();
+    expect(await db.session.count({ where: { personId: res.personId } })).toBe(0);
+    expect(await db.device.count({ where: { personId: res.personId } })).toBe(0);
+    expect(await db.otpChallenge.count({ where: { phoneHash: hashPhone(otherE164, pepper) } })).toBe(0);
+    expect(await db.role.count({ where: { personId: res.personId, revokedAt: null } })).toBe(0);
+    expect((await db.person.findUniqueOrThrow({ where: { id: res.personId } })).deletedAt).toBeInstanceOf(Date);
+    expect(await service.closeAccount(res.personId, personId)).toBe(false);
   });
 });

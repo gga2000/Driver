@@ -1,5 +1,6 @@
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { linkSecretFromEnv } from '../../shared/secrets.js';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   DriverError,
   liveChannel,
@@ -173,6 +174,7 @@ const NAME_CACHE_MAX = 2000;
  */
 @Injectable()
 export class ShareLinksService implements TrackingSharePort {
+  private readonly logger = new Logger('ShareLinks');
   private readonly names = new Map<string, { firstName: string | null; photoRef: string | null }>();
 
   constructor(
@@ -261,7 +263,13 @@ export class ShareLinksService implements TrackingSharePort {
     // l8: a link that ran out after the trip arrived still says it ended safely, and when.
     if (now.getTime() >= expiresAt.getTime()) return ended('expired', expiresAt, state.status === 'arrived' ? state.completedAt : null);
     if (state.status === 'ended') return ended('cancelled', expiresAt);
-    const driver = state.driverId ? await this.driverCard(rec.id, state.driverId) : null;
+    // CRIT2-02: the driver's name and photo are best-effort; the live location keeps flowing without them.
+    const driver = state.driverId
+      ? await this.driverCard(rec.id, state.driverId).catch((err: unknown) => {
+          this.logger.warn(`share page driver card: ${(err as Error).message}`);
+          return null;
+        })
+      : null;
     return {
       status: state.status,
       subject: rec.subjectKind,
@@ -501,7 +509,11 @@ export function expiryOf(createdAt: Date, completedAt: Date | null): Date {
   return new Date(completedAt ? Math.min(cap, completedAt.getTime() + SHARE_AFTER_COMPLETE_MIN * MIN_MS) : cap);
 }
 
-/** A per-process secret when none is configured (links then die with the process — dev only). */
-export function shareSecret(): string {
-  return process.env['SHARE_LINK_SECRET'] ?? process.env['JWT_SECRET'] ?? randomBytes(32).toString('hex');
+/**
+ * SHARE_LINK_SECRET signs share-trip links. Production refuses to boot without its own value (SEC-15:
+ * never JWT_SECRET's, whose rotation would kill every link already sent). Elsewhere it falls back to
+ * JWT_SECRET, then a per-process secret (links then die with the process — dev only).
+ */
+export function shareSecret(env: NodeJS.ProcessEnv = process.env): string {
+  return linkSecretFromEnv(env, 'SHARE_LINK_SECRET', { fallbacks: ['JWT_SECRET'], distinctFrom: ['SAFETY_LINK_SECRET'] });
 }

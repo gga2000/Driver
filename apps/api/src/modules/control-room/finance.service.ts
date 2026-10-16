@@ -21,6 +21,7 @@ import { DispatchService } from '../dispatch/index.js';
 import { EventsService } from '../events/index.js';
 import { CapsService, LedgerService } from '../ledger/index.js';
 import { OrgsService } from '../orgs/index.js';
+import { CommissionTierService } from './commission.service.js';
 
 /** The week-one cash collection round (launch playbook §4): 23:00 local. */
 export const ROUND_HOUR_LOCAL = 23;
@@ -130,6 +131,7 @@ export class FinanceDeskService {
     private readonly audits: AuditLogService,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly commission: CommissionTierService,
     @Optional() @Inject(CASH_ROUND_FROM_HOUR) private readonly roundFromHour: number = ROUND_WINDOW_FROM_HOUR,
   ) {}
 
@@ -212,25 +214,29 @@ export class FinanceDeskService {
     at: Date,
     tonight: { from: Date; collected: ReadonlyMap<string, RoundCollection>; collectedOnly: ReadonlyArray<{ driverId: string; name: string | null; zoneKey: string | null }> } = { from: at, collected: new Map(), collectedOnly: [] },
   ): FinanceDeskView['round'] {
-    const byZone = new Map<string, Array<Pick<CourierCashRow, 'driverId' | 'name' | 'heldIqd' | 'overCap'>>>();
+    type Stop = Pick<CourierCashRow, 'driverId' | 'name' | 'heldIqd' | 'overCap'> & { dueIqd: number };
+    const byZone = new Map<string, Stop[]>();
     for (const c of couriers) {
+      // The round takes what he owes the company, never more than he holds; the rest is his own pay.
+      const dueIqd = Math.min(c.heldIqd, c.owedIqd);
+      if (dueIqd <= 0 && !tonight.collected.has(c.driverId)) continue;
       const z = c.zoneKey ?? UNKNOWN_ZONE;
-      byZone.set(z, [...(byZone.get(z) ?? []), c]);
+      byZone.set(z, [...(byZone.get(z) ?? []), { ...c, dueIqd }]);
     }
     for (const c of tonight.collectedOnly) {
       const z = c.zoneKey ?? UNKNOWN_ZONE;
-      byZone.set(z, [...(byZone.get(z) ?? []), { driverId: c.driverId, name: c.name, heldIqd: 0, overCap: false }]);
+      byZone.set(z, [...(byZone.get(z) ?? []), { driverId: c.driverId, name: c.name, heldIqd: 0, overCap: false, dueIqd: 0 }]);
     }
     const centroids = new Map(cityId === 'aziziyah' ? AZIZIYAH_ZONES.map((z) => [z.id, { lat: z.lat, lng: z.lng }] as const) : []);
     const stops = roundOrder([...byZone.keys()], centroids).map((zoneKey, i) => {
-      const list = (byZone.get(zoneKey) ?? []).sort((a, b) => Number(b.overCap) - Number(a.overCap) || b.heldIqd - a.heldIqd);
+      const list = (byZone.get(zoneKey) ?? []).sort((a, b) => Number(b.overCap) - Number(a.overCap) || b.dueIqd - a.dueIqd);
       const collected = list.map((c) => tonight.collected.get(c.driverId) ?? null);
       return {
         seq: i + 1,
         zoneKey,
         zone_ar: zoneKey === UNKNOWN_ZONE ? 'غير متصلين (اتصل بيهم)' : (this.zoneName(cityId, zoneKey) ?? zoneKey),
-        couriers: list.map((c, j) => ({ driverId: c.driverId, name: c.name, heldIqd: c.heldIqd, overCap: c.overCap, collected: collected[j] ?? null })),
-        totalIqd: list.reduce((a, c) => a + c.heldIqd, 0),
+        couriers: list.map((c, j) => ({ driverId: c.driverId, name: c.name, heldIqd: c.heldIqd, dueIqd: c.dueIqd, overCap: c.overCap, collected: collected[j] ?? null })),
+        totalIqd: list.reduce((a, c) => a + c.dueIqd, 0),
         collectedIqd: collected.reduce((a, c) => a + (c?.amountIqd ?? 0), 0),
       };
     });
@@ -281,7 +287,7 @@ export class FinanceDeskService {
 
   async desk(actor: Actor, cityId: string): Promise<FinanceDeskView> {
     const now = this.clock.now();
-    const [couriers, merchants, handovers, nightly] = await Promise.all([this.couriers(actor, cityId), this.merchants(cityId), this.handovers(actor, startOfLocalDay(now), now), this.nightly()]);
+    const [couriers, merchants, handovers, nightly, commissionDue] = await Promise.all([this.couriers(actor, cityId), this.merchants(cityId), this.handovers(actor, startOfLocalDay(now), now), this.nightly(), this.commission.due(cityId)]);
     return {
       cityId,
       at: now,
@@ -297,6 +303,7 @@ export class FinanceDeskService {
         collectedTodayIqd: handovers.reduce((a, h) => a + h.amountIqd, 0),
         couriersOverCap: couriers.filter((c) => c.overCap).length,
       },
+      commissionDue,
     };
   }
 
@@ -329,8 +336,8 @@ export class FinanceDeskService {
         break;
       case 'round':
         csv = toCsv(
-          ['stop', 'zone', 'driver_id', 'courier', 'held_iqd', 'over_cap', 'collected_iqd', 'collected_ref'],
-          desk.round.stops.flatMap((s) => s.couriers.map((c) => [s.seq, s.zone_ar, c.driverId, c.name, c.heldIqd, c.overCap ? 'yes' : 'no', c.collected?.amountIqd ?? 0, c.collected?.reference ?? ''])),
+          ['stop', 'zone', 'driver_id', 'courier', 'held_iqd', 'due_iqd', 'over_cap', 'collected_iqd', 'collected_ref'],
+          desk.round.stops.flatMap((s) => s.couriers.map((c) => [s.seq, s.zone_ar, c.driverId, c.name, c.heldIqd, c.dueIqd, c.overCap ? 'yes' : 'no', c.collected?.amountIqd ?? 0, c.collected?.reference ?? ''])),
         );
         rows = desk.round.stops.reduce((a, s) => a + s.couriers.length, 0);
         break;

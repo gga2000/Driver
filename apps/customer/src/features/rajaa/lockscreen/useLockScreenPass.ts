@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef } from 'react';
 import { useToast } from '@driver/ui';
+import { stopNameOf } from '@/features/rajaa/agree';
 import { cityName } from '@/features/rajaa/labels';
 import { endpoints, publicPlaceName } from '@/features/rajaa/logic';
 import { currentLocation } from '@/features/rajaa/location';
+import { endGarageFor, roadLine } from '@/features/rajaa/road';
 import { garageName, useBoardingPass, useImHere, useMyBookings, useNetwork } from '@/features/rajaa/queries';
 import { useNow } from '@/features/rajaa/useNow';
 import { useT } from '@/lib/i18n';
@@ -56,8 +58,24 @@ export function useLockScreenPass() {
     if (!booking) return drop();
     const corridor = network.data?.corridors.find((c) => c.id === booking.departure.corridorId);
     const toCity = corridor ? cityName(t, endpoints(corridor.cityId, booking.departure.direction).to) : '';
-    const stopName = booking.pickup.kind === 'garage' ? garageName(network.data, booking.departure.garageId) : booking.pickup.nameAr ? publicPlaceName(booking.pickup.nameAr) : t('rajaa.pickup_door');
-    const input = { booking, pass: pass.data ?? null, stopName, toCity, amount: (n: number) => amountParam(n), now };
+    const stopName = stopNameOf(booking.pickup, garageName(network.data, booking.departure.garageId), { pin: t('rajaa.agree_pin_title'), door: t('rajaa.pickup_door'), place: publicPlaceName });
+    // r6: «توصل حوالي 9:28» under «بالطريق لـ بغداد», from where the car is (the same line as the pass).
+    const startG = network.data?.garages.find((g) => g.id === booking.departure.garageId) ?? null;
+    const endG = corridor ? endGarageFor(network.data?.garages ?? [], endpoints(corridor.cityId, booking.departure.direction).to) : null;
+    const arriveAt =
+      corridor && startG && endG
+        ? roadLine({
+            start: { id: 'start', kind: 'start', name: '', lat: startG.lat, lng: startG.lng },
+            end: { id: 'end', kind: 'end', name: '', lat: endG.lat, lng: endG.lng },
+            between: [],
+            departAt: booking.departure.departAt,
+            departedAt: booking.departure.departedAt,
+            travelMin: corridor.travelMin,
+            car: booking.departure.state === 'departed' ? (pass.data?.car ?? null) : null,
+            now,
+          }).arriveAt
+        : null;
+    const input = { booking, pass: pass.data ?? null, stopName, toCity, amount: (n: number) => amountParam(n), arriveAt, now };
     if (phase === 'none') {
       // Before T−30: the card is scheduled to appear by itself at T−30.
       const at = passShowAt(booking);

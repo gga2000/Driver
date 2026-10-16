@@ -32,6 +32,8 @@ export function helpCase(o: Pick<Order, 'state'>): HelpCase {
 export function issueKinds(type: OrderType): ReadonlyArray<{ kind: DisputeKind; key: string }> {
   if (type === 'ride') return [
     { kind: 'ride_fare', key: 'dispute.reason_fare' },
+    { kind: 'driver_behaviour', key: 'dispute.reason_driver_behaviour' },
+    { kind: 'unsafe_driving', key: 'dispute.reason_unsafe_driving' },
     { kind: 'other', key: 'dispute.reason_other' },
   ];
   return [

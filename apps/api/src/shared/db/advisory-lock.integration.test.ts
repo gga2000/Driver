@@ -24,7 +24,8 @@ describe.skipIf(!url)('advisory transaction locks on Postgres (needs DATABASE_UR
       await new Promise((r) => setTimeout(r, 300));
       log.push('a:end');
     });
-    await new Promise((r) => setTimeout(r, 50));
+    // Until a holds the key: its first transaction may still be opening a connection (cold pool).
+    while (!log.includes('a:start')) await new Promise((r) => setTimeout(r, 5));
     const b = podB.run(key, async () => {
       log.push('b');
     });

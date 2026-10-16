@@ -1,7 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import type { IntercityDirection, IntercitySeatId } from '@driver/contracts';
+import { modelFitsLayout, modelsForLayout, type IntercityDirection, type IntercitySeatId, type VehicleModelKey } from '@driver/contracts';
 import { Button, Card, Chip, Icon, IconButton, SeatMap, StatusPill, Text, TextField, useTheme, useToast, type SeatInfo } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHead } from '@/features/intercity/BoardParts';
@@ -58,7 +58,15 @@ export default function Announce() {
   const [latestMin, setLatestMin] = useState<number>(ANNOUNCE_RULES.defaultLatestMin);
   const [vehicle, setVehicle] = useState<VehicleOption>(VEHICLE_OPTIONS[0]!);
   const [plate, setPlate] = useState('');
+  const [modelKey, setModelKey] = useState<VehicleModelKey | null>(null);
+  const [otherModel, setOtherModel] = useState('');
+  const [modelError, setModelError] = useState<'pick' | 'name' | null>(null);
   const [familyOnly, setFamilyOnly] = useState(false);
+  // His word for the car (x15): riders see «ما يدخن» / «جناط كبيرة» on his profile and rate him on it.
+  const [noSmoking, setNoSmoking] = useState(false);
+  const [bigBags, setBigBags] = useState(false);
+  // b7: riders see «مكيّفة» on the board (cool in summer, warm in winter).
+  const [ac, setAc] = useState(false);
   const [plateError, setPlateError] = useState(false);
 
   // Defaults: the first garage of the side; the busiest demand window; his last car and plate.
@@ -75,6 +83,11 @@ export default function Announce() {
     if (last) {
       setPlate(last.vehicle.plate);
       setVehicle(VEHICLE_OPTIONS.find((v) => v.available && v.layout === last.vehicle.layout) ?? VEHICLE_OPTIONS[0]!);
+      setModelKey(last.vehicle.modelKey);
+      if (last.vehicle.modelKey === 'other') setOtherModel(last.vehicle.model ?? '');
+      setNoSmoking(last.vehicle.noSmoking);
+      setBigBags(last.vehicle.bigBags);
+      setAc(last.vehicle.ac);
     }
     setCarSet(true);
   }, [carSet, mine.data]);
@@ -107,10 +120,15 @@ export default function Announce() {
   );
   const money = corridor ? fullCarEarnings(vehicle.layout, corridor.seatPriceIqd, corridor.frontPremiumIqd) : null;
 
+  // A model that can't carry the chosen seat layout is cleared, so the picker never lies.
+  const fittingModel = modelKey && modelFitsLayout(modelKey, vehicle.layout) ? modelKey : null;
+
   const submit = async () => {
     if (!garageId) return;
-    if (plate.trim().length < 2) {
-      setPlateError(true);
+    const noModel = !fittingModel ? 'pick' : fittingModel === 'other' && !otherModel.trim() ? 'name' : null;
+    if (plate.trim().length < 2 || noModel) {
+      setPlateError(plate.trim().length < 2);
+      setModelError(noModel);
       theme.haptic('error');
       return;
     }
@@ -120,7 +138,16 @@ export default function Announce() {
         corridorId,
         departAt: at,
         latestDepartureAt: latest,
-        vehicle: { kind: vehicle.kind, layout: vehicle.layout, plate: plate.trim() },
+        vehicle: {
+          kind: vehicle.kind,
+          layout: vehicle.layout,
+          plate: plate.trim(),
+          modelKey: fittingModel!,
+          ...(fittingModel === 'other' ? { model: otherModel.trim() } : {}),
+          noSmoking,
+          bigBags,
+          ac,
+        },
         familyOnly,
       });
       theme.haptic('success');
@@ -221,6 +248,43 @@ export default function Announce() {
         <Card elevation={0} tone="sunken" padding={4}>
           <SeatMap layout={vehicle.layout} seats={previewSeats} selection={[]} legend={false} compact />
         </Card>
+        <SectionHead title={t('partner.ic_announce_model')} sub={t('partner.ic_announce_model_hint')} />
+        <View testID="announce-model" accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+          {modelsForLayout(vehicle.layout).map((m) => (
+            <Chip
+              key={m}
+              testID={`model-${m}`}
+              role="radio"
+              icon={m === 'other' ? 'plus' : 'car'}
+              label={t(`vehicle.model_${m}`)}
+              selected={m === fittingModel}
+              onPress={() => {
+                setModelKey(m);
+                setModelError(null);
+              }}
+            />
+          ))}
+        </View>
+        {modelError === 'pick' ? (
+          <Text variant="footnote" color="dangerText" testID="announce-model-error">
+            {t('partner.ic_announce_model_pick')}
+          </Text>
+        ) : null}
+        {fittingModel === 'other' ? (
+          <TextField
+            testID="announce-model-other"
+            label={t('partner.ic_announce_model_other')}
+            placeholder={t('partner.ic_announce_model_other_ph')}
+            value={otherModel}
+            maxLength={60}
+            onChangeText={(v) => {
+              setOtherModel(v);
+              setModelError(null);
+            }}
+            error={modelError === 'name' ? t('partner.ic_announce_model_needed') : undefined}
+            leadingIcon="car"
+          />
+        ) : null}
         <TextField
           testID="announce-plate"
           label={t('partner.ic_announce_plate')}
@@ -233,6 +297,9 @@ export default function Announce() {
           error={plateError ? t('partner.ic_announce_plate_needed') : undefined}
           leadingIcon="car"
         />
+        <Toggle label={t('partner.ic_announce_ac')} hint={t('partner.ic_announce_ac_hint')} value={ac} onChange={setAc} testID="announce-ac" />
+        <Toggle label={t('partner.ic_announce_no_smoking')} hint={t('partner.ic_announce_promise_hint')} value={noSmoking} onChange={setNoSmoking} testID="announce-no-smoking" />
+        <Toggle label={t('partner.ic_announce_big_bags')} hint={t('partner.ic_announce_promise_hint')} value={bigBags} onChange={setBigBags} testID="announce-big-bags" />
         <Toggle label={t('partner.ic_announce_family')} hint={t('partner.ic_announce_family_hint')} value={familyOnly} onChange={setFamilyOnly} testID="announce-family" />
       </View>
 

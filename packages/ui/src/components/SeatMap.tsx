@@ -34,6 +34,24 @@ const STATE_KEY: Record<SeatState | 'selected' | 'blocked', MessageKey> = {
   selected: 'seat.state_selected',
 };
 
+/** "+2,000" on a free, open seat with a premium (the front seat); null otherwise. */
+export function seatPremium(seat: SeatInfo): string | null {
+  return seat.premium && seat.state === 'free' && !seat.blocked ? `+${formatAmount(seat.premium)}` : null;
+}
+
+/** What a screen reader says for a seat: its place, its state for this rider, and its premium. */
+export function seatLabel(seat: SeatInfo, selected: boolean): string {
+  const blocked = seat.state === 'free' && !!seat.blocked;
+  const premium = seatPremium(seat);
+  return [
+    t(`seat.${seat.id}` as MessageKey),
+    t(selected ? STATE_KEY.selected : blocked ? STATE_KEY.blocked : STATE_KEY[seat.state]),
+    premium ? `${premium} ${t('quote.currency')}` : null,
+  ]
+    .filter(Boolean)
+    .join('، ');
+}
+
 type Look = { bg: string; border: string; dashed?: boolean; fg: string; icon?: IconName };
 
 function look(theme: Theme, state: SeatState, selected: boolean, front: boolean, blocked = false): Look {
@@ -74,14 +92,8 @@ function Seat({
   const front = seat.id === 'front';
   const blocked = seat.state === 'free' && !!seat.blocked;
   const l = look(theme, seat.state, selected, front, blocked);
-  const premium = seat.premium && seat.state === 'free' && !blocked ? `+${formatAmount(seat.premium)}` : null;
-  const label = [
-    t(`seat.${seat.id}` as MessageKey),
-    t(selected ? STATE_KEY.selected : blocked ? STATE_KEY.blocked : STATE_KEY[seat.state]),
-    premium ? `${premium} ${t('quote.currency')}` : null,
-  ]
-    .filter(Boolean)
-    .join('، ');
+  const premium = seatPremium(seat);
+  const label = seatLabel(seat, selected);
   // Blocked seats stay pressable so the screen can say why (onReject 'blocked').
   const canPress = interactive && (seat.state === 'free' || selected);
 

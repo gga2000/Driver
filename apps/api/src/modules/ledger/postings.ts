@@ -3,9 +3,13 @@ import {
   guaranteeMemo,
   pointsRedemption,
   DepartureCancelledPayload,
+  DriverCancelledPayload,
   OrderCancelledPayload,
+  OrderRejectedPayload,
   ErrandMoneyPayload,
+  FoodCartWalkupCollectedPayload,
   LateMeterPayload,
+  WALKUP_COMMISSION_MEMO,
   OrderMoneyPayload,
   RideMoneyPayload,
   SeatMoneyPayload,
@@ -41,6 +45,14 @@ export interface PostingRefs {
   tripId?: string;
   routeId?: string;
   departureId?: string;
+}
+
+/**
+ * RDB-01/02: request-board money (`requestId`) is keyed `request:<id>:<what>` and writes no
+ * foreign-key refs (a request is not a trips/orders/departures row); everything else keeps its own.
+ */
+function keyed(requestId: string | undefined, what: string, own: string, refs: PostingRefs): { id: string; refs: PostingRefs } {
+  return requestId !== undefined ? { id: `request:${requestId}:${what}`, refs: {} } : { id: own, refs };
 }
 
 export interface PostingGroup {
@@ -134,6 +146,7 @@ interface PayerSide {
   payment: 'cash' | 'wallet';
   cashCollectedIqd?: number | undefined;
   changeToWalletIqd?: number | undefined;
+  debtCollectIqd?: number | undefined;
 }
 
 function payerAccount(p: { customerId: string; householdId?: string | undefined }): string {
@@ -157,16 +170,22 @@ function payerAccount(p: { customerId: string; householdId?: string | undefined 
 function settleCustomer(b: GroupBuilder, payer: string, p: PayerSide, chargedIqd: number, collector: string, rules: MoneyRules): number {
   if (chargedIqd < 0) throw new RangeError(`customer total is negative (${chargedIqd})`);
   const extra = p.changeToWalletIqd ?? 0;
+  const debt = p.debtCollectIqd ?? 0;
   if (p.payment === 'wallet') {
     if (extra > 0) throw new RangeError('change to the wallet on a wallet payment');
+    if (debt > 0) throw new RangeError('owed fees collected on a wallet payment');
     b.control(payer, -chargedIqd);
     return chargedIqd;
   }
   const due = roundCustomerTotal(chargedIqd, rules);
-  const collected = p.cashCollectedIqd ?? due + extra;
-  // What paid for the price (and its rounding change) once the no-change credit is set apart.
-  const kept = collected - extra;
+  const collected = p.cashCollectedIqd ?? due + debt + extra;
+  // What paid for the price (and its rounding change) once the no-change credit and the owed fees
+  // (M-3) are set apart. The price comes first: cash short of price + fees settles only what is left
+  // over (none of it if he paid just the price), and the rest stays owed on his wallet as before.
+  const settled = Math.min(debt, Math.max(0, collected - extra - due));
+  const kept = collected - extra - settled;
   if (extra < 0 || (extra > 0 && kept < chargedIqd)) throw new RangeError(`change to the wallet ${extra} leaves ${kept} for a price of ${chargedIqd}`);
+  b.add('debt_settled', settled, collector, payer, 'owed_fees');
   b.add('cash_collected', Math.min(kept, chargedIqd), collector, payer);
   if (kept > chargedIqd) b.add('cash_rounding_credit', kept - chargedIqd, collector, payer, 'change_as_credit');
   b.add('cash_change_to_wallet', extra, collector, payer, 'no_change');
@@ -198,6 +217,14 @@ export interface OrderPostings {
 }
 
 /**
+ * The courier's part of a delivery fee: all of it, or the batch share when his trip rode along another
+ * (money §2). The one place this split lives: order close and the أكل بيت no-show both use it.
+ */
+export function courierDeliveryIqd(o: { deliveryFeeIqd: number; courierDeliveryIqd?: number | undefined; batchedSecond?: boolean | undefined }, rules: Pick<MoneyRules, 'batchedSecondCourierShare'>): number {
+  return Math.min(o.deliveryFeeIqd, o.courierDeliveryIqd ?? (o.batchedSecond ? pct(o.deliveryFeeIqd, rules.batchedSecondCourierShare) : o.deliveryFeeIqd));
+}
+
+/**
  * Worked example (money §2): items 15,000 at 15 %, service fee 500, delivery 1,000 →
  * platform 2,750, courier 1,000, merchant 12,750; the customer pays 16,500.
  */
@@ -217,9 +244,7 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
   if (itemDeal > o.itemsSubtotalIqd || deliveryDeal > o.deliveryFeeIqd) throw new RangeError(`merchant deal ${deal?.promotionId} is more than what it comes off`);
   const commission = pct(o.itemsSubtotalIqd - itemDeal, rules.commission[o.commissionTier]);
   const serviceFee = o.serviceFeeIqd ?? rules.serviceFeeIqd;
-  const courierDelivery = o.courierId
-    ? Math.min(o.deliveryFeeIqd, o.courierDeliveryIqd ?? (o.batchedSecond ? pct(o.deliveryFeeIqd, rules.batchedSecondCourierShare) : o.deliveryFeeIqd))
-    : 0;
+  const courierDelivery = o.courierId ? courierDeliveryIqd(o, rules) : 0;
   const red = redemption(o.pointsRedeemed, serviceFee, o.deliveryFeeIqd - deliveryDeal, rules);
   const promo = o.platformPromo?.amountIqd ?? 0;
 
@@ -249,13 +274,36 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
   };
 }
 
+// ───────────────────────── food cart walk-over ticket ─────────────────────────
+
+/**
+ * A cart («عربانة») walk-over ticket collected: the customer paid the cart owner cash in person, so
+ * the sale itself never passes through the platform; the platform's share — the restaurants' pickup
+ * commission tier on the ticket total, computed and saved on the ticket by the food-carts module — is
+ * posted the way `postOrderClosed` posts a cash pickup order's commission: `commission_accrued` from
+ * the merchant's cash account to the platform, memo `commission:pickup`, here followed by the ticket
+ * (`:walkup:<id>`) so the statement can show it. The merchant account goes negative by it (he owes it,
+ * taken off his next money). One group per ticket (`food_cart_walkup:<id>:commission`): a redelivered
+ * event posts nothing twice. A ticket without commission posts nothing.
+ */
+export function postFoodCartWalkupCommission(input: FoodCartWalkupCollectedPayload): PostingGroup | null {
+  const w = FoodCartWalkupCollectedPayload.parse(input);
+  if (w.commissionIqd > w.totalIqd) throw new RangeError(`walk-up ${w.walkupId} commission ${w.commissionIqd} is more than its total ${w.totalIqd}`);
+  if (w.commissionIqd === 0) return null;
+  const merchant = Accounts.merchantCash(w.merchantOrgId);
+  return new GroupBuilder(`food_cart_walkup:${w.walkupId}:commission`, 'money', w.occurredAt, {})
+    .add('commission_accrued', w.commissionIqd, merchant, Accounts.platform, `${WALKUP_COMMISSION_MEMO}${w.walkupId}`)
+    .control(merchant, -w.commissionIqd)
+    .build();
+}
+
 function redeemGroup(id: string, personId: string, points: number, at: Date, refs: PostingRefs): PostingGroup {
   return new GroupBuilder(id, 'points', at, refs).add('points_redeemed', points, Accounts.points(personId), Accounts.pointsPool).control(Accounts.points(personId), -points).build();
 }
 
 // ───────────────────────── errand / shop-for-me ─────────────────────────
 
-/** Actual cost (shopper paid from float), fee and tip as separate lines (domain §4). */
+/** Actual cost (shopper paid from float), fee and tip as separate lines (domain §4); a batched second errand splits only the fee. */
 export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderPostings {
   const e = ErrandMoneyPayload.parse(input);
   const refs: PostingRefs = { orderId: e.orderId, tripId: e.tripId };
@@ -266,7 +314,11 @@ export function postErrand(input: ErrandMoneyPayload, rules: MoneyRules): OrderP
   const red = redemption(e.pointsRedeemed, serviceFee, e.errandFeeIqd, rules);
 
   b.add('errand_cost_actual', e.actualCostIqd, payer, shopper, 'receipt');
-  b.add('errand_fee', e.errandFeeIqd, payer, shopper);
+  // A batched second errand pays the shopper the batch share of the fee, the rest is the platform's,
+  // exactly as a batched second order (money §2, Ali 2026-10-12). The receipt is never split.
+  const shopperFee = e.batchedSecond ? Math.min(e.errandFeeIqd, pct(e.errandFeeIqd, rules.batchedSecondCourierShare)) : e.errandFeeIqd;
+  b.add('errand_fee', shopperFee, payer, shopper);
+  b.add('errand_fee', e.errandFeeIqd - shopperFee, payer, Accounts.platform, 'batched_margin');
   b.add('service_fee', serviceFee, payer, Accounts.platform);
   b.add('tip', e.tipIqd, payer, shopper);
   b.add('promo_funded', red.againstDelivery, Accounts.platform, payer, 'points:delivery_fee');
@@ -292,23 +344,33 @@ export interface RidePostings {
 /** Ride/parcel completed: fare to the driver, platform take by class (tuktuk 10 % min 100, car 12 %, parcel 15 %…). */
 export function postRideCompleted(input: RideMoneyPayload, rules: MoneyRules): RidePostings {
   const r = RideMoneyPayload.parse(input);
-  const b = new GroupBuilder(`trip:${r.tripId}:money`, 'money', r.occurredAt, { tripId: r.tripId, orderId: r.orderId });
+  const k = keyed(r.requestId, 'money', `trip:${r.tripId}:money`, { tripId: r.tripId, orderId: r.orderId });
+  const b = new GroupBuilder(k.id, 'money', r.occurredAt, k.refs);
   const payer = payerAccount(r);
   const driver = Accounts.driver(r.driverId);
   const take = takeOf(r.fareIqd, rules.take[r.takeClass]);
   const fareType: LedgerEventType = r.takeClass === 'parcel' || r.takeClass === 'parcel_intercity' ? 'parcel_fee' : 'fare';
 
-  b.add(fareType, r.fareIqd, payer, driver, r.takeClass);
+  // Step 6: friends who joined a shared private car pay their places from their own wallets.
+  const sharedIqd = r.sharedBy.reduce((sum, f) => sum + f.amountIqd, 0);
+  if (sharedIqd > r.fareIqd) throw new RangeError(`shared places ${sharedIqd} are more than the fare ${r.fareIqd}`);
+  for (const f of r.sharedBy) {
+    const friend = Accounts.customer(f.customerId);
+    if (friend === payer) throw new RangeError('the payer cannot share with himself');
+    b.add(fareType, f.amountIqd, friend, driver, 'request_share');
+    b.control(friend, -f.amountIqd);
+  }
+  b.add(fareType, r.fareIqd - sharedIqd, payer, driver, r.takeClass);
   b.add('commission_accrued', take, driver, Accounts.platform, `take:${r.takeClass}`);
   b.add('tip', r.tipIqd, payer, driver);
   b.add('driver_incentive', r.pickupCompensationIqd, Accounts.platform, driver, 'rebroadcast_compensation');
-  const total = settleCustomer(b, payer, r, r.fareIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
+  const total = settleCustomer(b, payer, r, r.fareIqd - sharedIqd + r.tipIqd, Accounts.cash(r.driverId), rules);
   return { money: b.build(), takeIqd: take, totalIqd: total };
 }
 
 // ───────────────────────── intercity seats ─────────────────────────
 
-/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch. */
+/** Seat 10 %, front-seat premium 25 % (money §3); walk-ups carry no commission at launch; a company-paid return discount is `promo_funded`. */
 export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostings {
   const s = SeatMoneyPayload.parse(input);
   const b = new GroupBuilder(`seat:${s.seatId}:money`, 'money', s.occurredAt, { departureId: s.departureId, routeId: s.routeId });
@@ -321,7 +383,10 @@ export function postSeat(input: SeatMoneyPayload, rules: MoneyRules): RidePostin
   b.add('commission_accrued', seatTake, driver, Accounts.platform, 'take:intercity_seat');
   b.add('seat_premium', s.frontPremiumIqd, payer, driver, 'front');
   b.add('commission_accrued', premiumTake, driver, Accounts.platform, 'take:front_seat_premium');
-  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd, Accounts.cash(s.driverId), rules);
+  // Step 5: the return-trip discount the company pays comes off what the rider owes, not the driver's fare.
+  if (s.platformDiscountIqd > s.fareIqd) throw new RangeError(`return discount ${s.platformDiscountIqd} is more than the seat fare ${s.fareIqd}`);
+  b.add('promo_funded', s.platformDiscountIqd, Accounts.platform, payer, 'return_bundle');
+  const total = settleCustomer(b, payer, s, s.fareIqd + s.frontPremiumIqd - s.platformDiscountIqd, Accounts.cash(s.driverId), rules);
   return { money: b.build(), takeIqd: seatTake + premiumTake, totalIqd: total };
 }
 
@@ -350,6 +415,9 @@ export function lateMeterBlocks(minutesLate: number, rules: MoneyRules): number 
   return Math.ceil((late - m.graceMin) / m.blockMin);
 }
 
+/** Memo on late-meter lines the company pays because our own taxi to the garage ran late (x3). */
+export const LATE_TAXI_MEMO = 'late_taxi';
+
 /** Late meters pay 100 % to the wronged party; the platform takes nothing (money §3). */
 export function postLateMeter(input: LateMeterPayload, rules: MoneyRules): PostingGroup | null {
   const l = LateMeterPayload.parse(input);
@@ -358,9 +426,16 @@ export function postLateMeter(input: LateMeterPayload, rules: MoneyRules): Posti
   const b = new GroupBuilder(`late:${l.departureId}:${l.late.kind}:${l.late.id}`, 'money', l.occurredAt, { departureId: l.departureId });
   const waiting = l.waitingRiderIds.filter((id) => id !== l.late.id);
   if (l.late.kind === 'rider') {
-    const rider = Accounts.customer(l.late.id);
-    b.add('late_penalty_driver', blocks * rules.lateMeter.riderLateToDriverPerBlockIqd, rider, Accounts.driver(l.driverId));
-    for (const w of waiting) b.add('late_penalty_rider_credit', blocks * rules.lateMeter.riderLateToEachRiderPerBlockIqd, rider, Accounts.customer(w));
+    // x3: the blocks that ran while our own late taxi was still due are the company's, not his.
+    const company = rules.lateTaxiPaysMeter.enabled ? lateMeterBlocks(Math.min(l.taxiLateMinutes, l.minutesLate), rules) : 0;
+    const payers: Array<[string, number, string | undefined]> = [
+      [Accounts.customer(l.late.id), blocks - company, undefined],
+      [Accounts.platform, company, LATE_TAXI_MEMO],
+    ];
+    for (const [from, n, memo] of payers) {
+      b.add('late_penalty_driver', n * rules.lateMeter.riderLateToDriverPerBlockIqd, from, Accounts.driver(l.driverId), memo);
+      for (const w of waiting) b.add('late_penalty_rider_credit', n * rules.lateMeter.riderLateToEachRiderPerBlockIqd, from, Accounts.customer(w), memo);
+    }
   } else {
     for (const w of waiting) b.add('late_penalty_rider_credit', blocks * rules.lateMeter.driverLateToEachRiderPerBlockIqd, Accounts.driver(l.driverId), Accounts.customer(w), 'driver_late');
   }
@@ -375,16 +450,47 @@ export function postCancellation(input: z.input<typeof OrderCancelledPayload>): 
   const c = OrderCancelledPayload.parse(input);
   if (c.feeIqd === 0) return null;
   const payer = payerAccount(c);
-  const b = new GroupBuilder(`order:${c.orderId}:cancel`, 'money', c.occurredAt, { orderId: c.orderId, tripId: c.tripId });
+  const k = keyed(c.requestId, 'cancel', `order:${c.orderId}:cancel`, { orderId: c.orderId, tripId: c.tripId });
+  const b = new GroupBuilder(k.id, 'money', c.occurredAt, k.refs);
   for (const to of c.beneficiaries) b.add('cancellation_fee', to.amountIqd, payer, to.kind === 'merchant' ? Accounts.merchantCash(to.id) : Accounts.driver(to.id), to.kind);
   return b.control(payer, -c.feeIqd).build();
+}
+
+/**
+ * M-15: a ride's driver cancelled after reaching the pickup; the customer's credit comes from the
+ * driver (memo `driver_cancel`). One group per trip, so a redelivered event or a second driver who
+ * cancels the re-matched ride each post once. Nothing when there is no credit.
+ */
+export function postDriverCancelled(input: DriverCancelledPayload): PostingGroup | null {
+  const d = DriverCancelledPayload.parse(input);
+  if (d.customerCreditIqd === 0) return null;
+  return new GroupBuilder(`order:${d.orderId}:driver_cancel:${d.tripId ?? d.driverId}`, 'money', d.occurredAt, { orderId: d.orderId, ...(d.tripId ? { tripId: d.tripId } : {}) })
+    .add('cancellation_fee', d.customerCreditIqd, Accounts.driver(d.driverId), Accounts.customer(d.customerId), 'driver_cancel')
+    .build();
+}
+
+/**
+ * M-17: a merchant rejected the order after accepting it; the customer's credit comes from the
+ * merchant's cash account (memo `merchant_late_reject`). One group per order (an order is rejected
+ * at most once), so a redelivered event posts once. Nothing when there is no credit — always while
+ * the money rule `merchantLateRejectCredit` is off.
+ */
+export function postMerchantLateReject(input: z.input<typeof OrderRejectedPayload>): PostingGroup | null {
+  const r = OrderRejectedPayload.parse(input);
+  if (r.customerCreditIqd === 0) return null;
+  // The payload's refine guarantees these with a credit.
+  const { orderId, customerId, merchantOrgId, occurredAt } = r as Required<Pick<OrderRejectedPayload, 'orderId' | 'customerId' | 'merchantOrgId' | 'occurredAt'>>;
+  return new GroupBuilder(`order:${orderId}:merchant_late_reject`, 'money', occurredAt, { orderId })
+    .add('cancellation_fee', r.customerCreditIqd, Accounts.merchantCash(merchantOrgId), Accounts.customer(customerId), 'merchant_late_reject')
+    .build();
 }
 
 /** Driver cancels inside 2 h: his fee is shared by the booked riders as credit; low-fill cancels post nothing. */
 export function postDepartureCancelled(input: DepartureCancelledPayload): PostingGroup | null {
   const d = DepartureCancelledPayload.parse(input);
   if (d.cancelledBy !== 'driver' || d.feeIqd === 0 || d.riderIds.length === 0) return null;
-  const b = new GroupBuilder(`departure:${d.departureId}:cancel`, 'money', d.occurredAt, { departureId: d.departureId, routeId: d.routeId });
+  const k = keyed(d.requestId, 'driver_no_show', `departure:${d.departureId}:cancel`, { departureId: d.departureId, routeId: d.routeId });
+  const b = new GroupBuilder(k.id, 'money', d.occurredAt, k.refs);
   const shares = allocate(d.feeIqd, d.riderIds.map(() => 1));
   d.riderIds.forEach((r, i) => b.add('departure_cancel_fee', shares[i] ?? 0, Accounts.driver(d.driverId), Accounts.customer(r)));
   return b.control(Accounts.driver(d.driverId), -d.feeIqd).build();

@@ -14,13 +14,14 @@ const VIEW: ConsolePickupSpotView = {
   updatedAt: new Date('2026-10-07T09:00:00Z'),
   consoleEdit: null,
 };
-const ROW: PickupStoreRow = { merchantOrgId: 'org_k', name: 'مطعم خالد', type: 'restaurant', note: VIEW.note, photos: 1, updatedAt: VIEW.updatedAt };
+const ROW: PickupStoreRow = { merchantOrgId: 'org_k', name: 'مطعم خالد', type: 'restaurant', note: VIEW.note, photos: 1, updatedAt: VIEW.updatedAt, shopPhoto: true, dishes: 12, dishesNoPhoto: 2 };
 
 function caller(roles: readonly RoleKind[] | null) {
   const pickupSpots: PickupSpotsOpsPort = {
     stores: vi.fn(async () => [ROW]),
     get: vi.fn(async () => VIEW),
     set: vi.fn(async () => VIEW),
+    moveKitchen: vi.fn(async () => VIEW),
   };
   const ctx = {
     auth: roles ? { sub: 'p_1', sid: 's1', iss: 'driver-api', iat: 0, exp: 0 } : null,
@@ -47,6 +48,7 @@ const MATRIX: Array<[string, (c: Call) => Promise<unknown>]> = [
   ['ops.pickupSpots.stores', (c) => c.ops.pickupSpots.stores({ cityId: 'aziziyah' })],
   ['ops.pickupSpots.get', (c) => c.ops.pickupSpots.get(SCOPE)],
   ['ops.pickupSpots.set', (c) => c.ops.pickupSpots.set({ ...SCOPE, note: 'من الباب الجانبي', photoIds: ['up_1'] })],
+  ['ops.pickupSpots.moveKitchen', (c) => c.ops.pickupSpots.moveKitchen({ ...SCOPE, pin: { lat: 32.905, lng: 45.06 } })],
 ];
 
 describe('pickup spot from the Console: role gates', () => {

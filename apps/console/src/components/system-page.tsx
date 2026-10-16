@@ -2,16 +2,18 @@
 
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { OUTBOX_REQUEUE_ROLES } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { outboxHealth } from '@/lib/board';
 import { formatClock, formatDayClock, formatIqd, shortId } from '@/lib/format';
 import { netWords } from '@/lib/control-room';
 import { CITY_ID, queryRetry } from '@/lib/live';
+import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { errorText } from '@/lib/network';
-import { Button, Card, Chip, cx, IconAlert, IconCheckCircle, IconClock, LiveBadge, Mono, NeedLogin, PageHeader, QueryError, Row, Skeleton, useToast } from './ui';
+import { Button, Card, Chip, cx, Dialog, IconAlert, IconCheckCircle, IconClock, LiveBadge, Mono, NeedLogin, PageHeader, QueryError, Row, Skeleton, useToast } from './ui';
 
 /** Engineering health lives here (K-23): the API and its stores, the nightly close, the outbox and the simulator. */
 export function SystemPage() {
@@ -25,7 +27,11 @@ export function SystemPage() {
             <NightlyCard />
             <SimulatorCard />
           </div>
-          <OutboxCard />
+          <div className="space-y-5">
+            <OutboxCard />
+            <NotifyStuckCard />
+            <SmsDayCard />
+          </div>
         </div>
       </div>
     </div>
@@ -94,7 +100,7 @@ function NightlyCard() {
       {!signedIn ? (
         <NeedLogin />
       ) : (
-        <Button variant="primary" loading={run.isPending} onClick={() => run.mutate()}>
+        <Button variant="primary" needsNet loading={run.isPending} onClick={() => run.mutate()}>
           {run.isPending ? t('console.nightly_running') : t('console.nightly_run')}
         </Button>
       )}
@@ -140,8 +146,13 @@ function OutboxCard() {
   const outbox = useQuery(trpc.system.outbox.queryOptions(undefined, { enabled: signedIn, refetchInterval: 5_000, retry: queryRetry }));
   const o = outbox.data;
   const health = o ? outboxHealth(o) : 'ok';
+  const { roles } = useMyRoles();
+  // Admin only (audited on the server): failed rows go back on the queue once the cause is fixed.
+  const canRequeue = hasAny(roles, OUTBOX_REQUEUE_ROLES);
+  const [requeue, setRequeue] = useState<string[] | null>(null);
   return (
     <Card title={t('console.outbox')} hint={t('console.outbox_hint')} tone={health === 'failing' ? 'bad' : 'default'} actions={signedIn ? <LiveBadge seconds={5} updatedAt={outbox.dataUpdatedAt} fetching={outbox.isFetching} compact /> : undefined}>
+      <RequeueDialog ids={requeue} onClose={() => setRequeue(null)} />
       {!signedIn && <NeedLogin />}
       {outbox.error && <QueryError error={outbox.error} onRetry={() => void outbox.refetch()} />}
       {signedIn && !o && outbox.isPending && <Skeleton className="h-16" />}
@@ -154,7 +165,14 @@ function OutboxCard() {
           </dl>
           {o.recentFailed.length > 0 ? (
             <div className="mt-4">
-              <p className="text-dense font-medium">{t('console.outbox_recent_failed')}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-dense font-medium">{t('console.outbox_recent_failed')}</p>
+                {canRequeue && (
+                  <Button variant="secondary" needsNet onClick={() => setRequeue(o.recentFailed.map((f) => f.id))} data-testid="outbox-requeue-all">
+                    {t('console.outbox_requeue_all', { n: o.recentFailed.length })}
+                  </Button>
+                )}
+              </div>
               <ul className="mt-2 max-h-72 space-y-2 overflow-y-auto text-sm">
                 {o.recentFailed.map((f) => (
                   <li key={f.id} className="rounded-md border border-bad/40 bg-bad-tint px-3 py-2">
@@ -172,6 +190,11 @@ function OutboxCard() {
                         {f.lastError}
                       </p>
                     )}
+                    {canRequeue && (
+                      <Button variant="secondary" needsNet className="mt-2" onClick={() => setRequeue([f.id])} data-testid={`outbox-requeue-${f.id}`}>
+                        {t('console.outbox_requeue')}
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -180,6 +203,113 @@ function OutboxCard() {
             <p className="mt-4 flex items-center gap-2 text-sm text-text">
               <IconCheckCircle size={16} className="text-ok" />
               {t('console.outbox_all_ok')}
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Confirms an admin requeue of failed outbox rows (`system.requeueOutbox`, audited on the server). */
+function RequeueDialog({ ids, onClose }: { ids: string[] | null; onClose: () => void }) {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const run = useMutation(
+    trpc.system.requeueOutbox.mutationOptions({
+      onSuccess: (r) => {
+        void qc.invalidateQueries({ queryKey: trpc.system.outbox.queryKey() });
+        void qc.invalidateQueries({ queryKey: trpc.system.moneyAlarm.queryKey() });
+        toast({ title: t('console.outbox_requeued', { n: r.requeued }), tone: 'ok' });
+        onClose();
+      },
+      onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
+    }),
+  );
+  const n = ids?.length ?? 0;
+  return (
+    <Dialog
+      open={ids !== null}
+      onClose={onClose}
+      width="sm"
+      title={t('console.outbox_requeue_title', { n })}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('console.cancel')}
+          </Button>
+          <Button variant="primary" needsNet loading={run.isPending} onClick={() => ids && run.mutate({ ids })} data-testid="outbox-requeue-confirm">
+            {t('console.outbox_requeue_confirm')}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-text">{t('console.outbox_requeue_body')}</p>
+    </Dialog>
+  );
+}
+
+/**
+ * Outgoing messages claimed for a send more than 5 minutes ago that never recorded an answer
+ * (`system.notifyStuck`; job machines log the same count to Sentry). Read only: nothing is resent.
+ */
+function NotifyStuckCard() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  const q = useQuery(trpc.system.notifyStuck.queryOptions(undefined, { enabled: signedIn, refetchInterval: 30_000, retry: queryRetry }));
+  const s = q.data;
+  const stuck = (s?.stuck ?? 0) > 0;
+  return (
+    <Card title={t('console.notify_stuck')} hint={t('console.notify_stuck_hint')} tone={stuck ? 'bad' : 'default'} actions={signedIn ? <LiveBadge seconds={30} updatedAt={q.dataUpdatedAt} fetching={q.isFetching} compact /> : undefined}>
+      {!signedIn && <NeedLogin />}
+      {q.error && <QueryError error={q.error} onRetry={() => void q.refetch()} />}
+      {signedIn && !s && q.isPending && <Skeleton className="h-16" />}
+      {s && <NotifyStuckView stuck={s.stuck} oldestSec={s.oldestSec} />}
+    </Card>
+  );
+}
+
+/** The stuck-messages count and what to do about it (no data fetching, so tests can render it). */
+export function NotifyStuckView({ stuck, oldestSec }: { stuck: number; oldestSec: number }) {
+  const any = stuck > 0;
+  return (
+    <>
+      <dl className="grid grid-cols-2 gap-3">
+        <Count k={t('console.notify_stuck_count')} v={stuck} tone={any ? 'bad' : undefined} />
+        <Count k={t('console.notify_stuck_oldest')} v={Math.floor(oldestSec / 60)} />
+      </dl>
+      <p className={cx('mt-3 flex items-center gap-2 text-sm', any ? 'text-bad' : 'text-text')} data-testid="notify-stuck-state">
+        {any ? <IconAlert size={16} className="shrink-0" /> : <IconCheckCircle size={16} className="shrink-0 text-ok" />}
+        {any ? t('console.notify_stuck_help') : t('console.notify_stuck_none')}
+      </p>
+    </>
+  );
+}
+
+/** The day's SMS (sign-in codes and notification texts share one budget and one account balance). */
+function SmsDayCard() {
+  const trpc = useTRPC();
+  const signedIn = useSignedIn();
+  const sms = useQuery(trpc.system.smsDay.queryOptions(undefined, { enabled: signedIn, refetchInterval: 30_000, retry: queryRetry }));
+  const s = sms.data;
+  const share = s ? s.sent / s.budget : 0;
+  const tone = share >= 1 ? 'bad' : share >= 0.8 ? 'warn' : undefined;
+  return (
+    <Card title={t('console.sms_day')} hint={t('console.sms_day_hint')} tone={tone ?? 'default'} actions={signedIn ? <LiveBadge seconds={30} updatedAt={sms.dataUpdatedAt} fetching={sms.isFetching} compact /> : undefined}>
+      {!signedIn && <NeedLogin />}
+      {sms.error && <QueryError error={sms.error} onRetry={() => void sms.refetch()} />}
+      {signedIn && !s && sms.isPending && <Skeleton className="h-16" />}
+      {s && (
+        <>
+          <dl className="grid grid-cols-2 gap-3">
+            <Count k={t('console.sms_day_sent')} v={s.sent} tone={tone} />
+            <Count k={t('console.sms_day_budget')} v={s.budget} />
+          </dl>
+          {share >= 1 && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-bad">
+              <IconAlert size={16} className="shrink-0" />
+              {t('console.sms_day_over')}
             </p>
           )}
         </>
@@ -235,7 +365,7 @@ function SimulatorCard() {
                   <Chip tone={s.lastReport.ok ? 'done' : 'bad'}>
                     {s.lastReport.ok
                       ? t('console.simulator_report_ok', { delivered: s.lastReport.delivered, orders: s.lastReport.orders })
-                      : t('console.simulator_report_failed', { count: s.lastReport.violations.length, names: s.lastReport.violations.map((v) => v.invariant).join('، ') })}
+                      : t('console.simulator_report_failed', { count: s.lastReport.violations.length, names: s.lastReport.violations.map((v) => v.invariant).join(t('console.list_sep')) })}
                   </Chip>
                 }
               />

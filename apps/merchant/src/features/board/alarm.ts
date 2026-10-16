@@ -1,7 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { BoardOrder } from '@driver/contracts';
 import { canPlay, chime, onUnlock, setLoop, stopVibration, vibrate } from '@/lib/alert-sound';
-import { alarmAction, alarmPlan, snooze as snoozeMap, STAGE_VOLUME, VIBRATION, type AlarmPlan, type RingCandidate } from './ladder';
+import { alarmAction, alarmPlan, ringCandidates, snooze as snoozeMap, STAGE_VOLUME, VIBRATION, type AlarmPlan, type RingCandidate } from './ladder';
 
 /**
  * The new-order alarm, app-wide (it rings on any screen — menu, money… — until every new order is
@@ -21,17 +21,21 @@ let lastChimeAt = 0;
 let finalBuzzing = false;
 const EMPTY: AlarmPlan = { ringing: [], snoozed: [], stage: null, mostUrgent: null, snoozeEndsAt: null, closed: [] };
 let plan: AlarmPlan = EMPTY;
+/** What the screens draw from (h3): changes when the set of orders or the stage changes, not every second. */
+let shown: AlarmPlan = EMPTY;
 let planKey = '';
+let secondsKey = '';
 let candidates: RingCandidate[] = [];
-/** The store is closed (by hand or out of hours): waiting orders show, nothing rings (m6a). */
+/** The store is closed (by hand or out of hours): orders waiting from before show quietly (m6a). */
 let storeClosed = false;
 
 const listeners = new Set<() => void>();
 const emit = () => {
   for (const l of listeners) l();
 };
+// MER-10: on the web the sound can also go off again (a suspended tab), so this follows every change.
 onUnlock(() => {
-  soundReady = true;
+  soundReady = canPlay();
   emit();
 });
 
@@ -41,20 +45,32 @@ const subscribe = (cb: () => void) => {
     listeners.delete(cb);
   };
 };
-
-/** New orders that should ring (partial accepts wait for the customer, not the kitchen). */
-export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
-  return orders.filter((o) => o.column === 'new' && o.partial === null).map((o) => ({ id: o.id, number: o.number, acceptByMs: o.acceptBy ? o.acceptBy.getTime() : null }));
-}
+/** The per-second countdowns («باقي 12 ث»), for the one strip that shows them (h3). */
+const secondListeners = new Set<() => void>();
+const subscribeSeconds = (cb: () => void) => {
+  secondListeners.add(cb);
+  return () => {
+    secondListeners.delete(cb);
+  };
+};
 
 function publish(next: AlarmPlan) {
-  const key = [next.ringing.join(','), next.snoozed.join(','), next.closed.join(','), next.stage, next.mostUrgent?.id, next.mostUrgent?.msLeft === null || !next.mostUrgent ? '' : Math.ceil(next.mostUrgent.msLeft / 1000), next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
+  const key = [next.ringing.join(','), next.snoozed.join(','), next.closed.join(','), next.stage, next.mostUrgent?.id, next.snoozeEndsAt === null ? '' : Math.ceil(next.snoozeEndsAt / 1000)].join('|');
+  const seconds = next.mostUrgent?.msLeft == null ? '' : String(Math.ceil(next.mostUrgent.msLeft / 1000));
   plan = next;
   if (key !== planKey) {
     planKey = key;
+    shown = next;
     emit();
   }
+  if (seconds !== secondsKey) {
+    secondsKey = seconds;
+    for (const l of secondListeners) l();
+  }
 }
+
+/** Seconds left on the most urgent order, or null. */
+const urgentSeconds = (): number | null => (plan.mostUrgent?.msLeft == null ? null : Math.max(0, Math.ceil(plan.mostUrgent.msLeft / 1000)));
 
 function quiet() {
   setLoop(false);
@@ -113,20 +129,33 @@ export const alarm = {
     lastChimeAt = 0;
     publish(alarmPlan(candidates, snoozedUntil, handling, now, storeClosed));
   },
-  /** A new order arrived on the live channel: ring now, before the board is re-read. */
+  /**
+   * A new order arrived on the live channel: ring now, before the board is re-read. It rings even
+   * while the store is closed — an order offered now was not waiting when the store closed (m6a).
+   */
   ringNow(orderId: string, soundOn: boolean) {
-    if (storeClosed || !soundOn || !soundReady || handling.has(orderId) || (snoozedUntil.get(orderId) ?? 0) > Date.now()) return;
+    if (!soundOn || !soundReady || handling.has(orderId) || (snoozedUntil.get(orderId) ?? 0) > Date.now()) return;
     lastChimeAt = Date.now();
     chime(STAGE_VOLUME.calm);
     vibrate(VIBRATION.calm);
   },
-  plan: () => plan,
+  /** The plan as the screens draw it; `mostUrgent.msLeft` there is not live (use `useUrgentSeconds`). */
+  plan: () => shown,
   handling: () => handling,
   subscribe,
 };
 
 export function useAlarmPlan(): AlarmPlan {
   return useSyncExternalStore(subscribe, alarm.plan, alarm.plan);
+}
+
+/**
+ * «آخر 12 ثانية»: seconds left on the most urgent order, live while `active` (null otherwise, so the
+ * caller doesn't re-render for a countdown it isn't showing).
+ */
+export function useUrgentSeconds(active = true): number | null {
+  const get = () => (active ? urgentSeconds() : null);
+  return useSyncExternalStore(subscribeSeconds, get, get);
 }
 
 /** Orders whose sheet is open (quiet while the cook decides). */
@@ -149,14 +178,17 @@ export function useNewOrderAlarm(orders: readonly BoardOrder[] | undefined, soun
   clockRef.current = clock;
   candidates = orders ? ringCandidates(orders) : [];
   storeClosed = closed;
+  // PERF-07: the 250-ms tick only runs while a new order is waiting; an empty board draws nothing.
+  const waiting = candidates.length > 0;
   // Re-armed when the store closes or opens: closing silences at once, opening rings straight away.
   useEffect(() => {
     tick(clockRef.current(), soundOn);
+    if (!waiting) return quiet;
     const id = setInterval(() => tick(clockRef.current(), soundOn), ALARM_TICK_MS);
     return () => {
       clearInterval(id);
       quiet();
     };
-  }, [soundOn, closed]);
+  }, [soundOn, closed, waiting]);
   return useAlarmPlan();
 }

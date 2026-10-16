@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { corsOriginFromEnv } from './bootstrap.js';
+import { corsOptions, corsOriginFromEnv } from './bootstrap.js';
 
 describe('CORS_ORIGINS', () => {
   it('unset: any origin (development, and until the web domains exist)', () => {
@@ -9,5 +9,11 @@ describe('CORS_ORIGINS', () => {
 
   it('a comma-separated list, trimmed, without trailing slashes', () => {
     expect(corsOriginFromEnv({ CORS_ORIGINS: 'https://app.driver.iq/, https://console.driver.iq' })).toEqual(['https://app.driver.iq', 'https://console.driver.iq']);
+  });
+});
+
+describe('corsOptions', () => {
+  it('exposes Date so the web app can read the server clock (THIN-10)', () => {
+    expect(corsOptions({ CORS_ORIGINS: 'https://app.driver.iq' })).toEqual({ origin: ['https://app.driver.iq'], exposedHeaders: ['Date'] });
   });
 });

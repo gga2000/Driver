@@ -4,7 +4,7 @@ import { NAV, visibleNav } from './nav';
 import { callerPhone, filterPlaces, formatCallerPhone, missingParts, newBookingKey, statusTone, type PhoneBookingForm } from './phone-booking';
 
 const PLACES = [
-  { id: 'garage_bab1', name_ar: 'كراج البوابة ١', aliases_ar: ['كراج بغداد'] },
+  { id: 'garage_bab1', name_ar: 'كراج البوابة 1', aliases_ar: ['كراج بغداد'] },
   { id: 'garage_souq', name_ar: 'كراج السوق', aliases_ar: ['السوق'] },
   { id: 'mp_jami_kabir', name_ar: 'باب الجامع الكبير', aliases_ar: ['الجامع الكبير', 'جامع'] },
   { id: 'mp_hadiqat_shasha', name_ar: 'حديقة الشاشة', aliases_ar: ['الحديقة', 'متنزه'] },

@@ -2,7 +2,8 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import type { DealView } from '@driver/contracts';
-import { Button, EmptyState, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, EmptyState, Skeleton, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
 import { Glyph } from '@/features/menu/Glyph';
 import { useMenu } from '@/features/menu/queries';
@@ -22,7 +23,7 @@ export function DealsScreen() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
   const { store, canSeeMoney } = useCurrentStore();
   const owner = canSeeMoney;

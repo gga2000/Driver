@@ -73,7 +73,10 @@ describe('lock-screen boarding pass (customer d-8)', () => {
     const on = passCard(input(booking({ state: 'checked_in' }, { state: 'boarding' }), min(28)), t)!;
     expect(on).toMatchObject({ phase: 'on_board', title: 'صعدت · تطلع 7:30 م', body: 'مقعدك ورا نص', sticky: true, imHere: null });
     const road = passCard(input(booking({ state: 'checked_in' }, { state: 'departed' }), min(50)), t)!;
-    expect(road).toMatchObject({ phase: 'on_road', title: 'بالطريق لـ العزيزية' });
+    expect(road).toMatchObject({ phase: 'on_road', title: 'بالطريق لـ العزيزية', sub: null });
+    // r6: with the arrival known, the third line says when.
+    const arriving = passCard({ ...input(booking({ state: 'checked_in' }, { state: 'departed' }), min(50)), arriveAt: min(150) }, t)!;
+    expect(strip(arriving.sub ?? '')).toMatch(/^توصل حوالي \d{1,2}:\d{2}/);
     const done = passCard(input(booking({ state: 'completed' }, { state: 'arrived' }), min(150)), t)!;
     expect(done).toMatchObject({ phase: 'arrived', title: 'وصلت بالسلامة', sticky: false });
     expect(strip(done.body)).toBe('الأجرة 10,000 دينار');

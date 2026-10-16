@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { View } from 'react-native';
-import Animated, { Easing, FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeInDown, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Button, formatClock, Icon, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
+import { useGlide } from './glide';
 import { tripProgress, type RideVertical } from './logic';
 
 /** Collapsed-sheet height the trip line adds (the line with its two ends, the words under it, the gap above). */
@@ -25,8 +26,8 @@ export function TripProgress({ orderId, startedAt, eta, now, vertical }: { order
     if (!p) return;
     w.value = theme.reduceMotion ? p.fraction : withTiming(p.fraction, { duration: 950, easing: Easing.linear });
   }, [p?.fraction, w, theme.reduceMotion, p]);
-  const fill = useAnimatedStyle(() => ({ width: `${Math.round(w.value * 1000) / 10}%` }));
-  const car = useAnimatedStyle(() => ({ start: `${Math.round(w.value * 1000) / 10}%` }));
+  const line = useGlide(w);
+  const ride = useGlide(w);
   if (!p || !eta) return null;
   return (
     <View
@@ -36,13 +37,13 @@ export function TripProgress({ orderId, startedAt, eta, now, vertical }: { order
       accessibilityLabel={t('ride.trip_progress_a11y', { percent: Math.round(p.fraction * 100), minutes: p.leftMin })}
       style={{ gap: 6 }}
     >
-      <View style={{ height: 22, justifyContent: 'center' }}>
-        <View style={{ marginHorizontal: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.liveTint, overflow: 'hidden' }}>
-          <Animated.View style={[{ height: 6, borderRadius: 3, backgroundColor: theme.colors.live }, fill]} />
+      <View onLayout={ride.onLayout} style={{ height: 22, justifyContent: 'center' }}>
+        <View onLayout={line.onLayout} style={{ marginHorizontal: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.liveTint, overflow: 'hidden' }}>
+          <Animated.View style={[{ width: '100%', height: 6, borderRadius: 3, backgroundColor: theme.colors.live }, line.fill]} />
         </View>
         <View style={{ position: 'absolute', start: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.live }} />
         <View style={{ position: 'absolute', end: 0, width: 14, height: 14, borderRadius: 3, borderWidth: 3, borderColor: theme.colors.text, backgroundColor: theme.colors.surface }} />
-        <Animated.View style={[{ position: 'absolute', marginStart: -11, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: theme.colors.live }, car]}>
+        <Animated.View style={[{ position: 'absolute', start: 0, marginStart: -11, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 2, borderColor: theme.colors.live }, ride.marker]}>
           <Icon name={vertical === 'tuktuk' ? 'tuktuk' : 'car'} size={13} color="liveText" strokeWidth={2.2} />
         </Animated.View>
       </View>

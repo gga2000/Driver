@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bandTitleKey, bandWords, baghdadClock, daypart, greetingKey, kitchenRank, orderForDaypart } from './daypart';
+import { bandTitleKey, bandWords, baghdadClock, daypart, greetingKey, kitchenRank, orderForDaypart, potPlace } from './daypart';
 
 /** A Baghdad wall-clock time on Tuesday 6 Oct 2026 (UTC+3) as an instant. */
 const at = (hhmm: string, day = '2026-10-06') => new Date(`${day}T${hhmm}:00+03:00`);
@@ -41,6 +41,13 @@ describe('greeting and band', () => {
     expect(greetingKey(friLunch, { quiet: false, named: true })).toBe('home.daypart.friday_lunch');
   });
 
+  it('late with every kitchen closed, says they are back in the morning instead of «هذني فاتحين»', () => {
+    expect(greetingKey(daypart(at('03:10')), { quiet: false, named: true, closed: true })).toBe('home.daypart.late_closed');
+    expect(greetingKey(daypart(at('03:10')), { quiet: false, named: false, closed: true })).toBe('home.daypart.late_closed_anon');
+    expect(greetingKey(daypart(at('07:00')), { quiet: false, named: true, closed: true })).toBe('home.daypart.dawn');
+    expect(greetingKey(daypart(at('03:10')), { quiet: true, named: true, closed: true })).toBe('home.daypart.quiet_late');
+  });
+
   it('has no playful line on a quiet day', () => {
     expect(greetingKey(daypart(at('01:00')), { quiet: true, named: true })).toBe('home.daypart.quiet_late');
     expect(greetingKey(daypart(at('17:00')), { quiet: true, named: false })).toBe('home.daypart.quiet_evening_anon');
@@ -48,6 +55,38 @@ describe('greeting and band', () => {
     expect(greetingKey(friLunch, { quiet: true, named: true })).toBe('home.daypart.quiet_lunch');
     expect(bandTitleKey(friLunch, true)).toBe('home.band.lunch');
     expect(bandTitleKey(friLunch, false)).toBe('home.band.friday_lunch');
+  });
+
+  it('in Ramadan it greets the fast, never «وقت الغدا»; a quiet day says only «رمضان كريم»', () => {
+    const noon = daypart(at('13:00'));
+    expect(greetingKey(noon, { quiet: false, named: true, ramadan: 'fast' })).toBe('home.ramadan.fast');
+    expect(greetingKey(daypart(at('16:00')), { quiet: false, named: false, ramadan: 'iftar_soon' })).toBe('home.ramadan.iftar_soon_anon');
+    expect(greetingKey(daypart(at('21:00')), { quiet: false, named: true, ramadan: 'after_iftar' })).toBe('home.ramadan.after_iftar');
+    expect(greetingKey(daypart(at('02:30')), { quiet: false, named: true, ramadan: 'suhoor' })).toBe('home.ramadan.suhoor');
+    expect(greetingKey(noon, { quiet: true, named: true, ramadan: 'fast' })).toBe('home.ramadan.quiet');
+    expect(greetingKey(daypart(at('02:30')), { quiet: false, named: true, closed: true, ramadan: 'suhoor' })).toBe('home.daypart.late_closed');
+    expect(greetingKey(noon, { quiet: false, named: true, ramadan: null })).toBe('home.daypart.lunch');
+  });
+
+  it('in Ramadan the hour’s food is iftar’s, then sweets, then suhoor’s, under the fast’s own titles', () => {
+    const noon = daypart(at('13:00'));
+    expect(bandTitleKey(noon, false, 'fast')).toBe('home.ramadan_band.fast');
+    expect(bandTitleKey(noon, true, 'iftar_soon')).toBe('home.ramadan_band.iftar_soon');
+    expect(bandWords(noon, 'fast')).toContain('شوربة');
+    expect(bandWords(noon, 'fast')).not.toContain('قوزي');
+    expect(bandWords(daypart(at('21:00')), 'after_iftar')[0]).toBe('زلابية');
+    expect(bandWords(daypart(at('02:30')), 'suhoor')).toContain('كاهي');
+  });
+
+  it('the day’s pots lead at lunch and dinner and follow the hour’s dishes otherwise; none among the sweets', () => {
+    expect(potPlace(daypart(at('13:00')))).toBe('first');
+    expect(potPlace(daypart(at('20:00')))).toBe('first');
+    expect(potPlace(daypart(at('07:00')))).toBe('after');
+    expect(potPlace(daypart(at('17:00')))).toBe('after');
+    expect(potPlace(daypart(at('01:00')))).toBe('after');
+    expect(potPlace(daypart(at('13:00')), 'fast')).toBe('first');
+    expect(potPlace(daypart(at('21:00')), 'after_iftar')).toBe('none');
+    expect(potPlace(daypart(at('02:30')), 'suhoor')).toBe('after');
   });
 
   it('asks the server for dishes that suit the hour', () => {

@@ -1,14 +1,17 @@
+import type { OrdersUploadsPort } from './catalog.port.js';
 import { createHash } from 'node:crypto';
 import { AZIZIYAH_MONEY_RULES, type LatLng, type PlaceOrderInput } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
+import { InMemoryTimerStore, TimerSweeper } from '../../shared/timers/index.js';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter, type EtaCorrection } from '../routing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { RecordingOrderEvents } from './events.adapter.js';
+import type { OrdersControlsPort } from './controls.port.js';
 import { InMemoryMerchantDirectory } from './merchants.port.js';
 import { InMemoryOrdersRepository } from './orders.repository.js';
 import { OrdersService, type OrdersCashRiskPort, type OrderTimerJob } from './orders.service.js';
@@ -158,7 +161,7 @@ export class FakePromotions extends MerchantDealsPromotions implements Promotion
  * `etaCorrection` gives it a learned correction (on the harness clock); placement locks the promise's
  * ride from it.
  */
-export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection } = {}) {
+export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrection?: (clock: FakeClock) => EtaCorrection; controls?: OrdersControlsPort; uploads?: OrdersUploadsPort } = {}) {
   const clock = new FakeClock(start);
   const eta = new EtaService(new StraightLineRouter(), opts.etaCorrection?.(clock));
   const uow = new UnitOfWork(new NoDatabaseRunner());
@@ -197,6 +200,8 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
   const wallets = new Map<string, number>();
   const placeOwners = new Map<string, string>();
   const placeDoors = new Map<string, { lat: number; lng: number }>();
+  /** FOOD-15: the server's pin → zone reading; unset = zones stay as sent (most tests). */
+  const placeZones: { resolve: ((cityId: string, pin: { lat: number; lng: number }) => string | null) | null } = { resolve: null };
   // Joy w4: households (payers, orderers, limits, budgets, approvals) on in-memory orgs.
   const orgs = new OrgsService(undefined, clock);
   const orders = new OrdersService(repo, events, uow, clock, queue, trips, pricing, merchants, resolver, cashRisk, {
@@ -207,7 +212,7 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     },
     // Opening hours and minimum: none until a test saves a storefront (`catalog.saveStorefront`).
     storefront: (orgId) => catalog.storefront(orgId),
-  }, promotions, undefined, {
+  }, promotions, opts.controls, {
     // C-04: wallet balances by payer (customer or household); unset = 0.
     balanceIqd: async ({ customerId, householdId }) => wallets.get(householdId ? `household:${householdId}` : `customer:${customerId}`) ?? 0,
     // W-02: points balances by person (`points:<id>`); unset = 0.
@@ -215,14 +220,26 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
   }, {
     // Maps program SP3d: saved places by owner (`placeOwners.set(placeId, personId)`).
     deliveryPlace: async (personId, placeId) => (placeOwners.get(placeId) === personId ? { door: placeDoors.get(placeId) ?? null } : null),
-  }, orgsHouseholds(orgs), eta);
+    get zones() {
+      const resolve = placeZones.resolve;
+      return resolve ? { resolve } : undefined;
+    },
+  }, orgsHouseholds(orgs), eta, undefined, opts.uploads);
   orders.onModuleInit();
   // c9/s3: a ride for someone else, as OrdersModule binds it (identity stood in for).
   const riderIdentity = new FakeRiderIdentity(people);
   orders.bindRiders(identityRiders(riderIdentity, orgsHouseholds(orgs)));
   // "الخردة علينا": as OrdersModule binds it at start-up.
   trips.bindStartCodes({ codeOf: (orderId) => orders.startCodeOf(orderId) });
+  trips.bindPickupGuard({ problem: (orderId) => orders.errandPickupProblem(orderId) });
   trips.bindHandoverCheck({ check: (orderId, h) => (orderId ? orders.handoverProblem(orderId, h) : Promise.resolve(h.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null)) });
+
+  // FLW-22: the durable copies of both modules' timers, as the modules bind them; `sweeper.sweep()` fires
+  // the overdue ones (a test drives it by hand: it never runs on its own here).
+  const timerStore = new InMemoryTimerStore();
+  const sweeper = new TimerSweeper(timerStore, clock, 'all', { enabled: false, intervalMs: 5_000, batch: 50, leaseMs: 60_000 });
+  orders.bindDurableTimers(timerStore, sweeper);
+  trips.bindDurableTimers(timerStore, sweeper);
 
   tripEvents.onEvent((e) => orders.onTripEvent({ type: e.type, tripId: e.tripId!, actorId: e.actorId, occurredAt: e.occurredAt, ...(e.orderId ? { orderId: e.orderId } : {}), payload: e.payload }));
 
@@ -296,5 +313,5 @@ export function ordersHarness(start = '2026-10-03T09:00:00Z', opts: { etaCorrect
     await deliver();
   }
 
-  return { clock, eta, uow, orgs, placeOwners, placeDoors, trips, tripsRepo, tripEvents, tripsQueue, repo, events, queue, merchants, people, riderIdentity, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
+  return { clock, eta, uow, orgs, placeOwners, placeDoors, placeZones, trips, tripsRepo, tripEvents, tripsQueue, timerStore, sweeper, repo, events, queue, merchants, people, riderIdentity, cashRisk, catalog, promotions, orders, wallets, deliver, advance, foodInput, tripFor, pickup, dropoff };
 }

@@ -35,6 +35,13 @@ describe('households (domain §12)', () => {
     expect(await code(rpc.create(ali, { name: 'ثاني', cityId: 'aziziyah' }))).toBe('household_exists');
   });
 
+  it('two quick taps on create make one household (RDB-05); the second tap gets the same one', async () => {
+    const { rpc, ali } = await setup();
+    const [a, b] = await Promise.all([rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' }), rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' })]);
+    expect(a.id).toBe(b.id);
+    expect((await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' })).id).toBe(a.id);
+  });
+
   it('invite by phone (an existing account or a new pseudonymous person), then set a limit — payer only', async () => {
     const { rpc, ali, minar, id } = await setup();
     const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });

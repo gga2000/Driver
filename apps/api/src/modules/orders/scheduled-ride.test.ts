@@ -90,7 +90,7 @@ describe('the reminder half an hour before (step 4, c10)', () => {
     expect(h.events.ofType('order.ride_reminder')).toHaveLength(0);
     await h.advance(MIN);
     expect(h.events.ofType('order.ride_reminder')).toEqual([
-      expect.objectContaining({ orderId: o.id, payload: { customerId: 'c1', scheduledFor: at.toISOString(), searchAt: '2026-10-03T12:45:00.000Z' } }),
+      expect.objectContaining({ orderId: o.id, payload: { customerId: 'c1', scheduledFor: at.toISOString(), searchAt: '2026-10-03T12:30:00.000Z' } }),
     ]);
   });
 

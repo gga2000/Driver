@@ -1,7 +1,7 @@
 import { router, Stack } from 'expo-router';
 import { useMemo } from 'react';
 import { View } from 'react-native';
-import { Button, Card, formatClock, ListRow, Skeleton, Text, useNow, useTheme } from '@driver/ui';
+import { Button, Card, formatClock, ListRow, QueryBoundary, Skeleton, Text, useNow, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
 import { HeaderBack } from '@/features/food/HeaderBack';
@@ -51,13 +51,25 @@ export default function Help() {
             {t('help.orders_hint')}
           </Text>
         </View>
+        {/* FLOW-19: a failed read is never "no orders": it says so with a retry (WhatsApp below still works). */}
+        <QueryBoundary
+          query={history}
+          size="inline"
+          staleNote={false}
+          locale={locale}
+          testID="help-orders-state"
+          skeleton={
+            <Card elevation={0} padding={4}>
+              <View style={{ gap: theme.space[3] }}>
+                <Skeleton height={48} />
+                <Skeleton height={48} />
+              </View>
+            </Card>
+          }
+        >
+          {() => (
         <Card elevation={0} padding={0}>
-          {history.isPending ? (
-            <View style={{ padding: theme.space[4], gap: theme.space[3] }}>
-              <Skeleton height={48} />
-              <Skeleton height={48} />
-            </View>
-          ) : recent.length === 0 ? (
+          {recent.length === 0 ? (
             <ListRow leading="receipt" title={t('help.orders_empty')} chevron={false} />
           ) : (
             recent.map((row, i) => {
@@ -77,6 +89,8 @@ export default function Help() {
             })
           )}
         </Card>
+          )}
+        </QueryBoundary>
         {(history.data?.length ?? 0) > RECENT ? <Button variant="ghost" label={t('help.orders_all')} onPress={() => router.push('/orders')} /> : null}
       </View>
 

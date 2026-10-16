@@ -151,7 +151,11 @@ export function layerTransform(drawn: Camera, live: Camera, size: Size): { tx: n
   return { tx: kx + ((s - 1) * size.w) / 2, ty: ky + ((s - 1) * size.h) / 2, s };
 }
 
-/** Camera that fits `points` inside `size` minus `pad` (top, right, bottom, left), zoom clamped. */
+/**
+ * Camera that fits `points` inside `size` minus `pad` (top, right, bottom, left), zoom clamped. When they
+ * are too far apart to fit even at the widest zoom, the first point (the courier, the pickup) stays in
+ * the padded area and the others may run past its edge.
+ */
 export function fitCamera(
   points: readonly LngLat[],
   size: Size,
@@ -174,10 +178,33 @@ export function fitCamera(
   const zy = dy > 0 ? Math.log2(innerH / dy) : zoomRange[1];
   const zoom = clamp(Math.min(zx, zy), zoomRange[0], zoomRange[1]);
   // Centre of the box, shifted so it sits in the middle of the padded area.
-  const cx = (mercX(east, zoom) + mercX(west, zoom)) / 2 - (pad.left - pad.right) / 2;
-  const cy = (mercY(south, zoom) + mercY(north, zoom)) / 2 - (pad.top - pad.bottom) / 2;
+  let cx = (mercX(east, zoom) + mercX(west, zoom)) / 2 - (pad.left - pad.right) / 2;
+  let cy = (mercY(south, zoom) + mercY(north, zoom)) / 2 - (pad.top - pad.bottom) / 2;
+  // The padded area's centre sits at the camera centre shifted by (left − right, top − bottom) / 2.
+  const first = points[0]!;
+  const fx = mercX(first.lng, zoom) - (cx + (pad.left - pad.right) / 2);
+  const fy = mercY(first.lat, zoom) - (cy + (pad.top - pad.bottom) / 2);
+  const roomX = Math.max(0, innerW / 2);
+  const roomY = Math.max(0, innerH / 2);
+  if (fx > roomX) cx += fx - roomX;
+  else if (fx < -roomX) cx += fx + roomX;
+  if (fy > roomY) cy += fy - roomY;
+  else if (fy < -roomY) cy += fy + roomY;
   const c = unproject({ x: cx - mercX(0, zoom) + 0, y: cy - mercY(0, zoom) }, { lng: 0, lat: 0, zoom }, { w: 0, h: 0 });
   return { lat: c.lat, lng: c.lng, zoom };
+}
+
+/**
+ * How far a point may drift into the padding before a follow camera moves. The padding is mostly
+ * covered (top bar, banners, the courier reveal card, the sheet), so only a thin strip of it counts as
+ * seen: a point any deeper is hidden even though it is still on the map.
+ */
+export const EDGE_SLACK = 24;
+
+/** A screen point is seen when it sits inside the padding, give or take `EDGE_SLACK` (half a thin edge). */
+export function inFrame(at: Point, size: Size, pad: { top: number; right: number; bottom: number; left: number }): boolean {
+  const edge = (p: number) => p - Math.min(p / 2, EDGE_SLACK);
+  return at.x >= edge(pad.left) && at.x <= size.w - edge(pad.right) && at.y >= edge(pad.top) && at.y <= size.h - edge(pad.bottom);
 }
 
 /** SVG path data through screen points. */

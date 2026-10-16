@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { View } from 'react-native';
-import { RAJAA_GOOD_TAGS, RAJAA_LOW_STARS, RAJAA_LOW_TAGS, type BookingView, type RajaaRatingTag } from '@driver/contracts';
+import { useMemo, useState } from 'react';
+import { Pressable, View } from 'react-native';
+import { RAJAA_GOOD_TAGS, RAJAA_LOW_STARS, RAJAA_LOW_TAGS, RAJAA_REVIEW_MAX, reviewTextProblem, type BookingView, type RajaaRatingTag } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Card, Chip, Icon, SketchScene, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, Chip, Icon, ltr, SketchScene, Text, TextField, useTheme, useToast } from '@driver/ui';
 import { useMe } from '@/features/account/queries';
 import { useSupportWhatsApp } from '@/features/help/HelpParts';
 import { dayKey } from '@/features/orders/history';
@@ -11,11 +11,96 @@ import { dayLabel } from '@/features/orders/OrderRow';
 import { Stars } from '@/features/track/Arrival';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { amountParam } from '@/lib/money';
-import { seatsList } from './labels';
-import { clockLabel } from './logic';
-import { useRateBooking } from './queries';
+import { amountParam, iqd } from '@/lib/money';
+import { countKey } from '@/lib/plural';
+import { boardDays, boardSpan, dayCounts, filterBoard } from './board-filters';
+import { dayName } from './BoardNarrow';
+import { routeLabel, seatsList } from './labels';
+import { clockLabel, flip } from './logic';
+import { useBoard, useNetwork, useRateBooking } from './queries';
 import { returnTrip } from './return-trip';
+
+/**
+ * a2: the next trip first. The cars already announced the other way (today, tomorrow or the day
+ * after: the earliest day with cars, how many, the first one, the seat price), one tap to that day's
+ * board. With none announced yet, the weekly-rhythm preset (same weekday and time) as before.
+ */
+function NextTripCard({ booking, now }: { booking: BookingView; now: Date }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const network = useNetwork();
+  const direction = flip(booking.departure.direction);
+  // Read once for the screen's life (a window that moved with the clock would refetch every second).
+  const span = useMemo(() => boardSpan(new Date()), []);
+  const days = useMemo(() => boardDays(span.from), [span]);
+  const board = useBoard({ corridorId: booking.departure.corridorId, direction, window: span }, { poll: false });
+  const corridor = network.data?.corridors.find((c) => c.id === booking.departure.corridorId);
+  const route = corridor ? routeLabel(t, corridor.cityId, direction) : '';
+  const title = direction === 'to_aziziyah' ? t('rajaa.return_title') : t('rajaa.next_out_title');
+  const live = (board.data?.departures ?? []).filter((d) => d.state === 'scheduled' || d.state === 'boarding');
+  const counts = dayCounts(live, days);
+  const day = days.find((d) => counts[d.id] > 0) ?? null;
+  const first = day ? filterBoard(live, day, null).sort((a, b) => a.departAt.getTime() - b.departAt.getTime())[0] : undefined;
+  const back = returnTrip(booking, now);
+
+  if (!day || !first) {
+    return (
+      <Button
+        testID="rajaa-book-return"
+        variant="secondary"
+        icon="rajaa"
+        fullWidth
+        label={t('rajaa.safe_book_return', { when: `${dayLabel(t, dayKey(back.at, now))} ${clockLabel(back.at)}` })}
+        onPress={() => router.push({ pathname: '/rajaa', params: { corridor: back.corridorId, direction: back.direction, at: back.at.toISOString() } })}
+      />
+    );
+  }
+  const n = counts[day.id];
+  const line = t('rajaa.return_cars', { day: dayName(t, day.id), cars: t(countKey('rajaa.garage_count', n), { n }), time: clockLabel(first.departAt) });
+  const price = iqd(first.seatPriceIqd, { locale });
+  return (
+    <Pressable
+      testID="rajaa-book-return"
+      accessibilityRole="button"
+      accessibilityLabel={t('rajaa.return_a11y', { title: route ? `${title} · ${route}` : title, line, price })}
+      onPress={() => router.push({ pathname: '/rajaa', params: { corridor: booking.departure.corridorId, direction, day: day.id } })}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        padding: theme.space[4],
+        borderRadius: theme.radius.lg,
+        borderWidth: 1.5,
+        borderColor: theme.colors.accent,
+        backgroundColor: pressed ? theme.colors.accentTint : theme.colors.surface,
+      })}
+    >
+      <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.accentTint, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name="rajaa" size={22} color="accentText" />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
+          <Text variant="label" weight={700} style={{ flex: 1 }}>
+            {title}
+          </Text>
+          <Text variant="label" weight={700} tabular>
+            {price}
+          </Text>
+        </View>
+        {route ? (
+          <Text variant="footnote" color="text">
+            {route}
+          </Text>
+        ) : null}
+        <Text variant="caption" color="textMuted" tabular>
+          {line}
+        </Text>
+      </View>
+      <Icon name="chevron-forward" size={18} color="accentText" />
+    </Pressable>
+  );
+}
 
 /**
  * «وصلت بالسلامة» (joy r2, audit R-04, S-2): the ending a الرجعة trip never had. The arrival drawing,
@@ -33,9 +118,11 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
   const support = useSupportWhatsApp();
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<RajaaRatingTag[]>([]);
+  // x14: one optional line other riders read on his profile, without the writer's name.
+  const [comment, setComment] = useState('');
+  const commentProblem = reviewTextProblem(comment) ? t('rajaa.review_contact') : null;
   const arrivedAt = booking.completedAt ?? booking.departure.departAt;
   const told = me.data?.safety.notifyOnArrival ? (me.data.trustedContacts ?? []).map((c) => c.name) : [];
-  const back = returnTrip(booking, now);
   const homeIsAziziyah = booking.departure.direction === 'to_aziziyah';
   const rated = booking.rating;
   const low = stars > 0 && stars <= RAJAA_LOW_STARS;
@@ -43,7 +130,7 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
 
   const send = () =>
     rate.mutate(
-      { bookingId: booking.id, stars, tags: tags.filter((x) => chips.includes(x)) },
+      { bookingId: booking.id, stars, tags: tags.filter((x) => chips.includes(x)), ...(comment.trim() ? { comment: comment.trim() } : {}) },
       { onError: (err) => toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger', placement: 'top' }) },
     );
   const problem = () =>
@@ -85,6 +172,14 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
           </View>
         ) : null}
 
+        {/* a2, a4: what comes next, first: home from the garage by tuktuk, and the next trip with its cars. */}
+        <View style={{ gap: theme.space[2] }}>
+          {homeIsAziziyah ? (
+            <Button testID="rajaa-tuktuk-home" icon="tuktuk" fullWidth label={t('rajaa.safe_tuktuk')} onPress={() => router.push({ pathname: '/ride', params: { vertical: 'tuktuk' } })} />
+          ) : null}
+          <NextTripCard booking={booking} now={now} />
+        </View>
+
         {/* The driver's rating: stars, then what went well (or, at 3★ or less, what didn't). */}
         <View style={{ gap: theme.space[3], paddingTop: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border }}>
           {rated ? (
@@ -93,6 +188,11 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
               <Text variant="label" color="textMuted">
                 {t('rajaa.safe_rated')}
               </Text>
+              {rated.comment ? (
+                <Text testID="rajaa-safe-review" variant="footnote" color="textMuted" align="center">
+                  {t('rajaa.review_yours', { text: `«${rated.comment}»` })}
+                </Text>
+              ) : null}
             </View>
           ) : (
             <>
@@ -121,25 +221,23 @@ export function SafeArrival({ booking, route, driverName, now }: { booking: Book
                   ))}
                 </View>
               ) : null}
-              {stars > 0 ? <Button testID="rajaa-rate-send" label={t('rajaa.safe_rate_send')} fullWidth loading={rate.isPending} onPress={send} /> : null}
+              {stars > 0 ? (
+                <TextField
+                  testID="rajaa-review-input"
+                  label={t('rajaa.review_label')}
+                  placeholder={t('rajaa.review_placeholder')}
+                  value={comment}
+                  onChangeText={setComment}
+                  maxLength={RAJAA_REVIEW_MAX}
+                  multiline
+                  {...(commentProblem ? { error: commentProblem } : { hint: `${t('rajaa.review_note')} · ${ltr(`${comment.length}/${RAJAA_REVIEW_MAX}`)}` })}
+                />
+              ) : null}
+              {stars > 0 ? <Button testID="rajaa-rate-send" label={t('rajaa.safe_rate_send')} fullWidth loading={rate.isPending} disabled={!!commentProblem} onPress={send} /> : null}
             </>
           )}
           {low || (rated && rated.stars <= RAJAA_LOW_STARS) ? (
             <Button testID="rajaa-safe-problem" variant="ghost" icon="chat" label={t('rajaa.safe_problem')} onPress={problem} />
-          ) : null}
-        </View>
-
-        <View style={{ gap: theme.space[2] }}>
-          <Button
-            testID="rajaa-book-return"
-            variant="secondary"
-            icon="rajaa"
-            fullWidth
-            label={t('rajaa.safe_book_return', { when: `${dayLabel(t, dayKey(back.at, now))} ${clockLabel(back.at)}` })}
-            onPress={() => router.push({ pathname: '/rajaa', params: { corridor: back.corridorId, direction: back.direction, at: back.at.toISOString() } })}
-          />
-          {homeIsAziziyah ? (
-            <Button testID="rajaa-tuktuk-home" variant="ghost" icon="tuktuk" fullWidth label={t('rajaa.safe_tuktuk')} onPress={() => router.push({ pathname: '/ride', params: { vertical: 'tuktuk' } })} />
           ) : null}
         </View>
       </View>

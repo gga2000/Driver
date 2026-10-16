@@ -136,6 +136,13 @@ describe('SosSheet', () => {
     expect(onCallPolice).toHaveBeenCalledTimes(1);
   });
 
+  it('a final refusal sends the person to the police number, with no retry that cannot help', () => {
+    renderUI(<SosSheet phase="final" policeNumber="911" onClose={() => undefined} onRetry={() => undefined} onCallPolice={() => undefined} />);
+    expect(screen.getByTestId('sos-sheet-title').textContent).toContain('911');
+    expect(screen.getByTestId('sos-police')).toBeTruthy();
+    expect(screen.queryByTestId('sos-retry')).toBeNull();
+  });
+
   it('rider layout (L-17): police first and filled, the car to read out, «فريق درايفر», then a quiet cancel', () => {
     vi.useFakeTimers();
     const now = 0;

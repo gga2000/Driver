@@ -31,14 +31,51 @@ config.resolver.unstable_enablePackageExports = true;
 // ours. Two Reacts in one bundle = "Objects are not valid as a React child". Every import of these
 // packages (and their subpaths, e.g. react/jsx-runtime) resolves from this app instead.
 const SINGLETONS = ['react', 'react-dom', 'react-native', 'react-native-web', 'react-native-reanimated', 'react-native-worklets', 'react-native-safe-area-context', 'react-native-svg', 'react-native-gesture-handler', 'react-native-screens', '@tanstack/react-query'];
+// Speed s1: a production build leaves out the other apps' strings (scripts/locale-subset.cjs), about
+// two thirds of the shared tables. Dev keeps the full tables so a newly added key shows at once.
+let localeSubset = null;
+const subsetLocales = () =>
+  (localeSubset ??= require('./scripts/locale-subset.cjs').writeCustomerLocales({ repoRoot: workspaceRoot, outDir: path.join(projectRoot, 'node_modules/.cache/customer-locale') }));
+const LOCALE_FILE = /^\.\/locales\/(ar-IQ|en)\.json$/;
+// Speed w5: the production website ships an empty English table and loads the words as their own small
+// file (`@driver/i18n/en-words`, src/lib/english.web.ts) only when someone picks English. Phones keep it inline.
+const EN_WORDS = '@driver/i18n/en-words';
+// A checked-in file, not one written at build time: Metro only bundles files it saw when it started.
+const EMPTY_ENGLISH = path.join(projectRoot, 'src/lib/english-empty.json');
+
+// Speed (2026-10-09): a production build takes from `@driver/contracts` only the schemas this app imports
+// (scripts/contracts-subset.cjs), not every app's. Written here, before Metro looks at the files.
+const CONTRACTS_SUBSET =
+  process.env.NODE_ENV === 'production'
+    ? require('./scripts/contracts-subset.cjs').writeContractsSubset({ repoRoot: workspaceRoot, appRoots: ['apps/customer'], outDir: path.join(projectRoot, 'node_modules/.cache/customer-contracts') })
+    : null;
+const CONTRACTS_DIR = path.join(workspaceRoot, 'packages/contracts') + path.sep;
+
 const upstream = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (CONTRACTS_SUBSET && moduleName === '@driver/contracts' && !context.originModulePath.startsWith(CONTRACTS_DIR)) return { type: 'sourceFile', filePath: CONTRACTS_SUBSET };
+  const production = process.env.NODE_ENV === 'production';
+  if (moduleName === EN_WORDS) return { type: 'sourceFile', filePath: production ? subsetLocales().en : path.join(workspaceRoot, 'packages/i18n/src/locales/en.json') };
+  const locale = production ? LOCALE_FILE.exec(moduleName) : null;
+  if (locale && /[\\/]i18n[\\/]/.test(context.originModulePath)) {
+    if (platform === 'web' && locale[1] === 'en') return { type: 'sourceFile', filePath: EMPTY_ENGLISH };
+    return { type: 'sourceFile', filePath: subsetLocales()[locale[1]] };
+  }
   const pkg = SINGLETONS.find((p) => moduleName === p || moduleName.startsWith(`${p}/`));
   if (pkg) {
     const origin = path.join(projectRoot, 'package.json');
     return (upstream ?? context.resolveRequest)({ ...context, originModulePath: origin }, moduleName, platform);
   }
   return (upstream ?? context.resolveRequest)(context, moduleName, platform);
+};
+
+// Startup (perf k1): each module is loaded the first time it is used instead of all at launch
+// (Expo leaves this off). Code that must run at launch whatever screen opens is imported for its side
+// effects in `index.js`, which Metro never defers.
+const upstreamTransformOptions = config.transformer.getTransformOptions;
+config.transformer.getTransformOptions = async (...args) => {
+  const base = upstreamTransformOptions ? await upstreamTransformOptions(...args) : {};
+  return { ...base, transform: { ...base.transform, inlineRequires: true } };
 };
 
 module.exports = config;

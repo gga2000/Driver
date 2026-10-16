@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LATE_PROMISE_MEMO, orderTicketNumber, type Actor, type LedgerEvent } from '@driver/contracts';
 import { Accounts } from './accounts.js';
-import { claimablePending, CustomerWalletService, moneyLines, pageLines, pointsWorthIqd, type WalletHouseholds } from './customer-wallet.js';
+import { claimablePending, CustomerWalletService, moneyLines, pageLines, pointsWorthIqd, topupAgentsFromEnv, type WalletHouseholds } from './customer-wallet.js';
 import type { PostingGroup } from './postings.js';
 import { postOrderClosed, postPoints } from './postings.js';
 import { ledgerHarness, workedExample } from './test-harness.js';
@@ -86,6 +86,21 @@ describe('customer wallet: readable lines', () => {
     expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(3_400);
   });
 
+  it('M-3: owed fees paid with an order\'s cash are their own «سددت الرسوم» line, never part of what the order cost', async () => {
+    const h = walletHarness();
+    // He owed 1,000 from a cancelled order and handed over 17,750: 16,500 order + 1,000 fees + 250 change.
+    await h.ledger.recordAll(group('cancel:1', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 1_000, fromAccount: Accounts.customer('c1'), toAccount: Accounts.merchantCash('m1') }]));
+    const p = postOrderClosed(workedExample({ debtCollectIqd: 1_000, cashCollectedIqd: 17_750 }), h.rules);
+    await h.ledger.recordAll(p.money);
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]).filter((l) => l.orderId === 'o1');
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar])).toEqual([
+      ['food', -16_500, 'طلب أكل', 'كاش عند الاستلام'],
+      ['cash_change', 250, 'الباقي رصيد', 'صار رصيد إلك'],
+      ['debt', 1_000, 'سددت الرسوم', 'رسوم إلغاء كانت عليك، دفعتها كاش ويا هالطلب'],
+    ]);
+    expect((await h.wallet.balance(actor('c1'))).moneyIqd).toBe(250);
+  });
+
   it('the honest-delay credit says it was for the late order («تعويض التأخير · طلب #…»), fee back or free-delivery 1,000; other credits stay «رصيد مضاف»', async () => {
     const h = walletHarness();
     const late = (orderId: string, amount: number, at: string): PostingGroup => ({
@@ -102,9 +117,34 @@ describe('customer wallet: readable lines', () => {
     const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
     expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.detail_ar, l.title_en, l.detail_en, l.orderId ?? null])).toEqual([
       ['credit', 2_000, 'رصيد مضاف', null, 'Credit issued', null, null],
-      ['late_credit', 500, 'تعويض التأخير', `طلب #${orderTicketNumber('o7')}`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
-      ['late_credit', 1_000, 'تعويض التأخير', `طلب #${orderTicketNumber('o8')}`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
+      ['late_credit', 500, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o7')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o7')}`, 'o7'],
+      ['late_credit', 1_000, 'تعويض التأخير', `طلب \u2066#${orderTicketNumber('o8')}\u2069`, 'Late delivery credit', `Order #${orderTicketNumber('o8')}`, 'o8'],
     ]);
+  });
+
+  it('M-15: a driver\'s cancel paid to the customer reads as credit; the customer\'s own cancel fee stays a penalty', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('order:o1:driver_cancel:t1', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.driver('d1'), toAccount: Accounts.customer('c1'), memo: 'driver_cancel' }]));
+    await h.ledger.recordAll(group('order:o2:cancel', 'money', '2026-10-03T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.customer('c1'), toAccount: Accounts.driver('d1') }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount])).toEqual([
+      ['credit', 500],
+      ['penalty', -500],
+    ]);
+  });
+
+  it('M-17: a merchant\'s late-reject credit paid to the customer reads as credit', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('order:o3:merchant_late_reject', 'money', '2026-10-02T10:00:00Z', [{ type: 'cancellation_fee', amount: 500, fromAccount: Accounts.merchantCash('m1'), toAccount: Accounts.customer('c1'), memo: 'merchant_late_reject' }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount])).toEqual([['credit', 500]]);
+  });
+
+  it('M-11: a الرجعة driver who never came (or cancelled late) pays the rider a credit that says why', async () => {
+    const h = walletHarness();
+    await h.ledger.recordAll(group('departure:dep1:cancel', 'money', '2026-10-02T10:00:00Z', [{ type: 'departure_cancel_fee', amount: 2_000, fromAccount: Accounts.driver('d1'), toAccount: Accounts.customer('c1') }]));
+    const lines = moneyLines(Accounts.customer('c1'), (await h.ledger.eventsFor(Accounts.customer('c1'))) as LedgerEvent[]);
+    expect(lines.map((l) => [l.kind, l.amount, l.title_ar, l.title_en])).toEqual([['credit', 2_000, 'تعويض: السايق ما طلع بالرحلة', "Credit: your driver didn't make the trip"]]);
   });
 
   it('a wallet-paid order and a top-up read as purchase and top-up; points lines carry points', async () => {
@@ -164,16 +204,71 @@ describe('customer wallet: pending points (domain §3, §10)', () => {
     expect(lines.map((l) => [l.title_ar, l.amount])).toEqual([['نقاط مستلمة', 40]]);
   });
 
-  it('topupOptions: agent shops placeholder, driver, ZainCash soon', async () => {
+  it('topupOptions (FLOW-24, THIN-11): no placeholder agents; the courier bringing the order; ZainCash soon', async () => {
     const h = walletHarness();
     const t = await h.wallet.topupOptions(actor('c1'));
-    expect(t.placeholder).toBe(true);
+    expect(t.placeholder).toBe(false);
     expect(t.channels.map((c) => [c.id, c.available])).toEqual([
-      ['agent', true],
+      ['agent', false],
       ['driver', true],
       ['zaincash', false],
     ]);
-    expect(t.agents.length).toBeGreaterThan(0);
+    expect(t.agents).toEqual([]);
+    expect(t.channels.find((c) => c.id === 'driver')!.body_ar).toContain('اللي جايب طلبك');
+    expect(t.channels.find((c) => c.id === 'driver')!.title_ar).not.toContain('السايق');
+  });
+
+  it('topupOptions lists signed agents from TOPUP_AGENTS_JSON only (unknown zones and broken rows dropped)', async () => {
+    const env = {
+      TOPUP_AGENTS_JSON: JSON.stringify([
+        { id: 'ag_1', zoneId: 'centre', name_ar: 'مكتب أبو علي', name_en: 'Abu Ali office', hours_ar: 'كل يوم 9 – 9', hours_en: 'Daily 9–9' },
+        { id: 'ag_2', zoneId: 'nowhere', name_ar: 'x', name_en: 'x', hours_ar: 'x', hours_en: 'x' },
+        { id: 'ag_3' },
+      ]),
+    };
+    expect(topupAgentsFromEnv(env).map((a) => a.id)).toEqual(['ag_1']);
+    expect(topupAgentsFromEnv({ TOPUP_AGENTS_JSON: 'not json' })).toEqual([]);
+    const h = walletHarness();
+    const wallet = new CustomerWalletService(h.ledger, h.rules, { phoneHashOf: async () => null }, { householdOf: () => null }, h.clock, topupAgentsFromEnv(env));
+    const t = await wallet.topupOptions(actor('c1'));
+    expect(t.channels.find((c) => c.id === 'agent')!.available).toBe(true);
+    expect(t.agents).toEqual([expect.objectContaining({ id: 'ag_1', zoneId: 'centre', pin: expect.any(Object) })]);
     expect(t.agents.every((a) => !/[٠-٩]/.test(a.zoneName_ar))).toBe(true);
+  });
+});
+
+describe('customer wallet: history pages read a window, not the whole book (SCALE-16)', () => {
+  it('every page equals paging the full history, with shared timestamps and multi-line groups', async () => {
+    const h = walletHarness();
+    const groups: PostingGroup[] = [];
+    const at = (i: number) => new Date(Date.parse('2026-01-01T00:00:00Z') + Math.floor(i / 3) * 60_000).toISOString();
+    for (let i = 0; i < 400; i += 1) {
+      if (i % 5 === 0) groups.push(group(`pts:${i}`, 'points', at(i), [{ type: 'points_earned', amount: 10 + i, fromAccount: Accounts.pointsPool, toAccount: Accounts.points('c1') }]));
+      else if (i % 4 === 0)
+        groups.push(
+          group(`late:${i}`, 'money', at(i), [
+            { type: 'credit_issued', amount: 500, fromAccount: Accounts.platform, toAccount: Accounts.customer('c1'), memo: LATE_PROMISE_MEMO },
+            { type: 'credit_issued', amount: 250, fromAccount: Accounts.platform, toAccount: Accounts.customer('c1') },
+          ]),
+        );
+      else groups.push(group(`topup:${i}`, 'money', at(i), [{ type: 'credit_issued', amount: 1_000 + i, fromAccount: Accounts.bank, toAccount: Accounts.customer('c1'), memo: 'topup:agent' }]));
+    }
+    await h.ledger.recordAll(groups);
+    const { pointsLines } = await import('./customer-wallet.js');
+    const full = [...moneyLines(Accounts.customer('c1'), await h.ledger.eventsFor(Accounts.customer('c1'))), ...pointsLines(Accounts.points('c1'), await h.ledger.eventsFor(Accounts.points('c1')))];
+    for (const limit of [1, 7, 30, 100]) {
+      let before: Date | undefined;
+      let seen = 0;
+      for (;;) {
+        const got = await h.wallet.transactions(actor('c1'), { limit, ...(before ? { before } : {}) });
+        const want = pageLines(full, limit, before);
+        expect(got.lines.map((l) => l.id)).toEqual(want.lines.map((l) => l.id));
+        expect(got.nextBefore?.getTime() ?? null).toBe(want.nextBefore?.getTime() ?? null);
+        seen += got.lines.length;
+        if (!got.nextBefore) break;
+        before = got.nextBefore;
+      }
+      expect(seen).toBe(full.length);
+    }
   });
 });

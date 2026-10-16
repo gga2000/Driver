@@ -3,8 +3,9 @@ import { Pressable, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { START_CODE_RULES } from '@driver/contracts';
 import { Button, Icon, Text, useTheme } from '@driver/ui';
+import { DigitPad } from '@/components/DigitPad';
 import { useT } from '@/lib/i18n';
-import { codeComplete, PAD_KEYS, typeKey } from './start-code';
+import { codeComplete, typeKey } from './start-code';
 
 /**
  * s1 «رمز المشوار» (ride step 3): before «الراكب صعد» on a night ride, the driver asks the rider for
@@ -21,9 +22,9 @@ export function StartCodePanel({ busy, wrongCount, onSubmit, onClose }: { busy: 
     setSeenWrong(wrongCount);
     setCode('');
   }
-  const wrong = wrongCount > 0;
+  // The refusal shows until he types again: a fresh attempt isn't greeted with the old error.
+  const wrong = wrongCount > 0 && code.length === 0;
   const press = (key: string) => {
-    theme.haptic('selection');
     setCode((c) => typeKey(c, key));
   };
   return (
@@ -56,7 +57,7 @@ export function StartCodePanel({ busy, wrongCount, onSubmit, onClose }: { busy: 
                 height: 64,
                 borderRadius: theme.radius.lg,
                 borderWidth: next ? 2 : 1.5,
-                borderColor: wrong && code.length === 0 ? theme.colors.danger : next ? theme.colors.text : theme.colors.border,
+                borderColor: wrong ? theme.colors.danger : next ? theme.colors.text : theme.colors.border,
                 backgroundColor: theme.colors.surface,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -79,38 +80,8 @@ export function StartCodePanel({ busy, wrongCount, onSubmit, onClose }: { busy: 
         </View>
       ) : null}
 
-      <View style={{ flexDirection: 'row', direction: 'ltr', flexWrap: 'wrap', justifyContent: 'center', gap: theme.space[2], maxWidth: 3 * 96 + 2 * theme.space[2], alignSelf: 'center' }}>
-        {PAD_KEYS.map((key, i) =>
-          key === '' ? (
-            <View key={`gap-${i}`} style={{ width: 96, height: 56 }} />
-          ) : (
-            <Pressable
-              key={key}
-              testID={`start-code-key-${key}`}
-              accessibilityRole="button"
-              accessibilityLabel={key === 'back' ? t('action.delete') : key}
-              disabled={busy}
-              onPress={() => press(key)}
-              style={({ pressed }) => ({
-                width: 96,
-                height: 56,
-                borderRadius: theme.radius.lg,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: pressed ? theme.colors.border : theme.colors.surfaceSunken,
-              })}
-            >
-              {key === 'back' ? (
-                <Icon name="arrow-back" size={22} color="text" />
-              ) : (
-                <Text tabular weight={600} style={{ fontSize: 24, lineHeight: 32 }}>
-                  {key}
-                </Text>
-              )}
-            </Pressable>
-          ),
-        )}
-      </View>
+      {/* Check-up item 8: the app's one keypad. */}
+      <DigitPad keyTestID={(k) => `start-code-key-${k}`} deleteLabel={t('action.delete')} disabled={busy} onKey={press} />
 
       <Button testID="start-code-submit" label={t('partner.start_code_cta')} size="lg" fullWidth icon="check" haptic="medium" loading={busy} disabled={!codeComplete(code)} onPress={() => onSubmit(code)} />
     </Animated.View>

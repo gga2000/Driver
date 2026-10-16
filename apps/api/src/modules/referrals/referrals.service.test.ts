@@ -45,7 +45,7 @@ const code = async (p: Promise<unknown>) => {
 
 describe('invite as a gift (joy g2)', () => {
   it('the rule is the money rules’ referral rule, nothing new', () => {
-    expect(inviteRuleOf(AZIZIYAH_MONEY_RULES)).toEqual({ pointsPerSide: 200, pointValueIqd: 10, minOrderIqd: 10_000, unlockOnOrder: 2, monthlyCap: 10 });
+    expect(inviteRuleOf(AZIZIYAH_MONEY_RULES)).toEqual({ rewardsOn: false, pointsPerSide: 200, pointValueIqd: 10, minOrderIqd: 10_000, unlockOnOrder: 2, monthlyCap: 10 });
   });
 
   it('codes are 6 characters without look-alikes', () => {

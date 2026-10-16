@@ -1,10 +1,12 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { dealLinePrice, type MenuItem } from '@driver/contracts';
+import { dealLinePrice, weightOptions, type MenuItem, type WeightStep } from '@driver/contracts';
 import { IconButton, StatusPill, Stepper, Text, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
+import type { CartModifier } from './cart';
 import { FoodArt, artOf, type DishArt } from './FoodArt';
+import type { Temperature } from './food-art';
 import { measure, type Rect } from './FlyToCart';
 import { canQuickAdd, fromPrice } from './modifiers';
 import { servesCopy } from './portions';
@@ -27,22 +29,37 @@ export interface DishCardProps {
   onDecrement?: () => void;
   /** Its drawing in the menu (`dishArt`: never the same as the row above); its own otherwise. */
   art?: DishArt;
+  /** «ساخن» / «بارد» on a café's drinks (m5), when the menu has both. */
+  temperature?: Temperature | null;
+  /**
+   * Sweets by weight (s1, m2): the ربع · نص · كيلو picked on the card, added in one tap with that
+   * version. Without it the + opens the sheet as before.
+   */
+  onQuickAddWith?: (modifiers: CartModifier[], from: Rect | null) => void;
 }
 
 /**
  * A menu row: name, description, price, and a thumbnail with the + button on its corner. Under a
  * live percent deal with no minimum (f10, the server's `item.deal`) the price is the deal price in
- * the success colour with the menu price struck through, as the cart will charge it.
+ * the deal colour (saffron, never the success green) with the menu price struck through, as the cart will charge it. A sweet sold by
+ * weight shows ربع · نص · كيلو right on the card (s1, m2); the price follows the weight picked and the
+ * + adds that weight.
  */
-export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecrement, art }: DishCardProps) {
+export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecrement, art, temperature, onQuickAddWith }: DishCardProps) {
   const theme = useTheme();
   const thumb = useRef<View>(null);
   const t = useT();
   const locale = useLocale();
-  const price = fromPrice(item);
+  const weights = weightOptions(item);
+  // Only the weight asks for a choice: the card can add it straight away.
+  const byWeight = weights && onQuickAddWith && item.modifierGroups.every((g) => g.min === 0 || g.id === weights[0]!.groupId) ? weights.filter((w) => w.available) : null;
+  const [step, setStep] = useState<WeightStep | null>(null);
+  const picked = byWeight ? (byWeight.find((w) => w.step === step) ?? byWeight[0]!) : null;
+  const price = picked ? { amount: picked.priceIqd, varies: false } : fromPrice(item);
   const dealPrice = item.deal ? dealLinePrice(price.amount, item.deal) : null;
   const soldOut = !item.available;
-  const quick = canQuickAdd(item);
+  const quick = canQuickAdd(item) || Boolean(picked);
+  const quickAdd = (from: Rect | null) => (picked && onQuickAddWith ? onQuickAddWith([{ groupId: picked.groupId, modifierId: picked.modifierId, name: picked.name, priceIqd: picked.addIqd }], from) : onQuickAdd(from));
   const serves = servesCopy(item.serves, locale);
   const servesText = serves ? t(serves.key, 'params' in serves ? serves.params : undefined) : null;
   return (
@@ -74,8 +91,15 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
           </Text>
         ) : null}
         {/* o8 / o3: the kitchen's own labels and how many the dish feeds, when it says. */}
-        {(item.labels?.length ?? 0) > 0 || item.serves ? (
+        {(item.labels?.length ?? 0) > 0 || item.serves || temperature ? (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[1] }} testID={`dish-tags-${item.id}`}>
+            {temperature ? (
+              <View testID={`dish-temp-${item.id}`} style={{ paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.pill, backgroundColor: temperature === 'hot' ? theme.colors.accentTint : theme.colors.surfaceSunken }}>
+                <Text variant="caption" weight={600} color={temperature === 'hot' ? 'accentText' : 'text'}>
+                  {t(temperature === 'hot' ? 'item.hot' : 'item.cold')}
+                </Text>
+              </View>
+            ) : null}
             {(item.labels ?? []).map((l) => (
               <View key={l} style={{ paddingHorizontal: theme.space[2], paddingVertical: 2, borderRadius: theme.radius.pill, backgroundColor: l === 'spicy' ? theme.colors.dangerTint : l === 'new' ? theme.colors.deal : theme.colors.surfaceSunken }}>
                 <Text variant="caption" weight={600} color={l === 'spicy' ? 'dangerText' : l === 'new' ? 'onDeal' : 'text'}>
@@ -95,7 +119,7 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], marginTop: 2 }}>
           {dealPrice !== null && dealPrice < price.amount ? (
             <>
-              <Text variant="label" weight={700} color="successText" tabular testID={`dish-deal-${item.id}`}>
+              <Text variant="label" weight={700} color="accentText" tabular testID={`dish-deal-${item.id}`}>
                 {price.varies ? t('restaurant.price_from', { amount: amountParam(dealPrice) }) : iqd(dealPrice, { locale })}
               </Text>
               <Text variant="caption" color="textMuted" tabular style={{ textDecorationLine: 'line-through' }}>
@@ -109,6 +133,40 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
           )}
           {soldOut ? <StatusPill size="sm" tone="neutral" label={t('item.sold_out')} /> : null}
         </View>
+        {byWeight && byWeight.length > 1 && !soldOut ? (
+          <View style={{ flexDirection: 'row', gap: theme.space[1], marginTop: theme.space[1] }} accessibilityRole="radiogroup" testID={`dish-weights-${item.id}`}>
+            {byWeight.map((w) => {
+              const on = w.step === picked?.step;
+              return (
+                <Pressable
+                  key={w.step}
+                  testID={`dish-weight-${item.id}-${w.step}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={t('restaurant.weight_a11y', { name: item.name, weight: w.name, amount: amountParam(w.priceIqd) })}
+                  hitSlop={{ top: 6, bottom: 6 }}
+                  onPress={() => {
+                    theme.haptic('selection');
+                    setStep(w.step);
+                  }}
+                  style={{
+                    minHeight: 34,
+                    minWidth: 52,
+                    paddingHorizontal: theme.space[3],
+                    borderRadius: theme.radius.pill,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: on ? theme.colors.accent : theme.colors.surfaceSunken,
+                  }}
+                >
+                  <Text variant="caption" weight={700} color={on ? 'onAccent' : 'text'}>
+                    {t(`restaurant.weight.${w.step}`)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
       </View>
       <View style={{ width: 96, height: 96 }}>
         <View ref={thumb} collapsable={false} style={{ width: 96, height: 96, borderRadius: theme.radius.lg, overflow: 'hidden' }}>
@@ -125,7 +183,7 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
               accessibilityLabel={t('restaurant.qty_label', { name: item.name })}
               onChange={(next) => {
                 if (next < inCart) onDecrement();
-                else void measure(thumb).then(onQuickAdd);
+                else void measure(thumb).then(quickAdd);
               }}
               style={{ alignSelf: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}
             />
@@ -137,7 +195,7 @@ export function DishCard({ item, inCart, disabled, onOpen, onQuickAdd, onDecreme
             size={36}
             variant={inCart > 0 ? 'accent' : 'outline'}
             accessibilityLabel={t('restaurant.add_item', { name: item.name })}
-            onPress={quick ? () => void measure(thumb).then(onQuickAdd) : onOpen}
+            onPress={quick ? () => void measure(thumb).then(quickAdd) : onOpen}
             style={{ position: 'absolute', bottom: -6, start: -6 }}
           />
         ) : null}

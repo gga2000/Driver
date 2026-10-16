@@ -1,4 +1,4 @@
-import { usualBandOf, type TodayPot, type Usual, type UsualBand } from '@driver/contracts';
+import { usualBandOf, type Usual, type UsualBand } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { cityDayStart, insideHours, preorderSlots, type OpeningWindow } from '@/features/food/slots';
 import { baghdadClock } from './daypart';
@@ -114,11 +114,6 @@ const FRIDAY_TITLES: Readonly<Record<'today' | 'tomorrow', Readonly<Record<'brea
 export function fridayTitleKey(day: 0 | 1, band: UsualBand): MessageKey {
   const meal = band === 'morning' ? 'breakfast' : band === 'lunch' ? 'lunch' : 'dinner';
   return FRIDAY_TITLES[day === 1 ? 'tomorrow' : 'today'][meal];
-}
-
-/** «العزيزية اليوم»: the pots of kitchens open now, as the server orders them (at most `max`). */
-export function visiblePots(pots: readonly TodayPot[] | undefined, max = 6): TodayPot[] {
-  return (pots ?? []).filter((p) => p.restaurantOpen).slice(0, max);
 }
 
 /** «لحد 4:00 م»: a pot's "HH:MM" as today's instant, for the city's clock format. */

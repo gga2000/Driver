@@ -1,8 +1,8 @@
 import { router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { Image, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
-import { Icon, Skeleton, Text, useTheme, type IconName } from '@driver/ui';
+import { Icon, PhotoImage, Skeleton, Text, useTheme, type IconName } from '@driver/ui';
 import type { ThemeColorKey as ColorToken } from '@driver/design-tokens';
 import { currentFix, photoUri } from '@/features/account/device';
 import { useApiClient } from '@/lib/api';
@@ -45,7 +45,7 @@ export function SpotRow({ spot, onPress }: { spot: Spot; onPress: () => void }) 
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[2], opacity: pressed ? 0.6 : 1 })}
     >
       {photo ? (
-        <Image source={{ uri: photo }} onError={() => setPhotoOk(false)} accessibilityIgnoresInvertColors style={{ width: 52, height: 40, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }} testID={`ride-spot-photo-${spot.id}`} />
+        <PhotoImage uri={photo} onError={() => setPhotoOk(false)} style={{ width: 52, height: 40, borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }} testID={`ride-spot-photo-${spot.id}`} />
       ) : (
         <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors[look.tint], alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={look.icon} size={19} color={look.ink} strokeWidth={2} />

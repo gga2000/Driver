@@ -1,12 +1,12 @@
 import { previewQueue } from './preview-queue';
-import type { Receipt } from './receipt';
-import { receiptHtml } from './receipt-html';
+import type { PrintJob } from './doc';
+import { jobHtml } from './doc-html';
 import type { PrinterDriver, PrinterSnapshot } from './types';
 
 /**
- * Web / dev printer: every ticket opens the on-screen 80 mm preview (ReceiptPreview listens to
+ * Web / dev printer: every job opens the on-screen true-size preview (ReceiptPreview listens to
  * `previewQueue`), and the preview's "اطبع" sends it to the browser's print dialog through a hidden
- * iframe sized for 80 mm paper. Always "connected": there is nothing to pair.
+ * iframe sized for the paper. Always "connected": there is nothing to pair.
  */
 
 export { previewQueue } from './preview-queue';
@@ -20,14 +20,23 @@ export function createPrinter(): PrinterDriver {
     subscribe: () => () => {},
     connect: async () => SNAPSHOT,
     disconnect: async () => SNAPSHOT,
-    async print(receipt) {
-      previewQueue.show(receipt);
+    async print(job) {
+      previewQueue.show(job);
     },
   };
 }
 
-/** Sends a ticket to the browser's print dialog (80 mm page). No-op outside a browser. */
-export function printInBrowser(receipt: Receipt): void {
+/**
+ * The app's own font files as `@font-face` rules (fonts.web.ts aliases them as "IBM Plex Sans Arabic"
+ * and "Alexandria"), so the print page carries its fonts instead of falling back to the PC's.
+ */
+export function bundledFontCss(): string {
+  if (typeof document === 'undefined') return '';
+  return document.getElementById('driver-font-alias')?.textContent ?? '';
+}
+
+/** Sends a job to the browser's print dialog (one page per document). No-op outside a browser. */
+export function printInBrowser(job: PrintJob): void {
   if (typeof document === 'undefined') return;
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
@@ -36,11 +45,15 @@ export function printInBrowser(receipt: Receipt): void {
   const doc = frame.contentDocument;
   if (!doc) return;
   doc.open();
-  doc.write(receiptHtml(receipt));
+  doc.write(jobHtml(job, { fontCss: bundledFontCss() }));
   doc.close();
-  setTimeout(() => {
+  const go = () => {
     frame.contentWindow?.focus();
     frame.contentWindow?.print();
     setTimeout(() => frame.remove(), 1000);
-  }, 50);
+  };
+  // Wait for the fonts inside the frame, or the first print comes out in a fallback face.
+  const fonts = (doc as Document & { fonts?: FontFaceSet }).fonts;
+  if (fonts) void fonts.ready.then(() => setTimeout(go, 50), () => setTimeout(go, 50));
+  else setTimeout(go, 50);
 }

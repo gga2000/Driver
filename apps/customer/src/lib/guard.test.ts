@@ -21,7 +21,7 @@ describe('route guard', () => {
   });
 
   it('lets guests browse home, search, the restaurant list, menus, the cart and the tabs (C-18)', () => {
-    for (const segs of [['(tabs)'], ['(tabs)', 'orders'], ['(tabs)', 'account'], ['search'], ['restaurants'], ['restaurant', '[id]'], ['cart']]) {
+    for (const segs of [['(tabs)'], ['(tabs)', 'orders'], ['(tabs)', 'account'], ['search'], ['food'], ['food', '[door]'], ['restaurants'], ['restaurant', '[id]'], ['cart']]) {
       expect(g('signedOut', segs), segs.join('/')).toBeNull();
     }
   });
@@ -86,6 +86,12 @@ describe('route guard', () => {
     expect(g('signedOut', ['share', '[token]'], false, { welcomed: false })).toBeNull();
     expect(g('signedIn', ['share', '[token]'])).toBeNull();
     expect(g('signedIn', ['share', '[token]'], true)).toBeNull();
+  });
+
+  it("opens the parcel receiver's door page for anyone (signed out, signed in, mid-setup)", () => {
+    expect(g('signedOut', ['p', '[token]'], false, { welcomed: false })).toBeNull();
+    expect(g('signedIn', ['p', '[token]'])).toBeNull();
+    expect(g('signedIn', ['p', '[token]'], true)).toBeNull();
   });
 
   it('tells the phone screen why the number is asked', () => {

@@ -56,6 +56,7 @@ describe('SOS incident helpers', () => {
   it('writes the timeline in words and links a fix to maps', () => {
     const e = (kind: SafetyEntry['kind'], data: Record<string, string> = {}, byName: string | null = 'حيدر'): SafetyEntry => ({ id: kind, kind, at: new Date(), byName, note: null, data });
     expect(entryText(e('raised', {}, null), 'زينب ع.')).toBe('زينب ع.: ضغط طوارئ');
+    expect(entryText(e('raised', { repeated: '5' }, null), 'زينب ع.')).toBe('زينب ع.: ضغط طوارئ · تنبيه متكرر: 5 تنبيهات خلال ساعة');
     expect(entryText(e('paged', { count: '3' }, null), 'x')).toBe('نبّهنا 3 من الديسباتشر');
     expect(entryText(e('call', { who: 'contact' }), 'x')).toBe('حيدر اتصل برقم الطوارئ');
     expect(entryText(e('acknowledged'), 'x')).toBe('استلمه حيدر');

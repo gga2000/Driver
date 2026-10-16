@@ -15,11 +15,15 @@ export default async function run(s) {
   await p.shot('otp', { settle: 900 });
   await p.close();
 
-  // The notification pre-prompt on the work home (tuktuk driver).
+  // The notification pre-prompt on the work home (tuktuk driver): asked when he goes online (f4).
   const tk = await s.signIn('0770 111 0002', { prePrompt: true });
+  await tk.wait('online-switch');
+  await tk.byTestId('online-switch').click();
+  await tk.page.getByTestId('check-go').click({ timeout: 4000 }).catch(() => undefined);
   await tk.wait('push-preprompt');
   await tk.shot('push-preprompt', { settle: 1200 });
   await tk.byTestId('push-preprompt-later').click();
+  await s.demoPost('/demo/clear?who=tuktuk');
 
   // Modal sheet: the hand-over code from the earnings tab.
   await tk.goto('/earnings');
@@ -30,8 +34,9 @@ export default async function run(s) {
 
   // Modal sheet: a document upload.
   await tk.goto('/documents');
-  await tk.wait('doc-vehicle_registration-action');
-  await tk.byTestId('doc-vehicle_registration-action').click();
+  // His licence (12 days left) always has «جدّد»; the registration may already be sent by the earnings run.
+  await tk.wait('doc-licence-action');
+  await tk.byTestId('doc-licence-action').click();
   await tk.wait('upload-sheet');
   await tk.shot('upload-sheet', { settle: 900 });
   await tk.close();

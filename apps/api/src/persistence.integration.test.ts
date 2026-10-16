@@ -102,7 +102,8 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         busyUntil: new Date(at.getTime() + 30 * 60_000),
         printer: { state: 'disconnected', name: 'XP-58', at },
       });
-      await orgs.setMerchantSettings(store.id, { closed: { reason: 'sold_out', note: 'خلص اللحم', at } });
+      // A quick pause from المحل keeps when it opens again (orgs.closed_until).
+      await orgs.setMerchantSettings(store.id, { closed: { reason: 'sold_out', note: 'خلص اللحم', at, until: new Date(at.getTime() + 20 * 60_000) } });
       await orgs.setMerchantSettings(store.id, {
         openingHours: [
           { dow: 0, start: '12:00', end: '15:30' },
@@ -165,7 +166,8 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         commissionTier: 'featured',
         location: { zoneKey: 'centre', pin: KITCHEN },
         busyUntil: new Date(at.getTime() + 30 * 60_000),
-        closed: { reason: 'sold_out', note: 'خلص اللحم', at },
+        busyExtraMin: null,
+        closed: { reason: 'sold_out', note: 'خلص اللحم', at, until: new Date(at.getTime() + 20 * 60_000) },
         printer: { state: 'disconnected', name: 'XP-58', at },
         openingHours: [
           { dow: 0, start: '12:00', end: '15:30' },
@@ -174,6 +176,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
         holidays: [{ from: '2026-10-20', to: '2026-10-22', note: 'عيد' }],
         hoursUpdatedAt: at,
         pickupSpot: { note: 'الاستلام من الشباك اليسار', photoRefs: [`up_pickup_${run}`], updatedAt: at },
+        setup: null,
       });
       expect((await orgs.merchants('aziziyah')).map((m) => m.id)).toEqual(expect.arrayContaining([state.storeId, ...AZIZIYAH_RESTAURANTS.map((r) => r.orgId)]));
 

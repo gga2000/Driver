@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming, ZoomIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FOOD_RATED_TYPES, type CourierRatingReason, type OrderTracking, type RatingTag, type VehicleClass } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Avatar, Button, ChipGroup, Icon, ltr, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
+import { Avatar, Button, ChipGroup, Icon, ltr, PhotoImage, SketchScene, Text, useCountUp, usePhotoFallback, useTheme, useToast, type SceneVehicle } from '@driver/ui';
 import { useMyPlaces } from '@/features/account/queries';
 import { photoUri } from '@/features/account/device';
 import { apiErrorMessage } from '@/lib/api';
@@ -24,6 +24,7 @@ import { BottomPanel } from './Panels';
 import { useOpenDispute, useRateOrder } from './queries';
 import { courierReasons, disputeKindFor, keepFitting, lowReasons, LOW_SCORE, ratingBranch } from './rating-logic';
 import { ComplimentCard } from './Compliments';
+import { DishBurst } from './DishBurst';
 import { TipOffer } from './TipOffer';
 import type { Phase } from './timeline';
 
@@ -95,7 +96,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
       exiting={theme.reduceMotion ? undefined : FadeOut.duration(200)}
       style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space[8], paddingBottom: Math.max(insets.bottom, theme.space[6]), paddingHorizontal: theme.space[6] }]}
     >
-      <View style={{ flex: 1, alignItems: 'center', gap: theme.space[4], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
+      {/* Scrolls when it doesn't fit (DEV-14: at large text the buttons covered the cash line); the cash line and the buttons stay pinned. */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', gap: theme.space[4], width: '100%', maxWidth: 480, alignSelf: 'center', paddingBottom: theme.space[4] }} showsVerticalScrollIndicator={false}>
         {/* Joy J4 (S2-12): the door scene (food) or the road home (rides) instead of a glowing check. */}
         <Animated.View
           testID="arrival-scene"
@@ -112,6 +114,8 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
           <Text variant="body" color="textMuted" align="center">
             {rideCopy ? rideCopy.subtitle : t('track.arrived_food', { merchant: view.merchant?.name ?? '' })}
           </Text>
+          {/* «بالعافية»: tiny dishes burst out over the title, once per order (food only). */}
+          {celebrate && !ride ? <DishBurst /> : null}
         </View>
         {/* Joy l4: the person in the peak — who brought it (food; a ride's subtitle already names him). */}
         {!ride && view.courier ? <ArrivedWith courier={view.courier} /> : null}
@@ -124,11 +128,10 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
           <>
             {gate.uri ? (
               <View testID="arrival-photo" style={{ width: '100%', flexShrink: 1, gap: theme.space[1] }}>
-                <Image
-                  source={{ uri: gate.uri }}
+                <PhotoImage
+                  uri={gate.uri}
                   onError={gate.onError}
                   accessibilityLabel={t('track.arrived_gate')}
-                  resizeMode="cover"
                   style={{ width: '100%', height: 200, maxHeight: 220, borderRadius: theme.radius.xl, backgroundColor: theme.colors.surfaceSunken }}
                 />
                 <Text variant="caption" color="textMuted" align="center">
@@ -136,11 +139,12 @@ export function ArrivalOverlay({ view, onRate, onLater }: { view: OrderTracking;
                 </Text>
               </View>
             ) : null}
-            <CashAtDoor pay={pay} />
           </>
         )}
-      </View>
+      </ScrollView>
       <View style={{ gap: theme.space[2], width: '100%', maxWidth: 480, alignSelf: 'center' }}>
+        {/* The cash to hand over stays in view with the buttons, whatever the text size (DEV-14). */}
+        {ride ? null : <CashAtDoor pay={pay} />}
         <Button label={rideCopy ? rideCopy.rate : t('track.arrived_continue')} icon="star" size="lg" fullWidth onPress={onRate} testID="arrival-rate" />
         <Button label={t('track.rate_later')} variant="ghost" fullWidth onPress={onLater} />
       </View>

@@ -13,6 +13,8 @@ export default tseslint.config(
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      // The dish photos (1.2 MB) stay out of the courier app: it never draws a dish.
+      'no-restricted-imports': ['error', { paths: [{ name: '@driver/ui/dishes', message: 'The courier app does not bundle the dish pictures.' }] }],
     },
   },
   {

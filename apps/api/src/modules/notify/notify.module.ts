@@ -1,30 +1,39 @@
-import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Logger, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { AZIZIYAH_ZONES } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
+import { baseUrlFromEnv } from '../../shared/public-url.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { smsBudgetThrottlesFromEnv, smsDailyBudgetFromEnv } from '../../shared/sms-budget.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
+import { CatalogModule, CatalogService } from '../catalog/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
-import { IdentityModule, IdentityService } from '../identity/index.js';
+import { IdentityModule, IdentityService, OTP_ALERT_EVENT } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { PlacesModule, PlacesService } from '../places/index.js';
 import { DeparturesService, GARAGES, CORRIDORS, RoutesModule, bookingTotal } from '../routes/index.js';
-import { COURIER_VEHICLES, ShareLinksService, TrackingModule, type CourierVehicleDirectory } from '../tracking/index.js';
+import { COURIER_VEHICLES, ShareLinksService, TrackingModule, TrackingService, type CourierVehicleDirectory } from '../tracking/index.js';
 import { TripsModule, TripsService } from '../trips/index.js';
 import { DEFAULT_ENGINE_OPTIONS, NotifyEngine, type NotifyContacts, type NotifyJob } from './notify.engine.js';
 import { cityNameAr, kmBetween, NOTIFY_LOOKUPS, type NotifyLookups } from './notify.lookups.js';
 import { InMemoryNotifyRepository, NOTIFY_REPOSITORY, PrismaNotifyRepository, type NotifyRepository } from './notify.repository.js';
 import { emergencyContactOwner, NOTIFY_ENGINE, NotifyService, trustedContactOwner } from './notify.service.js';
-import { registerNotifySubscribers } from './notify.subscribers.js';
+import { registerNotifySubscribers, twinStillWanted } from './notify.subscribers.js';
 import { pushPortsFromEnv } from './providers/push.js';
 import { whatsAppPortFromEnv } from './providers/whatsapp.js';
 import { WhatsAppWebhookController } from './whatsapp.webhook.controller.js';
 
 export const NOTIFY_QUEUE = Symbol('NOTIFY_QUEUE');
 export const NOTIFY_QUEUE_NAME = 'notify';
+
+/** How often a job machine looks for stuck sends, and how often it repeats the error while they last. */
+export const NOTIFY_STUCK_CHECK_MS = 60_000;
+export const NOTIFY_STUCK_REPEAT_MS = 10 * 60_000;
 
 const ZONE_AR = new Map(AZIZIYAH_ZONES.map((z) => [z.id, z.name_ar]));
 const zoneName = (key: string) => ZONE_AR.get(key) ?? cityNameAr(key);
@@ -46,9 +55,10 @@ function envInt(name: string, fallback: number): number {
 /**
  * Notification delivery (domain §8). Providers by env — push: PUSH_PROVIDER=dev|expo (EXPO_ACCESS_TOKEN)
  * plus FCM HTTP v1 for raw FCM tokens (FCM_PROJECT_ID + FCM_SERVICE_ACCOUNT_JSON); SMS: the shared
- * SmsPort (SMS_PROVIDER=dev|http|twilio); WhatsApp: WHATSAPP_PROVIDER=dev|meta (WHATSAPP_TOKEN,
- * WHATSAPP_PHONE_NUMBER_ID, statuses via the webhook with WHATSAPP_APP_SECRET). With nothing set,
- * every channel is a dev provider that logs.
+ * SmsPort (SMS_PROVIDER=dev|http|twilio|otpiq); WhatsApp: WHATSAPP_PROVIDER=dev|meta (WHATSAPP_TOKEN,
+ * WHATSAPP_PHONE_NUMBER_ID, statuses via the webhook with WHATSAPP_APP_SECRET). With nothing set in
+ * development every channel is a dev provider that logs; outside development WhatsApp without
+ * WHATSAPP_TOKEN is off (its rows are skipped `not_configured` and their SMS twins go).
  *
  * Tables `push_tokens`, `notify_preferences`, `notify_deliveries` (Prisma with DATABASE_URL, in
  * memory otherwise); sends, retries, receipt polls and SMS twins run on the `notify` BullMQ queue
@@ -56,7 +66,7 @@ function envInt(name: string, fallback: number): number {
  * turns domain events into notifications.
  */
 @Module({
-  imports: [ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TrackingModule, TripsModule],
+  imports: [CatalogModule, ControlsModule, EventsModule, IdentityModule, OrdersModule, OrgsModule, PlacesModule, RoutesModule, TrackingModule, TripsModule],
   controllers: [WhatsAppWebhookController],
   providers: [
     {
@@ -80,12 +90,15 @@ function envInt(name: string, fallback: number): number {
         places: PlacesService,
         shares: ShareLinksService,
         vehicles: CourierVehicleDirectory,
+        tracking: TrackingService,
+        catalog: CatalogService,
       ): NotifyLookups => ({
         order: (orderId) =>
           orNull(async () => {
             const o = await orders.get(orderId);
             const riderId = o.participants.find((p) => p.role === 'rider' && p.personId)?.personId ?? null;
-            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId };
+            const waitingForKitchen = o.state === 'placed' && o.merchantOfferedAt !== null && !o.partial;
+            return { id: o.id, type: o.type, customerId: o.ordererId, merchantOrgId: o.merchantOrgId, totalIqd: o.totalIqd, itemCount: o.lines.reduce((n, l) => n + l.qty, 0), riderId, paymentMethod: o.paymentMethod, waitingForKitchen };
           }),
         storeName: (orgId) => orNull(async () => (await orgs.get(orgId)).name),
         orgPeople: async (orgId, kinds) => (await orNull(async () => (await identity.orgRoleHolders(orgId, kinds)).filter((r) => !r.frozen).map((r) => r.personId))) ?? [],
@@ -107,7 +120,9 @@ function envInt(name: string, fallback: number): number {
                   ? (corridor?.meetingPoints.find((m) => m.id === b.pickup.meetingPointId)?.nameAr ?? garage?.nameAr ?? '')
                   : b.pickup.kind === 'door'
                     ? 'باب البيت'
-                    : (garage?.nameAr ?? ''),
+                    : b.pickup.kind === 'pin'
+                      ? (b.pickup.note ?? t('rajaa.pickup_pin_fallback', {}, 'ar-IQ'))
+                      : (garage?.nameAr ?? ''),
               vehicle,
               pin: b.pin,
               ...(b.seatIds[0] ? { firstSeat: b.seatIds[0] } : {}),
@@ -129,8 +144,11 @@ function envInt(name: string, fallback: number): number {
                   ? (corridor?.meetingPoints.find((m) => m.id === b.pickup.meetingPointId)?.nameAr ?? garage?.nameAr ?? '')
                   : b.pickup.kind === 'door'
                     ? 'باب البيت'
-                    : (garage?.nameAr ?? ''),
-              pickupKind: b.pickup.kind,
+                    : b.pickup.kind === 'pin'
+                      ? (b.pickup.note ?? t('rajaa.pickup_pin_fallback', {}, 'ar-IQ'))
+                      : (garage?.nameAr ?? ''),
+              // Step 4: an agreed pin on the way boards like a road stop («أني بنقطة الصعود»).
+              pickupKind: b.pickup.kind === 'pin' ? 'meeting_point' : b.pickup.kind,
               toCity: cityNameAr(dep.toCityId),
               seatIds: [...b.seatIds],
               pin: b.pin,
@@ -143,10 +161,13 @@ function envInt(name: string, fallback: number): number {
         // s2: «وصل بالسلامة» reaches only trusted people with an account (identity matches their numbers).
         trustedAccounts: async (personId, purpose) => (await orNull(() => identity.trustedContactAccounts(personId, 'system:notify', purpose))) ?? [],
         // w9 auto-share: the same signed link the rider's own «شارك» makes, created for the rider.
+        // No SHARE_LINK_BASE_URL: no link (and none made); the message goes without it where it can.
         shareLink: (personId, subject) =>
           orNull(async () => {
+            const base = baseUrlFromEnv('SHARE_LINK_BASE_URL');
+            if (!base) return null;
             const link = await shares.createShareLink({ personId, sessionId: 'system:notify' }, subject);
-            return `${(process.env['SHARE_LINK_BASE_URL'] ?? 'https://driver.iq').replace(/\/$/, '')}${link.path}`;
+            return `${base}${link.path}`;
           }),
         // c9/s3: the name the booker gave the rider («ماما»), read from identity's vault for this message.
         riderName: (orderId) => orNull(async () => (await orders.riderOf(orderId, 'system:notify', 'notify_ride_for_rider'))?.name ?? null),
@@ -167,6 +188,29 @@ function envInt(name: string, fallback: number): number {
             const place = stop.placeId ? await places.get(stop.placeId) : undefined;
             return place?.name ?? zoneName(stop.zoneKey);
           }),
+        deliveryEta: (orderId, now) =>
+          orNull(async () => {
+            // The one ETA the order screen shows (tracking's liveEta), from the courier's last fix — or the
+            // kitchen when he has none yet; else the kitchen → door minutes locked into the order at placement.
+            const [o, trip] = await Promise.all([orders.get(orderId), trips.activeForOrder(orderId)]);
+            if (trip) {
+              const fix = await trips.lastPosition(trip.id);
+              const pin = fix?.pin ?? trip.stops.find((s) => s.orderId === orderId && (s.type === 'pickup' || s.type === 'shop'))?.target ?? null;
+              const eta = pin ? await tracking.liveEta(o, trip, pin, now) : null;
+              if (eta) return eta.at;
+            }
+            const locked = (await orders.aggregate(orderId)).order.promisedRideMin;
+            return typeof locked === 'number' ? new Date(now.getTime() + locked * 60_000) : null;
+          }),
+        lineNames: async (orderId, lineIds) =>
+          (await orNull(async () => {
+            const o = await orders.get(orderId);
+            const lines = o.lines.filter((l) => lineIds.includes(l.id));
+            const ids = lines.map((l) => l.catalogItemId).filter((x): x is string => !!x);
+            const menu = o.merchantOrgId && ids.length > 0 ? new Map((await catalog.itemsOf(o.merchantOrgId, ids)).map((i) => [i.id, i.nameAr])) : new Map<string, string>();
+            return lines.map((l) => (l.catalogItemId ? menu.get(l.catalogItemId) : null) ?? l.freeText ?? '').filter((n) => n !== '');
+          })) ?? [],
+        stopOrder: (tripId, stopId) => orNull(async () => (await trips.get(tripId)).stops.find((s) => s.id === stopId)?.orderId ?? null),
         tripZones: (tripId) =>
           orNull(async () => {
             const trip = await trips.get(tripId);
@@ -176,11 +220,11 @@ function envInt(name: string, fallback: number): number {
             return { pickup: zoneName(pickup.zoneKey), dropoff: zoneName(dropoff.zoneKey) };
           }),
       }),
-      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES],
+      inject: [OrdersService, OrgsService, IdentityService, DeparturesService, TripsService, PlacesService, ShareLinksService, COURIER_VEHICLES, TrackingService, CatalogService],
     },
     {
       provide: NOTIFY_ENGINE,
-      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService, controls: ControlsService) => {
+      useFactory: (repo: NotifyRepository, queue: Queue<NotifyJob>, clock: Clock, identity: IdentityService, controls: ControlsService, lookups: NotifyLookups, counter: WindowCounter, events: EventsService) => {
         const contacts: NotifyContacts = {
           contact: async (to, opts) => {
             // SOS: `ec:<personId>` is that person's emergency contact — a number, not an account
@@ -213,9 +257,21 @@ function envInt(name: string, fallback: number): number {
           },
           // Seasons set in the Console: no offers on mourning days, none in the minutes before iftar (J1a, J6).
           (at) => controls.promoHold(at),
+          // A new-order text only while the order still waits for the kitchen.
+          (row) => twinStillWanted(lookups, row),
+          // One SMS budget with sign-in codes (OTP_SMS_DAILY_BUDGET): ops hear it as the OTP guard's
+          // own `sms_budget` alert, from whichever side crossed the level first.
+          {
+            counter,
+            dailyBudget: smsDailyBudgetFromEnv(),
+            throttle: smsBudgetThrottlesFromEnv(),
+            alert: async (a) => {
+              await events.emit(undefined, { actorId: 'system', type: OTP_ALERT_EVENT, occurredAt: clock.now(), payload: { rule: 'sms_budget', ...a, mode: smsBudgetThrottlesFromEnv() ? 'throttle' : 'alert', source: 'notify' } }, { name: 'security', id: 'otp' });
+            },
+          },
         );
       },
-      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService],
+      inject: [NOTIFY_REPOSITORY, NOTIFY_QUEUE, CLOCK, IdentityService, ControlsService, NOTIFY_LOOKUPS, WINDOW_COUNTER, EventsService],
     },
     NotifyService,
   ],
@@ -226,6 +282,8 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
   private poller: NodeJS.Timeout | undefined;
   private unsubscribe: (() => void) | undefined;
   private draining = false;
+  private stuckTimer: NodeJS.Timeout | undefined;
+  private stuckLoggedAt = 0;
 
   constructor(
     @Inject(NOTIFY_QUEUE) private readonly queue: Queue<NotifyJob>,
@@ -233,6 +291,8 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
     @Inject(NOTIFY_REPOSITORY) private readonly repo: NotifyRepository,
     @Inject(NOTIFY_LOOKUPS) private readonly lookups: NotifyLookups,
     private readonly events: EventsService,
+    private readonly notify: NotifyService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
@@ -241,7 +301,8 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
       engine: this.engine,
       repo: this.repo,
       lookups: this.lookups,
-      receiptBaseUrl: process.env['NOTIFY_RECEIPT_BASE_URL'] ?? 'https://driver.iq/r/',
+      receiptBaseUrl: baseUrlFromEnv('NOTIFY_RECEIPT_BASE_URL'),
+      merchantAppUrl: process.env['MERCHANT_APP_URL'] ?? null,
     });
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
@@ -256,10 +317,39 @@ export class NotifyModule implements OnModuleInit, OnModuleDestroy {
       }, 1000);
       this.poller.unref();
     }
+    if (runsJobs(this.role)) {
+      this.stuckTimer = setInterval(() => void this.checkStuckSends(), NOTIFY_STUCK_CHECK_MS);
+      this.stuckTimer.unref();
+    }
   }
 
   onModuleDestroy(): void {
     this.unsubscribe?.();
     if (this.poller) clearInterval(this.poller);
+    if (this.stuckTimer) clearInterval(this.stuckTimer);
+  }
+
+  /**
+   * Stuck sends (job machines, every minute): a message claimed for a send more than 5 min ago with no
+   * outcome is logged as an error — so it reaches Sentry — when it starts and every 10 min while it
+   * lasts. The Console System page shows the same count (`system.notifyStuck`). Nothing is resent.
+   */
+  async checkStuckSends(now = Date.now()): Promise<boolean> {
+    try {
+      const s = await this.notify.stuckSends();
+      if (s.stuck === 0) {
+        if (this.stuckLoggedAt) this.logger.log('stuck sends cleared: no claimed message is waiting without an outcome');
+        this.stuckLoggedAt = 0;
+        return false;
+      }
+      if (now - this.stuckLoggedAt >= NOTIFY_STUCK_REPEAT_MS) {
+        this.stuckLoggedAt = now;
+        this.logger.error(`stuck sends: ${s.stuck} message(s) claimed for a send with no outcome, oldest claimed ${s.oldestSec} s ago — they may or may not have gone; not resent (check the delivery log)`);
+      }
+      return true;
+    } catch (err) {
+      this.logger.warn(`stuck sends: cannot tell (${(err as Error).message})`);
+      return false;
+    }
   }
 }

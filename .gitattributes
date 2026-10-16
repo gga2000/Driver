@@ -1,0 +1,3 @@
+# Locale files merge key by key (scripts/i18n-merge.mjs). The driver itself is configured in each
+# clone by the SessionStart hook in .claude/settings.json; see docs/ci.md § Locale files.
+packages/i18n/src/locales/*.json merge=i18n-json

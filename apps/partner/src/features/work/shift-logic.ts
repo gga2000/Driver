@@ -17,7 +17,7 @@ export function shiftRange(s: Pick<ShiftSummary, 'from' | 'to' | 'onlineMinutes'
 }
 
 export interface ShiftStat {
-  key: 'jobs' | 'online' | 'tips' | 'best';
+  key: 'jobs' | 'online' | 'tips' | 'best' | 'km';
   label: string;
   value: string;
   sub?: string;
@@ -27,11 +27,12 @@ export interface ShiftStat {
  * The stat tiles in reading order: jobs, time online, tips (only when there were some), best hour
  * (only with jobs). Tips are a real ledger line, so "0" is hidden rather than shown as a gap.
  */
-export function shiftStats(s: ShiftSummary, t: T): ShiftStat[] {
-  const out: ShiftStat[] = [
-    { key: 'jobs', label: t('partner.shiftsum_jobs'), value: String(s.jobs) },
-    { key: 'online', label: t('partner.shiftsum_online'), value: formatDuration(s.onlineMinutes * 60_000) },
-  ];
+export function shiftStats(s: ShiftSummary, t: T, opts: { wholeDay?: boolean } = {}): ShiftStat[] {
+  const out: ShiftStat[] = [{ key: 'jobs', label: t('partner.shiftsum_jobs'), value: String(s.jobs) }];
+  // «يومك» (e7) counts from midnight: that is not time he worked, so no "time online" there.
+  if (!opts.wholeDay) out.push({ key: 'online', label: t('partner.shiftsum_online'), value: formatDuration(s.onlineMinutes * 60_000) });
+  // «يومك» (e7): straight-line km between the stops; the road is never shorter, so «أكثر من».
+  if (s.minKm !== null && s.minKm > 0) out.push({ key: 'km', label: t('partner.e5_km'), value: t('partner.e5_km_value', { km: s.minKm }) });
   if (s.tipsIqd > 0) out.push({ key: 'tips', label: t('partner.shiftsum_tips'), value: `${amountParam(s.tipsIqd)} ${t('quote.currency')}` });
   if (s.bestHour) {
     out.push({
@@ -67,19 +68,23 @@ export interface ShareCardModel {
   currency: string;
   perHour: string | null;
   stats: Array<{ label: string; value: string }>;
+  /** «الزبائن قالوا عني: «سريع»» — the word customers picked most this shift (e7); null without one. */
+  quote: string | null;
   tag: string;
 }
 
-export function shareCardModel(s: ShiftSummary, t: T, now: Date = new Date()): ShareCardModel {
+export function shareCardModel(s: ShiftSummary, t: T, now: Date = new Date(), opts: { wholeDay?: boolean } = {}): ShareCardModel {
   return {
     title: t('partner.shiftsum_share_caption'),
-    date: `${formatDay(s.to, now)} · ${shiftRange(s, t)}`,
+    date: opts.wholeDay ? formatDay(s.to, now) : `${formatDay(s.to, now)} · ${shiftRange(s, t)}`,
     net: amountParam(s.netIqd),
     currency: t('quote.currency'),
-    perHour: s.perHourIqd !== null ? t('partner.shiftsum_per_hour', { amount: amountParam(s.perHourIqd) }) : null,
-    stats: shiftStats(s, t)
-      .filter((x) => x.key !== 'tips')
+    perHour: s.perHourIqd !== null && !opts.wholeDay ? t('partner.shiftsum_per_hour', { amount: amountParam(s.perHourIqd) }) : null,
+    // Three columns: jobs, the km when known, then the best hour (or time online).
+    stats: shiftStats(s, t, opts)
+      .filter((x) => x.key !== 'tips' && !(x.key === 'online' && s.minKm !== null && s.minKm > 0 && s.bestHour))
       .map((x) => ({ label: x.label, value: x.value })),
+    quote: s.compliments[0] ? t('partner.e5_share_quote', { word: t(`compliment.${s.compliments[0].key}`) }) : null,
     tag: t('partner.shiftsum_brand_tag'),
   };
 }

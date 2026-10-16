@@ -1,6 +1,7 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { GARAGE_TAXI_RULES } from '@driver/contracts';
 import { GarageTaxiService } from './garage-taxi.service.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 
 /**
  * Taxi ideas x3 / x4: once a minute, every taxi on its way to a الرجعة car (is it making the car's
@@ -14,9 +15,14 @@ export class GarageTaxiJob implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
 
-  constructor(private readonly taxis: GarageTaxiService) {}
+  constructor(
+    private readonly taxis: GarageTaxiService,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+  ) {}
 
   onModuleInit(): void {
+    // Background work: on DRIVER_ROLE=web machines the worker runs it, so it ticks once, not per machine.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), GARAGE_TAXI_RULES.tickMs);
     this.timer.unref();
   }

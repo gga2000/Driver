@@ -43,16 +43,17 @@ describe('orders × trips — end to end', () => {
     expect(delivered.state).toBe('delivered');
     expect((await h.trips.get(t.id)).state).toBe('completed');
     expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ amountIqd: 16500, discrepancyIqd: 0, courierId: 'd1' });
-    // Edge-case §3: merchant_payable net of commission, created the moment the courier collects.
-    expect(h.events.last('merchant.payable_accrued')!.payload).toMatchObject({ merchantOrgId: 'rest_1', grossIqd: 15000, commissionIqd: 2250, netIqd: 12750, heldBy: 'courier' });
+    // Edge-case §3: merchant_payable net of commission, created the moment the courier collects. The
+    // restaurant has no tier on file, so it is on starter (5 %, Ali 2026-10-11): 750 on 15,000.
+    expect(h.events.last('merchant.payable_accrued')!.payload).toMatchObject({ merchantOrgId: 'rest_1', grossIqd: 15000, commissionTier: 'starter', commissionPct: 5, commissionIqd: 750, netIqd: 14250, heldBy: 'courier' });
 
     await h.advance(2 * HOUR - 1000);
     expect((await h.orders.get(o.id)).state).toBe('delivered');
     await h.advance(1000);
     expect((await h.orders.get(o.id)).state).toBe('closed');
-    // Revenue 500 service + 2,250 commission = 2,750 → 27 points; the sister's line is a third of the value.
-    expect(h.events.last('order.points_allocated')!.payload).toMatchObject({ platformRevenueIqd: 2750, basePoints: 27 });
-    expect(h.events.last('points.pending')!.payload).toMatchObject({ phoneHash: fakePhoneHash('07709998877'), points: 9 });
+    // Revenue 500 service + 750 commission = 1,250 → 12 points; the sister's line is a third of the value.
+    expect(h.events.last('order.points_allocated')!.payload).toMatchObject({ platformRevenueIqd: 1250, basePoints: 12 });
+    expect(h.events.last('points.pending')!.payload).toMatchObject({ phoneHash: fakePhoneHash('07709998877'), points: 4 });
     expect(h.events.types(o.id)).toEqual([
       'order.placed',
       'line.tagged',
@@ -95,7 +96,7 @@ describe('orders × trips — end to end', () => {
     expect(h.events.events.length).toBe(before);
   });
 
-  it('a rating closes early; a dispute is possible until closed, support only after', async () => {
+  it('a rating keeps the complaint window open (FLOW-20); a dispute is possible until closed, support only after', async () => {
     const h = ordersHarness();
     const a = await h.orders.place('c1', h.foodInput());
     await h.orders.merchantAccept('m1', { orderId: a.id, prepMinutes: 15 });
@@ -113,8 +114,21 @@ describe('orders × trips — end to end', () => {
     const tb = await h.tripFor(b.id, { driverId: 'd2' });
     await h.pickup(tb.id, 'd2');
     await h.dropoff(tb.id, { driverId: 'd2' });
-    expect((await h.orders.rate('c1', { orderId: b.id })).state).toBe('closed');
-    expect(await code(h.orders.openDispute('c1', { orderId: b.id, kind: 'missing_item' }))).toBe('dispute_window_closed');
+    expect((await h.orders.rate('c1', { orderId: b.id })).state).toBe('delivered');
+    // FLOW-20: rated at the door, a missing item found later can still be complained about…
+    h.clock.advance(HOUR);
+    expect((await h.orders.openDispute('c1', { orderId: b.id, kind: 'missing_item' })).state).toBe('disputed');
+
+    const c = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: c.id, prepMinutes: 15 });
+    const tc = await h.tripFor(c.id, { driverId: 'd3' });
+    await h.pickup(tc.id, 'd3');
+    await h.dropoff(tc.id, { driverId: 'd3' });
+    await h.orders.rate('c1', { orderId: c.id, delivery: 5 });
+    // …and the 2-h auto-close ends the window as before.
+    await h.advance(3 * HOUR);
+    expect((await h.orders.get(c.id)).state).toBe('closed');
+    expect(await code(h.orders.openDispute('c1', { orderId: c.id, kind: 'missing_item' }))).toBe('dispute_window_closed');
   });
 
   it('unreachable customer: driver fails at 5:00 and the order is disputed with the food default (customer owes cost)', async () => {
@@ -288,7 +302,7 @@ describe('orders × trips — rides', () => {
     await h.trips.cancel(t.id, 'driver', 'd1', 'ما طلع');
     await h.deliver();
     expect((await h.orders.get(o.id)).state).toBe('placed');
-    expect(h.events.last('order.driver_cancelled')!.payload).toMatchObject({ customerCreditIqd: 500, creditFundedBy: 'driver', scoringHit: true });
+    expect(h.events.last('order.driver_cancelled')!.payload).toMatchObject({ orderId: o.id, tripId: t.id, customerId: 'c1', driverId: 'd1', customerCreditIqd: 500, creditFundedBy: 'driver', scoringHit: true });
     expect(h.events.ofType('order.rematch_needed')).toHaveLength(1);
   });
 });

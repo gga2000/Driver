@@ -52,7 +52,9 @@ const switchView = { id: 'ks_1', cityId: 'aziziyah', scope: 'vertical' as const,
 const zoneView = { zoneKey: 'zakur', name_ar: 'زاكور', tier: 'mid', maxActive: 5, mode: 'refuse' as const, etaMin: 15, active: 2, load: 0.4, state: 'ok' as const, killed: false, setBy: 'p_staff', setAt: AT };
 const bannerView = { id: 'bn_1', severity: 'info' as const, message_ar: 'هلا', message_en: null, expiresAt: LATER, cityId: null, audiences: ['customer' as const], startsAt: AT, active: true, setBy: 'p_staff', setByName: null, setAt: AT, clearedAt: null };
 const quietView = { id: 'qd_1', cityId: 'aziziyah', startsOn: '2026-11-13', endsOn: '2026-11-13', label_ar: 'يوم عزاء', active: false, setBy: 'p_staff', setByName: null, setAt: AT, clearedAt: null };
+const screenView = { cityId: 'aziziyah', key: 'basket_v2' as const, audience: 'staff' as const, reason: 'نجرّب', setBy: 'p_staff', setByName: 'علي', setAt: AT };
 const seasonView = { ...quietView, kind: 'ramadan' as const, celebrations: true, sounds: true, promos: true, accent: true, homeCard: true, homeCardAr: null, shiaOffsetMin: null, days: [] };
+const commissionView = { merchantOrgId: 'm1', name: 'مطعم خالد', tier: 'starter' as const, pct: 5, onFile: false, starterSince: AT, starterDays: 0, reviewDue: false, lastChange: null, options: [{ tier: 'starter' as const, pct: 5 }] };
 
 function ports() {
   const controls: ControlsPort = {
@@ -60,6 +62,7 @@ function ports() {
     setSwitch: vi.fn(async () => switchView),
     setCapacity: vi.fn(async () => zoneView),
     audit: vi.fn(async () => []),
+    auditPage: vi.fn(async () => ({ rows: [], total: 0, nextCursor: null })),
     banner: vi.fn(async () => ({ id: 'bn_1', severity: 'info' as const, message_ar: 'هلا', message_en: null, expiresAt: LATER })),
     banners: vi.fn(async () => [bannerView]),
     setBanner: vi.fn(async () => bannerView),
@@ -72,6 +75,9 @@ function ports() {
     setSeason: vi.fn(async () => seasonView),
     clearSeason: vi.fn(async () => seasonView),
     setIftarTime: vi.fn(async () => seasonView),
+    screens: vi.fn(async (_input, isStaff: () => Promise<boolean>) => ({ basket_v2: await isStaff(), checkout_v2: false, track_v2: false, orders_v2: false })),
+    screenSwitches: vi.fn(async () => [screenView]),
+    setScreen: vi.fn(async () => screenView),
   };
   const controlRoom: ControlRoomPort = {
     approvals: vi.fn(async () => ({ at: AT, items: [], counts: { driver_document: 0, merchant_deal: 0, landmark_photo: 0, merchant_onboarding: 0, fleet_vehicle: 0, vehicle_features: 0 } })),
@@ -86,8 +92,14 @@ function ports() {
       round: { at: LATER, stops: [], totalIqd: 0 },
       nightly: { ok: true, message_ar: 'الدفتر متوازن', moneyNet: 0, pointsNet: 0, kindViolations: 0, checkedAt: AT, lastClose: null },
       totals: { cashInFieldIqd: 0, merchantsPayableIqd: 0, collectedTodayIqd: 0, couriersOverCap: 0 },
+      commissionDue: [],
     })),
     exportSettlement: vi.fn(async () => ({ filename: 'driver-couriers-2026-10-04.csv', csv: 'a\r\n', rows: 0 })),
+    payMerchant: vi.fn(async () => ({ reference: 'M-AAAA-BBBB', amountIqd: 10_000, leftIqd: 0 })),
+    payDriver: vi.fn(async () => ({ reference: 'D-AAAA-BBBB', amountIqd: 10_000, leftIqd: 0 })),
+    adjust: vi.fn(async () => ({ adjustmentId: 'adj_1', status: 'posted' as const, amountIqd: 1_000, approvalId: null })),
+    commission: vi.fn(async () => commissionView),
+    setCommissionTier: vi.fn(async () => commissionView),
     metrics: vi.fn(async () => ({ cityId: 'aziziyah', at: AT, since: AT, day: 1, metrics: [], ordersByDay: [], deliverySamples: 0, offers: { accepted: 0, answered: 0 }, openTickets: 0 })),
   };
   const support: SupportPort = {
@@ -135,6 +147,10 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['ops.controls.setSwitch', ['dispatcher', 'admin'], (c) => c.ops.controls.setSwitch({ scope: 'vertical', key: 'food', active: true, reason: 'مطر قوي' })],
   ['ops.controls.setCapacity', ['dispatcher', 'admin'], (c) => c.ops.controls.setCapacity({ zoneKey: 'zakur', maxActive: 5 })],
   ['ops.controls.audit', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.ops.controls.audit({})],
+  ['ops.controls.auditPage', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.ops.controls.auditPage({})],
+  ['ops.controls.screens', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.ops.controls.screens({})],
+  ['ops.controls.setScreen (off)', ['dispatcher', 'admin'], (c) => c.ops.controls.setScreen({ key: 'basket_v2', audience: 'off', reason: 'مشكلة بالسلة' })],
+  ['ops.controls.setScreen (on)', ['admin'], (c) => c.ops.controls.setScreen({ key: 'basket_v2', audience: 'staff', reason: 'نجرّبها' })],
   ['system.banners', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.system.banners()],
   ['system.setBanner', ['admin'], (c) => c.system.setBanner({ severity: 'info', audiences: ['customer'], message_ar: 'هلا بيكم', expiresAt: LATER })],
   ['system.clearBanner', ['admin'], (c) => c.system.clearBanner({ bannerId: 'bn_1' })],
@@ -159,6 +175,11 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['support.resolve', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.support.resolve({ ticketId: 'tk_1', resolution: 'تعوّض' })],
   ['finance.desk', ['finance', 'admin', 'dispatcher', 'field_ops'], (c) => c.finance.desk({})],
   ['finance.exportSettlement', ['finance', 'admin'], (c) => c.finance.exportSettlement({ kind: 'couriers' })],
+  ['finance.payMerchant', ['finance'], (c) => c.finance.payMerchant({ merchantId: 'm1', amountIqd: 10_000, channel: 'zaincash', idempotencyKey: 'pay-m1-0001' })],
+  ['finance.payDriver', ['finance'], (c) => c.finance.payDriver({ driverId: 'k1', amountIqd: 10_000, channel: 'agent', idempotencyKey: 'pay-k1-0001' })],
+  ['finance.adjust', ['finance'], (c) => c.finance.adjust({ fromAccount: 'platform', toAccount: 'driver:k1', amountIqd: 1_000, reason: 'missed tip', incidentId: 'tk_1' })],
+  ['finance.commission', ['finance', 'admin'], (c) => c.finance.commission({ merchantOrgId: 'm1' })],
+  ['finance.setCommissionTier', ['finance', 'admin'], (c) => c.finance.setCommissionTier({ merchantOrgId: 'm1', tier: 'base' })],
   ['metrics.wall', ['dispatcher', 'support', 'finance', 'admin'], (c) => c.metrics.wall({})],
 ];
 
@@ -169,6 +190,14 @@ describe('launch control room routers: role gates', () => {
       for (const role of ALL) expect([role, await codeOf(run(caller([role]).call))]).toEqual([role, allowed.includes(role) ? 'ok' : 'FORBIDDEN']);
     });
   }
+
+  it('system.screens is public: signed out is never staff; a Console role is', async () => {
+    const anon = caller(null);
+    expect(await anon.call.system.screens({})).toEqual({ basket_v2: false, checkout_v2: false, track_v2: false, orders_v2: false });
+    expect((await caller(['customer']).call.system.screens({})).basket_v2).toBe(false);
+    expect((await caller(['courier', 'support']).call.system.screens({ cityId: 'aziziyah' })).basket_v2).toBe(true);
+    expect(await codeOf(anon.call.system.screens({ cityId: '' }))).toBe('BAD_REQUEST');
+  });
 
   it('system.banner is public and validated', async () => {
     const anon = caller(null);
@@ -211,6 +240,14 @@ describe('launch control room routers: role gates', () => {
     expect(await codeOf(admin.call.ops.controls.setSwitch({ scope: 'zone', key: 'zakur', active: true, reason: 'x' }))).toBe('BAD_REQUEST');
     expect(await codeOf(admin.call.system.setBanner({ severity: 'info', audiences: [], message_ar: 'هلا بيكم', expiresAt: LATER }))).toBe('BAD_REQUEST');
     expect(admin.controlRoom.decide).not.toHaveBeenCalled();
+    const fin = caller(['finance']);
+    // A correction never touches points, and every payout carries its retry key.
+    expect(await codeOf(fin.call.finance.adjust({ fromAccount: 'points_pool', toAccount: 'points:c1', amountIqd: 1_000, reason: 'points fix', incidentId: 'tk_1' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(fin.call.finance.payMerchant({ merchantId: 'm1', amountIqd: 10_000, channel: 'agent' as never, idempotencyKey: 'pay-m1-0001' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(fin.call.finance.payDriver({ driverId: 'k1', amountIqd: 0, channel: 'agent', idempotencyKey: 'pay-k1-0001' }))).toBe('BAD_REQUEST');
+    // Pickup is the rate of pickup orders, not a tier a store is put on.
+    expect(await codeOf(fin.call.finance.setCommissionTier({ merchantOrgId: 'm1', tier: 'pickup' as never }))).toBe('BAD_REQUEST');
+    expect(fin.controlRoom.adjust).not.toHaveBeenCalled();
     expect(admin.support.refund).not.toHaveBeenCalled();
   });
 

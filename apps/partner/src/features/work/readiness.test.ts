@@ -37,4 +37,15 @@ describe('readiness row (S-8)', () => {
     // A sound still loading is not an alarm.
     expect(readiness({ ...OK, sound: 'unknown' }).issues).toBe(0);
   });
+
+  it('battery saver on Driver: the battery chip asks to turn it off in settings (l5)', () => {
+    const r = readiness({ ...OK, saver: true });
+    expect(r.items.find((x) => x.key === 'battery')).toMatchObject({ tone: 'warn', problem: 'partner.ready_battery_saver', fix: 'settings', percent: 64 });
+    expect(r.issues).toBe(1);
+  });
+
+  it('a low battery says charge first, whatever the saver', () => {
+    const r = readiness({ ...OK, saver: true, battery: { level: 0.12, charging: false } });
+    expect(r.items.find((x) => x.key === 'battery')).toMatchObject({ tone: 'bad', problem: 'partner.ready_battery_low' });
+  });
 });

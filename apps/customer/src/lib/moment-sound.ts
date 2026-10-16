@@ -11,13 +11,14 @@
  * no sound: never the media stream.
  */
 
-/** The tracking screen's moments (maps program SP5b). */
-export type Cue = 'accepted' | 'picked_up' | 'near' | 'delivered';
+/** The tracking screen's moments (maps program SP5b), and the order going in (`placed`, the istikan tink). */
+export type Cue = 'placed' | 'accepted' | 'picked_up' | 'near' | 'delivered';
 
-export const CUES: readonly Cue[] = ['accepted', 'picked_up', 'near', 'delivered'];
+export const CUES: readonly Cue[] = ['placed', 'accepted', 'picked_up', 'near', 'delivered'];
 
 /** Bundled into Android res/raw by the expo-notifications plugin (app.json `sounds`), so lower case and underscores only. */
 export const MOMENT_SOUND_FILES: Readonly<Record<Cue, string>> = {
+  placed: 'placed.wav',
   accepted: 'accepted.wav',
   picked_up: 'picked_up.wav',
   near: 'near.wav',

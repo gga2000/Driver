@@ -5,6 +5,7 @@ import { CalendarDate, type OccurrenceView, type RegularPoint } from '@driver/co
 import { formatClock, formatDay, formatWhen } from '@driver/i18n';
 import { Button, Card, EmptyState, Icon, RetryState, retryKindFor, SketchScene, Skeleton, StatusPill, Text, useNetwork, useNow, useTheme } from '@driver/ui';
 import { GuestGate } from '@/components/GuestGate';
+import { wayKey } from '@/features/rajaa/labels';
 import { Screen } from '@/components/Screen';
 import { newRequestKey } from '@/features/food/place-attempt';
 import { DepartureTile } from '@/features/rajaa/DepartureTile';
@@ -222,7 +223,7 @@ function ConfirmSeat({ v, now }: { v: OccurrenceView; now: Date }) {
           <View style={{ gap: theme.space[2] }}>
             <Text variant="bodyStrong">{t('habits.occ_no_cars')}</Text>
             <Text variant="footnote" color="textMuted">
-              {t('habits.occ_wait_hint')}
+              {t(wayKey('habits.occ_wait_hint', v.trip.plan.kind === 'rajaa' ? v.trip.plan.direction : 'to_aziziyah'))}
             </Text>
           </View>
         </Card>

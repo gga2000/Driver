@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Pressable, Share, View } from 'react-native';
 import type { StatementOrderLine, WeeklyStatement } from '@driver/contracts';
 import { formatRange } from '@driver/i18n';
-import { Button, IconButton, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, IconButton, Skeleton, Text, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { ModalSheet } from '@driver/ui';
 import { Panel, PanelRow, Tag } from '@/components/Panel';
@@ -10,9 +11,9 @@ import { useDates } from '@/lib/dates';
 import { useLocale, useT, type TKey } from '@/lib/i18n';
 import { amountParam, iqd } from '@/lib/money';
 import { clock12 } from '@/lib/time';
-import { statementBridge, statementDays, ticketNumber, type BridgeTerm } from './logic';
+import { statementDays, ticketNumber, weekLines, type WeekLine } from './logic';
 
-const PAY_TONE = { cash: 'warning', wallet: 'info', prepaid: 'info' } as const;
+const PAY_TONE = { cash: 'warning', wallet: 'neutral', prepaid: 'neutral' } as const;
 
 /** الفلوس → كشف الأسبوع: per-order lines (Sunday-start week), totals, hand-overs and transfers, share. */
 export function StatementView({
@@ -36,7 +37,7 @@ export function StatementView({
   const t = useT();
   const locale = useLocale();
   const dates = useDates();
-  const toast = useToast();
+  const toast = useCounterToast();
   const range = statement ? formatRange(dates.dayMonth(statement.from), dates.dayMonth(new Date(statement.to.getTime() - 1)), locale, { spaced: true }) : '';
 
   const share = async () => {
@@ -98,6 +99,14 @@ export function StatementView({
             <Text variant="footnote" color="textMuted" tabular>
               {t('merchant.statement.day_total', { orders: tot.orders, net: iqd(tot.netIqd, { locale }) })}
             </Text>
+            {statement.rate ? (
+              <Text variant="footnote" color="textMuted" tabular testID="statement-rate">
+                {/* The rate is isolated LTR so «12%» keeps its sign on the right inside Arabic. */}
+                {statement.rate.starterSince
+                  ? t('merchant.statement.rate_starter', { rate: `\u2066${statement.rate.pct}%\u2069`, date: dates.dayMonth(statement.rate.starterSince) })
+                  : t('merchant.statement.rate', { rate: `\u2066${statement.rate.pct}%\u2069` })}
+              </Text>
+            ) : null}
           </View>
           <View style={{ flex: wide ? 2 : undefined, flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
             <Cell label={t('merchant.statement.items')} value={iqd(tot.itemsIqd, { locale })} />
@@ -143,8 +152,8 @@ export function StatementView({
             .sort((a, b) => b.at.getTime() - a.at.getTime())
             .map((s, i) => (
               <PanelRow key={`${s.at.getTime()}-${i}`} first={i === 0}>
-                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: s.kind === 'payout' ? theme.colors.infoTint : theme.colors.successTint, alignItems: 'center', justifyContent: 'center' }}>
-                  <MIcon name={s.kind === 'payout' ? 'wallet' : 'cash'} size={20} color={s.kind === 'payout' ? 'infoText' : 'successText'} />
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: s.kind === 'payout' ? theme.colors.surfaceSunken : theme.colors.successTint, alignItems: 'center', justifyContent: 'center' }}>
+                  <MIcon name={s.kind === 'payout' ? 'wallet' : 'cash'} size={20} color={s.kind === 'payout' ? 'text' : 'successText'} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text variant="bodyStrong">{t(s.kind === 'payout' ? 'merchant.statement.payout' : 'merchant.statement.handover')}</Text>
@@ -171,7 +180,7 @@ function Cell({ label, value, strong }: { label: string; value: string; strong?:
       <Text variant="caption" color="textMuted">
         {label}
       </Text>
-      <Text variant="bodyStrong" weight={700} tabular numberOfLines={1}>
+      <Text variant="bodyStrong" weight={700} tabular>
         {value}
       </Text>
     </View>
@@ -192,6 +201,11 @@ function DayHeader({ label, orders, netIqd }: { label: string; orders: number; n
       </Text>
     </View>
   );
+}
+
+/** "#4821" for an order; a cart walk-over ticket (paid to the cart in hand) says so instead. */
+function lineRef(line: StatementOrderLine, t: ReturnType<typeof useT>): string {
+  return line.walkup ? t('merchant.statement.walkup_ref') : t('merchant.statement.order_ref', { ref: ticketNumber(line.orderId) });
 }
 
 function PayTag({ line }: { line: StatementOrderLine }) {
@@ -218,7 +232,7 @@ function PhoneLine({ line, first }: { line: StatementOrderLine; first: boolean }
       <View style={{ flex: 1, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
           <Text variant="bodyStrong" tabular>
-            {t('merchant.statement.order_ref', { ref: ticketNumber(line.orderId) })}
+            {lineRef(line, t)}
           </Text>
           <Text variant="caption" color="textMuted" tabular>
             {clock12(line.at)}
@@ -227,7 +241,7 @@ function PhoneLine({ line, first }: { line: StatementOrderLine; first: boolean }
         </View>
         <Text variant="caption" color="textMuted" tabular>
           {[
-            iqd(line.itemsIqd, { locale }),
+            line.walkup ? t('merchant.statement.walkup_paid') : iqd(line.itemsIqd, { locale }),
             line.commissionPct !== null ? `${t('merchant.statement.commission_line', { pct: line.commissionPct })} ${iqd(-line.commissionIqd, { locale })}` : null,
             line.discountIqd > 0 ? discountText(line, t) : null,
           ]
@@ -276,7 +290,7 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
             >
               <View style={{ flex: col.order, flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}>
                 <Text variant="bodyStrong" tabular>
-                  {t('merchant.statement.order_ref', { ref: ticketNumber(l.orderId) })}
+                  {lineRef(l, t)}
                 </Text>
                 <Text variant="caption" color="textMuted" tabular>
                   {clock12(l.at)}
@@ -285,8 +299,8 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
               <View style={{ flex: col.pay }}>
                 <PayTag line={l} />
               </View>
-              <Text variant="body" tabular align="end" style={{ flex: col.items }}>
-                {amountParam(l.itemsIqd)}
+              <Text variant="body" tabular align="end" {...(l.walkup ? { color: 'textMuted' as const } : {})} style={{ flex: col.items }}>
+                {l.walkup ? '—' : amountParam(l.itemsIqd)}
               </Text>
               <View style={{ flex: col.discount, alignItems: 'flex-end' }}>
                 {l.discountIqd > 0 ? (
@@ -294,7 +308,7 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
                     <Text variant="body" tabular color="textMuted">
                       {amountParam(-(l.dealIqd || l.discountIqd))}
                     </Text>
-                    <Text variant="caption" color="infoText">
+                    <Text variant="caption" color="textMuted">
                       {t(l.discountFunder === 'merchant' ? 'merchant.statement.discount_merchant' : 'merchant.statement.discount_platform')}
                     </Text>
                     {l.roundingIqd > 0 ? (
@@ -342,48 +356,50 @@ function Table({ days, now }: { days: ReturnType<typeof statementDays>; now: num
 }
 
 /**
- * M-17 · the bridge: "رصيد أول الأسبوع + الصافي − اللي استلمته (+ تعديلات) = رصيد آخر الأسبوع", the
- * four numbers that never added up on screen now reconcile in one row. "اللي استلمته" opens its lines.
+ * M-17 · how the balance got here, d19: in plain sentences, one per line — «بدينا الأسبوع بـ… · ربحت… ·
+ * استلمت… · باقي إلك…» — instead of a row of «+ − =» he had to work out. The same numbers as before
+ * (`weekLines` reads `statementBridge`); «استلمت» opens its lines.
  */
-function Bridge({ statement, wide, now }: { statement: WeeklyStatement; wide: boolean; now: number }) {
+function Bridge({ statement, now }: { statement: WeeklyStatement; wide: boolean; now: number }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const dates = useDates();
   const [open, setOpen] = useState(false);
-  const { terms } = statementBridge(statement);
-  const byKey = Object.fromEntries(terms.map((x) => [x.key, iqd(x.amountIqd, { locale })]));
-  const cell = (term: BridgeTerm) => {
-    const last = term.key === 'closing';
-    const body = (
-      <View style={{ gap: 2, alignItems: 'flex-start' }}>
-        <Text variant="caption" color="textMuted" numberOfLines={1}>
-          {t(term.label)}
-        </Text>
-        <Text variant={last ? 'bodyStrong' : 'label'} weight={last ? 700 : 600} tabular color={term.key === 'settled' ? 'accentText' : 'text'} numberOfLines={1}>
-          {iqd(term.amountIqd, { locale })}
-        </Text>
-      </View>
-    );
-    // On a phone the terms wrap, so every term (the opening too, blank) keeps a fixed operator gutter:
-    // the rows share one start edge and «−» / «=» sit inside the box, not out past «رصيد أول الأسبوع».
-    const gutter = wide ? undefined : { width: theme.space[4], alignItems: 'center' as const };
-    return (
-      <View key={term.key} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flexShrink: 1 }}>
-        {term.op ? (
-          <Text variant="title" weight={700} color="textMuted" align="center" accessibilityElementsHidden importantForAccessibility="no" style={gutter}>
-            {term.op}
-          </Text>
-        ) : gutter ? (
-          <View style={gutter} />
-        ) : null}
-        {term.key === 'settled' ? (
-          <Pressable testID="bridge-settled" accessibilityRole="button" accessibilityLabel={`${t(term.label)} ${iqd(term.amountIqd, { locale })}`} onPress={() => setOpen(true)} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: theme.space[2], borderRadius: theme.radius.md, backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.accentTint })}>
-            {body}
-          </Pressable>
+  const { lines } = weekLines(statement);
+  const sentence = (text: TKey, amountIqd: number) => t(text, { amount: amountParam(amountIqd) });
+  const row = (line: WeekLine) => {
+    const last = line.key === 'closing';
+    const full = sentence(line.text, line.amountIqd);
+    const amount = amountParam(line.amountIqd);
+    const at = line.amountIqd > 0 ? full.indexOf(amount) : -1;
+    const words = (
+      <Text variant={last ? 'bodyStrong' : 'body'} weight={last ? 700 : 400} color={last && line.text === 'merchant.week.closing_owe' ? 'warningText' : 'text'} style={{ flex: 1 }}>
+        {at >= 0 ? (
+          <>
+            {full.slice(0, at)}
+            <Text variant={last ? 'bodyStrong' : 'body'} weight={700} tabular>
+              {amount}
+            </Text>
+            {full.slice(at + amount.length)}
+          </>
         ) : (
-          <View style={{ minHeight: 44, justifyContent: 'center' }}>{body}</View>
+          full
         )}
+      </Text>
+    );
+    const box = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: theme.space[2], minHeight: 44, paddingVertical: theme.space[1], borderTopWidth: last ? 1 : 0, borderTopColor: theme.colors.border, marginTop: last ? theme.space[1] : 0 };
+    if (line.key === 'settled' && line.amountIqd > 0) {
+      return (
+        <Pressable key={line.key} testID="bridge-settled" accessibilityRole="button" accessibilityLabel={full} accessibilityHint={t('merchant.week.settled_open')} onPress={() => setOpen(true)} style={({ pressed }) => [box, { paddingHorizontal: theme.space[2], marginHorizontal: -theme.space[2], borderRadius: theme.radius.md, backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.accentTint }]}>
+          {words}
+          <MIcon name="chevron-forward" size={18} color="accentText" />
+        </Pressable>
+      );
+    }
+    return (
+      <View key={line.key} testID={`week-line-${line.key}`} style={box}>
+        {words}
       </View>
     );
   };
@@ -391,13 +407,13 @@ function Bridge({ statement, wide, now }: { statement: WeeklyStatement; wide: bo
     <View
       testID="statement-bridge"
       accessible={false}
-      accessibilityLabel={t('merchant.bridge.a11y', { opening: byKey['opening'] ?? '', net: byKey['net'] ?? '', settled: byKey['settled'] ?? '', closing: byKey['closing'] ?? '' })}
-      style={{ gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}
+      accessibilityLabel={lines.map((l) => sentence(l.text, l.amountIqd)).join('. ')}
+      style={{ gap: theme.space[1], borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: theme.space[4] }}
     >
       <Text variant="label" weight={700}>
         {t('merchant.bridge.title')}
       </Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: wide ? theme.space[4] : theme.space[3], rowGap: theme.space[2] }}>{terms.map(cell)}</View>
+      <View style={{ maxWidth: 560 }}>{lines.map(row)}</View>
       <ModalSheet visible={open} onClose={() => setOpen(false)} title={t('merchant.bridge.settled_sheet')} testID="bridge-settled-sheet">
         {statement.settlements.length === 0 ? (
           <Text variant="body" color="textMuted">

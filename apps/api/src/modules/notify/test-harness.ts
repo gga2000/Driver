@@ -3,8 +3,8 @@ import { FakeClock } from '../../shared/clock.js';
 import { ProviderError } from '../../shared/messaging/http.js';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { InMemoryQueue } from '../../shared/queue.js';
-import { NotifyEngine, type NotifyJob } from './notify.engine.js';
-import { InMemoryNotifyRepository } from './notify.repository.js';
+import { NotifyEngine, type NotifyJob, type NotifySmsBudget } from './notify.engine.js';
+import { InMemoryNotifyRepository, type DeliveryRecord } from './notify.repository.js';
 import { NotifyService } from './notify.service.js';
 import { DevPushProvider, type PushMessage, type PushPort, type PushReceipt, type PushTicket } from './providers/push.js';
 import { DevWhatsAppProvider, type WhatsAppMessage, type WhatsAppPort, type WhatsAppResult } from './providers/whatsapp.js';
@@ -72,21 +72,22 @@ export const PHONES: Record<string, string> = { cust: '+9647701110001', guardian
 /** 12:00 Baghdad. */
 export const NOON = '2026-10-04T09:00:00Z';
 
-export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort; start?: string; locale?: Record<string, Locale>; quietDay?: (at: Date) => Promise<boolean>; promoHold?: (at: Date) => Promise<PromoHold | null> } = {}) {
+export function notifyHarness(opts: { push?: PushPort; whatsapp?: WhatsAppPort | null; smsBudget?: (clock: FakeClock) => NotifySmsBudget; start?: string; locale?: Record<string, Locale>; quietDay?: (at: Date) => Promise<boolean>; promoHold?: (at: Date) => Promise<PromoHold | null>; twinWanted?: (row: DeliveryRecord) => Promise<boolean>; phones?: Record<string, string> } = {}) {
   const clock = new FakeClock(opts.start ?? NOON);
   const repo = new InMemoryNotifyRepository();
   const queue = new InMemoryQueue<NotifyJob>('notify', () => clock.now());
   const push = opts.push ?? new DevPushProvider(false);
   const sms = new DevSmsProvider(false);
-  const whatsapp = opts.whatsapp ?? new DevWhatsAppProvider(false);
+  // `whatsapp: null`: WhatsApp not set up (a live host without WHATSAPP_TOKEN).
+  const whatsapp = opts.whatsapp === undefined ? new DevWhatsAppProvider(false) : opts.whatsapp;
   const phoneReads: string[] = [];
   const contacts = {
     contact: async (personId: string, o: { phone: boolean; purpose: string }) => {
       if (o.phone) phoneReads.push(`${personId}:${o.purpose}`);
-      return { locale: opts.locale?.[personId] ?? ('ar-IQ' as Locale), phoneE164: o.phone ? (PHONES[personId] ?? null) : null };
+      return { locale: opts.locale?.[personId] ?? ('ar-IQ' as Locale), phoneE164: o.phone ? (opts.phones?.[personId] ?? PHONES[personId] ?? null) : null };
     },
   };
-  const engine = new NotifyEngine(repo, { push: { expo: push, fcm: push }, sms, whatsapp }, contacts, queue, clock, { retryBaseMs: 1000, maxAttempts: 3, receiptDelaySec: 60 }, holdFrom(opts));
+  const engine = new NotifyEngine(repo, { push: { expo: push, fcm: push }, sms, whatsapp }, contacts, queue, clock, { retryBaseMs: 1000, maxAttempts: 3, receiptDelaySec: 60 }, holdFrom(opts), opts.twinWanted, opts.smsBudget?.(clock));
   queue.process((job) => engine.process(job.data));
   const service = new NotifyService(undefined, engine, repo, clock);
   /** Advance the clock and run every job due. */

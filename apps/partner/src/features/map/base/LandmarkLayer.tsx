@@ -2,22 +2,16 @@ import { memo, useMemo } from 'react';
 import { Platform, StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, G, Text as SvgText } from 'react-native-svg';
-import { color } from '@driver/design-tokens';
 import { labelBox, LANDMARK_RULES, landmarkGlyph, landmarksVisible, placeLandmarks, type LabelObstacle } from '@driver/map';
 import { GlyphShapes, useLiteMode } from '@driver/ui';
 import { layerTransform, project, type Camera, type Size } from '../geo';
 import type { CameraValues } from './types';
+import { useMapColors } from './mapColors';
 import { useLandmarks } from './useLandmarks';
 import { useZoneNames } from './ZoneLayer';
 
 const NO_OBSTACLES: readonly LabelObstacle[] = [];
 const LABEL_FONT = Platform.OS === 'web' ? 'IBM Plex Sans Arabic, sans-serif' : 'IBMPlexSansArabic_500Medium';
-/** Quiet city furniture: cream badge, warm ink glyph, our accent stays for our own pins. */
-const BADGE_FILL = color.neutral[50];
-const BADGE_RING = color.neutral[400];
-const GLYPH = color.neutral[700];
-const NAME = color.neutral[700];
-const HALO = color.neutral[50];
 const GLYPH_PX = 13;
 
 export interface LandmarkLayerProps {
@@ -44,6 +38,7 @@ export interface LandmarkLayerProps {
  */
 export const LandmarkLayer = memo(function LandmarkLayer({ drawn, cam, size, avoid = NO_OBSTACLES, opacity, coveredTop = 0, coveredBottom = 0, nameZoom }: LandmarkLayerProps) {
   const lite = useLiteMode();
+  const lc = useMapColors().landmark;
   const landmarks = useLandmarks();
   const zoneNames = useZoneNames(drawn, size, avoid);
   const placed = useMemo(() => {
@@ -69,8 +64,8 @@ export const LandmarkLayer = memo(function LandmarkLayer({ drawn, cam, size, avo
       <Svg width={size.w} height={size.h}>
         {placed.map((l) => (
           <G key={l.id} testID={`landmark-${l.category}`}>
-            <Circle cx={l.x} cy={l.y} r={r - 0.75} fill={BADGE_FILL} stroke={BADGE_RING} strokeWidth={1.25} />
-            <GlyphShapes shapes={landmarkGlyph(l.category)} x={l.x} y={l.y} size={GLYPH_PX} color={GLYPH} strokeWidth={2.1} />
+            <Circle cx={l.x} cy={l.y} r={r - 0.75} fill={lc.badgeFill} stroke={lc.badgeRing} strokeWidth={1.25} />
+            <GlyphShapes shapes={landmarkGlyph(l.category)} x={l.x} y={l.y} size={GLYPH_PX} color={lc.glyph} strokeWidth={2.1} />
           </G>
         ))}
         {/* Halo pass, then the text: paint-order is not supported everywhere. */}
@@ -84,8 +79,8 @@ export const LandmarkLayer = memo(function LandmarkLayer({ drawn, cam, size, avo
                 fontSize={LANDMARK_RULES.nameFontPx}
                 fontWeight="500"
                 fontFamily={LABEL_FONT}
-                fill={NAME}
-                {...(halo ? { stroke: HALO, strokeWidth: 3, strokeLinejoin: 'round' as const } : {})}
+                fill={lc.name}
+                {...(halo ? { stroke: lc.halo, strokeWidth: 3, strokeLinejoin: 'round' as const } : {})}
                 textAnchor="middle"
               >
                 {l.name}

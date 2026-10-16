@@ -148,7 +148,7 @@ export function SeasonsCard({ signedIn, canEdit }: { signedIn: boolean; canEdit:
               </div>
             </div>
           )}
-          <Button type="submit" variant="primary" disabled={!valid} loading={set.isPending}>
+          <Button type="submit" variant="primary" needsNet disabled={!valid} loading={set.isPending}>
             {t('console.season_save')}
           </Button>
         </fieldset>
@@ -174,12 +174,12 @@ function SeasonRow({ season: q, canEdit, clearing, onClear, onSaved }: { season:
             <span className="min-w-0">{q.label_ar}</span>
           </p>
           <p className="mt-0.5 text-xs text-muted">
-            {quietRange(q.startsOn, q.endsOn)} · {on.length === 0 ? t('console.season_all_off') : t('console.season_on_list', { list: on.map((s) => t(SWITCH_LABEL[s])).join('، ') })}
+            {quietRange(q.startsOn, q.endsOn)} · {on.length === 0 ? t('console.season_all_off') : t('console.season_on_list', { list: on.map((s) => t(SWITCH_LABEL[s])).join(t('console.list_sep')) })}
             {q.homeCardAr ? ` · «${q.homeCardAr}»` : ''} · {q.setByName ?? t('console.someone')}
           </p>
         </div>
         {canEdit && (
-          <Button variant="danger-soft" size="sm" loading={clearing} onClick={onClear}>
+          <Button variant="danger-soft" size="sm" needsNet loading={clearing} onClick={onClear}>
             {t('console.quiet_clear')}
           </Button>
         )}

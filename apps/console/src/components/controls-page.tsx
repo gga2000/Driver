@@ -73,6 +73,8 @@ import {
   Textarea,
   useToast,
 } from './ui';
+import { LaunchCard } from './launch-card';
+import { ScreensCard } from './screens-card';
 import { SeasonsCard } from './seasons-card';
 import { UnmetSearchesCard } from './unmet-searches-card';
 
@@ -168,6 +170,8 @@ export function ControlsPage() {
       )}
       {view.data && (
         <div className="mt-6 space-y-5">
+          <LaunchCard signedIn={signedIn} canOpen={roles.has('admin')} canClose={canSwitch} />
+          <ScreensCard signedIn={signedIn} canShow={roles.has('admin')} canOff={canSwitch} />
           <SeasonsCard signedIn={signedIn} canEdit={roles.has('admin')} />
           <UnmetSearchesCard signedIn={signedIn} />
         </div>
@@ -222,7 +226,10 @@ export function ControlsBoard({
   const liveBanner = banners.find((b) => b.active);
   const controlLog = audit.filter(
     (a) =>
-      a.subjectKind === 'kill_switch' || a.subjectKind === 'capacity' || a.subjectKind === 'banner',
+      a.subjectKind === 'kill_switch' ||
+      a.subjectKind === 'capacity' ||
+      a.subjectKind === 'banner' ||
+      a.subjectKind === 'screen',
   );
   return (
     <div className="space-y-5">
@@ -236,7 +243,7 @@ export function ControlsBoard({
               ? on
                   .map((s) => s.label_ar)
                   .slice(0, 3)
-                  .join('، ')
+                  .join(t('console.list_sep'))
               : t('console.ctl_all_running')
           }
         />
@@ -248,7 +255,7 @@ export function ControlsBoard({
             full
               .map((z) => z.name_ar)
               .slice(0, 3)
-              .join('، ') || t('console.ctl_no_pressure')
+              .join(t('console.list_sep')) || t('console.ctl_no_pressure')
           }
         />
         <Stat
@@ -430,7 +437,7 @@ function RestoredLine({ restored }: { restored: KillSwitchView[] }) {
       {t('console.ctl_recent_restored')}:{' '}
       {restored.map((s, i) => (
         <span key={s.id}>
-          {i > 0 ? '، ' : ''}
+          {i > 0 ? t('console.list_sep') : ''}
           {s.label_ar} <span className="num">{formatClock(s.setAt)}</span>
         </span>
       ))}
@@ -1074,7 +1081,7 @@ function PolicyDialog({
           <Button variant="ghost" onClick={onClose}>
             {t('console.cancel')}
           </Button>
-          <Button variant="primary" loading={save.isPending} onClick={confirm}>
+          <Button variant="primary" needsNet loading={save.isPending} onClick={confirm}>
             {change?.mode === 'reset'
               ? t('console.ctl_mode_reset_do')
               : t('console.ctl_mode_do', { mode: to })}
@@ -1207,7 +1214,7 @@ function BannerCard({ banners, canBanner }: { banners: SystemBannerView[]; canBa
   const who =
     audiences.length === 3
       ? t('console.banner_to_all')
-      : audiences.map((a) => t(`console.banner_to_${a}` as MessageKey)).join(' و');
+      : audiences.map((a) => t(`console.banner_to_${a}` as MessageKey)).join(t('console.list_and'));
   const live = banners.filter((b) => b.active);
   const past = banners.filter((b) => !b.active).slice(0, 3);
   return (
@@ -1232,7 +1239,7 @@ function BannerCard({ banners, canBanner }: { banners: SystemBannerView[]; canBa
                   <span className="min-w-0">{b.message_ar}</span>
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  {b.audiences.map((a) => t(`console.banner_app_${a}` as MessageKey)).join('، ')} ·{' '}
+                  {b.audiences.map((a) => t(`console.banner_app_${a}` as MessageKey)).join(t('console.list_sep'))} ·{' '}
                   {t('console.ctl_until', { time: formatClock(b.expiresAt) })} ·{' '}
                   {b.setByName ?? t('console.someone')}
                 </p>
@@ -1497,17 +1504,45 @@ export function SwitchDialog({
   const [edited, setEdited] = useState(false);
   const [expiry, setExpiry] = useState<ExpiryKey>('1h');
   const [hold, setHold] = useState(false);
-  const save = useMutation(
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: trpc.ops.controls.view.queryKey() });
+    void qc.invalidateQueries({ queryKey: trpc.ops.controls.audit.queryKey() });
+  };
+  // o8: a stop can be taken back for 10 s; the undo is a restore with its own reason, so both stay audited.
+  const undo = useMutation(
     trpc.ops.controls.setSwitch.mutationOptions({
       onSuccess: (s) => {
-        void qc.invalidateQueries({ queryKey: trpc.ops.controls.view.queryKey() });
-        void qc.invalidateQueries({ queryKey: trpc.ops.controls.audit.queryKey() });
-        toast({
-          title: s.active
-            ? t('console.ctl_toast_stopped', { name: s.label_ar })
-            : t('console.ctl_toast_restored', { name: s.label_ar }),
-          tone: 'ok',
-        });
+        refresh();
+        toast({ title: t('console.ctl_toast_restored', { name: s.label_ar }), tone: 'ok' });
+      },
+      onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
+    }),
+  );
+  const save = useMutation(
+    trpc.ops.controls.setSwitch.mutationOptions({
+      onSuccess: (s, vars) => {
+        refresh();
+        toast(
+          s.active
+            ? {
+                title: t('console.ctl_toast_stopped', { name: s.label_ar }),
+                tone: 'ok',
+                durationMs: 10_000,
+                action: {
+                  label: t('console.undo'),
+                  onClick: () =>
+                    undo.mutate({
+                      cityId: vars.cityId,
+                      scope: vars.scope,
+                      key: vars.key,
+                      ...(vars.vertical ? { vertical: vars.vertical } : {}),
+                      active: false,
+                      reason: t('console.ctl_undo_reason'),
+                    }),
+                },
+              }
+            : { title: t('console.ctl_toast_restored', { name: s.label_ar }), tone: 'ok' },
+        );
         onClose();
       },
     }),
@@ -1576,6 +1611,7 @@ export function SwitchDialog({
           </Button>
           <Button
             variant={restore ? 'primary' : 'danger'}
+            needsNet
             disabled={!valid}
             loading={save.isPending}
             onClick={() => submit()}
@@ -1752,6 +1788,7 @@ function CapacityDialog({ zone, onClose }: { zone: ZoneCapacityView | null; onCl
             <Button
               variant="danger-soft"
               className="me-auto"
+              needsNet
               disabled={save.isPending}
               onClick={() => submit(undefined, null)}
             >
@@ -1763,6 +1800,7 @@ function CapacityDialog({ zone, onClose }: { zone: ZoneCapacityView | null; onCl
           </Button>
           <Button
             variant="primary"
+            needsNet
             disabled={!valid}
             loading={save.isPending}
             onClick={() => submit()}

@@ -1,6 +1,6 @@
 import { router, Stack } from 'expo-router';
 import { RefreshControl, View } from 'react-native';
-import { Button, Card, EmptyState, Icon, Skeleton, Text, useTheme } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, RetryState, retryKindFor, Skeleton, Text, useLoadTimeout, useNetwork, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import {
   DriverRow,
@@ -26,21 +26,32 @@ export default function FleetOverview() {
   const locale = useLocale();
   const q = useFleetOverview();
   const o = q.data;
+  const net = useNetwork();
+  const [slow, restartSlow] = useLoadTimeout(o === undefined && !q.isError);
 
   const header = <Stack.Screen options={{ title: t('partner.hub_fleet') }} />;
 
-  if (q.isError && !o) {
-    const noFleet = apiErrorCode(q.error) === 'fleet_not_found';
+  if ((q.isError || slow) && !o) {
+    const noFleet = q.isError && apiErrorCode(q.error) === 'fleet_not_found';
+    const kind = retryKindFor({ net, error: q.error, slow });
     return (
       <Screen edges={['bottom']} testID="fleet-error">
         {header}
-        <EmptyState
-          icon="car"
-          title={noFleet ? t('partner.fleet_no_fleet_title') : apiErrorMessage(q.error, t('error.network'), locale)}
-          body={noFleet ? t('partner.fleet_no_fleet_body') : undefined}
-          action={noFleet ? undefined : { label: t('action.retry'), onPress: () => void q.refetch() }}
-          style={{ paddingTop: theme.space[10] }}
-        />
+        {noFleet ? (
+          <EmptyState icon="car" title={t('partner.fleet_no_fleet_title')} body={t('partner.fleet_no_fleet_body')} style={{ paddingTop: theme.space[10] }} />
+        ) : (
+          <RetryState
+            testID="fleet-retry"
+            kind={kind}
+            locale={locale}
+            title={kind === 'server' ? apiErrorMessage(q.error, t('partner.f5_fleet_failed'), locale) : undefined}
+            onRetry={() => {
+              restartSlow();
+              void q.refetch();
+            }}
+            style={{ paddingTop: theme.space[10] }}
+          />
+        )}
       </Screen>
     );
   }
@@ -168,7 +179,7 @@ export default function FleetOverview() {
               <SectionHeader title={`${t('partner.fleet_pending_title')} · ${pending.length}`} />
               <Card elevation={0} padding={0} tone="sunken">
                 {pending.map((d, i) => (
-                  <PendingDriverRow key={d.driverId} driver={d} divider={i < pending.length - 1} />
+                  <PendingDriverRow key={d.driverId} driver={d} divider={i < pending.length - 1} plannedPlate={d.plannedVehicleId ? byId.get(d.plannedVehicleId)?.plate : undefined} />
                 ))}
               </Card>
               <Text

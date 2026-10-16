@@ -1,13 +1,13 @@
 // Driver account (wave 2): earnings history, documents, the daily check-in and the scorecard.
 //
-//   who=courier  0770 111 0001  checked in; two months of deliveries (tips, night/rain extras, batch, shift
+//   who=courier  0770 111 0001  checked in; two months of deliveries (busiest Thursday evenings, tips, night/rain extras, batch, shift
 //                               guarantee top-ups only while MoneyRules.guarantee.enabled — off since 2026-10-06 —, cash orders paid to restaurants and settled daily);
 //                               today ≈ 72 % of his 75,000 cap; scorecard day 65, bronze, 2 nudges
 //   who=tuktuk   0770 111 0002  checked in; rides with the platform take; licence expiring in 12 days,
-//                               registration rejected (reason), insurance under review
+//                               registration renewal rejected (reason; the approved one is still in force), insurance under review
 //   who=intercity / khat         checked in, papers approved (so their flows can go online)
-//   who=rookie   0770 111 0041  حسين علي, courier, day 9: no check-in yet (home banner, blocked switch),
-//                               observation scorecard, ID back under review, photo missing
+//   who=rookie   0770 111 0041  حسين علي, courier, day 9: ID back under review, photo missing → papers not
+//                               complete (home banner, blocked switch); no check-in yet; observation scorecard
 //   who=locked   0770 111 0042  ياسر محمد, courier: two failed check-ins today → locked out
 //   who=lapsed   0770 111 0043  أحمد ستار, tuktuk driver: licence expired 3 days ago → offline
 //
@@ -23,6 +23,9 @@
 //                               customer card follow. Main photos: every driver above has an approved
 //                               drawn portrait; courier has a new one «تنتظر الموافقة», tuktuk's new one
 //                               is «مرفوضة» with a reason; rookie has none (his initial).
+//   POST /demo/account/pause?who=…[&lift=1]  staff pause him after a safety report (Console «وقّفه», lane E
+//                               #144): the online gate answers `staff_paused`, home shows the calm banner
+//                               and «حسابك موقّف مؤقتاً»; lift=1 is «رجّعه للشغل»
 //
 // The in-memory API has no past, so the scorecard's history (offer answers, completed trips and their
 // ratings over the last weeks) is fed to `DriverAccountService` alone through demo-only wrappers of
@@ -112,6 +115,8 @@ export default async function register(demo) {
   for (const [kind, o] of CAR) await paper(khat, kind, o);
   for (const [kind, o] of ID) await paper(tuktuk, kind, o);
   await paper(tuktuk, 'licence', { days: 12 });
+  // His registration is approved; the renewal he sent was refused (the approved one stays in force, so he can work).
+  await paper(tuktuk, 'vehicle_registration', { days: 40 });
   await paper(tuktuk, 'vehicle_registration', { reject: 'صورة السنوية مقصوصة ورقم الشاصي مو واضح. صوّرها كاملة بضوء النهار' });
   await paper(tuktuk, 'insurance', { pending: true });
   await paper(rookie, 'national_id_front', { days: 1200 });
@@ -146,12 +151,14 @@ export default async function register(demo) {
     const day = today - d * DAY;
     const dow = new Date(day + OFF).getUTCDay();
     const rainy = d === 9 || d === 10 || d === 23;
-    const n = dow === 5 ? 4 + Math.floor(r() * 3) : 6 + Math.floor(r() * 5);
+    // Thursday evenings are his busiest (the weekend starts): «أحسن وقت إلك: الخميس 7–11 بالليل» (e3).
+    const thursday = dow === 4;
+    const n = dow === 5 ? 4 + Math.floor(r() * 3) : thursday ? 10 + Math.floor(r() * 3) : 6 + Math.floor(r() * 5);
     let collected = 0;
     let paidMerchants = 0;
     let earned = 0;
     for (let j = 0; j < n; j++) {
-      const hour = pick(r, [11, 12, 13, 13, 14, 14, 15, 18, 19, 19, 20, 20, 21, 21, 22, 23]);
+      const hour = thursday ? pick(r, [13, 14, 19, 19, 20, 20, 21, 21, 22, 22]) : pick(r, [11, 12, 13, 13, 14, 14, 15, 18, 19, 19, 20, 20, 21, 21, 22, 23]);
       const at = new Date(day + hour * HOUR + Math.floor(r() * 55) * 60_000);
       const orderId = `demo-hist-${(++seq).toString(36).padStart(4, '0')}`;
       const fee = pick(r, [1000, 1500, 1500, 2000, 2000, 2500, 3000]);
@@ -285,7 +292,20 @@ export default async function register(demo) {
   // completedAt (the card's window and the rating), plus the ones he cancelled by cancelledAt.
   const since = (at, from) => at !== null && at.getTime() >= from.getTime();
   const pastTrips = (id, from, states) => (history.get(id)?.trips ?? []).filter((t) => states.includes(t.state) && since(t.state === 'completed' ? t.completedAt : t.cancelledAt, from));
+  // «يومك» km (partner redesign e7): the demo's past deliveries have no trips in memory, so each gets a
+  // drawn one (the restaurant → a town landmark near the customer), read only by DriverAccountService.
+  const { AZIZIYAH_LANDMARKS } = await import('@driver/contracts');
+  const demoTrip = (orderId) => {
+    let h = 0;
+    for (const ch of orderId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const from = AZIZIYAH_LANDMARKS[h % AZIZIYAH_LANDMARKS.length];
+    const to = AZIZIYAH_LANDMARKS[(h >>> 5) % AZIZIYAH_LANDMARKS.length];
+    return { id: `demo-trip:${orderId}`, stops: [{ target: { lat: from.lat, lng: from.lng } }, { target: { lat: to.lat + 0.004, lng: to.lng + 0.003 } }] };
+  };
+  const isDemoOrder = (orderId) => /^demo-(hist|day)-/.test(orderId);
   account.trips = wrap(realTrips, {
+    tripIdsForOrder: async (orderId) => (isDemoOrder(orderId) ? [`demo-trip:${orderId}`] : realTrips.tripIdsForOrder(orderId)),
+    get: async (tripId) => (tripId.startsWith('demo-trip:') ? demoTrip(tripId.slice('demo-trip:'.length)) : realTrips.get(tripId)),
     completedForDriver: async (id, from) => [...(await realTrips.completedForDriver(id, from)), ...pastTrips(id, from, ['completed'])],
     endedForDriver: async (id, from) => [...(await realTrips.endedForDriver(id, from)), ...pastTrips(id, from, ['completed', 'driver_cancelled'])],
   });
@@ -366,5 +386,14 @@ export default async function register(demo) {
     const reject = query.decision === 'reject';
     await account.reviewDocument(reviewer, { documentId: view.latest.documentId, decision: reject ? 'reject' : 'approve', ...(reject ? { reason: 'الوجه مو واضح. صوّر وجهك كامل بضوء زين وبدون نظارة شمسية' } : {}) });
     demo.json(res, 200, await account.mainPhoto(actor(p.personId)));
+  });
+
+  // Staff pause after a safety report (the Console's «وقّفه» / «رجّعه للشغل» do this in the real flow).
+  demo.route('/demo/account/pause', async ({ res, query }) => {
+    const p = demo.who(query);
+    const view = query.lift
+      ? await account.liftPause(reviewer, { personId: p.personId, note: 'انراجع البلاغ وما بيه شي' })
+      : await account.pause(reviewer, { personId: p.personId, reason: 'safety_report', note: 'بلاغ سلامة من زبون، ينراجع' });
+    demo.json(res, 200, view);
   });
 }

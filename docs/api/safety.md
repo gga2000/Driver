@@ -10,12 +10,19 @@ Console banner (`components/safety/banner.tsx`) and desk (`/safety`).
 ```
 hold "طوارئ" 3 s ─► safety.sos ─► safety_incidents row + sos.raised (outbox) ─► view to the phone
                                    │
-                                   ├─ subscriber safety:alerts ─► notify: every live dispatcher + admin
-                                   │                              (push + WhatsApp, SMS twin after 30 s)
+                                   ├─ subscriber safety:alerts ─► the on-call rota's first page (ON_CALL_PORT,
+                                   │                              2 s limit) ─► notify (push + WhatsApp, SMS twin
+                                   │                              after 30 s); rota absent/slow/empty/failing ─►
+                                   │                              every live dispatcher + admin (logged
+                                   │                              `safety_oncall_fallback`), the SOS is never refused
+                                   ├─ subscriber on-call:ladder ─► rings again every 30 s, on-call people at 60 s,
+                                   │                              the next ones at 120 s (docs: on-call module)
                                    ├─ live channel `safety` ─► Console red banner + alarm on every page
                                    ├─ +10 s (cancel window over) ─► emergency contact: WhatsApp with the
                                    │                              live-location link (SMS twin after 30 s)
-                                   └─ +60 s nobody took it ─► sos.escalated ─► admins paged again
+                                   └─ +60 s nobody took it ─► sos.escalated ─► admins paged again only when the
+                                                                  first page was the fallback (the rota's ladder
+                                                                  escalates otherwise)
 phone, every 5 s while open ─► safety.position (trail; throttled at 30 a minute)
 ```
 
@@ -29,7 +36,7 @@ from where the car last was when the person is in it.
 
 | Procedure | Who | Notes |
 |---|---|---|
-| `safety.sos` | any session | `{subject: {kind: trip\|order\|departure\|booking\|request, id}, position, category?, pressedAt?, clientId}`. The caller must be a party of a trip that is going or ended < 30 min ago (`sos_not_party`, `sos_trip_over`). Same `clientId` → same incident; a second hold while one is open joins it. 5 new incidents per person per hour (`sos_rate_limited`). |
+| `safety.sos` | any session | `{subject: {kind: trip\|order\|departure\|booking\|request, id}, position, category?, pressedAt?, clientId}`. The caller must be a party of a trip that is going or ended < 30 min ago (`sos_not_party`, `sos_trip_over`): its driver, the customer who booked it, the person riding a ride booked for someone else, a الرجعة rider with a live seat, or on a private-car request the rider, a friend holding or having paid a place on the shared car, or the person fetched («جيب واحد»); all but the driver raise it as `customer`. Same `clientId` → same incident; a second hold while one is open joins it. 5 new incidents per person per hour (`sos_rate_limited`). |
 | `safety.cancel` | the person | Inside 10 s only (`sos_cancel_window_passed`). Logged as a false alarm, never erased; the contact is not messaged. |
 | `safety.status` | the person | By id, or the person's open incident (the screen restores the lit button). |
 | `safety.position` | the person | One fix; ignored once the incident is closed. |
@@ -41,8 +48,11 @@ from where the car last was when the person is in it.
 | `live.safety` | dispatcher, support, admin | SSE: `invalidate ['safety.open']` on every change. The Console also polls every 5 s. |
 
 Tables: `safety_incidents`, `safety_incident_entries` (timeline), `safety_incident_fixes` (trail);
-migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL`, `SAFETY_LINK_SECRET`,
-`CONSOLE_BASE_URL`, `SAFETY_SWEEP_MS` (default 5,000), `SAFETY_TIMERS=0`.
+migration `20261005140000_safety_incidents`. Env: `SAFETY_LINK_BASE_URL` (the customer web's `/sos/`;
+no default: unset, the contact's WhatsApp goes out at the same moment with where the phone last was as
+text, nearest landmark and coordinates, instead of a link), `SAFETY_LINK_SECRET`,
+`CONSOLE_BASE_URL` (the dispatchers' link; no default: unset, the WhatsApp carries the alert number
+and «افتح الكونسول من الكمبيوتر» instead of a link), `SAFETY_SWEEP_MS` (default 5,000), `SAFETY_TIMERS=0`.
 
 ## Emergency number (Ali, 2026-10-06)
 
@@ -90,7 +100,9 @@ another rider's seat (red, refused, nobody boarded), or typed a wrong PIN 3 time
 
 - "Escalates to Ali by call": the escalation pages admins by push, WhatsApp and SMS; an automatic
   phone call needs the telephony provider.
-- "On shift" means every live dispatcher and admin role until a staff rota exists.
+- "On shift": the rota rings the whole desk first (every live dispatcher, support agent and admin),
+  then the people on call. `sos.raised` carries `subjectLabel` (kind + ticket, e.g. «طلب أكل #123»;
+  a private ride is only «مشوار خاص») so the ladder's later pages can say what it is about.
 - Audio recording on the pressing phone (spec §3) is not built.
 - Drivers set their emergency contact in the Partner app (الحساب → رقم للطوارئ, 2026-10-05) through
   the same `identity.updateProfile`; the contact now also keeps `relation` (`mother`, `father`, `spouse`,

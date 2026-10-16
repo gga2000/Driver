@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { useWindowDimensions, View } from 'react-native';
 import { Button, TextField, useTheme, useToast } from '@driver/ui';
-import { Screen } from '@/components/Screen';
-import { AuthHeader } from '@/features/auth/AuthHeader';
 import { useMe, useSavePlace, useUpdateProfile } from '@/features/account/queries';
 import { defaultPlaceName, EMPTY_PLACE_EDITOR, PlaceEditor, toSaveInput, type PlaceEditorValue } from '@/features/account/PlaceEditor';
+import { AuthStage } from '@/features/auth/AuthStage';
 import { apiErrorMessage } from '@/lib/api';
+import { signInReason } from '@/lib/guard';
 import { useLocale, useT } from '@/lib/i18n';
-import { profile } from '@/lib/profile';
+import { profile, useProfile } from '@/lib/profile';
 
 /**
- * Post-OTP setup: "شنو نسميك؟" then the first saved place. Both are optional — "تخطي" finishes
- * setup and the guard sends the person home. The name goes to the identity vault
- * (`identity.updateProfile`), the place to `places.save` (pin, note, gate photo).
+ * Post-OTP setup, step 3 of the golden sheet: «هلا بيك · وين نوصلك؟» on one screen, the name the
+ * courier calls out and the first place (map, «موقعي», what it is, a note). Both stay optional:
+ * «بعدين» finishes setup and the guard takes the person on (back to the basket when one waits). The
+ * name goes to the identity vault (`identity.updateProfile`), the place to `places.save`.
  */
 export default function Setup() {
   const theme = useTheme();
@@ -22,10 +23,12 @@ export default function Setup() {
   const me = useMe();
   const updateProfile = useUpdateProfile();
   const savePlace = useSavePlace();
-  const [step, setStep] = useState<1 | 2>(1);
+  const reason = signInReason(useProfile().returnTo);
+  // On a short phone the map matters more here than the basket, which the next screen shows anyway.
+  const short = useWindowDimensions().height < 700;
   const [name, setName] = useState(profile.getSnapshot().name ?? '');
   const [place, setPlace] = useState<PlaceEditorValue>(() => ({ ...EMPTY_PLACE_EDITOR, name: defaultPlaceName('home', t) }));
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<'place' | 'later' | null>(null);
   const input = toSaveInput(place, t);
 
   useEffect(() => {
@@ -41,22 +44,15 @@ export default function Setup() {
     await updateProfile.mutateAsync({ name: trimmed }).catch(() => undefined);
   };
 
-  const next = async () => {
-    setSaving(true);
-    await saveName();
-    setSaving(false);
-    setStep(2);
-  };
-
   const finish = async (withPlace: boolean) => {
-    setSaving(true);
-    if (step === 1) await saveName();
+    setSaving(withPlace ? 'place' : 'later');
+    await saveName();
     if (withPlace && input) {
       try {
         const saved = await savePlace.mutateAsync(input);
         await profile.selectPlace(saved.id);
       } catch (err) {
-        setSaving(false);
+        setSaving(null);
         toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
         return;
       }
@@ -64,45 +60,42 @@ export default function Setup() {
     await profile.setSetupPending(false); // the guard takes it from here
   };
 
-  const footer =
-    step === 1 ? (
-      <View style={{ gap: theme.space[2] }}>
-        <Button testID="setup-next" label={t('action.next')} size="lg" fullWidth disabled={!name.trim()} loading={saving} onPress={() => void next()} />
-        <Button testID="setup-skip" variant="ghost" label={t('action.skip')} fullWidth onPress={() => void finish(false)} />
-      </View>
-    ) : (
-      <View style={{ gap: theme.space[2] }}>
-        <Button testID="setup-save" label={t('action.save')} size="lg" fullWidth disabled={!input} loading={saving} onPress={() => void finish(true)} />
-        <Button testID="setup-skip-place" variant="ghost" label={t('action.skip')} fullWidth onPress={() => void finish(false)} />
-      </View>
-    );
-
   return (
-    <Screen footer={footer}>
-      {step === 1 ? (
-        <>
-          <AuthHeader back={false} title={t('onboarding.name_title')} aside={t('onboarding.setup_step', { step: 1, total: 2 })} />
-          <TextField
-            testID="setup-name"
-            value={name}
-            onChangeText={setName}
-            placeholder={t('onboarding.name_placeholder')}
-            hint={t('onboarding.name_hint')}
-            autoFocus
-            autoComplete="name"
-            textContentType="givenName"
-            leadingIcon="user"
-            returnKeyType="next"
-            onSubmitEditing={() => name.trim() && void next()}
-            maxLength={60}
+    <AuthStage
+      step={3}
+      back={false}
+      title={t('auth.phone_title')}
+      accent={t('onboarding.place_title')}
+      ticket={reason === 'order' && !short}
+      footer={
+        <View style={{ gap: theme.space[1] }}>
+          <Button
+            testID="setup-save"
+            label={t(reason === 'order' ? 'auth.setup_go_order' : 'auth.setup_go')}
+            size="lg"
+            fullWidth
+            disabled={!input || saving !== null}
+            loading={saving === 'place'}
+            onPress={() => void finish(true)}
           />
-        </>
-      ) : (
-        <>
-          <AuthHeader onBack={() => setStep(1)} title={t('onboarding.place_title')} aside={t('onboarding.setup_step', { step: 2, total: 2 })} />
-          <PlaceEditor value={place} onChange={setPlace} />
-        </>
-      )}
-    </Screen>
+          <Button testID="setup-skip" variant="ghost" label={t('auth.setup_later')} fullWidth loading={saving === 'later'} disabled={saving !== null} onPress={() => void finish(false)} />
+        </View>
+      }
+    >
+      <TextField
+        testID="setup-name"
+        label={t('onboarding.name_placeholder')}
+        value={name}
+        onChangeText={setName}
+        placeholder={t('auth.name_placeholder')}
+        hint={t('onboarding.name_hint')}
+        autoComplete="name"
+        textContentType="givenName"
+        leadingIcon="user"
+        returnKeyType="done"
+        maxLength={60}
+      />
+      <PlaceEditor value={place} onChange={setPlace} first />
+    </AuthStage>
   );
 }

@@ -1,9 +1,11 @@
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { TERMINAL_ORDER_STATES, type DeliveryPoint, type Order, type RestaurantsInput } from '@driver/contracts';
+import { classifyError } from '@driver/contracts/net-client';
 import { useApi } from '@/lib/api';
 import { deliveryPointOf, selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
+import { BOOKED_AHEAD_POLL_MS, isBookedAhead } from './booked-ahead';
 import type { CartState } from './cart';
 import { cartQuoteRequest, orderQuoteInput } from './checkout';
 
@@ -64,10 +66,11 @@ function quoteMinute(): Date {
  * Live delivery + fees for the cart (`pricing.quote`, the engine `orders.place` locks fees with).
  * Re-quotes each minute so night/peak rules match what the server will charge.
  */
-export function useCartQuote(cart: CartState, dropoff: DeliveryPoint | null, streetHandover: boolean) {
+export function useCartQuote(cart: CartState, dropoff: DeliveryPoint | null, streetHandover: boolean, scheduledFor: Date | null = null) {
   const api = useApi();
   const pickup = cart.merchant?.pickup ?? null;
-  const at = quoteMinute();
+  // A pre-order is priced at its slot (FOOD-01); otherwise at this minute.
+  const at = scheduledFor ?? quoteMinute();
   const minuteKey = at.getTime();
   const input = useMemo(
     () => (pickup && dropoff && cart.merchant ? cartQuoteRequest({ cityId: cart.merchant.cityId, pickup, dropoff, streetHandover, at: new Date(minuteKey) }) : null),
@@ -85,10 +88,14 @@ export function useCartQuote(cart: CartState, dropoff: DeliveryPoint | null, str
  * The server's checkout quote (`orders.quote`): the restaurant's deal on this exact cart, what each
  * line saves, the deal a bigger cart would unlock. Re-asked when the cart changes and each minute.
  */
-export function useOrderQuote(cart: CartState, dropoff: DeliveryPoint | null, streetHandover: boolean, usePoints = false) {
+export function useOrderQuote(cart: CartState, dropoff: DeliveryPoint | null, streetHandover: boolean, usePoints = false, scheduledFor: Date | null = null) {
   const api = useApi();
   const signedIn = useSignedIn();
-  const input = useMemo(() => (dropoff && cart.merchant && cart.lines.length > 0 ? orderQuoteInput(cart, dropoff, streetHandover, usePoints) : null), [cart, dropoff, streetHandover, usePoints]);
+  const slotMs = scheduledFor?.getTime() ?? null;
+  const input = useMemo(
+    () => (dropoff && cart.merchant && cart.lines.length > 0 ? orderQuoteInput(cart, dropoff, streetHandover, usePoints, slotMs !== null ? new Date(slotMs) : null) : null),
+    [cart, dropoff, streetHandover, usePoints, slotMs],
+  );
   return useQuery({
     ...api.orders.quote.queryOptions(input ?? { cityId: CITY_ID, type: 'food', lines: [] }),
     enabled: signedIn && input !== null,
@@ -99,7 +106,14 @@ export function useOrderQuote(cart: CartState, dropoff: DeliveryPoint | null, st
 
 export function usePlaceOrder() {
   const api = useApi();
-  return useMutation(api.orders.place.mutationOptions());
+  const qc = useQueryClient();
+  // The answer is the order itself: put it in the cache so the kitchen screen opens on it at once
+  // instead of asking the server again for what it just said.
+  return useMutation(
+    api.orders.place.mutationOptions({
+      onSuccess: (order) => qc.setQueryData(api.orders.get.queryKey({ orderId: order.id }), order),
+    }),
+  );
 }
 
 export function useCancelOrder() {
@@ -118,6 +132,10 @@ export function useKitchenAnswer(orderId: string | undefined) {
     enabled: signedIn && Boolean(orderId),
     refetchInterval: (q) => {
       const o = q.state.data as Order | undefined;
+      // An order the server says isn't there (an old link) stops asking; a failure for now keeps trying.
+      if (!o && q.state.error && !classifyError(q.state.error).transient) return false;
+      // Booked for later: the kitchen won't see it for hours (FOOD-02).
+      if (o && isBookedAhead(o, Date.now())) return BOOKED_AHEAD_POLL_MS;
       return !o || o.state === 'placed' ? 2000 : false;
     },
   });

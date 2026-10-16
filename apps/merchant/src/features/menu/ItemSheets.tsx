@@ -9,6 +9,7 @@ import { dayMonth } from '@/features/deals/logic';
 import { Glyph } from './Glyph';
 import { draftKey, groupProblems, offStep, parseDelta, parsePrice, parseServes, priceChange, setMinMax, setRequired, type DraftGroup } from './logic';
 import { GlyphButton, Pill, Toggle } from './parts';
+import { tierProblems, tierTemplate, type Tier, type TierKind } from './tiers';
 
 /** New price: typed by staff, with what the customer will see and the last change for context. */
 export function PriceSheet({ visible, name, current, busy, onClose, onSave }: { visible: boolean; name: string; current: number; busy: boolean; onClose: () => void; onSave: (priceIqd: number) => void }) {
@@ -251,4 +252,127 @@ export function ruleText(t: ReturnType<typeof useT>, g: { required: boolean; min
   const need = g.required ? t('item.modifier_required') : t('item.modifier_optional');
   const how = g.maxSelect === 1 ? t('item.choose_one') : g.minSelect > 1 ? t('item.choose_at_least', { n: g.minSelect }) : t('item.choose_up_to', { n: g.maxSelect });
   return `${need} · ${how}`;
+}
+
+interface TierRow {
+  key: string;
+  name: string;
+  price: string;
+}
+
+/**
+ * k2 / k3 · Prices by weight (ربع · نص · كيلو) or by size (صغير · وسط · كبير): one full price per row,
+ * as the kitchen thinks of it; rows left without a price aren't offered. Below, what the customer will
+ * read on the dish («ربع · نص · كيلو · من 4,000 دينار»).
+ */
+export function TierSheet({ visible, kind, name, initial, busy, onClose, onSave }: { visible: boolean; kind: TierKind; name: string; initial: readonly Tier[] | null; busy: boolean; onClose: () => void; onSave: (tiers: Tier[]) => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const [rows, setRows] = useState<TierRow[]>([]);
+  const [tried, setTried] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    setTried(false);
+    setRows((initial && initial.length > 0 ? initial.map((x) => ({ name: x.name, price: String(x.priceIqd) })) : tierTemplate(kind)).map((r) => ({ ...r, key: draftKey('t') })));
+  }, [visible, kind, initial]);
+
+  const priced = rows.filter((r) => r.price.trim());
+  const bad = priced.filter((r) => parsePrice(r.price) === null).map((r) => r.key);
+  const tiers: Tier[] = priced.flatMap((r) => {
+    const p = parsePrice(r.price);
+    return p === null ? [] : [{ name: r.name.trim(), priceIqd: p }];
+  });
+  const problems = tierProblems(tiers);
+  const ok = bad.length === 0 && problems.length === 0;
+  const sorted = [...tiers].sort((a, b) => a.priceIqd - b.priceIqd);
+  const patch = (key: string, p: Partial<TierRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
+  const problemText = problems.includes('too_few') ? t(kind === 'weight' ? 'merchant.tiers.too_few_weight' : 'merchant.tiers.too_few_size') : problems.includes('name') ? t('merchant.tiers.name_missing') : problems.includes('same_name') ? t('merchant.tiers.same_name') : null;
+
+  return (
+    <ModalSheet
+      visible={visible}
+      onClose={onClose}
+      testID="tier-sheet"
+      title={t(kind === 'weight' ? 'merchant.tiers.title_weight' : 'merchant.tiers.title_size')}
+      subtitle={name}
+      footer={
+        <Button
+          testID="tier-save"
+          label={t('merchant.tiers.save')}
+          fullWidth
+          size="lg"
+          loading={busy}
+          onPress={() => {
+            setTried(true);
+            if (ok) onSave(sorted);
+          }}
+        />
+      }
+    >
+      <Text variant="footnote" color="textMuted">
+        {t(kind === 'weight' ? 'merchant.tiers.hint_weight' : 'merchant.tiers.hint_size')}
+      </Text>
+      <View style={{ gap: theme.space[2] }}>
+        {rows.map((r, i) => (
+          <View key={r.key} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+            <TextField testID={`tier-name-${i}`} accessibilityLabel={t('merchant.tiers.name')} placeholder={t('merchant.tiers.name')} value={r.name} onChangeText={(v) => patch(r.key, { name: v })} maxLength={30} style={{ flex: 1 }} />
+            <TextField
+              testID={`tier-price-${i}`}
+              accessibilityLabel={t('merchant.tiers.price')}
+              placeholder={t('merchant.tiers.price')}
+              value={r.price}
+              onChangeText={(v) => patch(r.key, { price: v })}
+              keyboardType="number-pad"
+              style={{ flex: 1.3, minWidth: 130 }}
+              trailing={
+                <Text variant="caption" color="textMuted" style={{ paddingHorizontal: theme.space[2] }}>
+                  {t('merchant.item.currency')}
+                </Text>
+              }
+              error={bad.includes(r.key) ? t('merchant.item.price_invalid') : undefined}
+            />
+            <View style={{ height: 52, justifyContent: 'center' }}>
+              <GlyphButton glyph="trash" size={40} variant="plain" color="textMuted" label={t('merchant.tiers.remove', { name: r.name })} onPress={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} />
+            </View>
+          </View>
+        ))}
+        {rows.length < 6 ? (
+          <Pressable
+            testID="tier-add"
+            accessibilityRole="button"
+            onPress={() => setRows((rs) => [...rs, { key: draftKey('t'), name: '', price: '' }])}
+            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 48, paddingHorizontal: theme.space[3], borderRadius: theme.radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: theme.colors.borderStrong, opacity: pressed ? 0.7 : 1 })}
+          >
+            <Glyph name="plus" size={20} color="accentText" strokeWidth={2} />
+            <Text variant="bodyStrong" color="accentText">
+              {t(kind === 'weight' ? 'merchant.tiers.add_weight' : 'merchant.tiers.add_size')}
+            </Text>
+          </Pressable>
+        ) : null}
+        {tried && problemText ? (
+          <Text variant="footnote" color="dangerText">
+            {problemText}
+          </Text>
+        ) : null}
+      </View>
+      {sorted.length > 0 ? (
+        <View testID="tier-preview" style={{ gap: 2, padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+          <Text variant="caption" color="textMuted">
+            {t('merchant.tiers.customer_sees')}
+          </Text>
+          <Text variant="bodyStrong">{name}</Text>
+          <Text variant="footnote" color="textMuted">
+            {sorted.map((x) => x.name || '…').join(' · ')}
+          </Text>
+          <Text variant="label" weight={700} tabular>
+            {t('merchant.display.from', { price: iqd(sorted[0]!.priceIqd, { locale }) })}
+          </Text>
+        </View>
+      ) : null}
+      <Text variant="footnote" color="textMuted">
+        {t('merchant.item.price_note')}
+      </Text>
+    </ModalSheet>
+  );
 }

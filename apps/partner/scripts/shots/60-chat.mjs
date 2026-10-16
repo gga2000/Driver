@@ -4,6 +4,8 @@ export const name = 'partner-chat';
 
 export default async function run(s) {
   const c = await s.signIn('0770 111 0001');
+  // Earlier groups leave cash in his hand; hand it in so the job can be offered (under his cap).
+  await s.demoPost('/demo/money/settle?who=courier');
   const { orderId } = await s.demoPost('/demo/chat?who=courier&step=to_dropoff');
   await c.goto('/job');
   await c.wait('job-chat');

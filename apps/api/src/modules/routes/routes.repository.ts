@@ -3,10 +3,13 @@ import type {
   DemandPostState,
   IntercityDepartureState,
   IntercityDirection,
+  RequestPlaceId,
   RequestState,
+  RequestTripKind,
 } from '@driver/contracts';
+import { requestKnownPlace } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type { BookingRecord, DemandPostRecord, DepartureRecord, PinAttemptRecord, RequestRecord } from './model.js';
+import { FINISHED_RUN, type AgreementRecord, type BookingRecord, type DemandPostRecord, type DepartureRecord, type PinAttemptRecord, type RequestRecord } from './model.js';
 
 /**
  * Persistence of the routes module: departures (with their run state), seat bookings, demand posts
@@ -41,12 +44,30 @@ export interface DemandFilter {
 export interface RequestFilter {
   riderId?: string;
   states?: readonly RequestState[];
+  /** Step 6: requests this person joined as a friend (any member state). */
+  memberId?: string;
 }
 
 export interface RiderRecordStats {
   completedBookings: number;
   /** Cash no-shows plus lapsed demand claims (review C-34). */
   cashStrikes: number;
+}
+
+/** A driver's track record (the rider-facing profile, x12–x17). */
+export interface DriverRecord {
+  /** His finished runs (arrived or closed), oldest first. */
+  runs: DepartureRecord[];
+  /** Rated bookings on his runs, oldest rating first. */
+  rated: BookingRecord[];
+}
+
+export interface ReviewFilter {
+  /** true: only hidden; false: only shown; undefined: both. */
+  hidden?: boolean;
+  /** Written before this (paging). */
+  before?: Date;
+  limit: number;
 }
 
 export interface RoutesRepository {
@@ -63,14 +84,33 @@ export interface RoutesRepository {
     tx?: Tx,
   ): Promise<BookingRecord[]>;
   riderStats(riderId: string, tx?: Tx): Promise<RiderRecordStats>;
+  driverRecord(driverId: string, tx?: Tx): Promise<DriverRecord>;
+  /** Bookings with a written review, newest review first. */
+  reviews(f: ReviewFilter, tx?: Tx): Promise<BookingRecord[]>;
+  /** Bookings completed, or marked no-show, in `[from, to)` (the ledger's nightly money-group check). */
+  settledBetween(from: Date, to: Date, tx?: Tx): Promise<BookingRecord[]>;
 
   saveDemand(p: DemandPostRecord, tx?: Tx): Promise<void>;
   getDemand(id: string, tx?: Tx): Promise<DemandPostRecord | null>;
   listDemand(f: DemandFilter, tx?: Tx): Promise<DemandPostRecord[]>;
 
   saveRequest(r: RequestRecord, tx?: Tx): Promise<void>;
+  /**
+   * y4: adds the driver to `seenDriverIds` only, and only while the request is open and he isn't
+   * counted yet; never rewrites the state, the pick, the deposit or the offers. True when it added him.
+   */
+  markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean>;
   getRequest(id: string, tx?: Tx): Promise<RequestRecord | null>;
+  /** Step 6: the request a share link's code opens; null when unknown. */
+  getRequestByShareCode(code: string, tx?: Tx): Promise<RequestRecord | null>;
   listRequests(f: RequestFilter, tx?: Tx): Promise<RequestRecord[]>;
+  /** y5: completed private trips per driver (his offer was picked and the trip completed). */
+  privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>>;
+  /**
+   * p1: the prices of finished private trips riders posted to a known place with this trip kind,
+   * closed at or after `since` (stranded posts and seat-to-other-destination posts left out).
+   */
+  completedPrivatePrices(f: { placeId: RequestPlaceId; trip: RequestTripKind; since: Date }, tx?: Tx): Promise<number[]>;
 
   /** Appends one seat-PIN attempt (the log is never updated or deleted). */
   addPinAttempt(a: PinAttemptRecord, tx?: Tx): Promise<void>;
@@ -79,6 +119,14 @@ export interface RoutesRepository {
   /** The city's attempts that raised an ops alert at or after `since`, newest first. */
   pinAlertsSince(cityId: string, since: Date, tx?: Tx): Promise<PinAttemptRecord[]>;
   getPinAttempt(id: string, tx?: Tx): Promise<PinAttemptRecord | null>;
+
+  /** Step 4 agreed prices: one row per ask, kept for the record. */
+  saveAgreement(a: AgreementRecord, tx?: Tx): Promise<void>;
+  getAgreement(id: string, tx?: Tx): Promise<AgreementRecord | null>;
+  /** A departure's agreements (optionally one rider's), newest ask first. */
+  agreementsFor(departureId: string, riderId?: string, tx?: Tx): Promise<AgreementRecord[]>;
+  /** Every agreement still asked or priced (the scheduler expires them). */
+  openAgreements(tx?: Tx): Promise<AgreementRecord[]>;
 
   /** Cross-instance write lock held until `tx` ends (Postgres advisory lock); a no-op in memory. */
   lock(tx?: Tx): Promise<void>;
@@ -96,6 +144,27 @@ export class InMemoryRoutesRepository implements RoutesRepository {
   private readonly demand = new Map<string, DemandPostRecord>();
   private readonly requests = new Map<string, RequestRecord>();
   private readonly pinAttempts: PinAttemptRecord[] = [];
+  private readonly agreements = new Map<string, AgreementRecord>();
+
+  async saveAgreement(a: AgreementRecord): Promise<void> {
+    this.agreements.set(a.id, clone(a));
+  }
+
+  async getAgreement(id: string): Promise<AgreementRecord | null> {
+    const a = this.agreements.get(id);
+    return a ? clone(a) : null;
+  }
+
+  async agreementsFor(departureId: string, riderId?: string): Promise<AgreementRecord[]> {
+    return [...this.agreements.values()]
+      .filter((a) => a.departureId === departureId && (!riderId || a.riderId === riderId))
+      .sort((a, b) => b.askedAt.getTime() - a.askedAt.getTime() || b.id.localeCompare(a.id))
+      .map(clone);
+  }
+
+  async openAgreements(): Promise<AgreementRecord[]> {
+    return [...this.agreements.values()].filter((a) => a.state === 'asked' || a.state === 'proposed').map(clone);
+  }
 
   async saveDeparture(d: DepartureRecord): Promise<void> {
     this.departures.set(d.id, clone(d));
@@ -161,6 +230,35 @@ export class InMemoryRoutesRepository implements RoutesRepository {
     };
   }
 
+  async driverRecord(driverId: string): Promise<DriverRecord> {
+    const runs = [...this.departures.values()]
+      .filter((d) => d.driverId === driverId && FINISHED_RUN.includes(d.state))
+      .sort((a, b) => a.departAt.getTime() - b.departAt.getTime());
+    const ids = new Set(runs.map((d) => d.id));
+    const rated = [...this.bookings.values()]
+      .filter((b) => ids.has(b.departureId) && b.rating)
+      .sort((a, b) => a.rating!.at.getTime() - b.rating!.at.getTime());
+    return { runs: runs.map(clone), rated: rated.map(clone) };
+  }
+
+  async reviews(f: ReviewFilter): Promise<BookingRecord[]> {
+    return [...this.bookings.values()]
+      .filter(
+        (b) =>
+          b.review &&
+          (f.hidden === undefined || (b.review.hiddenAt !== null) === f.hidden) &&
+          (!f.before || b.review.at.getTime() < f.before.getTime()),
+      )
+      .sort((a, b) => b.review!.at.getTime() - a.review!.at.getTime())
+      .slice(0, f.limit)
+      .map(clone);
+  }
+
+  async settledBetween(from: Date, to: Date): Promise<BookingRecord[]> {
+    const within = (at: Date | null) => at !== null && at >= from && at < to;
+    return [...this.bookings.values()].filter((b) => within(b.completedAt) || within(b.noShowAt)).map(clone);
+  }
+
   async saveDemand(p: DemandPostRecord): Promise<void> {
     this.demand.set(p.id, clone(p));
   }
@@ -193,21 +291,58 @@ export class InMemoryRoutesRepository implements RoutesRepository {
     this.requests.set(r.id, clone(r));
   }
 
+  async markRequestSeen(id: string, driverId: string): Promise<boolean> {
+    const r = this.requests.get(id);
+    if (!r || r.state !== 'open' || r.seenDriverIds.includes(driverId)) return false;
+    r.seenDriverIds.push(driverId);
+    return true;
+  }
+
   async getRequest(id: string): Promise<RequestRecord | null> {
     const r = this.requests.get(id);
+    return r ? clone(r) : null;
+  }
+
+  async getRequestByShareCode(code: string): Promise<RequestRecord | null> {
+    const r = [...this.requests.values()].find((x) => x.share?.code === code);
     return r ? clone(r) : null;
   }
 
   async listRequests(f: RequestFilter): Promise<RequestRecord[]> {
     return [...this.requests.values()]
       .filter(
-        (r) => (!f.riderId || r.riderId === f.riderId) && (!f.states || f.states.includes(r.state)),
+        (r) =>
+          (!f.riderId || r.riderId === f.riderId) &&
+          (!f.states || f.states.includes(r.state)) &&
+          (!f.memberId || Boolean(r.share?.members.some((m) => m.personId === f.memberId))),
       )
       .sort(
         (a, b) =>
           a.when.getTime() - b.when.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
       )
       .map(clone);
+  }
+
+  async completedPrivatePrices(f: { placeId: RequestPlaceId; trip: RequestTripKind; since: Date }): Promise<number[]> {
+    const out: number[] = [];
+    for (const r of this.requests.values()) {
+      if (r.state !== 'completed' || r.origin !== 'rider' || !r.privateCar) continue;
+      if (requestKnownPlace(r) !== f.placeId || r.details.trip !== f.trip) continue;
+      if (!r.closedAt || r.closedAt.getTime() < f.since.getTime()) continue;
+      const picked = r.offers.find((o) => o.id === r.pickedOfferId);
+      if (picked) out.push(picked.priceIqd);
+    }
+    return out;
+  }
+
+  async privateTripCounts(driverIds: readonly string[]): Promise<Record<string, number>> {
+    const out: Record<string, number> = Object.fromEntries(driverIds.map((id) => [id, 0]));
+    for (const r of this.requests.values()) {
+      if (r.state !== 'completed') continue;
+      const picked = r.offers.find((o) => o.id === r.pickedOfferId);
+      if (picked && picked.driverId in out) out[picked.driverId]! += 1;
+    }
+    return out;
   }
 
   async addPinAttempt(a: PinAttemptRecord): Promise<void> {

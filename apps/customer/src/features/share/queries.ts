@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { OrderRoute } from '@driver/contracts';
 import { ROUTE_STALE_MS } from '@/features/track/motion';
 import { useApi, useApiClient } from '@/lib/api';
+import { publicPageFailure, shouldRetryQuery } from '@/lib/errors';
 import { useLiveChannel, useLivePollMs } from '@/lib/live';
 
 export const liveShareKey = (token: string) => `share:${token}`;
@@ -35,9 +36,11 @@ export function useSharedTrip(token: string) {
       return client.tracking.shared.query({ token, again });
     },
     enabled: Boolean(token),
-    retry: false,
+    retry: shouldRetryQuery,
     staleTime: 0,
-    refetchInterval: (s) => (s.state.data && s.state.data.status !== 'ended' ? pollMs : false),
+    // Keeps polling through a network or server failure (FLOW-07); stops when the trip ended or the link is over.
+    refetchInterval: (s) =>
+      (s.state.data && s.state.data.status !== 'ended') || (s.state.status === 'error' && publicPageFailure(s.state.error) === 'transient') ? pollMs : false,
   });
   return { ...q, live: mode === 'live' };
 }

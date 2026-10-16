@@ -1,9 +1,9 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState, type ReactNode } from 'react';
-import { Pressable, View } from 'react-native';
+import { useState } from 'react';
+import { View } from 'react-native';
 import { Button, Card, Icon, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { DriverAvatar, VehicleGlyph } from '@/features/fleet/FleetParts';
+import { DriverAvatar, PickOption, VehicleGlyph } from '@/features/fleet/FleetParts';
 import { CLASS_KEY, maskedPhone, STATE_KEY } from '@/features/fleet/logic';
 import { useAssignDriver, useFleetOverview } from '@/features/fleet/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -68,7 +68,7 @@ export default function AssignDriver() {
               const elsewhere = plateOf.get(d.driverId);
               const moving = elsewhere && elsewhere.vehicleId !== vehicle.vehicleId;
               return (
-                <Option
+                <PickOption
                   key={d.driverId}
                   testID={`fleet-pick-${d.driverId}`}
                   selected={choice === d.driverId}
@@ -81,7 +81,7 @@ export default function AssignDriver() {
                 />
               );
             })}
-            <Option
+            <PickOption
               testID="fleet-pick-none"
               selected={choice === NONE}
               onPress={() => setPicked(NONE)}
@@ -97,67 +97,5 @@ export default function AssignDriver() {
         </>
       )}
     </Screen>
-  );
-}
-
-function Option({
-  title,
-  subtitle,
-  leading,
-  selected,
-  onPress,
-  divider,
-  warn,
-  testID,
-}: {
-  title: string;
-  subtitle?: string;
-  leading: ReactNode;
-  selected: boolean;
-  onPress: () => void;
-  divider: boolean;
-  warn?: boolean;
-  testID?: string;
-}) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: theme.space[3],
-        paddingHorizontal: theme.space[4],
-        paddingVertical: theme.space[3],
-        backgroundColor: selected ? theme.colors.accentTint : 'transparent',
-        borderBottomWidth: divider ? 1 : 0,
-        borderBottomColor: theme.colors.border,
-      }}
-    >
-      {leading}
-      <View style={{ flex: 1 }}>
-        <Text variant="bodyStrong" numberOfLines={1}>
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text variant="footnote" color={warn ? 'warningText' : 'textMuted'} numberOfLines={1}>
-            {subtitle}
-          </Text>
-        ) : null}
-      </View>
-      <View
-        style={{
-          width: 22,
-          height: 22,
-          borderRadius: 11,
-          borderWidth: selected ? 7 : 2,
-          borderColor: selected ? theme.colors.accent : theme.colors.borderStrong,
-          backgroundColor: theme.colors.surface,
-        }}
-      />
-    </Pressable>
   );
 }

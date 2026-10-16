@@ -109,6 +109,8 @@ export const Stop = z.object({
   arrivedAt: z.coerce.date().nullable(),
   arrivedOutsideGeofence: z.boolean(),
   arrivalDistanceM: z.number().int().nullable(),
+  /** The accuracy (m) of the fix sent with the arrival tap; null without one. Absent on older views. */
+  arrivalAccuracyM: z.number().nonnegative().nullable().optional(),
   completedAt: z.coerce.date().nullable(),
   skippedAt: z.coerce.date().nullable(),
   skipReason: z.string().nullable(),
@@ -168,6 +170,17 @@ export const Trip = z.object({
   updatedAt: z.coerce.date(),
 });
 export type Trip = z.infer<typeof Trip>;
+
+/**
+ * The order a courier works the jobs he holds: the order he took them (`acceptedAt`, which trips keeps
+ * strictly increasing per courier), then the trip id. Batching plans his pickups in this order (dispatch
+ * reads it when checking the hot-wait and detour rules), and the Partner app and the simulator drive them
+ * in it — one route, the one that was checked.
+ */
+export function jobOrder<T extends Pick<Trip, 'id' | 'acceptedAt'>>(trips: readonly T[]): T[] {
+  const at = (t: T) => t.acceptedAt?.getTime() ?? Number.POSITIVE_INFINITY;
+  return [...trips].sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
 
 // ───────────────────────── procedure I/O ─────────────────────────
 

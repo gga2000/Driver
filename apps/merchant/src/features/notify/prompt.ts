@@ -22,8 +22,54 @@ export function boardCalmForPrompt(s: { waiting: number; sheetOpen: boolean; shi
 
 /** `driver-merchant://order/ord_1` → `/order/ord_1`; the board has no order route, so orders open the board. */
 export function deepLinkPath(link: unknown, scheme = DEEP_LINK_SCHEME): string | null {
+  const staff = staffAlertPath(link);
+  if (staff) return staff;
   if (typeof link !== 'string' || !link.startsWith(`${scheme}://`)) return null;
   const rest = link.slice(scheme.length + 3).replace(/\/+$/, '');
   if (rest === '' || rest.startsWith('order/')) return '/';
   return `/${rest}`;
+}
+
+/**
+ * MER-05: a new-order push names the store it is for. When that is not the store open on this
+ * device (staff working two stores), the tap switches to it first, so the order is on the board.
+ */
+export function storeFromPush(data: { merchantOrgId?: unknown }, current: string | null): string | null {
+  const id = data.merchantOrgId;
+  return typeof id === 'string' && id !== '' && id !== current ? id : null;
+}
+
+/**
+ * MER-12: whether this device can ring for a new order with the app closed. `off` = the kitchen said
+ * no to notifications; `failed` = allowed but this install has no push token registered. The browser
+ * build has no pushes at all, and «undetermined» belongs to the pre-prompt strip: both are `unknown`.
+ */
+export type PushHealth = 'ok' | 'off' | 'failed' | 'unknown';
+
+export function pushHealthOf(s: { web: boolean; permission: PushPermission; registered: boolean }): PushHealth {
+  if (s.web || s.permission === 'undetermined') return 'unknown';
+  if (s.permission === 'denied') return 'off';
+  return s.registered ? 'ok' : 'failed';
+}
+
+/**
+ * Staff safety alerts (SOS, the خطوط sweep, the Console watching itself) are sent to staff on any app
+ * as `driver://safety[/{incidentId}]`. They are answered in the Console, so the tap opens the
+ * staff-alert screen, which opens the alert there.
+ */
+export function staffAlertPath(link: unknown): string | null {
+  if (typeof link !== 'string') return null;
+  const m = /^driver:\/\/safety(?:\/([^/?#]+))?\/?$/.exec(link);
+  if (!m) return null;
+  return m[1] ? `/staff-alert?incident=${encodeURIComponent(m[1])}` : '/staff-alert';
+}
+
+/**
+ * The Console page for a staff alert: the incident when there is one, else the safety desk. `null` when
+ * this build has no Console address (the screen then shows no link).
+ */
+export function consoleAlertUrl(base: string | null | undefined, incident: string | null | undefined): string | null {
+  const root = (base ?? '').trim().replace(/\/+$/, '');
+  if (!root) return null;
+  return incident ? `${root}/safety/${encodeURIComponent(incident)}` : `${root}/safety`;
 }

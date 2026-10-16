@@ -4,6 +4,7 @@ import { apiErrorCode } from '@/lib/api-links';
 import { useApiClient } from '@/lib/api';
 import { currentFix, type Fix } from '@/lib/location';
 import { reportArmed } from './arrive';
+import { noteJobFix } from './gps-health';
 import { FixBuffer, toDeviceFix, worthSending } from './position-report';
 
 /** How often a driver on a job reports his position (the live map moves at most every 2 s). */
@@ -27,6 +28,7 @@ export function useJobPositions(onJob: boolean): void {
     const tick = async () => {
       const fix = await currentFix(4000);
       if (!alive) return;
+      if (fix) noteJobFix(worthSending(fix), Date.now());
       if (fix && worthSending(fix)) {
         buffer.current.push(toDeviceFix(fix, prev.current));
         prev.current = fix;

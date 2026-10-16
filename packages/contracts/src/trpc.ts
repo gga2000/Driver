@@ -14,28 +14,40 @@ import type { TrackingPort } from './tracking.js';
 import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
+import type { StatsPort } from './stats-io.js';
 import type { PartnerPort } from './partner-io.js';
+import type { ParcelsPort } from './parcels-io.js';
 import type { DependencyStatus } from './router-io.js';
+import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
 import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
 import type { MenuPhotosPort } from './menu-photos-io.js';
+import type { ShoppingPort } from './shopping-io.js';
+import type { FoodCartsPort } from './food-carts-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
+import type { MerchantSetupPort } from './merchant-setup-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
+import type { TripChatPort } from './trip-chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
+import type { OnCallServicePort } from './on-call-io.js';
+import type { InboxServicePort } from './inbox-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
+import type { ClosuresPort } from './closures-io.js';
 import type { SupportPort } from './support-io.js';
+import type { AccountClosePort } from './account-close-io.js';
 import type { SafetyPort } from './safety-io.js';
 import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
 import type { PhoneBookingPort } from './phone-booking-io.js';
 import type { GarageTaxiPort } from './garage-taxi-io.js';
+import type { DishPhotoReviewPort } from './dish-photos-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -45,7 +57,8 @@ import { transformer } from './transformer.js';
  * internals. The API supplies the implementation through `AppContext`.
  */
 export interface AppContext {
-  pricing: { quote(req: PriceRequest): Quote };
+  /** The quote a client may book with: kept server-side for a while (LOAD-01), hence async. */
+  pricing: { quote(req: PriceRequest): Quote | Promise<Quote> };
   config: { city(cityId: string): CityPricingConfig | undefined };
   health: { db(): Promise<DependencyStatus>; redis(): Promise<DependencyStatus> };
   identity: IdentityPort;
@@ -59,6 +72,8 @@ export interface AppContext {
   ops: OpsPort;
   /** Menu photo service (maps k3): merchant requests, field ops shoots, Console queue (`modules/menu-photos`). */
   menuPhotos: MenuPhotosPort;
+  /** p4: shop-uploaded dish photos waiting for the same-day look (`modules/ops` over `modules/catalog`). */
+  dishPhotos: DishPhotoReviewPort;
   /** Console › المطاعم: stores' pickup spots set by field ops (`modules/ops` over `modules/merchant`). */
   pickupSpots: PickupSpotsOpsPort;
   /** Merchant wave 2: menu, deals, money, insights, staff (`modules/merchant-admin`). */
@@ -79,8 +94,8 @@ export interface AppContext {
   places: PlacesPort;
   /** Customer wallet: balance, points, readable lines, top-up options (`modules/ledger`). */
   wallet: WalletPort;
-  /** Joy w6 «شهرك»: the caller's month from orders, rides, الرجعة and the ledger (`modules/insights`). */
-  insights: InsightsPort;
+  /** Joy w6 «شهرك» and «دفترك ويا درايفر» (stats): the caller's own record from orders, rides, الرجعة and the ledger (`modules/insights`). */
+  insights: InsightsPort & StatsPort;
   /** Wallet top-up with cash: customer codes, ops-agent / courier confirmation (`modules/topups`). */
   topups: TopUpPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */
@@ -89,8 +104,12 @@ export interface AppContext {
   partner: PartnerPort;
   /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */
   merchant: MerchantPort;
+  /** «جهّز محلك»: a new shop's first-day setup (`modules/merchant`). */
+  merchantSetup: MerchantSetupPort;
   /** In-order chat and masked calls (`modules/chat`): party-checked on every call. */
   chat: ChatPort;
+  /** Baghdad/Kut chat between a rider and a run's or private car's driver, with the price cards (`modules/chat`, step 4c). */
+  tripChat: TripChatPort;
   /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
   trackingShare: TrackingSharePort;
   /** Real-time channel (`modules/live`): stream tokens and the SSE event streams of `live.*`. */
@@ -107,8 +126,12 @@ export interface AppContext {
   controlRoom: ControlRoomPort;
   /** Support desk: persisted tickets, case view, refunds within limits (`modules/support`). */
   support: SupportPort;
+  /** Console: an admin closes a partner's or merchant's account and erases his identity (`modules/control-room`). */
+  accountClose: AccountClosePort;
   /** Zone outlines drawn in the Console (`modules/zones`). */
   zones: ZonesPort;
+  /** N20 «شارع مسدود»: streets closed for today (`modules/closures`). */
+  closures: ClosuresPort;
   /** Drivers confirm zones at the end of a delivery (`modules/zones`, maps program SP3). */
   zoneChecks: ZoneChecksPort;
   /** SOS: the person's alert, the Console's incident desk (`modules/safety`). */
@@ -117,16 +140,27 @@ export interface AppContext {
   referrals: ReferralsPort;
   /** Joy J7d: favourite drivers, regular trips, dinner timed to the ride home (`modules/ride-habits`). */
   rideHabits: RideHabitsPort;
+  /** Parcels طرود: quote, send, the parcel's page, her door page (`modules/parcels`). */
+  parcels: ParcelsPort;
+  /** The shopping side «السوق»: stalls, bakeries, daily bread, shop mode (`modules/shopping`). */
+  shopping: ShoppingPort;
+  /** Food carts «عربانات»: list, follow, walk-over tickets, cart mode (`modules/food-carts`). */
+  foodCarts: FoodCartsPort;
   /** Taxi/tuktuk step 4 (v4): rides booked by phone from the Console (`modules/phone-booking`). */
   phoneBookings: PhoneBookingPort;
   /** Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (`modules/garage-taxi`). */
   garageTaxi: GarageTaxiPort;
+  /** Console E1: the on-call roster and the alert ladder (`modules/on-call`). */
+  onCall: OnCallServicePort;
+  inbox: InboxServicePort;
   /** Verified claims of the `Authorization: Bearer` token on this request, if any. */
   auth: SessionClaims | null;
   /** Why `auth` is null when a token was presented (expired, malformed…); null when no token. */
   authError: ErrorCode | null;
   /** The caller as the transport saw it (client IP behind the configured proxy); absent in tests. */
   client?: { ip: string | null };
+  /** Per-person and per-address request limits (SCALE-20), checked before every call; absent in tests. */
+  limits?: RequestLimitsPort;
   env: { nodeEnv: string };
   now(): Date;
   version: string;
@@ -141,7 +175,12 @@ export function toTrpcError(err: unknown): TRPCError {
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'internal', cause: err });
 }
 
-export const t = initTRPC.context<AppContext>().create({
+/** Procedure metadata: the roles a protected procedure admits (read by the audit coverage test, CON-10). */
+export interface ProcedureMeta {
+  roles?: readonly RoleKind[];
+}
+
+export const t = initTRPC.context<AppContext>().meta<ProcedureMeta>().create({
   transformer,
   // `live.*` subscriptions over SSE: a keep-alive comment so proxies keep idle streams open, and the
   // client reconnects when even those stop arriving.
@@ -164,41 +203,140 @@ export const t = initTRPC.context<AppContext>().create({
 
 export const router = t.router;
 
+/** One finished procedure call, for the API's request log and metrics (`observeProcedures`). */
+export interface ProcedureCall {
+  /** e.g. `orders.place`. */
+  path: string;
+  type: 'query' | 'mutation' | 'subscription';
+  /** `OK`, or the tRPC error code the caller got (`BAD_REQUEST`, `CONFLICT`, `INTERNAL_SERVER_ERROR`…). */
+  code: string;
+  /** The Driver error code inside it (`offer_taken`, `rate_limited`…), when there is one. */
+  driverCode?: string;
+  ms: number;
+  /** The signed-in person's id (pseudonymous; names and phones live in the vault), null when signed out. */
+  personId: string | null;
+}
+
+let procedureObserver: ((call: ProcedureCall) => void) | undefined;
+
+/**
+ * The API registers one observer at boot (`shared/request-log.ts`); every call through
+ * `publicProcedure` reports to it once it settles. An observer that throws is ignored: the request
+ * log must never fail a request.
+ */
+export function observeProcedures(observer: ((call: ProcedureCall) => void) | undefined): void {
+  procedureObserver = observer;
+}
+
+function report(call: ProcedureCall): void {
+  try {
+    procedureObserver?.(call);
+  } catch {
+    // The log is best-effort.
+  }
+}
+
+let procedureGate: ((call: { path: string; type: ProcedureCall['type'] }) => DriverError | null) | undefined;
+
+/**
+ * The API registers one gate at boot: asked before every call through `publicProcedure`; a
+ * DriverError it returns refuses the call (CORE-05: a build older than the minimum gets
+ * `update_required`). A gate that throws lets the call through.
+ */
+export function gateProcedures(gate: typeof procedureGate): void {
+  procedureGate = gate;
+}
+
+function refusal(path: string, type: ProcedureCall['type']): DriverError | null {
+  try {
+    return procedureGate?.({ path, type }) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Maps a DriverError thrown anywhere below to its tRPC code (and so its HTTP status: offer_taken →
  * 409, dev_only → 403…). tRPC v11 does not throw out of `next()`: a failing resolver or middleware
  * comes back as `{ ok: false, error }` with the DriverError wrapped as INTERNAL_SERVER_ERROR's
  * `cause`, so the result is inspected, not caught. Throwing here is turned back into a result by
- * tRPC with the new code.
+ * tRPC with the new code. Each call is first asked of the API's gate (`gateProcedures`) and then
+ * reported to its observer (`observeProcedures`).
  */
-export const publicProcedure = t.procedure.use(async ({ next }) => {
+export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next, getRawInput }) => {
+  const started = Date.now();
+  const done = (code: string, driverCode?: string) =>
+    procedureObserver && report({ path, type, code, ...(driverCode ? { driverCode } : {}), ms: Date.now() - started, personId: ctx.auth?.sub ?? null });
+  // The gate is asked once the call's input has fully arrived (tRPC reads it lazily and remembers it):
+  // a caller who stalls a POST body never gets as far as the gate, so it never holds a place in the
+  // API's busy cap (x3). An unreadable body is left for the input parser to answer.
+  if (procedureGate) await getRawInput().catch(() => undefined);
+  const refused = refusal(path, type);
+  if (refused) {
+    const mapped = toTrpcError(refused);
+    done(mapped.code, refused.code);
+    throw mapped;
+  }
   let result;
   try {
+    if (ctx.limits && type !== 'subscription') await ctx.limits.check({ path, type, personId: ctx.auth?.sub ?? null, ip: ctx.client?.ip ?? null });
     result = await next();
   } catch (err) {
-    throw toTrpcError(err);
+    const mapped = toTrpcError(err);
+    done(mapped.code, isDriverError(err) ? err.code : undefined);
+    throw mapped;
   }
-  if (!result.ok && result.error.code === 'INTERNAL_SERVER_ERROR' && isDriverError(result.error.cause)) throw toTrpcError(result.error.cause);
+  if (!result.ok && result.error.code === 'INTERNAL_SERVER_ERROR' && isDriverError(result.error.cause)) {
+    const cause = result.error.cause;
+    const mapped = toTrpcError(cause);
+    done(mapped.code, cause.code);
+    throw mapped;
+  }
+  if (result.ok) done('OK');
+  else done(result.error.code, isDriverError(result.error.cause) ? result.error.cause.code : undefined);
   return result;
 });
+
+/**
+ * The caller's live roles, read once per HTTP request (CON-21): the Console batches several calls
+ * into one request, and each used to cost up to one query per allowed role. Keyed by the request's
+ * decoded token object, so the cache dies with the request and a revoked or frozen role still takes
+ * effect on the very next request.
+ */
+const rolesThisRequest = new WeakMap<object, Promise<ReadonlySet<RoleKind>>>();
+
+async function allowedFor(ctx: AppContext, personId: string, roles: readonly RoleKind[]): Promise<boolean> {
+  const identity = ctx.identity;
+  if (!identity.activeRoles || !ctx.auth) {
+    for (const kind of roles) if (await identity.hasRole(personId, kind)) return true;
+    return false;
+  }
+  let held = rolesThisRequest.get(ctx.auth);
+  if (!held) {
+    held = identity.activeRoles(personId).then((r) => new Set(r));
+    rolesThisRequest.set(ctx.auth, held);
+    // A failed read is not remembered: the next call in the batch asks again.
+    held.catch(() => rolesThisRequest.delete(ctx.auth!));
+  }
+  const set = await held;
+  return roles.some((k) => set.has(k));
+}
 
 /**
  * Requires a valid access token; with `roles`, requires at least one of them (live lookup, so a
  * revoked or frozen role takes effect on the next request, not at token expiry).
  */
 export function protectedProcedure(roles?: readonly RoleKind[]) {
-  return publicProcedure.use(async ({ ctx, next }) => {
+  return publicProcedure.meta(roles ? { roles } : {}).use(async ({ ctx, path, type, next }) => {
     if (!ctx.auth) throw toTrpcError(new DriverError(ctx.authError ?? 'unauthorized'));
     const actor: Actor = { personId: ctx.auth.sub, sessionId: ctx.auth.sid, ...(ctx.auth.did ? { deviceId: ctx.auth.did } : {}) };
-    if (roles && roles.length > 0) {
-      let allowed = false;
-      for (const kind of roles) {
-        if (await ctx.identity.hasRole(actor.personId, kind)) {
-          allowed = true;
-          break;
-        }
+    if (roles && roles.length > 0 && !(await allowedFor(ctx, actor.personId, roles))) throw toTrpcError(new DriverError('forbidden'));
+    if (ctx.limits?.checkStaff && isStaffProcedure(roles)) {
+      try {
+        await ctx.limits.checkStaff({ path, type, personId: actor.personId, ip: ctx.client?.ip ?? null });
+      } catch (err) {
+        throw toTrpcError(err);
       }
-      if (!allowed) throw toTrpcError(new DriverError('forbidden'));
     }
     return next({ ctx: { ...ctx, actor } });
   });

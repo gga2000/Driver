@@ -38,6 +38,12 @@ export function ledgerSubscribers(posting: PostingService, merchantCash: Merchan
     'seat.late_meter_settled': async (payload) => {
       await posting.lateMeter(decodeDomainEvent('seat.late_meter_settled', payload));
     },
+    'order.driver_cancelled': async (payload) => {
+      await posting.driverCancelled(decodeDomainEvent('order.driver_cancelled', payload));
+    },
+    'order.rejected': async (payload) => {
+      await posting.merchantLateReject(decodeDomainEvent('order.rejected', payload));
+    },
     'departure.cancelled': async (payload) => {
       await posting.departureCancelled(decodeDomainEvent('departure.cancelled', payload));
     },
@@ -49,6 +55,10 @@ export function ledgerSubscribers(posting: PostingService, merchantCash: Merchan
     },
     'subscription.prorated': async (payload) => {
       await posting.subscription(decodeDomainEvent('subscription.prorated', { ...payload, prorated: true }));
+    },
+    /** A cart owner collected a walk-over ticket (cash in his hand): he owes the pickup commission on it. */
+    'food_cart.walkup_collected': async (payload) => {
+      await posting.foodCartWalkup(decodeDomainEvent('food_cart.walkup_collected', payload));
     },
     /** A request from any origin (Merchant app, exposure cap, mode schedule) gets routed and announced. */
     'merchant.settlement_requested': async (payload) => {

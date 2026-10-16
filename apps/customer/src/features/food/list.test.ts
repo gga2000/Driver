@@ -4,6 +4,8 @@ import { activeFilterCount, applyList, cuisineOptions, hasFreeDelivery, hasRatin
 
 const r = (p: Partial<RestaurantSummary> & { id: string }): RestaurantSummary => ({
   name: p.id,
+  cityId: 'aziziyah',
+  pickup: null,
   cuisine: '',
   zoneId: null,
   rating: null,
@@ -40,6 +42,14 @@ describe('restaurant list (شوف الكل)', () => {
     expect(ids(applyList(all, 'nearest', {}).open)).toEqual(['kareem', 'khalid', 'sham']);
     expect(ids(applyList(all, 'fastest', {}).open)).toEqual(['kareem', 'sham', 'khalid']);
     expect(ids(applyList(all, 'rating', {}).open)).toEqual(['kareem', 'khalid', 'sham']);
+  });
+
+  it('«مميّز»: one open featured kitchen sits first in «الأقرب» only; a closed one never moves up', () => {
+    const featured = [khalid, kareem, { ...sham, featured: true }, { ...musafir, featured: true }];
+    expect(ids(applyList(featured, 'nearest', {}).open)).toEqual(['sham', 'kareem', 'khalid']);
+    expect(ids(applyList(featured, 'fastest', {}).open)).toEqual(['kareem', 'sham', 'khalid']);
+    expect(ids(applyList(featured, 'rating', {}).open)).toEqual(['kareem', 'khalid', 'sham']);
+    expect(ids(applyList(featured, 'nearest', {}).closed)).toEqual(['musafir']);
   });
 
   it('without a place (guests), nearest falls back to prep time', () => {

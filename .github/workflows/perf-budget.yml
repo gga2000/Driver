@@ -1,0 +1,100 @@
+# Speed budgets (speed audit g3 + h4): app size, the data each main screen downloads, and whether idle
+# screens stay still (no redraw every second, no endless animation). Limits: scripts/perf/budgets.json.
+# Run the same locally: docs/perf-budgets.md.
+name: Speed budgets
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  EXPO_NO_TELEMETRY: '1'
+  EXPO_OFFLINE: '1'
+  CI: '1'
+
+jobs:
+  size:
+    name: speed · app size
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Enable pnpm
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build packages
+        run: pnpm turbo run build --filter='./packages/*'
+      - name: App size (Android export of the three phone apps)
+        run: node scripts/perf/size.mjs
+
+  screens:
+    name: speed · screens stay still
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Enable pnpm
+        run: |
+          npm install --global corepack@latest
+          corepack enable
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build packages and the API (the demo APIs run apps/api/dist in memory)
+        run: pnpm turbo run build --filter='./packages/*' --filter=@driver/api
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @driver/console exec playwright install --with-deps chromium
+      - name: Web exports (customer, restaurant)
+        run: |
+          (cd apps/customer && EXPO_PUBLIC_API_URL=http://127.0.0.1:3200/trpc EXPO_PUBLIC_DEV_TOOLS=1 npx expo export --platform web --clear --output-dir dist-web)
+          (cd apps/merchant && EXPO_PUBLIC_API_URL=http://127.0.0.1:3302/trpc EXPO_PUBLIC_DEV_TOOLS=1 npx expo export --platform web --clear --output-dir dist-web)
+      - name: Screens (data to open, redraws and frames while idle)
+        run: PERF_OUT=perf-screens.json node scripts/perf/screens.mjs
+      - name: Upload measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: speed-screens
+          path: perf-screens.json
+          if-no-files-found: ignore

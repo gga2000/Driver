@@ -25,10 +25,10 @@ export const ORDERS_RULES = {
   /** Spec §4: merchant rejects after accepting → 500 customer credit funded by the merchant. */
   merchantLateRejectCreditIqd: 500,
   /**
-   * Money §1 tier for merchants without one on file: `featured` (15 %) keeps the worked example
-   * (2,250 on 15,000) and the pre-tier default. The rate itself comes from the money rules.
+   * Money §1 tier for merchants without one on file: `starter` (5 %, Ali 2026-10-11 — a new
+   * restaurant's first two months). The rate itself comes from the money rules.
    */
-  defaultCommissionTier: 'featured' as CommissionTier,
+  defaultCommissionTier: 'starter' as CommissionTier,
   /** Money §3: car in city 12 %. Ride orders do not carry their vertical yet, so cars set the rate. */
   rideTakePct: 12,
   /** Edge-case §2: 1 point per 100 IQD of platform revenue (rides 1 per 200), capped per order. */
@@ -77,4 +77,18 @@ export const DEFAULT_TIMEZONE = 'Asia/Baghdad';
 /** Commission percent of a tier, from the city's money rules (the ledger posts by the same rules). */
 export function commissionPctOf(tier: CommissionTier): number {
   return Math.round(AZIZIYAH_MONEY_RULES.commission[tier] * 10_000) / 100;
+}
+
+/**
+ * FOOD-03: when a shop order may be booked for (the app's «اليوم» / «باچر» slots and the r6 dinner
+ * offer): at least the scheduling lead away (anything sooner is a now-order) and at most 48 hours ahead.
+ */
+export const FOOD_SCHEDULE_RULES = { minLeadMin: ORDERS_RULES.scheduledLeadMin, maxAheadHours: 48 } as const;
+
+/** Why a shop order can't be booked for that time; null when it can (`order_schedule_invalid`). */
+export function foodScheduleProblem(scheduledFor: Date, now: Date): 'too_soon' | 'too_far' | null {
+  const ahead = scheduledFor.getTime() - now.getTime();
+  if (ahead < FOOD_SCHEDULE_RULES.minLeadMin * 60_000) return 'too_soon';
+  if (ahead > FOOD_SCHEDULE_RULES.maxAheadHours * 3_600_000) return 'too_far';
+  return null;
 }

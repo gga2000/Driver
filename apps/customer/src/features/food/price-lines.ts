@@ -28,13 +28,17 @@ const NAMES: Partial<Record<QuoteComponent['key'], { label: MessageKey; reason?:
  */
 export function priceItems(totals: CheckoutTotals, t: T, locale: 'ar-IQ' | 'en'): PriceItem[] {
   const out: PriceItem[] = [{ key: 'items', label: t('quote.subtotal'), amount: totals.itemsIqd }];
+  // HUNT-02: a quote taken «بالشارع» (the server's −250 street part) names its delivery line the way the
+  // live order's receipt does: «توصيل · بالشارع».
+  const street = totals.components.some((c) => c.key === 'street_pickup' && c.amount < 0);
   for (const c of totals.components) {
     // A zero part (door hand-over is the default, free) says nothing on a receipt.
     if (c.amount === 0) continue;
     const name = NAMES[c.key];
+    const delivery = c.key === 'base' || c.key === 'zone_adjust';
     out.push({
       key: `${c.key}${c.leg ?? ''}`,
-      label: name ? t(name.label) : locale === 'en' ? c.label_en : c.label_ar,
+      label: name ? t(street && delivery ? 'track.price_delivery_street' : name.label) : locale === 'en' ? c.label_en : c.label_ar,
       amount: c.amount,
       ...(name?.reason ? { reason: t(name.reason) } : {}),
     });

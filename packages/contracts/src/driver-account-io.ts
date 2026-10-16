@@ -181,7 +181,7 @@ export const DocumentsView = z.object({
   driverId: z.string(),
   /** Latest submission per kind. */
   documents: z.array(DriverDocumentView),
-  /** Kinds his roles need that were never submitted (licence and registration only for car/van drivers). */
+  /** Kinds his roles need with no approved document yet: never sent, rejected or under review (licence and registration only for car/van drivers). Any keeps him offline. */
   missing: z.array(DriverDocumentKind),
   /** Expired → offline (scoring §2). */
   blocksOnline: z.boolean(),
@@ -287,10 +287,55 @@ export type CheckInResult = z.infer<typeof CheckInResult>;
 /** Whether he may go online now, and why not. The Partner shell calls it before `partner` presence. */
 export const OnlineGate = z.object({
   canGoOnline: z.boolean(),
-  reasons: z.array(z.object({ code: z.enum(['checkin_required', 'checkin_locked', 'document_expired']), message_ar: z.string() })),
+  reasons: z.array(z.object({ code: z.enum(['checkin_required', 'checkin_locked', 'document_expired', 'document_missing', 'staff_paused']), message_ar: z.string() })),
   checkIn: CheckInStatus,
 });
 export type OnlineGate = z.infer<typeof OnlineGate>;
+
+// ───────────────────────── staff pause (r6, Ali 2026-10-08) ─────────────────────────
+
+/**
+ * Staff can pause a courier or driver while they look into a safety report (Ali, 2026-10-08, r6):
+ * he can't go online (the gate says `staff_paused`, his app's heartbeat drops him within 30 s) until
+ * a person lifts it. Both steps need a short note and are audited; nothing about money changes.
+ */
+export const DriverPauseReason = z.enum(['safety_report', 'other']);
+export type DriverPauseReason = z.infer<typeof DriverPauseReason>;
+
+export const DRIVER_PAUSE_RULES = { noteMin: 3, noteMax: 300 } as const;
+const PauseNote = z.string().trim().min(DRIVER_PAUSE_RULES.noteMin).max(DRIVER_PAUSE_RULES.noteMax);
+
+export const PauseDriverInput = z.object({
+  personId: z.string().min(1).max(80),
+  reason: DriverPauseReason,
+  /** The safety report (support ticket) behind it, when there is one. */
+  ticketId: z.string().min(1).max(80).optional(),
+  note: PauseNote,
+});
+export type PauseDriverInput = z.infer<typeof PauseDriverInput>;
+
+export const LiftDriverPauseInput = z.object({ personId: z.string().min(1).max(80), note: PauseNote });
+export type LiftDriverPauseInput = z.infer<typeof LiftDriverPauseInput>;
+
+export const DriverPauseStatusInput = z.object({ personId: z.string().min(1).max(80) });
+export type DriverPauseStatusInput = z.infer<typeof DriverPauseStatusInput>;
+
+export const DriverPauseView = z.object({
+  personId: z.string(),
+  /** The pause in force, or null. */
+  active: z
+    .object({
+      id: z.string(),
+      reason: DriverPauseReason,
+      ticketId: z.string().nullable(),
+      note: z.string(),
+      pausedAt: z.coerce.date(),
+      pausedById: z.string(),
+      pausedByName: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type DriverPauseView = z.infer<typeof DriverPauseView>;
 
 /** The 4-digit code he reads to field ops when handing cash in (`ops.recordCashReceipt`). Rotates daily. */
 export const HandoverCode = z.object({ code: z.string().regex(/^\d{4}$/), validUntil: z.coerce.date() });
@@ -398,8 +443,51 @@ export const ShiftSummary = z.object({
   guarantee: z.array(GuaranteeWindowView).default([]),
   /** Joy l4: the kind words customers picked for him during the shift, most said first (empty: none). */
   compliments: z.array(ComplimentCount).default([]),
+  /**
+   * «يومك» (partner redesign e7): the straight-line km between the stops of the shift's trips, rounded
+   * down to whole km. The road is never shorter, so the app says «أكثر من {km} كم»; null without trips.
+   */
+  minKm: z.number().int().min(0).nullable().default(null),
 });
 export type ShiftSummary = z.infer<typeof ShiftSummary>;
+
+// ───────────────────────── his best (partner redesign e3 / e4) ─────────────────────────
+
+/** How far back «أحسن وقت إلك» and his best day look: four whole weeks, so every weekday counts four times. */
+export const MY_BEST_DAYS = 28;
+/** The widest best-time window, in clock hours; edges that earned little are trimmed off it (never below 2 h). */
+export const MY_BEST_WINDOW_MAX_HOURS = 4;
+/** A best time is a habit, not one lucky night: at least this many jobs in it, on at least two different days. */
+export const MY_BEST_MIN_JOBS = 4;
+
+/**
+ * His own week and his own best, from his ledger (partner redesign e3 / e4): the earnings tab shows
+ * these instead of "less than yesterday". Nothing here is a promise or a payment: it is what he made.
+ */
+export const MyBestView = z.object({
+  /** This Baghdad week so far (Sunday start). */
+  week: z.object({ from: z.coerce.date(), netIqd: Iqd, jobs: z.number().int().min(0) }),
+  /** His best Baghdad day in the last `MY_BEST_DAYS` days (today included); null without paid jobs. */
+  bestDay: z.object({ at: z.coerce.date(), netIqd: Iqd, jobs: z.number().int().min(0) }).nullable(),
+  /**
+   * «أحسن وقت إلك: الخميس 7–11 بالليل»: the weekday and clock hours [fromHour, toHour) that paid him most
+   * in the last four weeks, and what that window paid on average per hour of it (net, his history only).
+   * Null until a window has `MY_BEST_MIN_JOBS` jobs on two different days.
+   */
+  bestWindow: z
+    .object({
+      /** 0 = Sunday … 6 = Saturday, Baghdad. */
+      weekday: z.number().int().min(0).max(6),
+      fromHour: z.number().int().min(0).max(23),
+      toHour: z.number().int().min(1).max(24),
+      perHourIqd: Iqd,
+      jobs: z.number().int().min(0),
+      days: z.number().int().min(0),
+    })
+    .nullable(),
+  sinceDays: z.number().int(),
+});
+export type MyBestView = z.infer<typeof MyBestView>;
 
 // ───────────────────────── "why was I paid this" (partner S-7) ─────────────────────────
 
@@ -505,10 +593,15 @@ export const PayQueryResult = z.object({
 export type PayQueryResult = z.infer<typeof PayQueryResult>;
 
 export interface DriverAccountPort {
+  pauseStatus(actor: Actor, input: DriverPauseStatusInput): Promise<DriverPauseView>;
+  pause(actor: Actor, input: z.output<typeof PauseDriverInput>): Promise<DriverPauseView>;
+  liftPause(actor: Actor, input: z.output<typeof LiftDriverPauseInput>): Promise<DriverPauseView>;
   guarantee(actor: Actor): Promise<GuaranteeView>;
   shiftSummary(actor: Actor, input: z.output<typeof ShiftSummaryInput>): Promise<ShiftSummary>;
   /** «كلام الزبائن» (joy l4): his compliments counted and the latest ones. */
   compliments(actor: Actor): Promise<CourierCompliments>;
+  /** His week and his best (partner redesign e3 / e4). */
+  myBest(actor: Actor): Promise<MyBestView>;
   jobReceipt(actor: Actor, input: z.output<typeof JobReceiptInput>): Promise<JobReceipt>;
   payQuery(actor: Actor, input: z.output<typeof PayQueryInput>): Promise<PayQueryResult>;
   earnings(actor: Actor, input: z.output<typeof EarningsInput>): Promise<EarningsView>;

@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import { View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import type { OrderTracking } from '@driver/contracts';
-import { formatClock, Icon, Text, useTheme, useToast, withAlpha } from '@driver/ui';
+import type { OrderTracking, SlowStretch } from '@driver/contracts';
+import { formatClock, formatClockInline, Icon, Text, useTheme, useToast, withAlpha } from '@driver/ui';
 import { color } from '@driver/design-tokens';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { creditToastDue, etaPastDeadline, promiseBar, promiseCopy } from './late-promise';
+import { creditToastDue, etaPastDeadline, promiseBar, promiseCopy, SLOW_COPY } from './late-promise';
 
 /** Orders whose "رجعنالك … رصيد" toast this app run already showed. */
 const toasted = new Set<string>();
@@ -35,10 +35,13 @@ export function useLatePromiseToast(view: OrderTracking | undefined): void {
  * time + `apologyAfterMin`, the same words as the push) the headline says sorry; once the credit is
  * posted the bar turns green and says what came back.
  *
+ * N6 «ليش متأخر»: when the route names its slow stretch, one more line says why (traffic, the
+ * kitchen, a closed street), the same reason the map labels by the striped stretch.
+ *
  * Joy S2-02 / f17: it is an inverse banner (ink, cream text, a saffron clock), never a tint, so a
  * delay can't be mistaken for the brand's active-order card.
  */
-export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; lateMin: number; eta: Date; now: number }) {
+export function LateBanner({ view, lateMin, eta, now, slow = null }: { view: OrderTracking; lateMin: number; eta: Date; now: number; slow?: SlowStretch | null }) {
   const theme = useTheme();
   const t = useT();
   const bar = promiseBar(view.latePromise, now);
@@ -75,8 +78,13 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
             {bar?.apologized ? t('promise.apology_title') : t('track.running_late', { minutes: lateMin })}
           </Text>
           <Text variant="caption" color="onInverseMuted">
-            {t('track.note_late', { minutes: lateMin, time: formatClock(eta) })}
+            {t('track.note_late', { minutes: lateMin, time: formatClockInline(eta) })}
           </Text>
+          {slow ? (
+            <Text variant="caption" weight={600} color="onInverse" tabular testID="late-why">
+              {t(SLOW_COPY[slow.reason].why, { minutes: slow.minutes })}
+            </Text>
+          ) : null}
         </View>
       </View>
       {bar && copy ? (
@@ -92,7 +100,7 @@ export function LateBanner({ view, lateMin, eta, now }: { view: OrderTracking; l
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
             {credited ? <Icon name="check" size={14} color="onInverseSuccess" strokeWidth={2.4} /> : null}
             <Text variant="caption" weight={600} color={credited ? 'onInverseSuccess' : 'onInverse'} tabular testID={credited ? 'late-promise-credited' : 'late-promise-until'} style={{ flexShrink: 1 }}>
-              {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(past ? copy.barPast : copy.barUntil, { time: formatClock(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
+              {credited ? t(copy.credited, { amount: amountParam(bar.amountIqd) }) : t(past ? copy.barPast : copy.barUntil, { time: formatClockInline(bar.deadlineAt), amount: amountParam(bar.amountIqd) })}
             </Text>
           </View>
         </View>

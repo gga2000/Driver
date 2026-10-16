@@ -120,7 +120,8 @@ export const KIND_KEY: Record<Vertical, MessageKey> = {
 
 export const PAY_KEY: Record<PartnerPayKey, MessageKey> = {
   delivery: 'partner.pay_delivery',
-  fare: 'partner.pay_fare',
+  // Rides pay the fare after Driver's share: the line says so (the rider pays the whole fare).
+  fare: 'partner.pay_fare_net',
   distance: 'partner.pay_distance',
   wait: 'partner.pay_wait',
   batch_bonus: 'partner.pay_batch_bonus',
@@ -141,6 +142,15 @@ export function secondsLeft(expiresAt: Date, now: number): number {
   return Math.max(0, Math.ceil((expiresAt.getTime() - now) / 1000));
 }
 
+/**
+ * Speed b3: the offer's seconds label re-renders once a second, on the second it changes (the time bar
+ * runs on its own animation), instead of four times a second.
+ */
+export function msToNextSecond(expiresAt: Date, now: number): number {
+  const rest = (expiresAt.getTime() - now) % 1000;
+  return rest > 0 ? rest + 5 : 1000;
+}
+
 /** Offers count as seen after 3 s in the foreground (edge-case §6). */
 export const OFFER_SEEN_AFTER_MS = 3_000;
 
@@ -150,9 +160,13 @@ export function offerWarnTick(secondsLeftNow: number): boolean {
   return secondsLeftNow > 0 && secondsLeftNow <= OFFER_WARN_FROM_S;
 }
 
-/** Keep the screen on while he can get an offer or is on a job (P-01). */
-export function keepScreenOn(s: { online: boolean; activeTripId: string | null } | undefined): boolean {
-  return Boolean(s && (s.online || s.activeTripId));
+/**
+ * Keep the screen on only while an offer is showing or he is on a job (P-01, speed b2). Waiting online the
+ * phone may sleep like any other: a new offer still rings through the push alert, and an always-lit screen
+ * was the biggest battery cost of a long wait.
+ */
+export function keepScreenOn(s: { activeTripId: string | null } | undefined, offerShowing = false): boolean {
+  return offerShowing || Boolean(s?.activeTripId);
 }
 
 /**
@@ -172,12 +186,13 @@ export interface JobAction {
 
 export function jobAction(stop: Pick<PartnerJobStop, 'type' | 'state' | 'collectIqd'>, vertical: Vertical): JobAction {
   const ride = isRide(vertical);
+  const errand = vertical === 'errand';
   const pickup = stop.type === 'pickup' || stop.type === 'shop';
   const arrived = stop.state === 'arrived';
   if (pickup) {
     return arrived
-      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : 'partner.action_picked_up', title: ride ? 'partner.task_go_rider' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
-      : { kind: 'arrive', label: ride ? 'partner.action_arrived_rider' : 'partner.action_arrived_pickup', title: ride ? 'partner.task_go_rider' : 'partner.task_go_pickup', needsCash: false, wantsPhoto: false };
+      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : errand ? 'partner.action_bought_list' : 'partner.action_picked_up', title: ride ? 'partner.task_wait_rider' : errand ? 'partner.task_at_shops' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
+      : { kind: 'arrive', label: ride ? 'partner.action_arrived_rider' : errand ? 'partner.action_arrived_shop' : 'partner.action_arrived_pickup', title: ride ? 'partner.task_go_rider' : errand ? 'partner.task_go_shops' : 'partner.task_go_pickup', needsCash: false, wantsPhoto: false };
   }
   return arrived
     ? {

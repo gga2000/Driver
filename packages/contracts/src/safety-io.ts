@@ -231,7 +231,7 @@ export const SafetyIncidentCase = SafetyIncidentSummary.extend({
   timeline: z.array(SafetyEntry),
   outcome: SafetyOutcome.nullable(),
   resolution: z.string().nullable(),
-  /** The live-location link the emergency contact got (full URL); null when there is no contact. */
+  /** The live-location link the emergency contact got (full URL); null when there is no contact or no link address is set. */
   shareUrl: z.string().nullable(),
   serverNow: z.coerce.date(),
 });

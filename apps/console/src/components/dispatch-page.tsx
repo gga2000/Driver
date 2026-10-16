@@ -127,7 +127,8 @@ export function DispatchPage() {
     }
     return top;
   }, [selectedCard, tripsById, pins, dropped]);
-  const assignable = Boolean(selectedCard && selectedCard.status !== 'cancelled');
+  // A courier holds an assigned job: it is taken off him first («شيل الطلب منه»), never offered over him.
+  const assignable = Boolean(selectedCard && selectedCard.status !== 'cancelled' && !selectedCard.assignedDriverId);
   const picked = desk.pick >= 0 ? candidates[desk.pick] : undefined;
 
   const names = useNames({ people: candidates.map((c) => c.driverId) });
@@ -153,7 +154,7 @@ export function DispatchPage() {
             setForce(null);
             setDesk((d) => ({ ...d, pick: -1 }));
             setDropped(null);
-            toast({ title: t('console.q_sent_toast', { name }), ...(out.warnings.length ? { body: t('console.override_warnings', { list: out.warnings.join('، ') }) } : {}), tone: 'ok' });
+            toast({ title: t('console.q_sent_toast', { name }), ...(out.warnings.length ? { body: t('console.override_warnings', { list: out.warnings.join(t('console.list_sep')) }) } : {}), tone: 'ok' });
           },
           onError: (err) => {
             if (!reason) toast({ title: t('console.q_send_failed', { name }), body: err.message, tone: 'bad' });

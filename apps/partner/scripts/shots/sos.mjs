@@ -7,8 +7,14 @@
 // Works against a build without the button too (the "before" set): hold shots are skipped.
 export const name = 'sos';
 
-/** Presses the SOS button and keeps it held for `ms` (pointer events, like a thumb). */
+/** Presses the SOS button and keeps it held for `ms` (pointer events, like a thumb). The redesign (r1)
+ * keeps it in the safety sheet behind the shield, so the shield opens first when it is there. */
 async function hold(p, ms) {
+  if (!(await has(p, 'sos-button')) && (await has(p, 'safety-button'))) {
+    await p.byTestId('safety-button').click();
+    await p.wait('sos-button');
+    await p.page.waitForTimeout(500);
+  }
   const box = await p.byTestId('sos-button').boundingBox();
   if (!box) throw new Error('sos-button has no box');
   await p.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -43,7 +49,7 @@ export default async function run(s) {
   await c.wait('job-action');
   await c.shot('job', { settle: 1500 });
 
-  if (await has(c, 'sos-button')) {
+  if ((await has(c, 'sos-button')) || (await has(c, 'safety-button'))) {
     // The hold, half way: the ring fills in the danger colour, the label counts down.
     await hold(c, 1600);
     await c.shot('hold', { settle: 0 });
@@ -77,7 +83,7 @@ export default async function run(s) {
   const tk = await s.signIn('0770 111 0002');
   await s.demoPost('/demo/offer?who=tuktuk&kind=ride');
   await tk.wait('offer', 15_000);
-  await tk.byTestId('offer-accept').click();
+  await tk.hold('offer-accept');
   await tk.page.waitForTimeout(1200);
   await tk.goto('/job');
   await tk.wait('job-action');

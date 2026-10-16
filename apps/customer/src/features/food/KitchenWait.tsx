@@ -1,6 +1,7 @@
 import { View } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import { Avatar, Card, CountdownRing, Icon, SketchScene, Text, useTheme } from '@driver/ui';
+import { placeWord, type PlaceKind } from '@/features/track/place-kind';
 import { useT } from '@/lib/i18n';
 import type { PersonLines, WaitingStep } from './kitchen-moment';
 
@@ -48,7 +49,8 @@ export function KitchenMark({ startedAt, acceptMs, accepted, animate }: { starte
             <Icon name="check" size={30} color="successText" strokeWidth={3} />
           </Animated.View>
         ) : (
-          <CountdownRing mode="accept" startedAt={startedAt} durationMs={acceptMs} size={MEDALLION - 10} strokeWidth={5} />
+          // «1:29» reads as time; a bare «89» didn't say what it counted (VIS-31).
+          <CountdownRing mode="accept" startedAt={startedAt} durationMs={acceptMs} format="clock" size={MEDALLION - 10} strokeWidth={5} />
         )}
       </View>
     </View>
@@ -58,12 +60,12 @@ export function KitchenMark({ startedAt, acceptMs, accepted, animate }: { starte
 const STEP_LABEL = { sent: 'kitchen.step_sent', confirm: 'kitchen.step_confirm', cooking: 'kitchen.step_cooking' } as const;
 
 /** «وصل للمطعم ✓ · المطعم يأكّد · يتحضّر»: the three real steps, current one in the live colour. */
-export function WaitingSteps({ steps }: { steps: WaitingStep[] }) {
+export function WaitingSteps({ steps, kind = 'restaurant' }: { steps: WaitingStep[]; kind?: PlaceKind }) {
   const theme = useTheme();
   const t = useT();
   const spoken = steps
     .filter((s) => s.state !== 'todo')
-    .map((s) => t(s.state === 'done' ? 'kitchen.step_done_a11y' : 'kitchen.step_current_a11y', { step: t(STEP_LABEL[s.key]) }))
+    .map((s) => t(s.state === 'done' ? 'kitchen.step_done_a11y' : 'kitchen.step_current_a11y', { step: t(placeWord(STEP_LABEL[s.key], kind)) }))
     .join('، ');
   return (
     <View
@@ -98,7 +100,7 @@ export function WaitingSteps({ steps }: { steps: WaitingStep[] }) {
               <View style={{ flex: 1, height: 2, backgroundColor: i === steps.length - 1 ? 'transparent' : done ? theme.colors.live : theme.colors.border }} />
             </View>
             <Text variant="caption" weight={current ? 700 : 400} color={done || current ? 'liveText' : 'textMuted'} align="center">
-              {t(STEP_LABEL[s.key])}
+              {t(placeWord(STEP_LABEL[s.key], kind))}
             </Text>
           </View>
         );

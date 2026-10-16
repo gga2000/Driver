@@ -6,26 +6,47 @@ import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
 import { HeaderBack } from '@/features/food/HeaderBack';
-import { usePushRegistration } from '@/features/notify/usePush';
+import { usePushLaunch, usePushRegistration } from '@/features/notify/usePush';
 import { LockScreenPass, lockScreenPassSupported } from '@/features/rajaa/lockscreen/useLockScreenPass';
 import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lockscreen/useLockScreenOrder';
+import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
+import { CachedPhoto } from '@/lib/cached-photo';
+import { LiteHint } from '@/features/data-saver/LiteHint';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
 import { SystemBanner } from '@/components/SystemBanner';
+import { UpdateRequired } from '@/components/UpdateRequired';
+import { useUpdateRequired } from '@/lib/app-update';
+import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { resolveGuard, returnSpent } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
-import { useT } from '@/lib/i18n';
+import { useEnglishWords, useT } from '@/lib/i18n';
 import { profile, useProfile } from '@/lib/profile';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
+import { useScreenSpeed } from '@/lib/speed';
+import { noteScreenError, startWebBuild } from '@/lib/web-build';
 
 enforceRtl();
+// Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
+startCrashReports();
+// Website only: the offline worker and never staying on an old version (src/lib/web-build.ts).
+startWebBuild();
+
+/** The root boundary's reporter: also reloads the website when a screen's code didn't download. */
+const boundaryReporter: Pick<typeof crashReporter, 'capture'> = {
+  capture: (error, context) => {
+    noteScreenError(error);
+    return crashReporter.capture(error, context);
+  },
+};
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
 const chrome = createTheme('istikan');
@@ -42,6 +63,8 @@ const FONT_HOLD_MAX_MS = 2500;
  */
 export default function RootLayout() {
   const fontsLoaded = useAppFonts();
+  // CORE-05: the server turned this build away; one «حدّث التطبيق» page replaces every screen.
+  const updateRequired = useUpdateRequired();
   const { locale } = useProfile();
   // Fonts load behind the splash; a slow device stops waiting after FONT_HOLD_MAX_MS and swaps in place.
   const [fontWaitOver, setFontWaitOver] = useState(false);
@@ -76,16 +99,26 @@ export default function RootLayout() {
           // Native direction comes from I18nManager (needs a restart to flip); the web flips live.
           direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}
         >
-          <ToastProvider bottomOffset={96}>
-            <ApiProvider>
-              <StatusBar style="dark" />
-              {/* Launch status banner from the Console (system.banner), above every screen. */}
-              <SystemBanner />
-              {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
-              <SeasonWatcher />
-              <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />
-            </ApiProvider>
-          </ToastProvider>
+          {/* A render crash anywhere shows «صار خلل» with a retry instead of a white screen. */}
+          <CrashBoundary reporter={boundaryReporter} locale={locale} onReset={disarmDevCrash}>
+            <PhotoImageProvider component={CachedPhoto}>
+            <ToastProvider bottomOffset={96}>
+              <ApiProvider>
+                <StatusBar style="dark" />
+                <DevCrashProbe />
+                {/* Launch status banner from the Console (system.banner), above every screen. */}
+                <SystemBanner />
+                {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
+                <SeasonWatcher />
+                {/* An SOS pressed offline is sent even after the app was closed (FLOW-05). */}
+                <SosOutboxSync />
+                {/* The first slow connection offers low-data mode once (speed g4). */}
+                <LiteHint />
+                {updateRequired ? <UpdateRequired /> : <RootNavigator fontsPending={!fontsLoaded && !fontWaitOver} />}
+              </ApiProvider>
+            </ToastProvider>
+            </PhotoImageProvider>
+          </CrashBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -104,7 +137,11 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   const segments = useSegments();
   const pathname = usePathname();
   const router = useRouter();
-  const ready = status !== 'loading' && prof.loaded;
+  // The website loads English only when picked (speed w5): wait for it, so an English reader never sees Arabic first.
+  const words = useEnglishWords(prof.locale);
+  const ready = status !== 'loading' && prof.loaded && words;
+  // App start and screen open times from real phones: off until a Sentry DSN is set (src/lib/speed.ts).
+  useScreenSpeed(segments, ready && !fontsPending);
 
   useEffect(() => {
     if (!ready) return;
@@ -117,6 +154,8 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
     if (target.remember) void profile.setReturnTo(target.remember);
     router.replace(target.to as never);
   }, [ready, status, prof.setupPending, prof.welcomed, prof.returnTo, segments, pathname, router]);
+  // CORE-08: a push tapped while the app was closed opens its screen once the guard has nothing to redirect.
+  usePushLaunch(ready && status === 'signedIn' && !resolveGuard({ status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo }));
 
   return (
     <View style={{ flex: 1, backgroundColor: chrome.colors.bg }}>
@@ -141,6 +180,9 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         {/* Search and the full restaurant list (audit C-01, C-02): public, like home and menus. */}
         <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade' }} />
         <Stack.Screen name="restaurants" options={{ headerShown: false }} />
+        {/* The food doors (أبواب الأكل): the food home and one door's shops. Public, like home. */}
+        <Stack.Screen name="food/index" options={{ headerShown: false }} />
+        <Stack.Screen name="food/[door]" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="household" options={{ headerShown: false }} />
         <Stack.Screen name="topup" options={{ title: t('topup.title'), headerLeft: () => <HeaderBack /> }} />
@@ -161,17 +203,28 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="regular/edit" options={{ title: t('habits.edit_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
         <Stack.Screen name="regular/[id]" options={{ title: t('habits.occ_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
+        {/* Food carts «عربانات» (2026-10-11): the list, a cart, a walk-over ticket, the carts on the map. */}
+        <Stack.Screen name="food-carts/index" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/ticket/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/map" options={{ headerShown: false }} />
         <Stack.Screen name="drivers" options={{ title: t('habits.fav_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
         {/* SOS: the emergency contact's live-location page (public, signed token). */}
         <Stack.Screen name="sos/[token]" options={{ headerShown: false }} />
+        {/* طرود: the send sheet, the parcel's page, and the receiver's door page (public, by the link's token). */}
+        <Stack.Screen name="parcel/index" options={{ headerShown: false }} />
+        <Stack.Screen name="parcel/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="p/[token]" options={{ headerShown: false }} />
         {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
         {/* Opened from a push with no history, every الرجعة screen still has a way back (C-26, A-02). */}
         <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title'), headerLeft: () => <HeaderBack /> }} />
         <Stack.Screen name="rajaa/departure/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/booking/[id]" options={{ title: t('rajaa.book_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
-        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        {/* p4: the hold folds into the ticket: the pass rises in place of the pay screen, no blank jump. */}
+        <Stack.Screen name="rajaa/pass/[id]" options={{ title: t('intercity.boarding_pass'), animation: 'fade_from_bottom', headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
+        <Stack.Screen name="rajaa/driver/[id]" options={{ title: t('rajaa.profile_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/demand" options={{ title: t('demand.post_title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
         <Stack.Screen name="rajaa/request" options={{ title: t('request.title'), headerLeft: () => <HeaderBack fallback="/rajaa" /> }} />
       </Stack>

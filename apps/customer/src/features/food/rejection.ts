@@ -29,6 +29,8 @@ export function rejectionReason(code: string | null | undefined): Copy | null {
       return { key: 'kitchen.reason_closed' };
     case 'merchant_timeout':
       return { key: 'kitchen.reason_timeout' };
+    case 'partial_timeout':
+      return { key: 'kitchen.reason_partial_timeout' };
   }
   if (c.startsWith('other:')) {
     const words = c.slice('other:'.length).trim();

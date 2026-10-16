@@ -6,6 +6,9 @@ import { ledgerHarness } from '../ledger/test-harness.js';
 import { InMemoryReferralsRepository, ReferralsService } from '../referrals/index.js';
 import { HOME, ordersHarness } from './test-harness.js';
 
+/** The rules once Ali approves the invite amounts (M-5): the referral switch on, nothing else changed. */
+const referralOn = { ...AZIZIYAH_MONEY_RULES, referral: { ...AZIZIYAH_MONEY_RULES.referral, enabled: true } };
+
 /**
  * Invite as a gift (joy g2): the referral rule was in the ledger (decisions §1) but no closed order
  * ever named the inviter, so it could never pay. The orders module now sends `referredBy`; the
@@ -26,12 +29,12 @@ describe('the closed order names the inviter, and the existing rule pays', () =>
 
   it('sends referredBy for an invited friend only; two qualifying cash orders unlock 200 points each', async () => {
     const h = ordersHarness();
-    const lh = ledgerHarness();
+    const lh = ledgerHarness({ rules: referralOn });
     const referrals = new ReferralsService(
       new InMemoryReferralsRepository(),
       { firstNamesFor: async () => ({}) },
       { eventsFor: async () => [], hasGroup: (id) => lh.ledger.hasGroup(id) },
-      AZIZIYAH_MONEY_RULES,
+      referralOn,
       () => 0,
       new FakeClock(),
       { partsOf: async (id) => ({ phoneHash: `ph_${id}`, deviceMarks: [`dev_${id}`], homeMarks: [] }) },
@@ -59,12 +62,12 @@ describe('the closed order names the inviter, and the existing rule pays', () =>
 
   it('a friend on the inviter’s device is never sent as referred: no points after two orders', async () => {
     const h = ordersHarness();
-    const lh = ledgerHarness();
+    const lh = ledgerHarness({ rules: referralOn });
     const referrals = new ReferralsService(
       new InMemoryReferralsRepository(),
       { firstNamesFor: async () => ({}) },
       { eventsFor: async () => [], hasGroup: (id) => lh.ledger.hasGroup(id) },
-      AZIZIYAH_MONEY_RULES,
+      referralOn,
       () => 0,
       new FakeClock(),
       { partsOf: async (id) => ({ phoneHash: `ph_${id}`, deviceMarks: ['the_same_phone_in_the_house'], homeMarks: [] }) },

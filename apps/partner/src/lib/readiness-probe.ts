@@ -74,3 +74,8 @@ export function onForeground(cb: () => void): () => void {
   document.addEventListener('visibilitychange', h);
   return () => document.removeEventListener('visibilitychange', h);
 }
+
+/** The web can't tell whether the phone saves battery on the app. */
+export async function batterySaverOn(): Promise<boolean> {
+  return false;
+}

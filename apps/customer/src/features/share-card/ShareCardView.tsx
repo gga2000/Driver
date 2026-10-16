@@ -1,7 +1,8 @@
 import type { Ref } from 'react';
 import { View } from 'react-native';
 import Svg from 'react-native-svg';
-import { DishDrawing, SKETCH, SketchScene, Text, useTheme } from '@driver/ui';
+import { SKETCH, SketchScene, Text, useTheme } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import { useT } from '@/lib/i18n';
 import { CARD } from './layout';
 import type { ShareCardModel } from './share-card';

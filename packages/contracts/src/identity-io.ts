@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DeviceInfo, OtpPurpose, RoleGrant, RoleKind, TokenPair } from './auth.js';
+import { DeviceInfo, RoleGrant, RoleKind, TokenPair } from './auth.js';
 
 /** Who the emergency contact is to the person (shown to the safety desk when it calls them). */
 export const EmergencyRelation = z.enum(['mother', 'father', 'spouse', 'sibling', 'child', 'relative', 'friend', 'other']);
@@ -90,10 +90,17 @@ export type OtpChannel = z.infer<typeof OtpChannel>;
 
 export const RequestOtpInput = z.object({
   phone: z.string().min(7).max(20),
-  purpose: OtpPurpose.default('login'),
-  /** Absent = SMS. */
+  /**
+   * Only sign-in codes go out from this public endpoint; guardian-consent and phone-change codes are
+   * sent by their own signed-in flows (audit SEC-17).
+   */
+  purpose: z.literal('login').default('login'),
+  /**
+   * Absent = the server's choice: SMS, or WhatsApp while the day's SMS budget is spent. An explicit
+   * `sms` ("ابعث برسالة") always tries SMS.
+   */
   channel: OtpChannel.optional(),
-  /** The requesting app's device: OTP requests are rate-limited per device (and per IP) — `rate_limited`. */
+  /** The requesting app's device: OTP requests are limited per number, device and account — `rate_limited`. */
   device: DeviceInfo.optional(),
 });
 /** Where a public request came from, as the transport saw it (client IP for per-IP rate limits). */
@@ -102,6 +109,8 @@ export const RequestOtpOutput = z.object({
   phoneMasked: z.string(),
   /** The channel the code went out on (absent from older APIs = SMS). */
   channel: OtpChannel.optional(),
+  /** Whether a code can go by WhatsApp: the code screen offers «دزلي على واتساب» only when true (absent from older APIs = offered). */
+  whatsapp: z.boolean().optional(),
   expiresAt: z.coerce.date(),
   resendAfterSec: z.number().int(),
 });
@@ -125,6 +134,10 @@ export const LogoutInput = z.object({ refreshToken: z.string().min(16).optional(
 
 export const GrantRoleInput = z.object({ personId: z.string(), kind: RoleKind, orgId: z.string().optional() });
 export const RevokeRoleInput = GrantRoleInput;
+
+/** Admins: «طلّعه من كل الأجهزة», every session of one person, on every device. */
+export const EndAllSessionsInput = z.object({ personId: z.string().min(1) });
+export const EndAllSessionsOutput = z.object({ ended: z.number().int().nonnegative() });
 
 export const LinkGuardianInput = z.object({
   wardPhone: z.string().min(7).max(20).optional(),
@@ -151,6 +164,10 @@ export type ChildView = z.infer<typeof ChildView>;
 export const DevLastOtpInput = z.object({ phone: z.string().min(7).max(20) });
 export const DevLastOtpOutput = z.object({ phoneMasked: z.string(), code: z.string().nullable() });
 
+/** Staging only: the fixed code of a staging test number (0770 000 01xx); null anywhere else. */
+export const StagingTestCodeInput = z.object({ phone: z.string().min(7).max(20) });
+export const StagingTestCodeOutput = z.object({ code: z.string().nullable() });
+
 export type Actor = { personId: string; sessionId: string; deviceId?: string };
 
 /** What the identity module exposes to the transport. Implemented by apps/api, consumed by the router. */
@@ -162,6 +179,8 @@ export interface IdentityPort {
   me(actor: Actor): Promise<MeView>;
   updateProfile(actor: Actor, input: UpdateProfileInput): Promise<MeView>;
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
+  /** Live (unfrozen) role kinds in one read; the role gate uses it so a check is one query, not one per role. */
+  activeRoles?(personId: string): Promise<RoleKind[]>;
   grantRole(actor: Actor, input: z.infer<typeof GrantRoleInput>): Promise<RoleGrant>;
   revokeRole(actor: Actor, input: z.infer<typeof RevokeRoleInput>): Promise<void>;
   linkGuardian(actor: Actor, input: z.infer<typeof LinkGuardianInput>): Promise<GuardianLinkView>;
@@ -170,6 +189,7 @@ export interface IdentityPort {
   changePhoneStart(actor: Actor, input: z.infer<typeof ChangePhoneStartInput>): Promise<z.infer<typeof ChangePhoneStartOutput>>;
   changePhoneConfirm(actor: Actor, input: z.infer<typeof ChangePhoneConfirmInput>): Promise<MeView>;
   devLastOtp(phone: string): Promise<z.infer<typeof DevLastOtpOutput>>;
+  stagingTestCode(phone: string): Promise<z.infer<typeof StagingTestCodeOutput>>;
   registerChild(actor: Actor, input: z.infer<typeof RegisterChildInput>): Promise<z.infer<typeof RegisterChildOutput>>;
   /** The guardian's own children with their names (each read logged in the vault access log). */
   myChildren(actor: Actor): Promise<ChildView[]>;

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { TodayPot, Usual } from '@driver/contracts';
+import type { Usual } from '@driver/contracts';
 import { formatClock } from '@driver/i18n';
 import { homeContext } from './context';
-import { fridayAhead, fridayDay, fridaySlot, fridayTitleKey, potUntilAt, timesKey, usualNow, usualReason, visiblePots } from './habits';
+import { fridayAhead, fridayDay, fridaySlot, fridayTitleKey, potUntilAt, timesKey, usualNow, usualReason } from './habits';
 
 /** Baghdad wall clock → instant. 2026-10-08 is a Thursday, 2026-10-09 a Friday. */
 const at = (local: string) => new Date(`${local.replace(' ', 'T')}:00+03:00`);
@@ -99,15 +99,6 @@ describe('copy helpers', () => {
   });
   it('a pot’s «لحد» time is today on the city clock', () => {
     expect(clock(potUntilAt('16:00', at('2026-10-08 12:00')))).toBe('4:00');
-  });
-});
-
-describe('visiblePots', () => {
-  const pot = (open: boolean, id: string): TodayPot => ({ merchantOrgId: id, restaurantName: id, restaurantOpen: open, opensAt: null, dish: { id, name: id, priceIqd: 1000, photoUrl: null }, note: null, until: null, followed: false });
-  it('open kitchens only, in the server’s order, at most six', () => {
-    expect(visiblePots([pot(true, 'a'), pot(false, 'b'), pot(true, 'c')]).map((p) => p.merchantOrgId)).toEqual(['a', 'c']);
-    expect(visiblePots(undefined)).toEqual([]);
-    expect(visiblePots(Array.from({ length: 9 }, (_, i) => pot(true, `k${i}`)))).toHaveLength(6);
   });
 });
 

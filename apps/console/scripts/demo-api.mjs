@@ -27,7 +27,10 @@
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
 // check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
 // → a الرجعة driver types one rider's seat PIN on another rider's seat (the cross-use row on the same
-// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat.
+// strip, with the car's PIN history); `kind=wrong`: three wrong PINs on one seat. POST /demo/stuck-posting
+// → a money posting failed for good in the outbox (the money strip, the System page's requeue). Five riders' lines
+// about two الرجعة drivers wait in «كلام الركاب» (/reviews), one of them already hidden.
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -49,10 +52,10 @@ process.env.ZONES_STORE_FILE ??= fileURLToPath(new URL('../../../.studio/zones-p
 const { createApp } = await load('bootstrap.js');
 const { IdentityService } = await load('modules/identity/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
-const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
-const { OrdersService } = await load('modules/orders/index.js');
+const { CatalogService, CATALOG_REPOSITORY, seedStorefronts } = await load('modules/catalog/index.js');
+const { OrdersService, OrdersStaffService } = await load('modules/orders/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
-const { LedgerService, LedgerFacade } = await load('modules/ledger/index.js');
+const { LedgerService, LedgerFacade, CapsService } = await load('modules/ledger/index.js');
 const { DriverAccountService } = await load('modules/driver-account/index.js');
 const { OpsService } = await load('modules/ops/index.js');
 const { FleetService, FLEET_REPOSITORY } = await load('modules/fleet/index.js');
@@ -66,6 +69,13 @@ const { SimulatorService } = await load('modules/simulator/index.js');
 const { AZIZIYAH_RESTAURANTS } = await import(pathToFileURL(requireFromApi.resolve('@driver/contracts/seeds')).href);
 
 const app = await createApp();
+// The studio opens every service so all screens stay reviewable; launch day itself is the city file's
+// `launchedVerticals` (food, taxi, tuktuk). DEMO_LAUNCH_SCOPE=1 keeps the launch-day scope instead.
+if (process.env.DEMO_LAUNCH_SCOPE !== '1') {
+  const { ConfigService } = await load('modules/config/index.js');
+  const config = app.get(ConfigService);
+  config.setLaunchedVerticals('aziziyah', config.city('aziziyah').verticals.map((v) => v.vertical));
+}
 const people = {};
 app.use('/demo/seed', (_req, res) => {
   res.setHeader('content-type', 'application/json');
@@ -105,6 +115,32 @@ app.use('/demo/pin-alert', async (req, res) => {
     if (!raiseDemoPinAlert) throw new Error('still seeding');
     const kind = new URL(req.originalUrl ?? req.url ?? '/', 'http://x').searchParams.get('kind') === 'wrong' ? 'wrong' : 'cross';
     res.end(JSON.stringify(await raiseDemoPinAlert(kind)));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/stuck-posting → {outboxId}: a money posting the ledger refused ten times, failed for good —
+// the red money strip for finance and admin on every page, and the failed row with «رجّعه للطابور» on
+// the System page. The demo's posting keeps refusing, so a requeued row fails again on its next try.
+let stuckSubscribed = false;
+app.use('/demo/stuck-posting', async (_req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    const events = app.get(EventsService);
+    if (!stuckSubscribed) {
+      stuckSubscribed = true;
+      events.subscribe('ledger:demo.posting', ['demo.posting'], async () => {
+        throw new Error('demo: the ledger refused this posting');
+      });
+    }
+    const ev = await events.emit(undefined, { type: 'demo.posting', actorId: 'system:demo', occurredAt: new Date(), payload: {} }, { name: 'order', id: 'demo_stuck' });
+    await events.drain();
+    // Its ten tries spread over 17 minutes: the demo marks it failed at once.
+    const repo = events['repo'];
+    const row = (await repo.outbox({ eventId: ev.id }))[0];
+    await repo.updateOutbox(row.id, { status: 'failed', attempts: 10, lastError: 'ledger:demo.posting: demo: the ledger refused this posting' });
+    res.end(JSON.stringify({ outboxId: row.id }));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
@@ -173,19 +209,21 @@ async function person(phone, name, roles = []) {
 
 // ───────────────────────── photos ─────────────────────────
 
-/** A demo image as JPEG bytes: an HTML card rendered by Chromium when available, else a 1-pixel JPEG. */
+/**
+ * A demo image as JPEG bytes: an HTML card rendered by Chromium when available (the workspace's
+ * Playwright by default; PLAYWRIGHT_MODULE / CHROMIUM_PATH override), else a drawn blank card. A
+ * 1-pixel black JPEG used to stand in here, and the approvals preview showed it as a black box (b2).
+ */
 let browser = null;
-if (process.env.PLAYWRIGHT_MODULE) {
-  try {
-    const { chromium } = await import(process.env.PLAYWRIGHT_MODULE);
-    browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
-  } catch (err) {
-    console.warn('demo photos: no browser, plain bytes', String(err).slice(0, 120));
-  }
+try {
+  const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? '@playwright/test');
+  browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
+} catch (err) {
+  console.warn('demo photos: no browser, a drawn blank card instead', String(err).slice(0, 120));
 }
-const TINY_JPEG = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
+const BLANK_CARD_JPEG = Buffer.from('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', 'base64');
 async function render(html, w = 640, h = 420) {
-  if (!browser) return TINY_JPEG;
+  if (!browser) return BLANK_CARD_JPEG;
   const page = await browser.newPage({ viewport: { width: w, height: h } });
   await page.setContent(`<!doctype html><html dir="rtl"><body style="margin:0;font-family:'IBM Plex Sans Arabic','Noto Sans Arabic',sans-serif">${html}</body></html>`);
   const buf = await page.screenshot({ type: 'jpeg', quality: 82 });
@@ -436,7 +474,7 @@ await ops.merchantOnboarding(actor(haider), {
   name: 'فلافل أبو علي',
   type: 'restaurant',
   contact: { name: 'أبو علي', phone: '07730000001' },
-  location: { zoneKey: 'hashimi' },
+  location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
   menuPhotoUploadIds: [await upload(haider, await render(menu('فلافل أبو علي', [['لفة فلافل', '1,000'], ['صمونة فلافل', '750'], ['صحن فلافل', '3,000'], ['عمبة إضافية', '250']])))],
   shopPhotoUploadId: await upload(haider, await render(scene('فلافل أبو علي', 'شارع المحدود · الهاشمي', '#e9a65b', '#d9c7a8'))),
   notes: 'يفتح من 4 العصر لحد 12 بالليل',
@@ -461,6 +499,21 @@ await get(MerchantService).setPickupSpot(actor(khalidOwner), {
   photoIds: [await upload(khalidOwner, pickupWindowPng(), 'image/png')],
 });
 people.khalid = { phone: '07740000001', id: khalidOwner, storeId: khalid.orgId, stores: `/stores/${khalid.orgId}` };
+// p4 same-day look (Console › الموافقات): two shops put up their own dish photos today. Khalid's
+// kebab plate went up this morning (past the 8 h mark, so it shows late), then his tikka wrap and
+// الشام's shawarma plate. Each photo is a picture from the dish library, uploaded as the shop's own.
+{
+  const sham = stores.find((s) => s.seed.key === 'sham');
+  const shamOwner = await person('07740000002', 'أبو سامر', [{ kind: 'merchant_owner', orgId: sham.orgId }]);
+  const shopPhoto = async (owner, store, key, file) => {
+    const uploadId = await upload(owner, readFileSync(join(apiDir, 'media/food', file)), 'image/webp');
+    await get(MerchantAdminService).menuReplacePhoto(actor(owner), { merchantOrgId: store.orgId, itemId: store.itemIds.get(key), uploadId });
+  };
+  await shopPhoto(khalidOwner, khalid, 'kebab_plate', 'lib-kebab-1.webp');
+  await app.get(CATALOG_REPOSITORY, { strict: false }).updateItem(khalid.itemIds.get('kebab_plate'), { photoReviewPendingAt: new Date(Date.now() - 9 * 3_600_000) });
+  await shopPhoto(khalidOwner, khalid, 'tikka_wrap', 'lib-tikka-2.webp');
+  await shopPhoto(shamOwner, sham, 'shawarma_plate', 'lib-shawarma-1.webp');
+}
 // A chat on the order behind the WhatsApp ticket, read-only on /orders/[id] and the desk.
 try {
   const { ChatService } = await load('modules/chat/index.js');
@@ -476,6 +529,13 @@ const fleetOwner = await person('07750000001', 'أبو حسنين');
 const fleetOrg = await orgs.create({ type: 'fleet', name: 'تكاتك الربيعي', cityId: 'aziziyah', ownerId: fleetOwner });
 await identity.grantRole(SYSTEM, { personId: fleetOwner, kind: 'fleet_owner', orgId: fleetOrg.id });
 await get(FleetService).addVehicle(actor(fleetOwner), { fleetOrgId: fleetOrg.id, plate: 'واسط 48213', vehicleClass: 'tuktuk', model: 'باجاج', colour: 'red' });
+// Starter commission (Ali 2026-10-11): a restaurant added 50 days ago with no tier on file, so still on
+// the 5 % starter rate — the finance desk's «سعر البداية قرّب يخلص» reminder and its store page card.
+{
+  const { ORGS_REPOSITORY } = await load('modules/orgs/index.js');
+  const owner = await person('07740000003', 'أبو زهراء');
+  await app.get(ORGS_REPOSITORY, { strict: false }).create({ type: 'restaurant', name: 'فلافل الزهراء', cityId: 'aziziyah', members: [{ personId: owner, role: 'member', spendingLimitIqd: null }], createdAt: new Date(Date.now() - 50 * 86_400_000) });
+}
 
 // ───────────────────────── support desk ─────────────────────────
 
@@ -497,7 +557,12 @@ const late = queue.find((r) => r.orderId === placed[0].id);
 if (late) await support.reply(actor(zainab), { ticketId: late.id, text: 'اتصلت بالمطعم: الطلب طلع بوقته، التأخير من الدليفري بالطريق. نعوّضه رصيد ونحسبها على الدليفري.', internal: true });
 const missing = queue.find((r) => r.orderId === placed[7].id);
 if (missing) await support.reply(actor(ali), { ticketId: missing.id, text: 'هلا بيك، شفنا طلبك. الصمون والطرشي ناقصين من المطعم، دا نرجعلك سعرهم هسة.', internal: false });
-await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: customers[5], orderId: placed[5].id });
+// The safety report names a delivered order, so its courier shows (and can be paused, r6).
+const incidentOrder = await (async () => {
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  return [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].find((o) => o.state === 'delivered' && o.type === 'food' && !o.id.endsWith('_y')) ?? placed[5];
+})();
+await support.open(actor(ali), { cityId: 'aziziyah', kind: 'incident', channel: 'phone', subject: 'الدليفري سايق بسرعة بالدربونة', note: 'جارهم اتصل: دراجة الطلب كادت تدعم طفل يم المدرسة', customerId: incidentOrder.ordererId, orderId: incidentOrder.id });
 // «كلّم الدعم»: a customer wrote in his order's support chat (it opens a chat case by itself); زينب
 // answered into the chat, and he wrote again. The case reads as one conversation on /support.
 try {
@@ -515,6 +580,23 @@ try {
   people.supportChat = { orderId: placed[11].id, customer: customers[11], ticketId: chatCase?.id ?? null, desk: chatCase ? `/support/${chatCase.id}` : null };
 } catch (err) {
   console.warn('demo support chat skipped:', err?.message ?? err);
+}
+// A refund over زينب's 10,000 a day: she already gave 5,000 today, so the next 6,000 posts nothing and
+// waits on /approvals for finance or an admin (علي can approve it; زينب sees "your request" and can
+// take it back).
+try {
+  // placed[i] belongs to customers[i] (the first six); 3 and 4 have no other case.
+  const [a, b] = [placed[3], placed[4]];
+  const [ca, cb] = [customers[3], customers[4]];
+  if (a && b) {
+    const first = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'complaint', channel: 'phone', subject: 'الصمون ناقص', customerId: cb, orderId: b.id });
+    await support.refund(actor(zainab), { ticketId: first.id, amountIqd: 5_000, method: 'wallet', faultParty: 'merchant', idempotencyKey: 'demo-refund-within-limit' });
+    const tk = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'complaint', channel: 'phone', subject: 'الطلب وصل بارد ومكبوب', note: 'اتصلت زعلانة، الكيس مفتوح والأكل بارد', customerId: ca, orderId: a.id });
+    await support.refund(actor(zainab), { ticketId: tk.id, amountIqd: 6_000, method: 'wallet', faultParty: 'courier', note: 'الدليفري وگع بيه الكيس، اعترف', idempotencyKey: 'demo-refund-over-limit' });
+    people.refundWaiting = `/support/${tk.id}`;
+  }
+} catch (err) {
+  console.warn('demo refund approval skipped:', err?.message ?? err);
 }
 const solved = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'question', channel: 'in_app', subject: 'شلون أشحن المحفظة كاش؟', customerId: customers[3] });
 await support.resolve(actor(zainab), { ticketId: solved.id, resolution: 'شرحناله الشحن عن طريق المندوب أو وكيل' });
@@ -546,6 +628,16 @@ for (const c of deskCouriers) {
   }
   await ledger.record({ type: 'cash_collected', amount: c.held + c.settled, fromAccount: `cash:${id}`, toAccount: `customer:${customers[n]}`, occurredAt: new Date(), idempotencyKey: `demo:cash:${id}` });
   if (c.settled) await ledger.record({ type: 'driver_settlement', amount: c.settled, fromAccount: 'bank', toAccount: `cash:${id}`, occurredAt: new Date(), memo: `ops_round:D-DEMO-${n}`, idempotencyKey: `demo:settle:${id}` });
+}
+// Today list: the desk's cash above went in one line at a time (no cap watch on single lines), so
+// say once, with his real numbers, who is over his cap now (the row a real hand-in closes).
+{
+  const caps = get(CapsService);
+  for (const c of deskCouriers) {
+    const st = await caps.status(c.id);
+    if (st.overCap)
+      await events.emit(undefined, { type: 'courier.cash_over_cap', actorId: 'system', occurredAt: new Date(), idempotencyKey: `demo:cap:${c.id}`, payload: { courierId: c.id, cashIqd: st.owedIqd, capIqd: st.capIqd, cityId: 'aziziyah' } }, { name: 'driver', id: c.id });
+  }
 }
 // Muntadhar's licence runs out in 9 days: /drivers shows it under "أوراقه تنتهي".
 {
@@ -593,6 +685,10 @@ const keepOnline = async () => {
 await keepOnline();
 setInterval(() => void keepOnline(), 20_000).unref?.();
 
+// Trips: the phone bookings and the SOS demo below both use it.
+const { TripsService } = await load('modules/trips/index.js');
+const trips = get(TripsService);
+
 // ───────────────────────── حجز بالتلفون ─────────────────────────
 // Callers without the app, booked by زينب and علي: rides of the callers' own (new) accounts.
 {
@@ -639,17 +735,18 @@ setInterval(() => void keepOnline(), 20_000).unref?.();
     const doneTrip = await takeBy(hassan, done.orderId, { vehicleClass: 'car', plate: '31877 واسط', label: 'تويوتا كورولا · فضي' });
     const [p, d] = doneTrip.stops;
     await trips.arrive(doneTrip.id, p.id, hassan, { pin: p.target });
-    await trips.completeStop(doneTrip.id, p.id, hassan);
+    const startCode = (await orders.startCodeOf(done.orderId)) ?? undefined; // the rider reads it out
+    await trips.completeStop(doneTrip.id, p.id, hassan, startCode ? { startCode } : {});
     await trips.arrive(doneTrip.id, d.id, hassan, { pin: d.target });
     await trips.completeStop(doneTrip.id, d.id, hassan, { handover: { cashCollectedIqd: done.totalIqd } });
     // Cancelled: the caller found a lift.
     const off = await bookFor(zainab, '07733337788', 'سجاد', 'تقاطع شارع ٣٠', 'حديقة الشاشة', 'tuktuk');
     await phones.cancel(actor(zainab), { orderId: off.orderId });
     // On his way: عباس in a white Kia took أم علي's taxi at the mosque gate.
-    const coming = await bookFor(zainab, '07711234567', 'أم علي', 'باب الجامع الكبير', 'كراج البوابة ٢', 'taxi', 'واگفة يم الباب الجانبي، لابسة عباية');
+    const coming = await bookFor(zainab, '07711234567', 'أم علي', 'باب الجامع الكبير', 'كراج البوابة 2', 'taxi', 'واگفة يم الباب الجانبي، لابسة عباية');
     await takeBy(abbas, coming.orderId, { vehicleClass: 'car', plate: '23456 واسط', label: 'كيا سيراتو · أبيض' });
     // Searching: just booked, nobody took it yet.
-    await bookFor(zainab, '07809990011', 'حجي كاظم', 'رأس جسر حواس', 'كراج البوابة ١', 'tuktuk');
+    await bookFor(zainab, '07809990011', 'حجي كاظم', 'رأس جسر حواس', 'كراج البوابة 1', 'tuktuk');
   }
 }
 
@@ -659,9 +756,7 @@ setInterval(() => void keepOnline(), 20_000).unref?.();
 // phone keeps sending a fix every 5 s for two minutes (a short walk), so the trail and the contact's
 // message show. Also run once at start-up when DEMO_SOS=1.
 const { SafetyService } = await load('modules/safety/index.js');
-const { TripsService } = await load('modules/trips/index.js');
 const safety = get(SafetyService);
-const trips = get(TripsService);
 raiseDemoSos = async function raiseDemoSos(who = 'driver') {
   const live = (await trips.active('aziziyah')).filter((t) => t.courierId && t.stops.some((s) => s.orderId));
   const trip = live.find((t) => t.vertical === 'tuktuk' || t.vertical === 'taxi') ?? live[0];
@@ -769,6 +864,152 @@ raiseDemoPinAlert = async function raiseDemoPinAlert(kind = 'cross') {
       const rec = routesRepo.bookings?.get(b.id);
       if (rec) routesRepo.bookings.set(b.id, { ...rec, bookedAt: new Date(now - DAY_MS - 20 * 60_000) });
     }
+  }
+}
+
+// كلام الركاب (Console › /reviews, x14): two finished الرجعة runs today, rated with a line each by
+// their riders through the real service; one line support already hid (it names no trip, only the
+// driver's cousin), so the «مخفية» filter has a row. The lines show on the driver's profile in the
+// customer app without the riders' names.
+{
+  const now = Date.now();
+  const admin = await person('07700000001');
+  const garage = departures.garage('mp_garage_nahdha');
+  const lines = [
+    [
+      { name: 'حسن كريم', stars: 5, tags: ['on_time', 'calm_driving'], comment: 'سايق محترم وسياقته هادئة، وصلنا قبل الوقت' },
+      { name: 'زهراء عباس', stars: 2, tags: ['late'], comment: 'تأخر نص ساعة بالكراج وما گال شي' },
+      { name: 'مرتضى فاضل', stars: 1, tags: ['fast_driving'], comment: 'هذا ابن عمي يعرف يسوق احسن من هيج سايق' },
+    ],
+    [
+      { name: 'نور الهدى', stars: 5, tags: ['clean_car', 'respectful'], comment: 'السيارة نظيفة ومبردة، والله ما حسينا بالطريق' },
+      { name: 'علي جبار', stars: 4, tags: ['respectful'], comment: 'زين، بس الأغاني صوتها عالي' },
+    ],
+  ];
+  const seatIds = ['front', 'back_left', 'back_right'];
+  let hideId = null;
+  for (const [n, group] of lines.entries()) {
+    const driverId = await person(`0781444050${n}`, ['كرار عادل', 'مرتضى سالم'][n], ['intercity_driver']);
+    const dep = await departures.announce(
+      driverId,
+      AnnounceInput.parse({ garageId: 'mp_garage_nahdha', corridorId: 'aziziyah_baghdad', departAt: new Date(now - 4 * 60_000), latestDepartureAt: new Date(now + 26 * 60_000), vehicle: { kind: 'saloon', layout: 4, plate: `بغداد ${45100 + n}` } }),
+    );
+    const booked = [];
+    for (const [i, r] of group.entries()) {
+      const rider = await person(`07715550${String(500 + n * 10 + i).padStart(3, '0')}`, r.name);
+      const held = await departures.hold(rider, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatIds[i]] }, travellingAs: 'rijal' }));
+      booked.push({ r, b: await departures.book(rider, held.id, 'cash') });
+    }
+    await departures.selfie(driverId, dep.id, 'demo/selfie.jpg');
+    await departures.driverPosition(driverId, dep.id, { lat: garage.lat, lng: garage.lng });
+    for (const { b } of booked) await departures.checkIn(driverId, dep.id, b.pin);
+    await departures.depart(driverId, dep.id);
+    await departures.arrive(driverId, dep.id);
+    for (const { r, b } of booked) {
+      await departures.rate(b.riderId, b.id, { stars: r.stars, tags: r.tags, comment: r.comment });
+      if (r.stars === 1) hideId = b.id;
+    }
+  }
+  if (hideId) await departures.hideReview(admin, hideId, 'not_about_trip');
+}
+
+// الرجعة garage board (Console › /garage, W3 / NTF-14): at كراج البوابة 1 one driver never came
+// (three riders waiting, 25 minutes past his latest time), one left for Baghdad and never pressed
+// «وصلت» (12 minutes past travel time + 30), and two cars still to go. Announced and booked through
+// the real service, then the two late ones are moved back in time in the routes table, the way a
+// real morning would leave them.
+{
+  const now = Date.now();
+  const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+  const routesRepo = get(ROUTES_REPOSITORY);
+  const garage = departures.garage('mp_garage_bab1');
+  const travel = departures.corridor('aziziyah_baghdad').travelMin;
+  const riders = ['أم حسين', 'باقر جواد', 'حوراء سعد', 'كاظم ياسر', 'منتظر علي', 'رسل حيدر', 'ضياء كريم', 'تبارك عباس', 'سيف نزار', 'إسراء هادي'];
+  let r = 0;
+  const run = async ({ phone, name, at, seats, vehicle }) => {
+    const driverId = await person(phone, name, ['intercity_driver']);
+    const dep = await departures.announce(
+      driverId,
+      AnnounceInput.parse({ garageId: garage.id, corridorId: 'aziziyah_baghdad', departAt: new Date(now + at * 60_000), latestDepartureAt: new Date(now + (at + 30) * 60_000), vehicle }),
+    );
+    const booked = [];
+    for (const seatId of seats) {
+      const rider = await person(`07715550${String(700 + r).padStart(3, '0')}`, riders[r % riders.length]);
+      r += 1;
+      const held = await departures.hold(rider, HoldSeatInput.parse({ departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal' }));
+      booked.push(await departures.book(rider, held.id, 'cash'));
+    }
+    return { driverId, dep, booked };
+  };
+  const back = async (id, patch) => {
+    const rec = await routesRepo.getDeparture(id);
+    if (rec) await routesRepo.saveDeparture({ ...rec, ...patch });
+  };
+  // Never came: announced for 55 minutes ago, latest 45 minutes ago → 25 minutes on the list.
+  const noShow = await run({ phone: '07814440701', name: 'عباس فاضل', at: 60, seats: ['front', 'back_left', 'back_right'], vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 30417', modelKey: 'elantra', color: 'بيضة' } });
+  await back(noShow.dep.id, { departAt: new Date(now - 55 * 60_000), latestDepartureAt: new Date(now - 45 * 60_000) });
+  // On the road and never pressed «وصلت».
+  const road = await run({ phone: '07814440702', name: 'مصطفى ناجي', at: 30, seats: ['front', 'back_left', 'back_middle', 'back_right'], vehicle: { kind: 'saloon', layout: 4, plate: 'بغداد 77120', modelKey: 'corolla', color: 'فضية' } });
+  await departures.selfie(road.driverId, road.dep.id, 'demo/selfie.jpg');
+  await departures.driverPosition(road.driverId, road.dep.id, { lat: garage.lat, lng: garage.lng });
+  for (const b of road.booked) await departures.checkIn(road.driverId, road.dep.id, b.pin);
+  await departures.depart(road.driverId, road.dep.id);
+  const left = now - (travel + 42) * 60_000;
+  await back(road.dep.id, { departAt: new Date(left - 5 * 60_000), latestDepartureAt: new Date(left + 25 * 60_000), departedAt: new Date(left) });
+  // Still to go.
+  await run({ phone: '07814440703', name: 'حسن جبار', at: 25, seats: ['front', 'back_left'], vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 41966', modelKey: 'sonata', color: 'سودة' } });
+  await run({ phone: '07814440704', name: 'ليث عدنان', at: 95, seats: ['front'], vehicle: { kind: 'van', layout: 7, plate: 'واسط 58302', modelKey: 'starex', color: 'بيضة' } });
+}
+
+// The stuck watchdog runs every 5 minutes; one pass now puts today's stuck orders on the Today list.
+await get(OrdersStaffService).watchStuck().catch((err) => console.warn('stuck watch skipped:', err?.message ?? err));
+
+// Two bad ratings (Ali, 2026-10-08: every one is a case on Today): cold food under a fine courier, and a
+// courier who didn't answer. Rated by their own customers on two of the evening's delivered orders.
+{
+  const { ORDERS_REPOSITORY } = await load('modules/orders/index.js');
+  const delivered = [...(get(ORDERS_REPOSITORY).orders?.values?.() ?? [])].filter((o) => o.state === 'delivered' && o.type === 'food' && !o.rating && !o.id.endsWith('_y'));
+  const bad = [
+    { food: 2, delivery: 2, tags: ['cold'], note: 'الأكل وصل بارد والتمن معجّن' },
+    { food: 4, delivery: 1, courierReasons: ['hard_to_reach', 'late'], tags: ['late'], note: 'اتصلت بيه ثلاث مرات ما رد، ووصل بعد ساعة' },
+  ];
+  for (const [i, r] of bad.entries()) {
+    const o = delivered[i];
+    if (o) await orders.rate(o.ordererId, { orderId: o.id, ...r }).catch((err) => console.warn('demo rating skipped:', err?.message ?? err));
+  }
+}
+
+// «شوارع مسدودة» (/closures, N20): one street ops closed (حيدر, works, until midnight) and one courier's
+// report still waiting for ops (dashed on the map, «بلّغ عنه دليفري» at the top of the list). The report is
+// made the real way, by a courier on a live job (his road ahead); with no live job it is written straight
+// to the closures table as his. DEMO_CLOSURES=0 seeds none.
+if (process.env.DEMO_CLOSURES !== '0') {
+  const { ClosuresService, CLOSURES_REPOSITORY } = await load('modules/closures/index.js');
+  const closures = get(ClosuresService);
+  let report = null;
+  for (const trip of (await trips.active('aziziyah')).filter((t) => t.courierId)) {
+    try {
+      const r = await closures.report(actor(trip.courierId), { cityId: 'aziziyah', reason: 'water' });
+      if (!r.confirmed) {
+        report = (await closures.list({ cityId: 'aziziyah' })).find((c) => c.id === r.id) ?? null;
+        break;
+      }
+    } catch {
+      // At the door, or no road ahead yet: try the next courier.
+    }
+  }
+  if (!report) {
+    const at = await closures.snap({ cityId: 'aziziyah', from: { lat: 32.9131, lng: 45.0662 }, to: { lat: 32.9119, lng: 45.0688 } });
+    const now = new Date();
+    report = await get(CLOSURES_REPOSITORY).create({ cityId: 'aziziyah', path: at.path, reason: 'water', nameAr: null, lengthM: at.lengthM, startsAt: now, endsAt: new Date(now.getTime() + 2 * 60 * 60_000), closedById: couriers[0].id, source: 'courier' });
+  }
+  // The street ops closed sits a few hundred metres from the report, so the map shows both at once.
+  const near = report.path[0];
+  try {
+    const street = await closures.snap({ cityId: 'aziziyah', from: { lat: near.lat + 0.0035, lng: near.lng - 0.002 }, to: { lat: near.lat + 0.0022, lng: near.lng + 0.0022 } });
+    await closures.close(actor(haider), { cityId: 'aziziyah', path: street.path, reason: 'works', nameAr: 'شارع المستشفى' });
+  } catch (err) {
+    console.warn('demo closure skipped:', err?.message ?? err);
   }
 }
 

@@ -26,7 +26,7 @@ export function hour12(hhmm: string): string {
 
 export function daysText(t: TFn, days: readonly number[]): string {
   if (days.length === 0 || days.length === 7) return t('merchant.deals.every_day');
-  return days.map((d) => dayName(t, d)).join('، ');
+  return days.map((d) => dayName(t, d)).join(t('merchant.list_joiner'));
 }
 
 export function hoursText(t: TFn, hours: { start: string; end: string } | undefined): string {
@@ -51,7 +51,7 @@ export const DISPLAY_LABEL: Record<DealDisplay, TKey> = {
 export const DISPLAY_TONE: Record<DealDisplay, 'success' | 'warning' | 'info' | 'neutral' | 'danger'> = {
   active: 'success',
   pending: 'warning',
-  scheduled: 'info',
+  scheduled: 'neutral',
   capped: 'warning',
   paused: 'neutral',
   ended: 'neutral',
@@ -62,7 +62,7 @@ export const DISPLAY_TONE: Record<DealDisplay, 'success' | 'warning' | 'info' | 
 export function itemsText(t: TFn, itemIds: readonly string[], names: ReadonlyMap<string, string>, max = 2): string {
   if (itemIds.length === 0) return t('merchant.deals.whole_menu');
   const known = itemIds.map((id) => names.get(id)).filter((n): n is string => !!n);
-  const shown = known.slice(0, max).join('، ');
+  const shown = known.slice(0, max).join(t('merchant.list_joiner'));
   const more = itemIds.length - Math.min(max, known.length);
   return more > 0 ? t('merchant.deals.items_more', { items: shown, count: more }) : shown;
 }

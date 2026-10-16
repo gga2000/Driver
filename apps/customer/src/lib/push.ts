@@ -29,8 +29,13 @@ export interface PushDevice {
   setupChannels(): Promise<void>;
   /** A notification arrived while the app is open. */
   onReceive(cb: (data: PushData) => void): () => void;
-  /** The person tapped a notification. */
-  onOpen(cb: (data: PushData) => void): () => void;
+  /** The person tapped a notification (`id`: that notification, so one tap opens one screen). */
+  onOpen(cb: (data: PushData, id: string) => void): () => void;
+  /**
+   * CORE-08: the tap that launched the app from closed, which the listener above never hears. Read
+   * once: it is cleared, so the next ordinary launch does not open that old screen again.
+   */
+  launchOpen(): Promise<{ id: string; data: PushData } | null>;
   openSettings(): Promise<void>;
 }
 
@@ -46,5 +51,6 @@ export const pushDevice: PushDevice = {
   setupChannels: async () => undefined,
   onReceive: () => () => undefined,
   onOpen: () => () => undefined,
+  launchOpen: async () => null,
   openSettings: async () => undefined,
 };

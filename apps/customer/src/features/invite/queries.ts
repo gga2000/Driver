@@ -9,6 +9,12 @@ export function useInvite() {
   return useQuery({ ...api.referral.mine.queryOptions(), enabled: signedIn });
 }
 
+/** The invite rule alone (`referral.rule`, public): is the invite reward switched on? */
+export function useInviteRule() {
+  const api = useApi();
+  return useQuery({ ...api.referral.rule.queryOptions(), staleTime: 30 * 60_000 });
+}
+
 /** The landing page's greeting before sign-in (`referral.preview`, public). */
 export function useInvitePreview(code: string | null) {
   const api = useApi();

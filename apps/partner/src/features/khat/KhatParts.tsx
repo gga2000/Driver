@@ -3,14 +3,15 @@ import { Pressable, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { KHAT_RULES, type AbsenceReason, type KhatRunTrip, type KhatStopView, type SubstituteOffer } from '@driver/contracts';
-import type { MessageKey } from '@driver/i18n';
+import { formatMinuteCount, type MessageKey } from '@driver/i18n';
 import { Avatar, Button, Chip, DepartureTime, Icon, IconButton, SlideToConfirm, StatusPill, Text, useTheme, type IconName } from '@driver/ui';
 import { childrenCount } from '@/features/intercity/labels';
 import { clockLabel } from '@/features/intercity/logic';
 import { zoneName } from '@/features/work/logic';
-import { useT } from '@/lib/i18n';
+import { KHAT_CALLS_LIVE } from '@/features/chat/calls';
+import { useLocale, useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { canReportAbsent, childAction, deliveredShare, lookPauseLeft, runChips, type KhatPlace } from './logic';
+import { canReportAbsent, childAction, deliveredShare, lookPauseLeft, minutesUntil, runChips, type KhatPlace, type NextChild } from './logic';
 import { absoluteUrl } from '@/features/account/photo';
 
 export const ABSENCE_REASONS: readonly AbsenceReason[] = ['guardian_notice', 'not_at_stop', 'sick', 'other'];
@@ -205,8 +206,11 @@ export function PlaceCard({
   onCancelAbsence,
   onCallGuardian,
   callingRef,
+  nextStopId = null,
 }: {
   place: KhatPlace;
+  /** k2: the stop shown big on the next-child card. */
+  nextStopId?: string | null;
   index: number;
   trip: KhatRunTrip;
   busyStopId: string | null;
@@ -274,6 +278,7 @@ export function PlaceCard({
             onCancelAbsence={onCancelAbsence}
             onCall={onCallGuardian && !s.absent ? () => onCallGuardian(s) : null}
             calling={callingRef === s.child!.childRef}
+            isNext={s.stopId === nextStopId}
           />
         ))}
     </View>
@@ -292,10 +297,13 @@ function ChildRow({
   onCancelAbsence,
   onCall,
   calling,
+  isNext,
 }: {
   trip: KhatRunTrip;
   stop: KhatStopView;
   emphasise: boolean;
+  /** k2: this child is on the next-child card above, which carries the buttons and the absence reasons. */
+  isNext: boolean;
   busy: boolean;
   asking: boolean;
   onTap: () => void;
@@ -334,47 +342,55 @@ function ChildRow({
             <Text testID={`khat-settled-${stop.stopId}`} variant="caption" weight={600} color="successText" tabular accessibilityLiveRegion="polite">
               {settledLine}
             </Text>
-          ) : absentOk && !asking ? (
-            <Pressable testID={`khat-absent-${stop.stopId}`} accessibilityRole="button" onPress={onAskAbsence} hitSlop={8}>
-              <Text variant="caption" weight={600} color="textMuted" style={{ textDecorationLine: 'underline' }}>
-                {t('partner.kh_report_absent')}
-              </Text>
-            </Pressable>
           ) : null}
         </View>
         {onCall ? (
-          <IconButton testID={`khat-call-${stop.stopId}`} icon="phone" variant="tonal" size={44} accessibilityLabel={t('partner.kh2_call_guardian', { name })} onPress={onCall} disabled={calling} />
+          <IconButton testID={`khat-call-${stop.stopId}`} icon="phone" variant="tonal" size={44} accessibilityLabel={KHAT_CALLS_LIVE ? t('partner.kh2_call_guardian', { name }) : `${t('partner.kh2_call_guardian', { name })} · ${t('soon.badge')}`} onPress={onCall} disabled={calling} style={KHAT_CALLS_LIVE ? undefined : { opacity: 0.45 }} />
         ) : null}
-        {action === 'tap_in' || action === 'tap_out' ? (
-          <TapButton kind={action} emphasise={emphasise} busy={busy} onPress={onTap} testID={`khat-tap-${stop.stopId}`} />
+        {isNext && (action === 'tap_in' || action === 'tap_out') ? (
+          <StatusPill label={t('partner.kh3_next_label')} tone="accent" size="sm" />
+        ) : action === 'tap_in' || action === 'tap_out' ? (
+          <TapButton kind={action} emphasise={emphasise} busy={busy} onPress={onTap} testID={`khat-tap-${stop.stopId}`} name={name} />
         ) : action === 'not_on_board' ? (
           <Text variant="caption" color="textMuted">
             {t('partner.kh_stop_next')}
           </Text>
         ) : null}
       </View>
-      {asking ? (
-        <View testID="khat-absence-panel" style={{ gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-          <Text variant="label" weight={700}>
-            {t('partner.kh_absent_title', { name })}
-          </Text>
-          <Text variant="caption" color="textMuted">
-            {t('partner.kh_absent_hint')}
-          </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
-            {ABSENCE_REASONS.map((r) => (
-              <Chip key={r} testID={`khat-reason-${r}`} role="button" label={t(`partner.kh_reason_${r}` as MessageKey)} onPress={() => onAbsence(r)} disabled={busy} />
-            ))}
-          </View>
-          <Button label={t('action.cancel')} variant="ghost" size="sm" onPress={onCancelAbsence} />
+      {absentOk && !asking && !isNext && action === 'tap_in' ? (
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+          <AbsentButton testID={`khat-absent-${stop.stopId}`} name={name} onPress={onAskAbsence} />
         </View>
       ) : null}
+      {asking && !isNext ? <AbsencePanel name={name} busy={busy} onAbsence={onAbsence} onCancel={onCancelAbsence} /> : null}
+    </View>
+  );
+}
+
+/** Why a child is not coming today, one tap each (the server keeps the reason for ops). */
+function AbsencePanel({ name, busy, onAbsence, onCancel }: { name: string; busy: boolean; onAbsence: (r: AbsenceReason) => void; onCancel: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <View testID="khat-absence-panel" style={{ gap: theme.space[2], backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
+      <Text variant="label" weight={700}>
+        {t('partner.kh_absent_title', { name })}
+      </Text>
+      <Text variant="caption" color="textMuted">
+        {t('partner.kh_absent_hint')}
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+        {ABSENCE_REASONS.map((r) => (
+          <Chip key={r} testID={`khat-reason-${r}`} role="button" label={t(`partner.kh_reason_${r}` as MessageKey)} onPress={() => onAbsence(r)} disabled={busy} />
+        ))}
+      </View>
+      <Button label={t('action.cancel')} variant="ghost" size="sm" onPress={onCancel} />
     </View>
   );
 }
 
 /** The big per-child button: "صعود" at pickups (accent), "نزول" at the school (green: tells the guardian). */
-function TapButton({ kind, emphasise, busy, onPress, testID }: { kind: 'tap_in' | 'tap_out'; emphasise: boolean; busy: boolean; onPress: () => void; testID: string }) {
+function TapButton({ kind, emphasise, busy, onPress, testID, name, big = false }: { kind: 'tap_in' | 'tap_out'; emphasise: boolean; busy: boolean; onPress: () => void; testID: string; name: string; big?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const bg = !emphasise ? theme.colors.surface : kind === 'tap_in' ? theme.colors.accent : theme.colors.success;
@@ -383,14 +399,17 @@ function TapButton({ kind, emphasise, busy, onPress, testID }: { kind: 'tap_in' 
     <Pressable
       testID={testID}
       accessibilityRole="button"
+      accessibilityLabel={kind === 'tap_in' ? t('partner.kh3_in_car_a11y', { name }) : t('partner.kh3_drop_a11y', { name })}
+      accessibilityState={{ busy }}
       disabled={busy}
       onPress={() => {
         theme.haptic('medium');
         onPress();
       }}
       style={({ pressed }) => ({
-        minWidth: 104,
-        height: 56,
+        flex: big ? 1 : undefined,
+        minWidth: 112,
+        height: big ? 64 : 56,
         paddingHorizontal: theme.space[4],
         borderRadius: theme.radius.lg,
         alignItems: 'center',
@@ -404,11 +423,157 @@ function TapButton({ kind, emphasise, busy, onPress, testID }: { kind: 'tap_in' 
         transform: [{ scale: pressed ? 0.97 : 1 }],
       })}
     >
-      <Icon name={kind === 'tap_in' ? 'arrow-forward' : 'check'} size={18} color={fg} strokeWidth={2.6} />
-      <Text variant="button" color={fg}>
-        {kind === 'tap_in' ? t('partner.kh_tap_in') : t('partner.kh_tap_out')}
+      <Icon name={kind === 'tap_in' ? 'car' : 'check'} size={big ? 22 : 18} color={fg} strokeWidth={2.4} />
+      <Text variant={big ? 'title' : 'button'} weight={700} color={fg}>
+        {kind === 'tap_in' ? t('partner.kh3_in_car') : t('partner.kh_tap_out')}
       </Text>
     </Pressable>
+  );
+}
+
+/** k3: «غياب اليوم» as its own calm button beside «بالسيارة» (neutral words; the child record has no gender). */
+function AbsentButton({ testID, name, onPress, big = false }: { testID: string; name: string; onPress: () => void; big?: boolean }) {
+  const theme = useTheme();
+  const t = useT();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={t('partner.kh3_absent_a11y', { name })}
+      onPress={() => {
+        theme.haptic('selection');
+        onPress();
+      }}
+      hitSlop={big ? 0 : 4}
+      style={({ pressed }) => ({
+        height: big ? 64 : 44,
+        minWidth: big ? 112 : 104,
+        paddingHorizontal: theme.space[4],
+        borderRadius: theme.radius.lg,
+        borderWidth: 1.5,
+        borderColor: theme.colors.borderStrong,
+        backgroundColor: pressed ? theme.colors.surfaceSunken : theme.colors.surface,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+      })}
+    >
+      <Icon name="x" size={big ? 18 : 16} color="textMuted" strokeWidth={2.4} />
+      <Text variant={big ? 'button' : 'label'} weight={600} color="text">
+        {t('partner.kh_absent_badge')}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Partner redesign k2 + k3: the one child to look for now, big at the top — the photo the guardian
+ * added (else the initial), the first name, the public landmark the door is near and the stop's time
+ * with the minutes to it; then a big «بالسيارة» (or «نزول» at the school) with «غياب اليوم» beside it,
+ * and the guardian call. The other children waiting at the same door are named under it.
+ */
+export function NextChildCard({
+  next,
+  trip,
+  now,
+  busy,
+  asking,
+  onTap,
+  onAskAbsence,
+  onAbsence,
+  onCancelAbsence,
+  onCall,
+  calling,
+}: {
+  next: NextChild;
+  trip: KhatRunTrip;
+  now: number;
+  busy: boolean;
+  asking: boolean;
+  onTap: () => void;
+  onAskAbsence: () => void;
+  onAbsence: (r: AbsenceReason) => void;
+  onCancelAbsence: () => void;
+  onCall: (() => void) | null;
+  calling: boolean;
+}) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const { stop, place, alsoHere } = next;
+  const child = stop.child!;
+  const action = childAction(trip, stop);
+  const pickup = stop.type === 'pickup';
+  const zone = zoneName(place.zoneKey, 'ar-IQ', t);
+  const at = stop.windowStart ?? place.windowStart;
+  const mins = minutesUntil(at, now);
+  const timeLine = at ? (mins && mins > 0 ? t('partner.kh3_due_in', { time: clockLabel(at), minutes: formatMinuteCount(mins, { locale }) }) : t('partner.kh3_due_now', { time: clockLabel(at) })) : null;
+  const canAbsent = pickup && canReportAbsent(trip, child.childRef);
+  return (
+    <View
+      testID="khat-next"
+      style={{
+        backgroundColor: theme.colors.surface,
+        borderRadius: theme.radius.xl,
+        borderWidth: 2,
+        borderColor: theme.colors.accent,
+        padding: theme.space[5],
+        gap: theme.space[4],
+        shadowColor: theme.colors.shadow,
+        shadowOpacity: 0.14,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 4,
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+        <StatusPill label={t('partner.kh3_next_label')} tone="accent" size="sm" live />
+        <Text variant="label" weight={700} color="textMuted" style={{ flex: 1 }} numberOfLines={1}>
+          {pickup ? t('partner.kh_stop_pickup', { zone }) : t('partner.kh_stop_dropoff', { zone })}
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[4] }}>
+        <Avatar name={child.firstName} uri={child.photoUrl ? absoluteUrl(child.photoUrl) : undefined} size={76} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text variant="display" weight={700} numberOfLines={1} compact>
+            {child.firstName}
+          </Text>
+          {stop.landmark ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Icon name="map-pin" size={16} color="accentText" strokeWidth={2.2} />
+              <Text testID="khat-next-landmark" variant="bodyStrong" color="accentText" style={{ flex: 1 }} numberOfLines={2}>
+                {t('partner.kh3_near', { landmark: stop.landmark })}
+              </Text>
+            </View>
+          ) : null}
+          {timeLine ? (
+            <Text testID="khat-next-time" variant="label" color="textMuted" tabular>
+              {timeLine}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      {asking ? (
+        <AbsencePanel name={child.firstName} busy={busy} onAbsence={onAbsence} onCancel={onCancelAbsence} />
+      ) : (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          {action === 'tap_in' || action === 'tap_out' ? <TapButton kind={action} emphasise busy={busy} onPress={onTap} testID="khat-next-tap" name={child.firstName} big /> : null}
+          {canAbsent ? <AbsentButton testID="khat-next-absent" name={child.firstName} onPress={onAskAbsence} big /> : null}
+          {onCall ? (
+            <IconButton testID="khat-next-call" icon="phone" variant="tonal" size={52} accessibilityLabel={KHAT_CALLS_LIVE ? t('partner.kh2_call_guardian', { name: child.firstName }) : `${t('partner.kh2_call_guardian', { name: child.firstName })} · ${t('soon.badge')}`} onPress={onCall} disabled={calling} style={KHAT_CALLS_LIVE ? undefined : { opacity: 0.45 }} />
+          ) : null}
+        </View>
+      )}
+
+      {alsoHere.length > 0 ? (
+        <Text variant="footnote" color="textMuted">
+          {t('partner.kh3_also_here', { names: alsoHere.join('، ') })}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 

@@ -71,6 +71,43 @@ describe('ride near (d3)', () => {
     expect(h.events.events.filter((e) => e.type === 'stop.driver_near')).toHaveLength(1);
   });
 
+  it('asks the router after the position commits, never while a transaction is open (perf item 14)', async () => {
+    const h = tripsHarness();
+    const seen: Array<{ inTx: boolean; logAtAsk: string[]; trail: number }> = [];
+    h.trips.bindRideNear({
+      secondsToPickup: async () => {
+        seen.push({ inTx: h.uow.current() !== undefined, logAtAsk: [...h.log], trail: (await h.trips.trailOf(t.id)).length });
+        return 30;
+      },
+    });
+    const t = await h.acceptedTrip('ord_1', 'd1', { vertical: 'taxi', vehicleClass: 'car' });
+    const pin = { lat: PINS.kitchen.lat + 0.001, lng: PINS.kitchen.lng };
+    const before = h.log.length;
+    await h.trips.reportPosition('d1', { tripId: t.id, pin, at: h.clock.now() });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.inTx).toBe(false);
+    // The fix's own transaction had committed (and its trail point was stored) before the router was asked.
+    expect(seen[0]!.logAtAsk.slice(before)).toEqual([`commit ${before + 1}`]);
+    expect(seen[0]!.trail).toBe(1);
+    // The stamp then commits in its own short transaction, once.
+    expect(h.log.slice(before)).toEqual([`commit ${before + 1}`, `commit ${before + 2}`]);
+    expect(h.events.events.filter((e) => e.type === 'stop.driver_near')).toHaveLength(1);
+  });
+
+  it('a pickup reached while the router was answering is not stamped late', async () => {
+    const h = tripsHarness();
+    h.trips.bindRideNear({
+      secondsToPickup: async () => {
+        // The driver taps «وصلت» between the fix's commit and the ETA's answer.
+        await h.trips.arrive(t.id, t.stops.find((s) => s.type === 'pickup')!.id, 'd1', { pin: PINS.kitchen });
+        return 10;
+      },
+    });
+    const t = await h.acceptedTrip('ord_1', 'd1', { vertical: 'taxi', vehicleClass: 'car' });
+    await h.trips.reportPosition('d1', { tripId: t.id, pin: { lat: PINS.kitchen.lat + 0.001, lng: PINS.kitchen.lng }, at: h.clock.now() });
+    expect(h.events.events.some((e) => e.type === 'stop.driver_near')).toBe(false);
+  });
+
   it('nothing once the rider is picked up', async () => {
     const h = harness(() => 10);
     const t = await h.acceptedTrip('ord_1', 'd1', { vertical: 'taxi', vehicleClass: 'car' });

@@ -48,10 +48,17 @@ export function render(templateId: NotifyTemplateId, params: Params, locale: Loc
   const brand = locale === 'en' ? 'Driver' : 'درايفر';
   // The template's own SMS words (an SMS-first message, or one that says more than the push); the
   // caller's own content (a fallback wording) wins.
-  const smsKey = def.sms && !content ? (params['code'] && def.sms.withCode ? def.sms.withCode : def.sms.key) : null;
+  const smsKey = def.sms && !content ? smsKeyOf(def.sms, params) : null;
   const smsCore = smsKey ? t(smsKey, params, locale) : (whatsapp?.text ?? [title, body].filter(Boolean).join(' — '));
   const sms = `${brand}: ${smsCore}`.slice(0, SMS_MAX);
   return { title, body, deepLink, whatsapp, sms };
+}
+
+/** The SMS words for these params: with or without the code, with or without the link. */
+function smsKeyOf(sms: NonNullable<NotifyTemplateDef['sms']>, params: Params): MessageKey {
+  const code = !!params['code'];
+  if (!params['link'] && sms.noLink) return code && sms.withCodeNoLink ? sms.withCodeNoLink : sms.noLink;
+  return code && sms.withCode ? sms.withCode : sms.key;
 }
 
 // ───────────────────────── formatting (voice spec §5) ─────────────────────────

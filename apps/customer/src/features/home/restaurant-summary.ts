@@ -4,8 +4,13 @@ import type { RestaurantCard } from '@driver/contracts';
 export interface RestaurantSummary {
   id: string;
   name: string;
+  /** With `pickup` and `minOrderIqd`: what the basket needs to start an order here (`cartMerchantOf`). */
+  cityId: string;
+  pickup: RestaurantCard['pickup'];
   /** Short cuisine line under the name. */
   cuisine: string;
+  /** The kitchen's own photo (its storefront upload); home shows one for its kind until it has one. */
+  photoUrl?: string | null;
   zoneId: string | null;
   /** Null = new kitchen (no ratings yet). */
   rating: number | null;
@@ -30,6 +35,8 @@ export interface RestaurantSummary {
   tags: string[];
   /** Live merchant deals (badges); the list's "عروض" filter. */
   dealCount: number;
+  /** «مميّز»: on the featured tier; the stamp by its name, and one sits first in the list (`featuredFirst`). */
+  featured?: boolean;
   /** Opening hours and pause windows (joy s3: the «غدا الجمعة» slot). */
   hours?: Array<{ dow: number; start: string; end: string }>;
   pauses?: Array<{ dow: number; start: string; end: string }>;
@@ -39,7 +46,10 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
   return {
     id: card.id,
     name: card.name,
+    cityId: card.cityId,
+    pickup: card.pickup,
     cuisine: card.cuisine,
+    photoUrl: card.photoUrl,
     zoneId: card.pickup?.zoneKey ?? null,
     rating: card.rating?.avg ?? null,
     ratingCount: card.rating?.count ?? 0,
@@ -55,6 +65,7 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
     favourite,
     tags: [...card.tags],
     dealCount: card.deals?.length ?? 0,
+    ...(card.featured ? { featured: true } : {}),
     hours: [...(card.hours ?? [])],
     pauses: [...(card.pauses ?? [])],
   };

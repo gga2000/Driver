@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DriverError, type DispatchPolicyKind, type DispatchStatus, type LatLng, type VehicleClass, type Vertical } from '@driver/contracts';
 import type { Redis } from 'ioredis';
+import type { BookedJob } from './booked.js';
 
 /**
  * Live state of one trip's dispatch (Redis `dispatch:req:{tripId}`). Timestamps are epoch ms so
@@ -55,6 +56,8 @@ export interface DispatchRequest {
   startAt?: number | null;
   /** Joy l9: the rider's favourite, offered the job alone for a minute when the search starts. */
   preferDriverIds?: string[];
+  /** NTF-04: the order the job serves, so the rider can be told when no driver is found; null/absent on older records. */
+  orderId?: string | null;
   /** Ride step 3: who asked for the ride (its orderer); null/absent for jobs that are not a rider's. */
   riderId?: string | null;
   /** s5: drivers the rider keeps off his rides, read when the request starts; never offered this job. */
@@ -63,6 +66,33 @@ export interface DispatchRequest {
   favouriteDriverIds?: string[];
   /** s6 «عوائل»: the first wave goes to family-tagged, long-standing, well-rated drivers only. */
   familyPreferred?: boolean;
+  /** Joy J7d: the time a ride was booked for (epoch ms); null/absent = a ride for now. */
+  scheduledFor?: number | null;
+  /** Review #28: the evening-before pre-assignment of a ride booked for later; null/absent = none. */
+  booked?: BookedJob | null;
+  /** Review #28: pickup compensation on every offer of a booked ride's T−30 search (money rule; 0 = off). */
+  fallbackCompensationIqd?: number;
+  /** Background retries made since it went red (`UNASSIGNED_RETRY`); absent = none. */
+  retries?: number;
+}
+
+/**
+ * Cash a driver took on a job that finished, until the ledger posts it (the posting follows the
+ * trip's completion through the outbox). Dispatch counts it toward his cap in that gap.
+ */
+export interface CashHold {
+  tripId: string;
+  /**
+   * The order whose cash this is, when known (a drop-off's order, or the request's order). A trip with
+   * two cash drop-offs keeps one hold per order, each released only when that order's cash is posted.
+   * Absent = the trip's cash as a whole (released when any of the trip's cash is posted).
+   */
+  orderId?: string;
+  amountIqd: number;
+  /** Epoch ms after which the hold is dropped even if no posting was seen (a trip that collected nothing). */
+  until: number;
+  /** Cash recorded at each drop-off of the trip (stop id → amount), when trips told us; `amountIqd` is at least their sum. */
+  collected?: Record<string, number>;
 }
 
 export interface PolicyOverride {
@@ -82,6 +112,8 @@ export interface DispatchStore {
   /** Drops the request from the city's board (finished or cancelled); the record lingers for a day. */
   retireRequest(r: DispatchRequest): Promise<void>;
   activeRequests(cityId: string): Promise<DispatchRequest[]>;
+  /** Speed x2: whether the trip's request is on the city's board (one set lookup). */
+  isActive(cityId: string, tripId: string): Promise<boolean>;
   /** SET key owner NX PX ttl — true only for the first caller. */
   tryLock(key: string, owner: string, ttlMs: number): Promise<boolean>;
   unlock(key: string): Promise<void>;
@@ -90,6 +122,12 @@ export interface DispatchStore {
   driverJobs(driverId: string): Promise<string[]>;
   addDriverJob(driverId: string, tripId: string): Promise<void>;
   removeDriverJob(driverId: string, tripId: string): Promise<void>;
+  /** His cash holds (expired ones included; the caller drops them). */
+  cashHolds(driverId: string): Promise<CashHold[]>;
+  /** Records a hold; the driver's holds live at most `ttlMs` in the store. */
+  addCashHold(driverId: string, hold: CashHold, ttlMs: number): Promise<void>;
+  /** Drops the hold of `tripId` (and `orderId`, when the hold is an order's). */
+  removeCashHold(driverId: string, tripId: string, orderId?: string): Promise<void>;
   /**
    * M2 review follow-up: runs `fn` while holding the driver's lock, so two accepts by the same driver
    * (different trips, two devices or two pods) cannot both pass the one-job / batching check before
@@ -109,7 +147,12 @@ const reqKey = (tripId: string) => `dispatch:req:${tripId}`;
 const activeKey = (cityId: string) => `dispatch:active:${cityId}`;
 const policyKey = (cityId: string) => `dispatch:policy:${cityId}`;
 const jobsKey = (driverId: string) => `dispatch:jobs:${driverId}`;
+const cashKey = (driverId: string) => `dispatch:cash:${driverId}`;
+/** One hold per trip, or per order of the trip when the order is known. */
+export const cashHoldField = (tripId: string, orderId?: string) => (orderId ? `${tripId}:${orderId}` : tripId);
 export const lockKey = (tripId: string) => `dispatch:lock:${tripId}`;
+/** Review #28: who confirmed a booked ride (first confirm wins; the 22:00 deadline takes it as `system`). */
+export const bookedLockKey = (tripId: string) => `dispatch:booked:${tripId}`;
 export const driverLockKey = (driverId: string) => `dispatch:driver-lock:${driverId}`;
 
 /** Deletes the lock only if we still own it (a lock that expired and was re-taken is not ours). */
@@ -146,6 +189,10 @@ export class RedisDispatchStore implements DispatchStore {
     return raws.filter((r): r is string => Boolean(r)).map((r) => JSON.parse(r) as DispatchRequest);
   }
 
+  async isActive(cityId: string, tripId: string): Promise<boolean> {
+    return (await this.redis.sismember(activeKey(cityId), tripId)) === 1;
+  }
+
   async tryLock(key: string, owner: string, ttlMs: number): Promise<boolean> {
     return (await this.redis.set(key, owner, 'PX', ttlMs, 'NX')) === 'OK';
   }
@@ -176,6 +223,18 @@ export class RedisDispatchStore implements DispatchStore {
     await this.redis.srem(jobsKey(driverId), tripId);
   }
 
+  async cashHolds(driverId: string): Promise<CashHold[]> {
+    return Object.values(await this.redis.hgetall(cashKey(driverId))).map((raw) => JSON.parse(raw) as CashHold);
+  }
+
+  async addCashHold(driverId: string, hold: CashHold, ttlMs: number): Promise<void> {
+    await this.redis.multi().hset(cashKey(driverId), cashHoldField(hold.tripId, hold.orderId), JSON.stringify(hold)).pexpire(cashKey(driverId), ttlMs).exec();
+  }
+
+  async removeCashHold(driverId: string, tripId: string, orderId?: string): Promise<void> {
+    await this.redis.hdel(cashKey(driverId), cashHoldField(tripId, orderId));
+  }
+
   async withDriverLock<T>(driverId: string, fn: () => Promise<T>): Promise<T> {
     const key = driverLockKey(driverId);
     const token = randomUUID();
@@ -202,6 +261,7 @@ export class InMemoryDispatchStore implements DispatchStore {
   private readonly locks = new Map<string, { owner: string; until: number }>();
   private readonly policies = new Map<string, PolicyOverride>();
   private readonly jobs = new Map<string, Set<string>>();
+  private readonly cash = new Map<string, Map<string, CashHold>>();
   /** Tail of each driver's lock queue: the next holder waits for it. */
   private readonly driverLocks = new Map<string, Promise<void>>();
 
@@ -226,6 +286,10 @@ export class InMemoryDispatchStore implements DispatchStore {
 
   async activeRequests(cityId: string): Promise<DispatchRequest[]> {
     return [...(this.active.get(cityId) ?? [])].map((id) => structuredClone(this.requests.get(id)!)).filter(Boolean);
+  }
+
+  async isActive(cityId: string, tripId: string): Promise<boolean> {
+    return this.active.get(cityId)?.has(tripId) ?? false;
   }
 
   async tryLock(key: string, owner: string, ttlMs: number): Promise<boolean> {
@@ -261,6 +325,22 @@ export class InMemoryDispatchStore implements DispatchStore {
 
   async removeDriverJob(driverId: string, tripId: string): Promise<void> {
     this.jobs.get(driverId)?.delete(tripId);
+  }
+
+  async cashHolds(driverId: string): Promise<CashHold[]> {
+    return [...(this.cash.get(driverId)?.values() ?? [])].map((h) => ({ ...h }));
+  }
+
+  async addCashHold(driverId: string, hold: CashHold): Promise<void> {
+    const holds = this.cash.get(driverId) ?? new Map<string, CashHold>();
+    holds.set(cashHoldField(hold.tripId, hold.orderId), { ...hold });
+    this.cash.set(driverId, holds);
+  }
+
+  async removeCashHold(driverId: string, tripId: string, orderId?: string): Promise<void> {
+    const holds = this.cash.get(driverId);
+    holds?.delete(cashHoldField(tripId, orderId));
+    if (holds?.size === 0) this.cash.delete(driverId);
   }
 
   async withDriverLock<T>(driverId: string, fn: () => Promise<T>): Promise<T> {

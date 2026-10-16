@@ -5,7 +5,7 @@ import { ScrollView, Switch, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
 import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
-import { Button, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useTheme } from '@driver/ui';
+import { Button, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useNetwork, useTheme } from '@driver/ui';
 import { formatWhen } from '@driver/i18n';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
 import { favouritesFor, firstSlot, scheduleAt, settleChoice, type ScheduleChoice } from '@/features/ride-habits/logic';
@@ -14,12 +14,15 @@ import { useWalletBalance } from '@/features/account/queries';
 import { CargoChips, cargoList, ClimateLine, FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
 import { WhenPicker } from '@/features/ride/LaterPicker';
 import { buildRidePlaceInput, cargoFits, destinationPinKind, doorExtra, rideClimate, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
-import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes, useRiderOptions } from '@/features/ride/queries';
+import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes, useRiderOptions, useZoneFor } from '@/features/ride/queries';
 import { riderInput } from '@/features/ride/rider';
 import { RiderRow, RiderSheet } from '@/features/ride/RiderParts';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
+import { useWalkStop } from '@/features/ride/useWalkStop';
+import { fasterBy, isWalkStop, showWalkOffer, stopLatLng, walkMetres, walkMinutes, walkStopSpot } from '@/features/ride/walk-stop';
+import { WalkChosenNote, WalkToStopCard } from '@/features/ride/WalkToStop';
 import { useSimpleMode } from '@/features/simple/pref';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -42,7 +45,7 @@ export default function RideChoose() {
   const locale = useLocale();
   const lang = locale === 'en' ? 'en' : 'ar-IQ';
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { height, fontScale } = useWindowDimensions();
   const api = useApi();
   const qc = useQueryClient();
   const ride = useRideStore();
@@ -68,6 +71,7 @@ export default function RideChoose() {
   const wallet = useWalletBalance();
   const place = usePlaceRide();
   const [problem, setProblem] = useState<string | null>(null);
+  const net = useNetwork();
   const [details, setDetails] = useState<RideVertical | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
   // c9/s3 «لمنو المشوار؟»: «إلي», or someone he picks in its sheet.
@@ -90,6 +94,10 @@ export default function RideChoose() {
   const vertical: RideVertical = d.vertical === 'tuktuk' && !tuktuk.ok ? 'taxi' : d.vertical;
   const mode = d.doorPickup ? 'door' : 'street';
   const quote = quotes.grid[vertical][mode];
+  // FLOW-27: the chosen vehicle has no price and nothing is loading: say why (offline, the server's own
+  // words such as an area we don't serve, or a plain "try again") and turn the request button into a retry.
+  const quoteFailed = !quote && !quotes.loading && quotes.error !== null;
+  const quoteReason = quoteFailed ? (net.state !== 'online' ? t('ride.quote_failed_offline') : apiErrorMessage(quotes.error, t('ride.quote_failed_retry'), locale)) : null;
   const extra = doorExtra(quotes.grid[vertical].door, quotes.grid[vertical].street);
   const surcharges = surchargesOf(quote);
   const estimate = useMemo(() => (pickup && dropoff ? Object.fromEntries(RIDE_VERTICALS.map((v) => [v, rideEstimate(pickup.pin, dropoff.pin, v, new Date())])) : null), [pickup, dropoff]) as Record<RideVertical, { minutes: number }> | null;
@@ -99,6 +107,26 @@ export default function RideChoose() {
   const walletOk = walletCovers(balance, quote?.total);
   // x1: «اليوم حار، نبعثلك سيارة مكيّفة» on the server's clock (the nearby read carries it), rides for now.
   const climate = when === 'now' ? rideClimate(nearby.taxi.data?.at ?? null, vertical) : null;
+
+  // Map idea N10 «امشي دقيقة للشارع العام»: the pin is in an alley and a main road is a short walk away.
+  // Walking moves the pickup to the stop (in its own zone, which prices the ride); «رجّعها لمكاني» undoes it.
+  const walk = isWalkStop(pickup) ? d.walk : null;
+  const walking = walk !== null;
+  const safe = useWalkStop(walking ? null : (pickup?.pin ?? null));
+  const [walkDismissed, setWalkDismissed] = useState<string | null>(null);
+  const stopPin = safe.stop ? stopLatLng(safe.stop) : null;
+  const stopZone = useZoneFor(stopPin);
+  const stopNear = useNearbyVehicles(stopPin, vertical);
+  // Either read failing only means no offer (or no clocks on it): his own spot still works.
+  const stopZoneId = !stopZone.isError && stopZone.data && !stopZone.isPlaceholderData && stopZone.data.inService ? stopZone.data.zoneId : null;
+  const offerWalk = showWalkOffer({ stop: safe.stop, mode, simple, dismissed: walkDismissed === pickup?.id, walking }) && stopZoneId !== null;
+  // The clocks are for a ride now; a ride booked for later only gets the walk.
+  const stopMinutes = when === 'now' && !stopNear.isError ? (stopNear.data?.nearestMinutes ?? null) : null;
+  const walkFaster = when === 'now' ? fasterBy(nearby[vertical].data?.nearestMinutes, stopMinutes) : null;
+  const backToSpot = (patch: { doorPickup?: boolean } = {}) => {
+    if (walk) rideStore.update({ pickup: walk.from, walk: null, ...patch });
+    else rideStore.update(patch);
+  };
 
   useEffect(() => {
     // The wallet stopped covering the fare (door pickup, night): back to cash.
@@ -112,6 +140,13 @@ export default function RideChoose() {
   const taxiTotal = quotes.grid.taxi[mode]?.total;
   const tukTotal = quotes.grid.tuktuk[mode]?.total;
   const cheaper = taxiTotal != null && tukTotal != null ? taxiTotal - tukTotal : null;
+
+  const walkTo = () => {
+    if (!safe.stop || !stopZoneId) return;
+    const m = walkMetres(safe.stop.walkM);
+    const title = safe.stop.landmarkName ? t('ride.walk_stop_title', { place: safe.stop.landmarkName }) : t('ride.walk_stop_title_road');
+    rideStore.update({ pickup: walkStopSpot(safe.stop, stopZoneId, title, t('ride.walk_stop_sub', { m })), walk: { from: pickup, landmark: safe.stop.landmarkName, walkM: safe.stop.walkM } });
+  };
 
   const openLive = (orderId: string) => {
     if (router.canDismiss()) router.dismissAll();
@@ -159,7 +194,8 @@ export default function RideChoose() {
   };
 
   // c1: map, route, both vehicles, the options row and the button fit on one phone screen.
-  const mapH = Math.round(Math.min(Math.max(Math.min(height * 0.4, height - 520), 170), 380));
+  // DEV-16: at large text the cards grow, so the map gives up room for both vehicles to fit.
+  const mapH = Math.round(Math.min(Math.max(Math.min(height * 0.4, height - 520), 170), 380) * (fontScale > 1.3 ? 0.6 : 1));
   const edgeReason = tuktuk.edgeZoneId && !d.allowEdgeTuktuk ? t('ride.tuktuk_edge', { zone: zoneTitle(tuktuk.edgeZoneId, lang) }) : null;
 
   return (
@@ -175,6 +211,14 @@ export default function RideChoose() {
           topInset={insets.top}
           bottomInset={theme.space[6]}
           nearby={{ data: nearby[vertical].data, kind: vertical === 'tuktuk' ? 'tuktuk' : 'car' }}
+          walk={
+            walk
+              ? { from: walk.from.pin, to: pickup.pin, youLabel: t('ride.walk_you'), stopLabel: t('ride.walk_stop_pin') }
+              : offerWalk && stopPin
+                ? { from: pickup.pin, to: stopPin, youLabel: t('ride.walk_you'), stopLabel: t('ride.walk_stop_pin') }
+                : null
+          }
+          onRoads={safe.onRoads}
           testID="ride-map"
         />
         <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + theme.space[3], left: theme.space[4], right: theme.space[4], flexDirection: 'row' }}>
@@ -205,6 +249,20 @@ export default function RideChoose() {
             </Text>
           ) : null}
           <RouteSummary pickup={pickup} dropoff={dropoff} simple={simple} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
+          {offerWalk && safe.stop ? (
+            <WalkToStopCard
+              walkMin={walkMinutes(safe.stop.walkM)}
+              walkM={walkMetres(safe.stop.walkM)}
+              landmark={safe.stop.landmarkName}
+              arrivesMin={stopMinutes}
+              faster={walkFaster}
+              doorLabel={extra ? `${t('ride.walk_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.walk_door')}
+              onWalk={walkTo}
+              onDoor={() => rideStore.update({ doorPickup: true })}
+              onStay={() => setWalkDismissed(pickup.id)}
+            />
+          ) : null}
+          {walk && !simple ? <WalkChosenNote walkM={walkMetres(walk.walkM)} landmark={walk.landmark} onUndo={() => backToSpot()} /> : null}
           {again ? (
             <View testID="ride-again-note" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
               <Icon name="refresh" size={16} color="successText" strokeWidth={2.2} />
@@ -273,6 +331,14 @@ export default function RideChoose() {
         </ScrollView>
 
         <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: Math.max(insets.bottom, theme.space[3]), gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
+          {quoteReason ? (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-quote-failed" accessibilityLiveRegion="polite">
+              <Icon name={net.state !== 'online' ? 'wifi-off' : 'receipt'} size={18} color="dangerText" />
+              <Text variant="footnote" color="dangerText" style={{ flex: 1 }}>
+                {quoteReason}
+              </Text>
+            </View>
+          ) : null}
           {problem ? (
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-problem" accessibilityLiveRegion="polite">
               <Icon name="receipt" size={18} color="dangerText" />
@@ -281,6 +347,9 @@ export default function RideChoose() {
               </Text>
             </View>
           ) : null}
+          {quoteFailed ? (
+            <Button testID="ride-quote-retry" size="lg" variant="secondary" icon="refresh" fullWidth label={t('action.retry')} onPress={() => void quotes.refetch()} style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }} />
+          ) : (
           <Button
             testID="ride-request"
             size="lg"
@@ -299,6 +368,7 @@ export default function RideChoose() {
             onPress={() => void request()}
             style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }}
           />
+          )}
           {quote ? (
             <View testID="ride-price-locked" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[1] }}>
               <Icon name="lock" size={13} color="textMuted" strokeWidth={2.2} />
@@ -319,7 +389,7 @@ export default function RideChoose() {
             <SegmentedControl
               accessibilityLabel={t('ride.pickup_mode')}
               value={mode}
-              onChange={(m) => rideStore.update({ doorPickup: m === 'door' })}
+              onChange={(m) => (m === 'door' ? backToSpot({ doorPickup: true }) : rideStore.update({ doorPickup: false }))}
               options={[
                 { value: 'street', label: t('ride.pickup_street') },
                 { value: 'door', label: extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door') },

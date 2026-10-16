@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { orderTicketNumber, type DisputeKind } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
-import { Button, Card, ChipGroup, EmptyState, formatClock, Icon, Skeleton, Text, TextField, useNow, useTheme, useToast, type IconName } from '@driver/ui';
+import { Button, Card, ChipGroup, EmptyState, formatClock, Icon, QueryBoundary, Skeleton, Text, TextField, useNow, useTheme, useToast, type IconName } from '@driver/ui';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { Screen } from '@/components/Screen';
 import { HeaderBack } from '@/features/food/HeaderBack';
@@ -67,11 +67,21 @@ export default function OrderIssue() {
       }
     >
       <Stack.Screen options={{ title: t('help.issue_title'), headerShown: true, headerLeft: () => <HeaderBack /> }} />
-      {history.isPending ? (
-        <View style={{ gap: theme.space[3] }}>
-          <Skeleton height={72} />
-          <Skeleton height={120} />
-        </View>
+      {/* FLOW-19: a list that failed to load is not "order not found": it says why, with a retry. */}
+      {history.data === undefined ? (
+        <QueryBoundary
+          query={history}
+          locale={locale}
+          testID="help-issue-state"
+          skeleton={
+            <View style={{ gap: theme.space[3] }}>
+              <Skeleton height={72} />
+              <Skeleton height={120} />
+            </View>
+          }
+        >
+          {() => null}
+        </QueryBoundary>
       ) : !row ? (
         <EmptyState icon="receipt" title={t('help.order_not_found')} action={{ label: t('help.back_home'), onPress: () => router.back() }} />
       ) : (

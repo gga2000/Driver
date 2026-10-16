@@ -31,6 +31,11 @@ export const DeliveryPoint = z.object({
    * learned it (maps program a3). The courier navigates and arrives there; `pin` stays the customer's.
    */
   door: LatLng.optional(),
+  /**
+   * Set by the server only (a client's value is dropped): a delivery priced «بالشارع» (HUNT-02) — the
+   * customer comes out to the street near `pin` instead of the courier coming to the door.
+   */
+  streetHandover: z.literal(true).optional(),
 });
 export type DeliveryPoint = z.infer<typeof DeliveryPoint>;
 

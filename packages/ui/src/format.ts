@@ -46,6 +46,14 @@ export function formatClock(d: Date | number, opts: { period?: boolean; locale?:
   return cityClock(d, opts);
 }
 
+/**
+ * The clock inside a sentence that may wrap: the time and its ص / م are held together by a
+ * no-break space, so «ص» never ends up alone on the next line (VIS-19).
+ */
+export function formatClockInline(d: Date | number): string {
+  return formatClock(d).replace(' ', '\u00A0');
+}
+
 /** Countdown `m:ss` (voice spec: `{minutes}:{seconds}`), `h:mm:ss` from an hour up. */
 export function formatCountdown(ms: number): string {
   return cityCountdown(ms);

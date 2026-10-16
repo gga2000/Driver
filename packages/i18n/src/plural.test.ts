@@ -29,10 +29,10 @@ describe('pluralKeyIn fallback chain', () => {
 
 describe('counted phrases read as Iraqis say them (audit S-17)', () => {
   it('t() picks the form from the counted param, with no change at the call site', () => {
-    expect(t('list.count', { n: 1 })).toBe('مطعم واحد');
-    expect(t('list.count', { n: 2 })).toBe('مطعمين');
-    expect(t('list.count', { n: 5 })).toBe('5 مطاعم');
-    expect(t('list.count', { n: 14 })).toBe('14 مطعم');
+    expect(t('list.count', { n: 1 })).toBe('محل واحد');
+    expect(t('list.count', { n: 2 })).toBe('محلين');
+    expect(t('list.count', { n: 5 })).toBe('5 محلات');
+    expect(t('list.count', { n: 14 })).toBe('14 محل');
     expect(t('partner.jobs_today', { n: 2 })).toBe('طلبين اليوم');
     expect(t('intercity.seats_left', { n: 3 })).toBe('باقي 3 مقاعد');
     expect(t('intercity.seats_left', { n: 1 })).toBe('باقي مقعد واحد');
@@ -48,8 +48,8 @@ describe('counted phrases read as Iraqis say them (audit S-17)', () => {
     expect(t('points.balance', { n: '2,500' })).toBe('2,500 نقطة');
   });
   it('English keeps singular for one', () => {
-    expect(t('list.count', { n: 1 }, 'en')).toBe('1 restaurant');
-    expect(t('list.count', { n: 4 }, 'en')).toBe('4 restaurants');
+    expect(t('list.count', { n: 1 }, 'en')).toBe('1 shop');
+    expect(t('list.count', { n: 4 }, 'en')).toBe('4 shops');
   });
   it('tp and pluralKey address a family by its base', () => {
     expect(pluralKey('time.hours', 2)).toBe('time.hours_two');

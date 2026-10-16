@@ -143,8 +143,8 @@ describe('the job with waiting taps applied', () => {
     merchant: null,
     pay: { totalIqd: 3_000 } as PartnerJob['pay'],
     stops: [
-      { stopId: 'p1', seq: 1, type: 'pickup', state: 'pending', zoneId: 'centre', pin: null, label: 'مطعم خالد', orderId: 'o1', note: null, collectIqd: 0, arrivedAt: null, completedAt: null },
-      { stopId: 'd1', seq: 2, type: 'dropoff', state: 'pending', zoneId: 'street_30', pin: null, label: null, orderId: 'o1', note: null, collectIqd: 12_500, arrivedAt: null, completedAt: null },
+      { stopId: 'p1', seq: 1, type: 'pickup', state: 'pending', zoneId: 'centre', pin: null, label: 'مطعم خالد', orderId: 'o1', note: null, collectIqd: 0, arrivedAt: null, completedAt: null, landmark: null },
+      { stopId: 'd1', seq: 2, type: 'dropoff', state: 'pending', zoneId: 'street_30', pin: null, label: null, orderId: 'o1', note: null, collectIqd: 12_500, arrivedAt: null, completedAt: null, landmark: null },
     ],
   };
 

@@ -6,7 +6,7 @@ import { Button, Card, Icon, IconButton, MAX_CONTENT_WIDTH, ModalSheet, StatusPi
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { Glyph, type GlyphName } from './Glyph';
-import { DOC_STATUS_KEY, DOC_TONE, docAction, docsSummary, expiryFromMonth, expiryText, dayMonth, hasExpiry, local, type DocRow } from './logic';
+import { DAY_MS, DOC_STATUS_KEY, DOC_TONE, docAction, docsSummary, expiryFromMonth, expiryText, dayMonth, hasExpiry, local, type DocRow } from './logic';
 import { pickPhoto, uploadPhoto, type PickedPhoto, type PhotoSource } from './photo';
 import { useAccountMutations, useRefreshAccount } from './queries';
 
@@ -59,7 +59,8 @@ export function DocumentRow({ row, onUpload, divider }: { row: DocRow; onUpload:
     row.status === 'missing'
       ? t(`partner.docs_hint_${row.kind}`)
       : row.status === 'pending'
-        ? t('partner.docs_submitted', { date: dayMonth(d!.submittedAt, t) })
+        ? // f8: when he can expect an answer (the upload toast promised 24 hours), and an apology after that.
+          t(Date.now() - d!.submittedAt.getTime() > DAY_MS ? 'partner.f8_doc_waiting_long' : 'partner.f8_doc_waiting', { date: dayMonth(d!.submittedAt, t) })
         : row.status === 'expiring' || row.status === 'expired'
           ? expiry
           : d?.expiresAt
@@ -133,7 +134,7 @@ export function UploadDocumentSheet({ kind, onClose }: { kind: DriverDocumentKin
 
   const pick = async (source: PhotoSource) => {
     setError(null);
-    const got = await pickPhoto(source);
+    const got = await pickPhoto(source, { document: true });
     if (got === 'denied') setError(t('partner.docs_camera_denied'));
     else if (got) setPhoto(got);
   };

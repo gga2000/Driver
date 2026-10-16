@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AZIZIYAH_ZONES,
   LATE_PROMISE_MEMO,
   ledgerLineLabel,
+  walletDebtPaidTitle,
   walletLineDetail,
   walletLineTitle,
   walletOrderDetail,
@@ -19,6 +20,7 @@ import {
   type WalletTransactionsInput,
   type WalletTransactionsView,
 } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { Accounts } from './accounts.js';
@@ -77,7 +79,8 @@ function singleKind(e: LedgerEvent, signed: number): WalletLineKind {
       return 'change_to_wallet';
     case 'cancellation_fee':
     case 'departure_cancel_fee':
-      return 'penalty';
+      // A driver's cancel fee paid to the customer (M-15, a الرجعة driver's late cancel) is credit, not «رسوم».
+      return signed > 0 ? 'credit' : 'penalty';
     case 'debt_settled':
       return 'debt';
     case 'adjustment':
@@ -107,9 +110,8 @@ export function baghdadYearStart(now: Date): Date {
 }
 
 /**
- * «وفّرت هالسنة» (w10): what came back into the customer's account since 1 January — points spent on
- * fees and deals or promotions (`promo_funded`), the late-delivery credit and change kept in the wallet
- * (`cash_change_to_wallet`). Pure: the caller passes the account's events.
+ * «وفّرت هالسنة» (w10): what came off the customer's bills since 1 January (`savedBetween`).
+ * Pure: the caller passes the account's events.
  */
 export function savedThisYear(account: string, events: readonly LedgerEvent[], now: Date): number {
   return savedBetween(account, events, baghdadYearStart(now), new Date(now.getTime() + 1));
@@ -117,13 +119,16 @@ export function savedThisYear(account: string, events: readonly LedgerEvent[], n
 
 /**
  * «وفّرت» over `[from, to)`: the one definition behind the account header's year (w10) and the
- * month page «شهرك» (w6) — points spent on fees, deals and promotions (`promo_funded`), the
- * late-delivery credit and change kept in the wallet. Pure: the caller passes the account's events.
+ * month page «شهرك» (w6) — only what came off his bills (Ali, 2026-10-11): `promo_funded` paid into
+ * his account (deals, promotions, points used against fees, the الرجعة return discount). The change he
+ * kept in the wallet is his own money and the late-delivery credit is a make-good shown on its own
+ * («رجّعنالك …» in «دفترك»), so neither counts. The same total as the stats page's `savedOffBills`.
+ * Pure: the caller passes the account's events.
  */
 export function savedBetween(account: string, events: readonly LedgerEvent[], from: Date, to: Date): number {
   return events
     .filter((e) => e.kind === 'money' && e.toAccount === account && e.occurredAt.getTime() >= from.getTime() && e.occurredAt.getTime() < to.getTime())
-    .filter((e) => e.type === 'promo_funded' || e.type === 'cash_change_to_wallet' || (e.type === 'credit_issued' && e.memo === LATE_PROMISE_MEMO))
+    .filter((e) => e.type === 'promo_funded')
     .reduce((s, e) => s + e.amount, 0);
 }
 
@@ -154,7 +159,9 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
       const net = list.reduce((s, e) => s + signedFor(account, e), 0);
       const cash = list.filter((e) => e.toAccount === account && CASH_TYPES.has(e.type)).reduce((s, e) => s + e.amount, 0);
       // Charged = everything except the cash that paid for it: purchases, minus discounts, plus rounding.
-      const charged = -list.filter((e) => !CASH_TYPES.has(e.type)).reduce((s, e) => s + signedFor(account, e), 0);
+      // M-3: owed fees paid with this order's cash are their own line, never part of what it cost.
+      const debtPaid = list.filter((e) => e.toAccount === account && e.type === 'debt_settled').reduce((s, e) => s + e.amount, 0);
+      const charged = -list.filter((e) => !CASH_TYPES.has(e.type) && e.type !== 'debt_settled').reduce((s, e) => s + signedFor(account, e), 0);
       const kind = purchaseKind(groupId, new Set(list.map((e) => e.type)), list.map((e) => e.memo ?? ''));
       const method = cash > 0 ? 'cash' : 'wallet';
       out.push({
@@ -172,7 +179,7 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
         ...refs,
       });
       const noChange = list.filter((e) => e.toAccount === account && e.type === 'cash_change_to_wallet').reduce((s, e) => s + e.amount, 0);
-      const rest = net - noChange;
+      const rest = net - noChange - debtPaid;
       if (method === 'cash' && rest !== 0) {
         const k = rest > 0 ? 'cash_change' : 'debt';
         const d = rest > 0 ? 'cash_change' : 'short_cash';
@@ -186,6 +193,22 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
           detail_ar: walletLineDetail(d, 'ar-IQ'),
           detail_en: walletLineDetail(d, 'en'),
           amount: rest,
+          unit: 'iqd',
+          method: null,
+          ...refs,
+        });
+      }
+      if (debtPaid > 0) {
+        out.push({
+          id: `${groupId}:debt_paid`,
+          occurredAt: first.occurredAt,
+          book: 'money',
+          kind: 'debt',
+          title_ar: walletDebtPaidTitle('ar-IQ'),
+          title_en: walletDebtPaidTitle('en'),
+          detail_ar: walletLineDetail('debt_paid', 'ar-IQ'),
+          detail_en: walletLineDetail('debt_paid', 'en'),
+          amount: debtPaid,
           unit: 'iqd',
           method: null,
           ...refs,
@@ -214,7 +237,12 @@ export function moneyLines(account: string, events: readonly LedgerEvent[]): Wal
       if (signed === 0) continue;
       const kind = singleKind(e, signed);
       const label =
-        kind === 'topup' || kind === 'late_credit' ? { ar: walletLineTitle(kind, 'ar-IQ'), en: walletLineTitle(kind, 'en') } : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
+        kind === 'topup' || kind === 'late_credit'
+          ? { ar: walletLineTitle(kind, 'ar-IQ'), en: walletLineTitle(kind, 'en') }
+          : e.type === 'departure_cancel_fee' && signed > 0
+            ? // A الرجعة driver who cancelled late or never came (M-11) pays the rider: say why, not «رسوم».
+              { ar: t('wallet.line.departure_credit', undefined, 'ar-IQ'), en: t('wallet.line.departure_credit', undefined, 'en') }
+            : { ar: ledgerLineLabel(e.type, 'ar-IQ'), en: ledgerLineLabel(e.type, 'en') };
       const orderDetail = kind === 'late_credit' && e.orderId ? { ar: walletOrderDetail(e.orderId, 'ar-IQ'), en: walletOrderDetail(e.orderId, 'en') } : null;
       out.push({
         id: e.id,
@@ -312,12 +340,40 @@ export interface WalletHouseholds {
 export const WALLET_PEOPLE = Symbol('WALLET_PEOPLE');
 export const WALLET_HOUSEHOLDS = Symbol('WALLET_HOUSEHOLDS');
 
-/** Agent shops for cash top-up (customer spec §9). Placeholder until the agent network is signed. */
-const AGENTS = [
-  { id: 'agent_centre', zoneId: 'centre', name_ar: 'وكيل شحن — مركز العزيزية', name_en: 'Top-up agent — town centre', hours_ar: 'كل يوم 9 الصبح – 10 الليل', hours_en: 'Daily 9am–10pm' },
-  { id: 'agent_street_30', zoneId: 'street_30', name_ar: 'وكيل شحن — شارع 30', name_en: 'Top-up agent — Street 30', hours_ar: 'كل يوم 8 الصبح – 12 الليل', hours_en: 'Daily 8am–midnight' },
-  { id: 'agent_hashimi', zoneId: 'hashimi', name_ar: 'وكيل شحن — الهاشمي', name_en: 'Top-up agent — Al-Hashimi', hours_ar: 'السبت – الخميس 9 – 9', hours_en: 'Sat–Thu 9–9' },
-] as const;
+/** A signed top-up agent shop (customer spec §9): where, its name and its hours. */
+export interface TopupAgentDef {
+  id: string;
+  zoneId: string;
+  name_ar: string;
+  name_en: string;
+  hours_ar: string;
+  hours_en: string;
+}
+
+export const TOPUP_AGENTS = Symbol('TOPUP_AGENTS');
+
+/**
+ * FLOW-24 (W3): only real, signed agents are ever listed — from `TOPUP_AGENTS_JSON` (an array of
+ * `TopupAgentDef`, set when the agent network is signed). None set = the agent channel is shown as not
+ * available yet and no shop is listed (the three placeholder shops are gone: people walked to them).
+ * Rows with a zone the city does not know are dropped.
+ */
+export function topupAgentsFromEnv(env: Readonly<Record<string, string | undefined>> = process.env): TopupAgentDef[] {
+  const raw = env['TOPUP_AGENTS_JSON'];
+  if (!raw) return [];
+  try {
+    const rows: unknown = JSON.parse(raw);
+    if (!Array.isArray(rows)) return [];
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    return rows.flatMap((r: Record<string, unknown>) => {
+      const a = { id: str(r['id']), zoneId: str(r['zoneId']), name_ar: str(r['name_ar']), name_en: str(r['name_en']), hours_ar: str(r['hours_ar']), hours_en: str(r['hours_en']) };
+      if (Object.values(a).some((v) => v === null) || !AZIZIYAH_ZONES.some((z) => z.id === a.zoneId)) return [];
+      return [a as TopupAgentDef];
+    });
+  } catch {
+    return [];
+  }
+}
 
 /**
  * `ctx.wallet` (customer spec §9, domain §10, decisions §2): the caller's money balance, points and
@@ -333,11 +389,14 @@ export class CustomerWalletService implements WalletPort {
     @Inject(WALLET_PEOPLE) private readonly people: WalletPeople,
     @Inject(WALLET_HOUSEHOLDS) private readonly households: WalletHouseholds,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(TOPUP_AGENTS) private readonly agents: readonly TopupAgentDef[] = topupAgentsFromEnv(),
   ) {}
 
   async balance(actor: Actor): Promise<WalletBalanceView> {
     const id = actor.personId;
-    const [money, points, pending, events] = await Promise.all([this.ledger.balance(Accounts.customer(id)), this.ledger.balance(Accounts.points(id)), this.pending(id), this.ledger.eventsFor(Accounts.customer(id))]);
+    // SCALE-16: balances are database sums and «وفّرت» reads this year's lines only, not the whole history.
+    const now = this.clock.now();
+    const [money, points, pending, events] = await Promise.all([this.ledger.balance(Accounts.customer(id)), this.ledger.balance(Accounts.points(id)), this.pending(id), this.ledger.eventsSince(Accounts.customer(id), baghdadYearStart(now))]);
     const home = await this.households.householdOf(id);
     const householdBalance = home ? (await this.ledger.balance(Accounts.household(home.id))).amount : 0;
     return {
@@ -350,25 +409,43 @@ export class CustomerWalletService implements WalletPort {
       pointValueIqd: this.rules.points.pointValueIqd,
       household: home ? { id: home.id, name: home.name, role: home.role, balanceIqd: householdBalance } : null,
       pointsMaxPerOrder: this.rules.points.maxPerOrder,
-      savedThisYearIqd: savedThisYear(Accounts.customer(id), events, this.clock.now()),
+      savedThisYearIqd: savedThisYear(Accounts.customer(id), events, now),
     };
   }
 
   async transactions(actor: Actor, input: z.infer<typeof WalletTransactionsInput>): Promise<WalletTransactionsView> {
     const id = actor.personId;
-    const [money, points] = await Promise.all([this.ledger.eventsFor(Accounts.customer(id)), this.ledger.eventsFor(Accounts.points(id))]);
-    return pageLines([...moneyLines(Accounts.customer(id), money), ...pointsLines(Accounts.points(id), points)], input.limit, input.before);
+    const accounts = { money: Accounts.customer(id), points: Accounts.points(id) };
+    // SCALE-16: read the newest lines of both books a window at a time, never the whole history. A
+    // window is whole down to its oldest timestamp (a posting group shares one), so lines at or after
+    // the later of the two floors are exactly what the full history would give there.
+    for (let take = Math.max(input.limit * 3, 60); ; take *= 4) {
+      const [money, points] = await Promise.all([this.ledger.eventsPage(accounts.money, { before: input.before, take }), this.ledger.eventsPage(accounts.points, { before: input.before, take })]);
+      const floors = [money, points].filter((w) => !w.complete).map((w) => w.events[0]?.occurredAt.getTime() ?? Number.POSITIVE_INFINITY);
+      const floor = floors.length > 0 ? Math.max(...floors) : null;
+      const lines = [...moneyLines(accounts.money, money.events), ...pointsLines(accounts.points, points.events)].filter((l) => floor === null || l.occurredAt.getTime() >= floor);
+      const page = pageLines(lines, input.limit, input.before);
+      if (floor === null || page.nextBefore) return page;
+      // Everything above the floor fit on this page: older lines remain, so either the page is full and
+      // the next one starts below it, or the window was too small and widens.
+      if (page.lines.length >= input.limit) return { lines: page.lines, nextBefore: page.lines[page.lines.length - 1]!.occurredAt };
+    }
   }
 
   async topupOptions(_actor: Actor): Promise<TopupOptionsView> {
+    const agentsLive = this.agents.length > 0;
     return {
-      placeholder: true,
+      // FLOW-24: never placeholder shops any more; agents are listed only once signed (`TOPUP_AGENTS_JSON`).
+      placeholder: false,
       channels: [
-        { id: 'agent', available: true, title_ar: 'اشحن من وكيل قريب', title_en: 'Top up at an agent', body_ar: 'ادفع كاش بأقرب وكيل ويوصل رصيدك بنفس الوقت', body_en: 'Pay cash at a nearby agent; the credit lands at once' },
-        { id: 'driver', available: true, title_ar: 'اشحن كاش عن طريق السايق', title_en: 'Top up with your driver', body_ar: 'انطي السايق الفلوس ويوصل رصيدك بعد ما يأكد', body_en: 'Hand cash to your driver; credit lands when he confirms' },
+        agentsLive
+          ? { id: 'agent', available: true, title_ar: 'اشحن من وكيل قريب', title_en: 'Top up at an agent', body_ar: 'ادفع كاش بأقرب وكيل ويوصل رصيدك بنفس الوقت', body_en: 'Pay cash at a nearby agent; the credit lands at once' }
+          : { id: 'agent', available: false, title_ar: 'اشحن من وكيل قريب', title_en: 'Top up at an agent', body_ar: 'قريباً', body_en: 'Coming soon' },
+        // THIN-11: only the courier bringing a live delivery can take the cash (taxi and tuktuk drivers cannot yet).
+        { id: 'driver', available: true, title_ar: 'اشحن عن طريق الدليفري', title_en: 'Top up with your courier', body_ar: 'انطي الفلوس للدليفري اللي جايب طلبك، قبل ما يسلّمك الطلب. يوصل رصيدك بعد ما يأكد', body_en: 'Hand cash to the courier bringing your order, before he hands it over; credit lands when he confirms' },
         { id: 'zaincash', available: false, title_ar: 'زين كاش', title_en: 'ZainCash', body_ar: 'قريباً', body_en: 'Coming soon' },
       ],
-      agents: AGENTS.map((a) => {
+      agents: this.agents.map((a) => {
         const z = AZIZIYAH_ZONES.find((x) => x.id === a.zoneId)!;
         return {
           ...a,

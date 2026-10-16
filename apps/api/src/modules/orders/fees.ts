@@ -25,6 +25,8 @@ export interface ServerFees {
   serviceFeeIqd: number;
   /** Rides: the quote's rounded, bounded total. 0 for deliveries. */
   fareIqd: number;
+  /** HUNT-02: a delivery priced «بالشارع» (the quote carries the street-pickup discount). False for rides. */
+  streetHandover: boolean;
 }
 
 /** The pricing vertical an order is quoted under. */
@@ -71,10 +73,11 @@ export function serverFees(pricing: QuotePort, ctx: FeeContext): ServerFees {
     if (err instanceof Error && err.name === 'PricingError') throw new DriverError('order_type_not_supported', { cause: err });
     throw err;
   }
-  if (ctx.type === 'ride') return { quoteId: quote.id, vertical, deliveryFeeIqd: 0, serviceFeeIqd: 0, fareIqd: quote.total };
+  if (ctx.type === 'ride') return { quoteId: quote.id, vertical, deliveryFeeIqd: 0, serviceFeeIqd: 0, fareIqd: quote.total, streetHandover: false };
   const serviceFeeIqd = quote.components.filter((c) => c.key === 'service_fee').reduce((a, c) => a + c.amount, 0);
   const deliveryFeeIqd = quote.components.filter((c) => c.key !== 'service_fee' && c.key !== 'promo').reduce((a, c) => a + c.amount, 0);
-  return { quoteId: quote.id, vertical, deliveryFeeIqd: Math.max(0, deliveryFeeIqd), serviceFeeIqd: Math.max(0, serviceFeeIqd), fareIqd: 0 };
+  const streetHandover = quote.components.some((c) => c.key === 'street_pickup');
+  return { quoteId: quote.id, vertical, deliveryFeeIqd: Math.max(0, deliveryFeeIqd), serviceFeeIqd: Math.max(0, serviceFeeIqd), fareIqd: 0, streetHandover };
 }
 
 /** A value the client sent must equal the server's; absent means "whatever the server says". */

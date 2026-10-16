@@ -6,7 +6,7 @@ import { useState, type ReactNode } from 'react';
 import { palettes, type ConsoleRole } from '@/theme/palette';
 import { setTheme, useTheme } from '@/lib/prefs';
 import { SlaPill } from './support/sla';
-import * as UI from './ui';
+import * as Icons from './ui/icons';
 import {
   Avatar,
   Badge,
@@ -109,9 +109,11 @@ const ROWS = [
   },
 ];
 
-const ICONS = Object.entries(UI).filter(
-  ([k]) => k.startsWith('Icon') && k !== 'IconButton' && k !== 'IconDot',
-) as Array<[string, (p: UI.IconProps) => ReactNode]>;
+// The icons module, not the `./ui` barrel: a namespace import keeps every export of what it names in
+// every page's bundle, so the gallery names only the icons.
+const ICONS = Object.entries(Icons).filter(([k]) => k.startsWith('Icon') && k !== 'IconDot') as Array<
+  [string, (p: Icons.IconProps) => ReactNode]
+>;
 
 export function DesignPage() {
   const theme = useTheme();

@@ -36,3 +36,7 @@ google-play-service-account*.json
 
 # graphify knowledge graph (local only, rebuilt after each commit)
 graphify-out/
+
+# Vercel CLI link folder
+.vercel/
+dump.rdb

@@ -65,6 +65,9 @@ minutes.
 - Wallet: `wallet.transactions` reads that line as kind `late_credit`, «تعويض التأخير · طلب #3808»
   ("Late delivery credit · Order #3808"), for the fee back and the flat 1,000 alike; other
   `credit_issued` lines stay «رصيد مضاف».
+- Push (NTF-22): the same transaction logs one `order.late_credit` {customerId, amountIqd} per order
+  (idempotency key `late_credit:<orderId>`); notify sends `order_late_credit` «+1,000 دينار رصيد، لأن
+  تأخرنا عليك», opening the wallet. No money posted → no event → no push.
 - Simulator invariant `late_credit_once_per_delivery` checks once / deliveries only / payer / amount.
 
 ## Outputs
@@ -84,3 +87,26 @@ minutes.
 - Customer: `POST /demo/track?personId=…&scenario=late_apology` (promise moved 11 min into the past: the
   next read sends the apology) and `scenario=late_credit` (21 min: the next read posts the credit);
   `scenario=late&pastPromiseMin=<n>` for any point on the bar.
+
+## Why it's late, on the map (N6, Ali 2026-10-11)
+
+`tracking.route` (the road the customer's map draws) carries `slowStretch` once a delivery has passed
+its 10-minute late step (the apology) and is still on its way:
+
+```ts
+slowStretch: { fromM, toM, reason: 'traffic' | 'kitchen' | 'closed', minutes } | null
+```
+
+- `fromM` / `toM`: metres along this route's own line: the decoded `polyline6`, or, with no road shape,
+  the straight line through the route's points (what the map draws then).
+- **`kitchen`**: the food is not picked up and the kitchen is past its promised ready time. The stretch
+  is ±60 m around the point where the route passes the kitchen; `minutes` = how late the kitchen is.
+- **`traffic`**: otherwise. The road is cut into ~300 m pieces, each piece's learned ETA factor is read
+  (the same factors the one ETA uses, `EtaService.factor`, no router call), and the costliest unbroken
+  run of pieces at 1.15× or more is the stretch; `minutes` = what it adds over the router's estimate.
+  Under one extra minute, or nothing learned slow: `null`.
+- **`closed`**: kept for the closed-streets work (N20/N21); not sent yet.
+- Rides, on-time orders, delivered or cancelled orders: `null`.
+
+Read-only: the promise, the apology, the 20-minute credit and the amounts are unchanged. Code:
+`apps/api/src/modules/tracking/slow-stretch.ts`; tests: `slow-stretch.test.ts`.

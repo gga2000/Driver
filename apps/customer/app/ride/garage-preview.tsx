@@ -71,7 +71,7 @@ const ARM: GarageArmView = {
   failCode: null,
 };
 
-const LINK: GarageTaxiLink = { orderId: 'ord_demo', bookingId: 'bk_demo', garage: GARAGE, departAt: at(25), expectedAt: new Date(at(25).getTime() + 7 * MIN), lateMin: 7, driverTold: false, toldMin: null };
+const LINK: GarageTaxiLink = { orderId: 'ord_demo', bookingId: 'bk_demo', garage: GARAGE, departAt: at(25), expectedAt: new Date(at(25).getTime() + 7 * MIN), lateMin: 7, driverTold: false, toldMin: null, seatHeldUntil: null };
 
 const X2: [string, ToGarageCardState][] = [
   ['offer-later', { kind: 'offer', plan: PLAN, offline: false }],
@@ -99,6 +99,7 @@ const X4: [string, ArmCardState][] = [
 const X3: [string, GarageTaxiLink][] = [
   ['not-told', LINK],
   ['told', { ...LINK, driverTold: true, toldMin: 7 }],
+  ['held', { ...LINK, driverTold: true, toldMin: 7, seatHeldUntil: new Date(at(25).getTime() + 7 * MIN) }],
 ];
 
 const NAHDHA = 'كراج النهضة';

@@ -10,8 +10,8 @@ import { SectionHead } from '@/features/intercity/BoardParts';
 import { clockBare, clockLabel, dayPeriod } from '@/features/intercity/logic';
 import { useNow } from '@/features/intercity/useNow';
 import { useRunCall } from '@/features/intercity/useRunCall';
-import { PlaceCard, RunProgress, SubstituteCard, SweepCard } from '@/features/khat/KhatParts';
-import { activeRunIndex, groupPlaces, needsSweep, nextStopAt, runFinished, runStart, runUnderway } from '@/features/khat/logic';
+import { NextChildCard, PlaceCard, RunProgress, SubstituteCard, SweepCard } from '@/features/khat/KhatParts';
+import { activeRunIndex, groupPlaces, needsSweep, nextChild, nextStopAt, runFinished, runStart, runUnderway } from '@/features/khat/logic';
 import { useKhatActions, useSubstituteOffers, useTodayRun } from '@/features/khat/queries';
 import { apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -35,7 +35,7 @@ export default function KhatRun() {
   const run = useTodayRun();
   const subs = useSubstituteOffers();
   const actions = useKhatActions();
-  const caller = useRunCall();
+  const caller = useRunCall('khat');
   const now = useNow(1_000);
   // The run he just finished is kept from the last answer so the sweep and the summary stay on
   // screen even if today's list moves on.
@@ -65,6 +65,7 @@ export default function KhatRun() {
 
   const trip = trips.find((x) => x.tripId === tab) ?? null;
   const places = useMemo(() => (trip ? groupPlaces(trip) : []), [trip]);
+  const next = useMemo(() => (trip ? nextChild(trip, places) : null), [trip, places]);
   const offers = (subs.data ?? []).filter((o) => o.expiresInSec - (now.getTime() - fetchedAt) / 1000 > 0);
   // He is driving children: no offer cards (with their timers) until every run is swept (audit P-15).
   const underway = trips.some(runUnderway);
@@ -179,8 +180,26 @@ export default function KhatRun() {
             />
           ) : null}
 
+          {next && !finished ? (
+            <NextChildCard
+              key={next.stop.stopId}
+              next={next}
+              trip={trip}
+              now={now.getTime()}
+              busy={busyStop === next.stop.stopId}
+              asking={absenceFor === next.stop.child!.childRef}
+              onTap={() => void tap(trip, next.stop)}
+              onAskAbsence={() => setAbsenceFor(next.stop.child!.childRef)}
+              onAbsence={(r) => void reportAbsence(trip, next.stop.child!.childRef, r)}
+              onCancelAbsence={() => setAbsenceFor(null)}
+              onCall={() => callGuardian(trip, next.stop)}
+              calling={caller.busyKey === next.stop.child!.childRef}
+            />
+          ) : null}
+
           <Card padding={5}>
-            <RunProgress trip={trip} nextAt={finished ? null : nextStopAt(places)} now={now.getTime()} />
+            {/* k2: with the next child on top, its time is there; the big clock stays for a gap between stops. */}
+            <RunProgress trip={trip} nextAt={finished || next ? null : nextStopAt(places)} now={now.getTime()} />
           </Card>
 
           {offers.length > 0 && underway ? (
@@ -238,6 +257,7 @@ export default function KhatRun() {
                 onCancelAbsence={() => setAbsenceFor(null)}
                 onCallGuardian={finished && !sweep ? null : (s) => callGuardian(trip, s)}
                 callingRef={caller.busyKey}
+                nextStopId={finished ? null : (next?.stop.stopId ?? null)}
               />
             ))}
           </View>

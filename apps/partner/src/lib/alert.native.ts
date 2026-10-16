@@ -7,8 +7,10 @@ import { replay, untilLoaded } from './audio-player';
  * answers or the offer expires, plus a vibration pattern that repeats with it — a phone in a handlebar
  * mount or a pocket on a noisy road. iOS plays it with the ringer switch on silent
  * (`playsInSilentMode`, the `.playback` session); Android plays on the media stream (not muted by the
- * ringer's silent mode) and takes audio focus without ducking for music (`doNotMix`). With the app
- * closed the push channel `offers` rings instead. Same API as alert.ts.
+ * ringer's silent mode) and takes audio focus without ducking for music (`doNotMix`). It also rings
+ * with the app in the background or the screen locked (`shouldPlayInBackground`; iOS needs
+ * `UIBackgroundModes: audio`, set in app.json — Android keeps the process alive through the online
+ * location service). With the app closed the push channel `offers` rings instead. Same API as alert.ts.
  */
 
 export const OFFER_REPEAT_MS = 1_600;
@@ -28,14 +30,25 @@ function setLoaded(s: SoundState) {
   for (const cb of listeners) cb(s);
 }
 
+/**
+ * The audio mode every alert plays under (speed audit, day one: a phone in a pocket or a locked
+ * screen must still ring for an offer that lasts 15 s).
+ */
+export const ALERT_AUDIO_MODE = {
+  playsInSilentMode: true,
+  shouldPlayInBackground: true,
+  interruptionMode: 'doNotMix',
+  shouldRouteThroughEarpiece: false,
+} as const;
+
+/** Voice notes change the mode while recording; the offer takes it back before it rings. */
+function claimAudioMode(): Promise<void> {
+  return setAudioModeAsync(ALERT_AUDIO_MODE).catch(() => undefined);
+}
+
 function ready(): Promise<void> {
   loading ??= (async () => {
-    await setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: false,
-      interruptionMode: 'doNotMix',
-      shouldRouteThroughEarpiece: false,
-    }).catch(() => undefined);
+    await claimAudioMode();
     if (!sound) {
       sound = createAudioPlayer(OFFER_LOOP);
       sound.volume = 1;
@@ -62,22 +75,57 @@ export function playOfferChime(): void {
 }
 
 /** Soft volume of the rider's nudge (ride step 3): a reminder, not a second doorbell. */
-export const NUDGE_VOLUME = 0.3;
+export const NUDGE_VOLUME = 0.7;
 export const NUDGE_VIBRATION = [0, 120];
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro bundles assets through require()
+const NUDGE = require('../../assets/sounds/nudge.wav') as number;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro bundles assets through require()
+const CHAT = require('../../assets/sounds/chat.wav') as number;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro bundles assets through require()
+const DONE = require('../../assets/sounds/done.wav') as number;
+let nudgePlayer: AudioPlayer | null = null;
+let chatPlayer: AudioPlayer | null = null;
+let donePlayer: AudioPlayer | null = null;
+
+/** Plays a short bundled cue once (o15: its own sound, so he knows what it is without looking). */
+function cue(which: 'nudge' | 'chat' | 'done', volume: number) {
+  void ready().then(async () => {
+    try {
+      if (which === 'nudge') nudgePlayer ??= createAudioPlayer(NUDGE);
+      else if (which === 'chat') chatPlayer ??= createAudioPlayer(CHAT);
+      else donePlayer ??= createAudioPlayer(DONE);
+      const p = which === 'nudge' ? nudgePlayer : which === 'chat' ? chatPlayer : donePlayer;
+      if (!p) return;
+      p.volume = volume;
+      await untilLoaded(p);
+      await replay(p);
+    } catch {
+      /* a cue is never worth a crash */
+    }
+  });
+}
+
 /**
- * «راكب ينتظرك»: the rider nudged this offer. While the offer's loop is already ringing, only a
- * short tap (the loop carries the sound); otherwise one quiet doorbell and the tap.
+ * «راكب ينتظرك»: the rider nudged this offer — its own soft falling chime (partner redesign o15,
+ * unlike the offer's rising doorbell) and a short tap, over the offer's loop.
  */
 export function playNudgeChime(): void {
   Vibration.vibrate(NUDGE_VIBRATION);
-  if (wanted) return;
-  void ready().then(async () => {
-    if (!sound || wanted) return;
-    sound.loop = false;
-    sound.volume = NUDGE_VOLUME;
-    await replay(sound);
-  });
+  cue('nudge', NUDGE_VOLUME);
+}
+
+/** A chat message on the job (o15): two quick high pips, loud enough over a motorbike. */
+export const CHAT_VIBRATION = [0, 80, 80, 80];
+export function playChatPing(): void {
+  Vibration.vibrate(CHAT_VIBRATION);
+  cue('chat', 1);
+}
+
+/** Partner redesign d3: the job is done — one soft bell «tink», quieter than any alert. */
+export const DONE_VOLUME = 0.5;
+export function playDoneTink(): void {
+  cue('done', DONE_VOLUME);
 }
 
 export function startOfferAlert(): void {
@@ -85,6 +133,8 @@ export function startOfferAlert(): void {
   Vibration.vibrate(OFFER_VIBRATION, true);
   void ready().then(async () => {
     if (!sound || !wanted) return;
+    await claimAudioMode();
+    if (!wanted) return;
     sound.volume = 1;
     sound.loop = true;
     await replay(sound);

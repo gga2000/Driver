@@ -3,6 +3,7 @@ import { Redis } from 'ioredis';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { ConfigModule } from '../config/index.js';
 import { ControlsModule, ControlsService } from '../controls/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
@@ -20,7 +21,7 @@ import { RoutingModule } from '../routing/index.js';
 import { NEARBY_SECRET, NearbyService, nearbySecret } from './nearby.service.js';
 import { ZoneDemandService } from './zone-demand.service.js';
 import { DispatchOfferCheck } from './offer-check.js';
-import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type CapsPort, type TripOffersPort } from './ports.js';
+import { CAPS, DEPARTURES, DISPATCH_HOLDS, TRIP_OFFERS, type TripOffersPort } from './ports.js';
 import { PresenceService } from './presence.service.js';
 import { DriverRanker } from './ranker.js';
 import { TripsServiceTripOffers } from './trips.adapter.js';
@@ -31,8 +32,9 @@ import { ZoneDirectory } from './zones.js';
 export const DISPATCH_REDIS = Symbol('DISPATCH_REDIS');
 
 /**
- * Owns dispatch's Redis connection (geo index, locks, runtime state) and, when there is no Redis,
- * ticks the in-memory timer queue once a second so dev boxes still see waves advance.
+ * Owns dispatch's Redis connection (geo index, locks, runtime state), hands the far-ahead timers to the
+ * durable timer table, and, when there is no Redis, ticks the in-memory timer queue once a second so dev
+ * boxes still see waves advance.
  */
 @Injectable()
 export class DispatchRuntime implements OnModuleDestroy {
@@ -41,7 +43,12 @@ export class DispatchRuntime implements OnModuleDestroy {
   constructor(
     @Inject(DISPATCH_REDIS) private readonly redis: Redis | null,
     @Inject(DISPATCH_QUEUE) queue: Queue<TimerJob>,
+    orchestrator: OfferOrchestrator,
+    @Inject(TIMER_STORE) timers: TimerStore,
+    sweeper: TimerSweeper,
   ) {
+    // NTF-05: booked rides' and departures' far-ahead timers survive a lost Redis job.
+    orchestrator.bindDurableTimers(timers, sweeper);
     if (queue instanceof InMemoryQueue) {
       this.timer = setInterval(() => void queue.drain().catch(() => undefined), 1000);
       this.timer.unref();
@@ -144,13 +151,13 @@ export class DispatchModule implements OnModuleInit, OnModuleDestroy {
     @Inject(TRIP_OFFERS) private readonly trips: TripOffersPort,
     private readonly tripsService: TripsService,
     @Inject(DISPATCH_REPOSITORY) private readonly offers: DispatchRepository,
-    @Inject(CAPS) private readonly caps: CapsPort,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
   onModuleInit(): void {
     // M2 review follow-up: trips lets a driver accept/decline only with an open DispatchOffer.
-    this.tripsService.bindOfferCheck(new DispatchOfferCheck(this.offers, this.caps, () => this.clock.now()));
+    // The over-cap check is dispatch's own: it counts cash of finished jobs not posted yet (cash holds).
+    this.tripsService.bindOfferCheck(new DispatchOfferCheck(this.offers, this.orchestrator, () => this.clock.now()));
     this.unsubscribe = new DispatchSubscribers(this.orchestrator, this.trips, this.zones).register(this.events);
   }
 

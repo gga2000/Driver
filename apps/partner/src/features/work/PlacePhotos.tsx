@@ -1,6 +1,6 @@
-import { Image, Modal, Pressable, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Icon, Text, useTheme } from '@driver/ui';
+import { Icon, PhotoImage, Text, useTheme } from '@driver/ui';
 import { absoluteUrl } from '@/features/account/photo';
 import { useT } from '@/lib/i18n';
 
@@ -31,7 +31,7 @@ export function PhotoStrip({ photos, onOpen, photoLabel, testIDPrefix }: { photo
           testID={`${testIDPrefix}-photo-${i}`}
           style={{ width: THUMB, height: THUMB, borderRadius: theme.radius.md, overflow: 'hidden', backgroundColor: theme.colors.surface }}
         >
-          <Image source={{ uri: absoluteUrl(p.url) }} style={{ width: THUMB, height: THUMB }} resizeMode="cover" />
+          <PhotoImage uri={absoluteUrl(p.url)} style={{ width: THUMB, height: THUMB }} />
         </Pressable>
       ))}
     </View>
@@ -65,7 +65,7 @@ export function PhotoViewer({ photos, index, onIndex, title, testIDPrefix }: { p
         </View>
         {photo ? (
           <Pressable style={{ flex: 1 }} onPress={() => (index !== null && photos.length > 1 ? onIndex((index + 1) % photos.length) : close())} accessibilityRole="imagebutton" accessibilityLabel={t('partner.door_photo_next')}>
-            <Image source={{ uri: absoluteUrl(photo.url) }} style={{ flex: 1, borderRadius: theme.radius.lg }} resizeMode="contain" />
+            <PhotoImage uri={absoluteUrl(photo.url)} fit="contain" style={{ flex: 1, borderRadius: theme.radius.lg }} />
           </Pressable>
         ) : null}
       </View>

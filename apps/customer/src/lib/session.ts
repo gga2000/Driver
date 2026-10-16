@@ -9,7 +9,11 @@ import { storage as platformStorage, type KeyValueStorage } from './storage';
  * - The API link calls `refresh()` once more on a 401 and retries the request (see api.ts).
  * - Refreshes are single-flight: the API rotates refresh tokens and treats a reused one as theft
  *   (`refresh_reused` revokes the session), so two parallel refreshes would sign the person out.
- * - A refresh refused by the server (401) signs out; a network failure keeps the session.
+ * - A refresh refused by the server (401) signs out; a network failure or a timeout keeps the session.
+ * - On the web every tab shares the stored pair, so a refresh also holds a lock all tabs share
+ *   (`driver-refresh`) and re-reads the stored pair inside it: when another tab already rotated it, this
+ *   tab takes that pair instead of spending the retired token (which would end the session for both).
+ *   Another tab's new tokens, sign-in or sign-out reach this one through the storage `watch`.
  */
 
 export interface TokenPairLike {
@@ -44,9 +48,25 @@ export interface SessionStoreOptions {
   refreshSkewMs?: number;
   /** True when a refresh failure means the server refused the token (sign out), not a network blip. */
   isAuthError?: (err: unknown) => boolean;
+  /**
+   * Requests wait at most this long for a refresh, then go on with the old token (audit CORE-01: one
+   * stalled refresh must not freeze the app). The refresh itself keeps running and is stored when it
+   * lands, so a slow answer never leaves the phone holding a token the server already retired.
+   */
+  refreshWaitMs?: number;
+  /**
+   * The refresh itself gives up after this long (a backstop just over its request's own deadline,
+   * `NET_RULES.refreshTimeoutMs`); only then may a new refresh send the old token again.
+   */
+  refreshGiveUpMs?: number;
 }
 
+export const REFRESH_WAIT_MS = 10_000;
+export const REFRESH_GIVE_UP_MS = 65_000;
+
 export const SESSION_KEY = 'driver.customer.session';
+/** The lock every tab of the site takes around a refresh (web). */
+export const REFRESH_LOCK = 'driver-refresh';
 
 /** tRPC puts the HTTP status on `error.data.httpStatus`; our envelope adds `code`. */
 export function isAuthError(err: unknown): boolean {
@@ -83,11 +103,31 @@ function parseStored(raw: string | null): StoredSession | null {
   }
 }
 
+/** `work`, or `fallback` once `ms` have passed (`work` keeps running). */
+function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+/** `work`, or a rejection that is not an auth error once `ms` have passed. */
+function deadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('refresh_timeout')), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
 export function createSessionStore(opts: SessionStoreOptions) {
   const key = opts.key ?? SESSION_KEY;
   const now = opts.now ?? Date.now;
   const skew = opts.refreshSkewMs ?? 30_000;
   const authError = opts.isAuthError ?? isAuthError;
+  const refreshWaitMs = opts.refreshWaitMs ?? REFRESH_WAIT_MS;
+  const refreshGiveUpMs = opts.refreshGiveUpMs ?? REFRESH_GIVE_UP_MS;
 
   let snapshot: SessionSnapshot = { status: 'loading', session: null };
   let refresher: Refresher | null = null;
@@ -110,6 +150,31 @@ export function createSessionStore(opts: SessionStoreOptions) {
     if (s) await opts.storage.setItem(key, JSON.stringify(s));
     else await opts.storage.removeItem(key);
   }
+
+  const shared = typeof opts.storage.lock === 'function';
+  const withLock = <T,>(fn: () => Promise<T>): Promise<T> => (opts.storage.lock ? opts.storage.lock(REFRESH_LOCK, fn) : fn());
+
+  /** Signed out here because another tab signed out (its storage is already empty). */
+  function endedElsewhere() {
+    const wasSignedIn = snapshot.status === 'signedIn';
+    generation += 1;
+    inflight = null;
+    set({ status: 'signedOut', session: null });
+    if (wasSignedIn) for (const l of signOutListeners) l();
+  }
+
+  // Another tab signed in, refreshed or signed out: take its pair (or its sign-out).
+  opts.storage.watch?.(key, (raw) => {
+    const next = parseStored(raw);
+    if (!next || refreshExpired(next)) {
+      if (snapshot.status !== 'signedOut') endedElsewhere();
+      return;
+    }
+    if (snapshot.session?.refreshToken === next.refreshToken) return;
+    generation += 1;
+    inflight = null;
+    set({ status: 'signedIn', session: next });
+  });
 
   const store = {
     getSnapshot: (): SessionSnapshot => snapshot,
@@ -168,10 +233,12 @@ export function createSessionStore(opts: SessionStoreOptions) {
 
     /**
      * Single-flight refresh. Resolves true when a fresh pair is stored; false when there is no
-     * session, no refresher, the network failed (session kept) or the server refused (signed out).
+     * session, no refresher, the network failed (session kept), the server refused (signed out), or
+     * it is still running after `refreshWaitMs` (it is stored when it lands; a call meanwhile waits
+     * for that same refresh instead of sending the old token again).
      */
     refresh(): Promise<boolean> {
-      if (inflight) return inflight;
+      if (inflight) return within(inflight, refreshWaitMs, false);
       const s = snapshot.session;
       if (!s || !refresher) return Promise.resolve(false);
       if (refreshExpired(s)) {
@@ -179,23 +246,47 @@ export function createSessionStore(opts: SessionStoreOptions) {
       }
       const gen = generation;
       const run = refresher;
+      // A newer pair than the one this refresh started from (another tab's), already in place.
+      const replaced = () => snapshot.session !== null && snapshot.session.refreshToken !== s.refreshToken;
       inflight = (async () => {
         try {
-          const tokens = await run(s.refreshToken);
-          if (gen !== generation) return false;
-          const next = toStored(tokens, s.personId);
+          const got = await withLock(async (): Promise<{ adopt: StoredSession } | { gone: true } | { tokens: TokenPairLike } | null> => {
+            if (shared) {
+              // Inside the lock: another tab may have rotated the pair, or signed out, while this one waited.
+              let latest: StoredSession | null = null;
+              try {
+                latest = parseStored(await opts.storage.getItem(key));
+              } catch {
+                latest = s;
+              }
+              if (gen !== generation) return null;
+              if (!latest) return { gone: true };
+              if (latest.refreshToken !== s.refreshToken) return { adopt: latest };
+            }
+            return { tokens: await deadline(run(s.refreshToken), refreshGiveUpMs) };
+          });
+          if (gen !== generation || !got) return replaced();
+          if ('gone' in got) {
+            endedElsewhere();
+            return false;
+          }
+          if ('adopt' in got) {
+            set({ status: 'signedIn', session: got.adopt });
+            return !refreshExpired(got.adopt);
+          }
+          const next = toStored(got.tokens, s.personId);
           set({ status: 'signedIn', session: next });
           await persist(next).catch(() => {});
           return true;
         } catch (err) {
-          if (gen !== generation) return false;
+          if (gen !== generation) return replaced();
           if (authError(err)) await store.signOut();
           return false;
         } finally {
           if (gen === generation) inflight = null;
         }
       })();
-      return inflight;
+      return within(inflight, refreshWaitMs, false);
     },
 
     /** Bearer token for the next request; refreshes first when it is about to expire. */

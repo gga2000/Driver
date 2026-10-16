@@ -11,6 +11,7 @@ export default async function run(s) {
   const taxi = await s.signIn(TAXI);
   await taxi.wait('home');
   await taxi.byTestId('online-switch').click();
+  await taxi.page.getByTestId('check-go').click({ timeout: 4000 }).catch(() => undefined);
   await taxi.wait('climate-check', 15_000);
   await taxi.shot('ac-question', { settle: 1200 });
   await taxi.byTestId('climate-no').click();

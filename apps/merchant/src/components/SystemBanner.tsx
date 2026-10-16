@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getNetwork, OfflineBanner, StatusBanner, useConnectionBanner } from '@driver/ui';
 import { useApi } from '@/lib/api';
+import { useBoardSaysOffline } from '@/lib/banner-room';
 import { useLocale } from '@/lib/i18n';
 
 /** How often an open app re-reads the Console's status banner (public `system.banner`). */
@@ -23,14 +24,16 @@ export function SystemBanner() {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const banner = useQuery(api.system.banner.queryOptions({ app: 'merchant', cityId: 'aziziyah' }, { refetchInterval: BANNER_POLL_MS, staleTime: BANNER_POLL_MS / 2, retry: false }));
   const net = useConnectionBanner();
+  const boardSays = useBoardSaysOffline();
   const locale = useLocale();
   const b = banner.data;
   const system = b && b.id !== dismissed ? b : null;
-  if (!system && !net.kind) return null;
+  const netKind = boardSays && net.kind !== 'back' ? null : net.kind;
+  if (!system && !netKind) return null;
   return (
     <View>
       {system ? <StatusBanner severity={system.severity} message={system.message_ar} onDismiss={() => setDismissed(system.id)} style={{ paddingTop: insets.top + 8 }} /> : null}
-      <OfflineBanner kind={net.kind} locale={locale} onRetry={() => getNetwork().retryNow()} topInset={system ? 0 : insets.top} />
+      <OfflineBanner kind={netKind} locale={locale} onRetry={() => getNetwork().retryNow()} topInset={system ? 0 : insets.top} />
     </View>
   );
 }

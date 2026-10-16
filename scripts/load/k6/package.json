@@ -1,0 +1,5 @@
+{
+  "//": "k6 scripts are ES modules; prepare.mjs also imports profiles.js from here.",
+  "private": true,
+  "type": "module"
+}

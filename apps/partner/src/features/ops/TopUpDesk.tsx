@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { PartnerCash, TopUpConfirmation, TopUpLookupView } from '@driver/contracts';
-import { Avatar, Button, Card, Icon, Skeleton, StatusPill, Text, useTheme } from '@driver/ui';
+import { Avatar, Button, Card, Icon, Skeleton, SlideToConfirm, StatusPill, Text, useTheme } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { maskedPhone } from '@/features/fleet/logic';
 import { capShare, topUpCapEffect } from '@/features/work/logic';
@@ -153,12 +153,16 @@ export function TopUpDesk({
               label={t('partner.ops_rcpt_time')}
               value={`${baghdadDate(done.confirmedAt)} · ${baghdadClock(done.confirmedAt, locale)}`}
             />
-            <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-            <Row
-              label={t('partner.ops_topup_balance')}
-              value={iqd(done.walletBalanceIqd, { locale })}
-              strong
-            />
+            {done.walletBalanceIqd != null ? (
+              <>
+                <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+                <Row
+                  label={t('partner.ops_topup_balance')}
+                  value={iqd(done.walletBalanceIqd, { locale })}
+                  strong
+                />
+              </>
+            ) : null}
           </View>
         </Card>
         {after ? (
@@ -216,13 +220,13 @@ export function TopUpDesk({
                 {problem}
               </Text>
             ) : null}
-            <Button
+            {/* Partner redesign f3: money moves, so it is a slide, never a pocket tap. */}
+            <SlideToConfirm
               testID={`${testPrefix}-confirm`}
               label={t('partner.ops_topup_confirm', { amount: amountParam(found.amountIqd) })}
-              fullWidth
-              size="lg"
+              icon="wallet"
               loading={confirm.isPending}
-              onPress={() => void onConfirm()}
+              onConfirm={() => void onConfirm()}
             />
             <Text variant="caption" color="textMuted" align="center">
               {t('partner.ops_topup_count')}

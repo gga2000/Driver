@@ -1,6 +1,7 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { HANDOVER_PHOTO_RETENTION_DAYS } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { TripsService } from '../trips/index.js';
 
 /** How often the purge runs (with the trails). */
@@ -12,7 +13,7 @@ const DAY_MS = 86_400_000;
 /**
  * Decision D6 for delivery photos (maps program f11): a courier's handover photo is evidence for a
  * dispute and nothing more, so it goes 30 days after the delivery; the stop keeps `photoPurgedAt`.
- * Hourly in every API instance; a photo already gone is simply not found again.
+ * Hourly in every instance that runs jobs (DRIVER_ROLE all or worker); a photo already gone is simply not found again.
  */
 @Injectable()
 export class HandoverPhotoRetention implements OnModuleInit, OnModuleDestroy {
@@ -23,9 +24,12 @@ export class HandoverPhotoRetention implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly trips: TripsService,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
   onModuleInit(): void {
+    // Purges are background work: on DRIVER_ROLE=web machines the worker runs them.
+    if (!runsJobs(this.role)) return;
     this.timer = setInterval(() => void this.safeTick(), HANDOVER_PHOTO_PURGE_EVERY_MS);
     this.timer.unref();
   }

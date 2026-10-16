@@ -12,7 +12,25 @@ import { PhotoStrip, PhotoViewer } from './PlacePhotos';
  * couriers' arrivals agree (the stop's pin is then that door). The photo opens full screen
  * by itself once when he arrives (the moment he is looking for the door), and on a tap any time.
  */
-export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor; arrived: boolean; onCall: () => void; stopId: string }) {
+export function DoorCard({
+  door,
+  arrived,
+  onCall,
+  callsLive = true,
+  stopId,
+  omitNote = false,
+  omitLandmark = false,
+}: {
+  door: PartnerDoor;
+  arrived: boolean;
+  onCall: () => void;
+  /** G0-10: with calls off, the first-visit line asks for a message instead. */
+  callsLive?: boolean;
+  stopId: string;
+  /** Partner redesign j2: the job's headline already reads the place's note / the landmark. */
+  omitNote?: boolean;
+  omitLandmark?: boolean;
+}) {
   const theme = useTheme();
   const t = useT();
   const [open, setOpen] = useState<number | null>(null);
@@ -28,20 +46,20 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
     <View style={{ gap: theme.space[3] }} testID="job-door">
       {door.firstVisit && !arrived ? (
         <View testID="job-first-visit" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.lg, padding: theme.space[3] }}>
-          <Icon name="phone" size={20} color="warningText" />
+          <Icon name={callsLive ? 'phone' : 'chat'} size={20} color="warningText" />
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="label" weight={700} color="warningText">
               {t('partner.door_first_visit')}
             </Text>
             <Text variant="caption" color="textMuted">
-              {t('partner.door_first_visit_hint')}
+              {t(callsLive ? 'partner.door_first_visit_hint' : 'partner.door_first_visit_hint_chat')}
             </Text>
           </View>
-          <Button label={t('partner.call')} size="sm" variant="secondary" onPress={onCall} testID="job-first-visit-call" />
+          <Button label={t(callsLive ? 'partner.call' : 'partner.message_short')} icon={callsLive ? undefined : 'chat'} size="sm" variant="secondary" onPress={onCall} testID="job-first-visit-call" />
         </View>
       ) : null}
 
-      {door.placeNote || door.photos.length > 0 || door.doorConfirmed || door.entranceSet || door.landmark ? (
+      {(door.placeNote && !omitNote) || door.photos.length > 0 || door.doorConfirmed || door.entranceSet || (door.landmark && !omitLandmark) ? (
         <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.lg, padding: theme.space[3], gap: theme.space[2] }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="caption" weight={600} color="textMuted" style={{ flex: 1 }}>
@@ -53,7 +71,7 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
               <StatusPill size="sm" tone="success" icon="check" label={t('partner.door_confirmed')} />
             ) : null}
           </View>
-          {door.landmark ? (
+          {door.landmark && !omitLandmark ? (
             <View testID="job-door-landmark" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
               <Icon name="map-pin" size={18} color="accentText" />
               <Text variant="label" weight={600} style={{ flex: 1 }}>
@@ -61,7 +79,7 @@ export function DoorCard({ door, arrived, onCall, stopId }: { door: PartnerDoor;
               </Text>
             </View>
           ) : null}
-          {door.placeNote ? (
+          {door.placeNote && !omitNote ? (
             <Text variant="label" testID="job-door-note">
               {door.placeNote}
             </Text>

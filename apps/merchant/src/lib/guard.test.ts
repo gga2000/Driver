@@ -40,7 +40,7 @@ describe('sections', () => {
     expect(sectionOf([])).toBe('orders');
     expect(sectionOf(['menu', 'item'])).toBe('menu');
     expect(sectionOf(['money'])).toBe('money');
-    expect(sectionOf(['insights'])).toBe('insights');
+    expect(sectionOf(['insights'])).toBe('money');
     for (const s of ['more', 'deals', 'staff', 'printer', 'hours', 'pickup-spot', 'delivery-area', 'menu-photos', 'story', 'settings']) expect(sectionOf([s])).toBe('more');
     expect(sectionOf(['pot'])).toBe('menu');
     expect(sectionOf(['(auth)', 'welcome'])).toBeNull();
@@ -53,5 +53,13 @@ describe('sections', () => {
     expect(isSectionRoot(['menu', 'item'])).toBe(false);
     expect(isSectionRoot(['printer'])).toBe(false);
     expect(isSectionRoot(['delivery-area'])).toBe(false); // a screen under المزيد: back button, no tab bar
+  });
+});
+
+describe('route guard: staff alerts', () => {
+  it('lets a signed-in staff member stay on the staff-alert screen, with or without a store', () => {
+    expect(resolveGuard({ status: 'signedIn', access: 'none', segments: ['staff-alert'] })).toBeNull();
+    expect(resolveGuard({ status: 'signedIn', access: 'pick', segments: ['staff-alert'] })).toBeNull();
+    expect(resolveGuard({ status: 'signedOut', access: 'loading', segments: ['staff-alert'] })).toBe('/welcome');
   });
 });

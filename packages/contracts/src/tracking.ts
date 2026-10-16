@@ -6,10 +6,13 @@ import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
 import { VehicleColour, VehicleFeature } from './vehicle-features.js';
+import { AvoidedStreet } from './closed-street.js';
+import type { OrderHistoryRow } from './order-history.js';
+import { EtaBasis, haversineM, ROAD_FACTOR } from './travel.js';
 
-/** How an ETA was worked out: on real roads (OSRM) or by the straight-line estimate (`travelMinutes`). */
-export const EtaBasis = z.enum(['road', 'estimated']);
-export type EtaBasis = z.infer<typeof EtaBasis>;
+export { EtaBasis, haversineM, ROAD_FACTOR } from './travel.js';
+export { OrderHistoryItem, OrderHistoryRow } from './order-history.js';
+
 
 /**
  * Customer-side reads of the live order/ride screen (customer app spec §4). Narrow on purpose: the
@@ -79,6 +82,11 @@ export const TrackStop = z.object({
   /** My drop-off: the server's first "almost there" fix; a ride's pickup: when the driver was a minute away (d3). Null otherwise. */
   courierNearAt: z.coerce.date().nullable().default(null),
   arrivedAt: z.coerce.date().nullable(),
+  /**
+   * His "وصلت" was tapped too far from the stop to count as an arrival (the same rule as the late-cancel
+   * fee): the rider is told the driver says he arrived, not that he did. Absent = no.
+   */
+  arrivalClaimedOnly: z.boolean().optional(),
   completedAt: z.coerce.date().nullable(),
 });
 export type TrackStop = z.infer<typeof TrackStop>;
@@ -110,6 +118,8 @@ export const TrackItem = z.object({
   totalIqd: z.number().int(),
   participantId: z.string().nullable(),
   note: z.string().nullable(),
+  /** A weighed shop line: the grams on the scale («1.5 كيلو»); absent otherwise. */
+  weightG: z.number().int().nullable().optional(),
 });
 export type TrackItem = z.infer<typeof TrackItem>;
 
@@ -158,33 +168,6 @@ export const OrderTracking = z.object({
   serverNow: z.coerce.date(),
 });
 export type OrderTracking = z.infer<typeof OrderTracking>;
-
-// ───────────────────────── order history (طلباتي) ─────────────────────────
-
-/** One dish on a history row: the name as the menu has it (or the line's free text) and how many. */
-export const OrderHistoryItem = z.object({
-  /** The order line it comes from (reorder matches it back to `order.lines`). */
-  lineId: z.string(),
-  catalogItemId: z.string().nullable(),
-  name: z.string(),
-  qty: z.number().int().min(1),
-});
-export type OrderHistoryItem = z.infer<typeof OrderHistoryItem>;
-
-/**
- * `orders.history` row (audit C-15): the customer's own order with what the list needs to be
- * recognisable at a glance — the restaurant's name and the dishes — without one read per order.
- */
-export const OrderHistoryRow = z.object({
-  order: Order,
-  /** Restaurant / shop name; null for rides, الرجعة seats and orders without a merchant. */
-  merchantName: z.string().nullable(),
-  /** The live lines (removed ones left out), in order, names resolved. */
-  items: z.array(OrderHistoryItem),
-  /** Rides, errands, parcels: the zone the trip went to (`aziziyah-zones` key); null otherwise. */
-  dropoffZoneKey: z.string().nullable(),
-});
-export type OrderHistoryRow = z.infer<typeof OrderHistoryRow>;
 
 /**
  * «أول مرة» (joy g8): the person's very first delivered food order and first finished tuktuk ride,
@@ -235,7 +218,6 @@ export function positionVisible(tripState: TripStateT): boolean {
 
 /** Town speeds (simulator and dispatch ETA): bike 25, tuktuk 30, car 35 km/h; road ≈ 1.4 × straight line. */
 export const TOWN_SPEED_KMH: Readonly<Record<VehicleClass, number>> = { bike: 25, tuktuk: 30, car: 35, suv: 35, van: 30, intercity: 80 };
-export const ROAD_FACTOR = 1.4;
 
 /**
  * Routed durations come from OSRM's car profile; other vehicles take this multiple of it in town
@@ -305,14 +287,6 @@ export const ETA_LEARNING_VERTICALS: readonly Vertical[] = ['food', 'grocery', '
 /** A batched courier's other drop before mine costs about this much (dispatch spec §3: ≤ 4 min). */
 export const MIN_PER_EARLIER_DROP = 4;
 
-export function haversineM(a: LatLng, b: LatLng): number {
-  const R = 6_371_000;
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const dLat = rad(b.lat - a.lat);
-  const dLng = rad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
 
 /** Minutes to ride from a to b in town (road factor applied), at least one. */
 export function travelMinutes(a: LatLng, b: LatLng, vehicle: VehicleClass = 'bike'): number {
@@ -328,12 +302,40 @@ export function travelMinutes(a: LatLng, b: LatLng, vehicle: VehicleClass = 'bik
  * kitchen before anyone has the order) through this order's remaining stops. `polyline6` is null when
  * no road router is configured or there is nothing to draw — the app then draws straight lines.
  */
+/**
+ * N6 «ليش متأخر»: why a late delivery is late, and where. `traffic`: the part of the road ahead whose
+ * learned minutes run slowest; `kitchen`: the food is not out on time, at the kitchen on the route;
+ * `closed`: a street closed today that the route goes around (N20).
+ */
+export const SlowStretchReason = z.enum(['traffic', 'kitchen', 'closed']);
+export type SlowStretchReason = z.infer<typeof SlowStretchReason>;
+
+/**
+ * The slow part of the route, in metres along this route's own line (`polyline6`, or the straight
+ * line through its points when there is no road shape), and the minutes it costs. Read-only: it never
+ * changes the promise, the apology or the credit.
+ */
+export const SlowStretch = z.object({
+  fromM: z.number().int().min(0),
+  toM: z.number().int().min(0),
+  reason: SlowStretchReason,
+  minutes: z.number().int().positive(),
+});
+export type SlowStretch = z.infer<typeof SlowStretch>;
+
 export const OrderRoute = z.object({
   polyline6: z.string().nullable(),
   basis: EtaBasis,
   /** The point the route starts from (his fix when it was computed). */
   from: LatLng.nullable(),
   computedAt: z.coerce.date(),
+  /**
+   * N6: set once the delivery has passed its 10-minute late step (the apology) and is still on its way,
+   * and something on the route explains it; null otherwise.
+   */
+  slowStretch: SlowStretch.nullable().optional(),
+  /** N20: streets closed today that this route goes around (draw them; say why it bends). Absent or empty = none. */
+  closures: z.array(AvoidedStreet).optional(),
 });
 export type OrderRoute = z.infer<typeof OrderRoute>;
 

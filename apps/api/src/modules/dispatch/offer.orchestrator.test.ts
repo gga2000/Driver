@@ -229,9 +229,21 @@ describe('re-broadcast at 60 s with +500 compensation (spec §3 + edge-case §6)
     const r = await h.service.getRequest('t1');
     expect(r).toMatchObject({ customerMayCancelFree: true, status: 'needs_dispatcher', red: true });
     expect(h.events.types()).toContain('dispatch.free_cancel_available');
+    // NTF-04: a request with no order (this one) says nothing more; the rider's push needs the order.
+    expect(h.events.last('dispatch.free_cancel_available')?.payload).not.toHaveProperty('orderId');
     expect((await h.offers('t1')).filter((o) => o.state === 'sent' || o.state === 'seen')).toEqual([]);
     const card = (await h.service.board('aziziyah')).cards[0]!;
     expect(card).toMatchObject({ customerMayCancelFree: true, status_ar: 'يحتاج الديسباتشر' });
+  });
+});
+
+describe('NTF-04: no driver in time', () => {
+  it('the free-cancel event carries the ride\'s order, so the rider hears «ما لگينا سايق هسة»', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1', { orderId: 'o1' });
+    await h.advance(200);
+    expect(h.events.last('dispatch.free_cancel_available')?.payload).toMatchObject({ orderId: 'o1', vertical: 'taxi' });
   });
 });
 
@@ -692,5 +704,39 @@ describe('cancel and persistence', () => {
       sentAt: h.clock.now(),
       expiresAt: new Date(h.clock.now().getTime() + 15_000),
     });
+  });
+});
+
+describe("the driver's own offer card (speed x2)", () => {
+  it('finds his newest open offer from his own offers, never reading every live trip', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1');
+    h.clock.advance(1_000);
+    await taxi(h, 't2');
+    let tripReads = 0;
+    const listByTrip = h.repo.listByTrip.bind(h.repo);
+    h.repo.listByTrip = (tripId: string) => {
+      tripReads += 1;
+      return listByTrip(tripId);
+    };
+    expect((await h.orchestrator.openOfferFor('a1', 'aziziyah'))?.request.tripId).toBe('t2');
+    expect(await h.orchestrator.openOfferFor('a1', 'kut')).toBeNull();
+    expect(await h.orchestrator.openOfferFor('a2', 'aziziyah')).toBeNull();
+    expect(tripReads).toBe(0);
+    // The newest one gone (cancelled), the older one shows; taken by him, none is left.
+    await h.service.cancel('t2');
+    expect((await h.orchestrator.openOfferFor('a1', 'aziziyah'))?.request.tripId).toBe('t1');
+    await respond(h, 't1', 'a1');
+    expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).toBeNull();
+  });
+
+  it('an offer past its time is not shown', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h, 't1');
+    expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).not.toBeNull();
+    h.clock.advance(16_000);
+    expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).toBeNull();
   });
 });

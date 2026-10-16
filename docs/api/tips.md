@@ -16,7 +16,8 @@ A tip is possible when the caller is the orderer, the order reached him (`delive
 `completed` — never disputed, refunded, cancelled), it is rated with delivery ≥ `minRating`, no tip was
 given at checkout (`tipIqd` 0, else `tip_already_given`), a driver carried it (`courierOf`) and the
 window is open. Anything else is `tip_not_offered`. His own wallet must cover it: the ledger balance of
-`customer:<id>` less his open wallet orders (charged at close), else `wallet_insufficient`. Household
+`customer:<id>` less his open wallet orders (charged at close) and his prepaid seats and request
+deposits (SEC-07), checked under his wallet lock (`wallet:<id>`), else `wallet_insufficient`. Household
 wallets are never used.
 
 ## Procedures

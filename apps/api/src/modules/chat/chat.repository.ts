@@ -5,8 +5,11 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 
 export interface ChatThreadRecord {
   id: string;
+  /** The order; on a `rider_driver` thread the run or request it is about (step 4c). */
   orderId: string;
   kind: ChatThreadKind;
+  /** A `rider_driver` thread's other key: the rider on a run, the driver on a request; '' on order threads. */
+  partyId: string;
   lastSeq: number;
   /** s7 «نسيت غرض»: a completed ride's chat reopened until then (ride end + 24 h); null = never reopened. */
   lostItemUntil: Date | null;
@@ -31,6 +34,10 @@ export interface ChatMessageRecord {
   lng: number | null;
   masked: boolean;
   clientId: string;
+  /** A `card` message (step 4c): what it is about (`TripCardKind`), its id, and the amount it named. */
+  refKind: string | null;
+  refId: string | null;
+  refAmountIqd: number | null;
   createdAt: Date;
 }
 
@@ -39,11 +46,13 @@ export interface ChatVoiceThread {
   threadId: string;
   orderId: string;
   kind: ChatThreadKind;
+  partyId: string;
   /** The messages whose file is still stored. */
   voices: Array<{ messageId: string; voiceRef: string }>;
 }
 
-export type NewChatMessage = Omit<ChatMessageRecord, 'id' | 'seq' | 'threadId'>;
+export type NewChatMessage = Omit<ChatMessageRecord, 'id' | 'seq' | 'threadId' | 'refKind' | 'refId' | 'refAmountIqd'> &
+  Partial<Pick<ChatMessageRecord, 'refKind' | 'refId' | 'refAmountIqd'>>;
 
 /**
  * The chat module's own tables (`chat_threads`, `chat_messages`, `chat_reads`). Nobody outside the
@@ -54,6 +63,9 @@ export interface ChatRepository {
   findThread(orderId: string, kind: ChatThreadKind, tx?: Tx): Promise<ChatThreadRecord | null>;
   threadsOfOrder(orderId: string, tx?: Tx): Promise<ChatThreadRecord[]>;
   ensureThread(orderId: string, kind: ChatThreadKind, now: Date, tx: Tx): Promise<ChatThreadRecord>;
+  /** Step 4c: a run's or request's `rider_driver` thread with one other side. */
+  findPairThread(subjectId: string, partyId: string, tx?: Tx): Promise<ChatThreadRecord | null>;
+  ensurePairThread(subjectId: string, partyId: string, now: Date, tx: Tx): Promise<ChatThreadRecord>;
   append(threadId: string, message: NewChatMessage, tx: Tx): Promise<{ message: ChatMessageRecord; inserted: boolean }>;
   /** Oldest first; with `afterSeq`, only newer ones; the last `limit` of them. */
   messages(threadId: string, opts: { afterSeq?: number; limit: number }, tx?: Tx): Promise<ChatMessageRecord[]>;
@@ -83,8 +95,26 @@ export class InMemoryChatRepository implements ChatRepository {
   private readonly reads = new Map<string, Map<string, number>>();
 
   async findThread(orderId: string, kind: ChatThreadKind): Promise<ChatThreadRecord | null> {
-    const t = [...this.threads.values()].find((x) => x.orderId === orderId && x.kind === kind);
+    const t = [...this.threads.values()].find((x) => x.orderId === orderId && x.kind === kind && x.partyId === '');
     return t ? { ...t } : null;
+  }
+
+  async findPairThread(subjectId: string, partyId: string): Promise<ChatThreadRecord | null> {
+    const t = [...this.threads.values()].find((x) => x.orderId === subjectId && x.kind === 'rider_driver' && x.partyId === partyId);
+    return t ? { ...t } : null;
+  }
+
+  async ensurePairThread(subjectId: string, partyId: string, now: Date): Promise<ChatThreadRecord> {
+    const existing = await this.findPairThread(subjectId, partyId);
+    if (existing) return existing;
+    return this.insert(subjectId, 'rider_driver', partyId, now);
+  }
+
+  private insert(orderId: string, kind: ChatThreadKind, partyId: string, now: Date): ChatThreadRecord {
+    const t: ChatThreadRecord = { id: `cht_${randomUUID().replace(/-/g, '').slice(0, 20)}`, orderId, kind, partyId, lastSeq: 0, lostItemUntil: null, lostItemAskedAt: null, createdAt: now };
+    this.threads.set(t.id, t);
+    this.msgs.set(t.id, []);
+    return { ...t };
   }
 
   async threadsOfOrder(orderId: string): Promise<ChatThreadRecord[]> {
@@ -94,10 +124,7 @@ export class InMemoryChatRepository implements ChatRepository {
   async ensureThread(orderId: string, kind: ChatThreadKind, now: Date): Promise<ChatThreadRecord> {
     const existing = await this.findThread(orderId, kind);
     if (existing) return existing;
-    const t: ChatThreadRecord = { id: `cht_${randomUUID().replace(/-/g, '').slice(0, 20)}`, orderId, kind, lastSeq: 0, lostItemUntil: null, lostItemAskedAt: null, createdAt: now };
-    this.threads.set(t.id, t);
-    this.msgs.set(t.id, []);
-    return { ...t };
+    return this.insert(orderId, kind, '', now);
   }
 
   async append(threadId: string, message: NewChatMessage): Promise<{ message: ChatMessageRecord; inserted: boolean }> {
@@ -107,7 +134,7 @@ export class InMemoryChatRepository implements ChatRepository {
     const dup = list.find((m) => m.senderId === message.senderId && m.clientId === message.clientId);
     if (dup) return { message: { ...dup }, inserted: false };
     thread.lastSeq += 1;
-    const rec: ChatMessageRecord = { ...message, id: `chm_${randomUUID().replace(/-/g, '').slice(0, 20)}`, threadId, seq: thread.lastSeq };
+    const rec: ChatMessageRecord = { refKind: null, refId: null, refAmountIqd: null, ...message, id: `chm_${randomUUID().replace(/-/g, '').slice(0, 20)}`, threadId, seq: thread.lastSeq };
     list.push(rec);
     return { message: { ...rec }, inserted: true };
   }
@@ -143,7 +170,7 @@ export class InMemoryChatRepository implements ChatRepository {
     for (const t of [...this.threads.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
       if (opts.afterThreadId !== undefined && t.id <= opts.afterThreadId) continue;
       const voices = (this.msgs.get(t.id) ?? []).filter((m) => m.voiceRef !== null).map((m) => ({ messageId: m.id, voiceRef: m.voiceRef! }));
-      if (voices.length) out.push({ threadId: t.id, orderId: t.orderId, kind: t.kind, voices });
+      if (voices.length) out.push({ threadId: t.id, orderId: t.orderId, kind: t.kind, partyId: t.partyId, voices });
       if (out.length >= opts.limit) break;
     }
     return out;
@@ -171,10 +198,10 @@ export class InMemoryChatRepository implements ChatRepository {
 
 // ───────────────────────── Prisma ─────────────────────────
 
-type ThreadRow = { id: string; orderId: string; kind: string; lastSeq: number; lostItemUntil: Date | null; lostItemAskedAt: Date | null; createdAt: Date };
+type ThreadRow = { id: string; orderId: string; kind: string; partyId: string; lastSeq: number; lostItemUntil: Date | null; lostItemAskedAt: Date | null; createdAt: Date };
 type MessageRow = Omit<ChatMessageRecord, 'senderRole' | 'kind'> & { senderRole: string; kind: string };
 
-const threadOf = (r: ThreadRow): ChatThreadRecord => ({ id: r.id, orderId: r.orderId, kind: r.kind as ChatThreadKind, lastSeq: r.lastSeq, lostItemUntil: r.lostItemUntil, lostItemAskedAt: r.lostItemAskedAt, createdAt: r.createdAt });
+const threadOf = (r: ThreadRow): ChatThreadRecord => ({ id: r.id, orderId: r.orderId, kind: r.kind as ChatThreadKind, partyId: r.partyId, lastSeq: r.lastSeq, lostItemUntil: r.lostItemUntil, lostItemAskedAt: r.lostItemAskedAt, createdAt: r.createdAt });
 const messageOf = (r: MessageRow): ChatMessageRecord => ({
   id: r.id,
   threadId: r.threadId,
@@ -191,6 +218,9 @@ const messageOf = (r: MessageRow): ChatMessageRecord => ({
   lng: r.lng,
   masked: r.masked,
   clientId: r.clientId,
+  refKind: r.refKind,
+  refId: r.refId,
+  refAmountIqd: r.refAmountIqd,
   createdAt: r.createdAt,
 });
 
@@ -210,6 +240,9 @@ const MESSAGE_SELECT = {
   lng: true,
   masked: true,
   clientId: true,
+  refKind: true,
+  refId: true,
+  refAmountIqd: true,
   createdAt: true,
 } as const;
 
@@ -222,8 +255,17 @@ export class PrismaChatRepository implements ChatRepository {
   }
 
   async findThread(orderId: string, kind: ChatThreadKind, tx?: Tx): Promise<ChatThreadRecord | null> {
-    const r = await this.db(tx).chatThread.findUnique({ where: { orderId_kind: { orderId, kind } } });
+    const r = await this.db(tx).chatThread.findUnique({ where: { orderId_kind_partyId: { orderId, kind, partyId: '' } } });
     return r ? threadOf(r) : null;
+  }
+
+  async findPairThread(subjectId: string, partyId: string, tx?: Tx): Promise<ChatThreadRecord | null> {
+    const r = await this.db(tx).chatThread.findUnique({ where: { orderId_kind_partyId: { orderId: subjectId, kind: 'rider_driver', partyId } } });
+    return r ? threadOf(r) : null;
+  }
+
+  async ensurePairThread(subjectId: string, partyId: string, now: Date, tx: Tx): Promise<ChatThreadRecord> {
+    return this.insertOrGet(subjectId, 'rider_driver', partyId, now, tx);
   }
 
   async threadsOfOrder(orderId: string, tx?: Tx): Promise<ChatThreadRecord[]> {
@@ -231,11 +273,15 @@ export class PrismaChatRepository implements ChatRepository {
   }
 
   async ensureThread(orderId: string, kind: ChatThreadKind, now: Date, tx: Tx): Promise<ChatThreadRecord> {
+    return this.insertOrGet(orderId, kind, '', now, tx);
+  }
+
+  private async insertOrGet(orderId: string, kind: ChatThreadKind, partyId: string, now: Date, tx: Tx): Promise<ChatThreadRecord> {
     const db = this.db(tx);
-    // Two first messages at once must not race on the unique (order, kind): insert-or-nothing in SQL.
+    // Two first messages at once must not race on the unique (order, kind, party): insert-or-nothing in SQL.
     const id = `cht_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    await db.$executeRaw`INSERT INTO "public"."chat_threads" ("id", "order_id", "kind", "last_seq", "created_at", "updated_at") VALUES (${id}, ${orderId}, ${kind}, 0, ${now}, ${now}) ON CONFLICT ("order_id", "kind") DO NOTHING`;
-    return threadOf(await db.chatThread.findUniqueOrThrow({ where: { orderId_kind: { orderId, kind } } }));
+    await db.$executeRaw`INSERT INTO "public"."chat_threads" ("id", "order_id", "kind", "party_id", "last_seq", "created_at", "updated_at") VALUES (${id}, ${orderId}, ${kind}, ${partyId}, 0, ${now}, ${now}) ON CONFLICT ("order_id", "kind", "party_id") DO NOTHING`;
+    return threadOf(await db.chatThread.findUniqueOrThrow({ where: { orderId_kind_partyId: { orderId, kind, partyId } } }));
   }
 
   async append(threadId: string, message: NewChatMessage, tx: Tx): Promise<{ message: ChatMessageRecord; inserted: boolean }> {
@@ -291,14 +337,14 @@ export class PrismaChatRepository implements ChatRepository {
     if (ids.length === 0) return [];
     const threadIds = ids.map((r) => r.threadId);
     const [threads, voices] = await Promise.all([
-      db.chatThread.findMany({ where: { id: { in: threadIds } }, select: { id: true, orderId: true, kind: true } }),
+      db.chatThread.findMany({ where: { id: { in: threadIds } }, select: { id: true, orderId: true, kind: true, partyId: true } }),
       db.chatMessage.findMany({ where: { threadId: { in: threadIds }, voiceRef: { not: null } }, select: { id: true, threadId: true, voiceRef: true } }),
     ]);
     const byId = new Map(threads.map((t) => [t.id, t]));
     return threadIds.flatMap((id) => {
       const t = byId.get(id);
       if (!t) return [];
-      return [{ threadId: id, orderId: t.orderId, kind: t.kind as ChatThreadKind, voices: voices.filter((v) => v.threadId === id).map((v) => ({ messageId: v.id, voiceRef: v.voiceRef! })) }];
+      return [{ threadId: id, orderId: t.orderId, kind: t.kind as ChatThreadKind, partyId: t.partyId, voices: voices.filter((v) => v.threadId === id).map((v) => ({ messageId: v.id, voiceRef: v.voiceRef! })) }];
     });
   }
 

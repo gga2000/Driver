@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createT } from '@driver/i18n';
-import { balanceText, lineAmount, lineWhen, paidOutsideWallet, pointsWorthText } from './wallet-format';
+import { balanceText, cityDateText, lineAmount, lineWhen, paidOutsideWallet, pointsWorthText } from './wallet-format';
 
 const t = createT('ar-IQ');
 const en = createT('en');
@@ -39,5 +39,12 @@ describe('wallet formatting', () => {
     expect(lineWhen(new Date('2026-10-03T04:05:00Z'), now, t)).toBe('اليوم 7:05 ص');
     expect(lineWhen(new Date('2026-10-02T18:30:00Z'), now, t)).toBe('أمس 9:30 م');
     expect(lineWhen(new Date('2026-09-28T09:00:00Z'), now, t)).toBe('28/9');
+  });
+});
+
+describe('cityDateText (REL-21)', () => {
+  it('names the day on Baghdad’s clock: 22:30 UTC on 17 Oct is already 18 Oct in Aziziyah', () => {
+    expect(cityDateText(new Date('2026-10-17T22:30:00Z'), t)).toBe('18/10');
+    expect(cityDateText(new Date('2026-10-17T20:30:00Z'), t)).toBe('17/10');
   });
 });

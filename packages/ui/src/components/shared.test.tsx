@@ -175,6 +175,13 @@ describe('OtpInput', () => {
     expect(otpValue('۴۵۶', 4)).toBe('456');
   });
 
+  it('finds the code in a pasted message, wherever it sits (CORE-21)', () => {
+    expect(otpValue('رمز دخولك لدرايفر: 482913. لا تعطيه لأحد.')).toBe('482913');
+    expect(otpValue('Driver 2026 code: ٤٨٢٩١٣')).toBe('482913');
+    expect(otpValue('  482913  ')).toBe('482913');
+    expect(otpValue('code 482 913')).toBe('482913');
+  });
+
   it('draws one cell per digit and passes the cleaned code up', () => {
     function Harness() {
       const [v, setV] = useState('');

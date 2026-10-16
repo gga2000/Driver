@@ -312,9 +312,9 @@ select {
   color: rgb(var(--c-on-accent));
   z-index: 2;
 }
+/* Full colour: faded, the "+2" on a late (amber) tag fell below 4.5:1 in the light theme. */
 .ops-order .ops-order-more {
   font-weight: 500;
-  opacity: 0.85;
 }
 .maplibregl-ctrl-group {
   background: rgb(var(--c-raised)) !important;
@@ -328,11 +328,17 @@ select {
   filter: invert(1);
 }
 .maplibregl-ctrl-attrib {
-  background: rgb(var(--c-surface) / 0.8) !important;
+  /* Solid, not see-through: over a half-loaded map the contrast changed run to run (axe, dark /map). */
+  background: rgb(var(--c-surface)) !important;
   color: rgb(var(--c-muted));
 }
-.maplibregl-ctrl-attrib a {
+/* The Golden hour map's credit is plain text, not a link: keep it readable in the dark theme too. */
+.maplibregl-ctrl-attrib-inner {
   color: rgb(var(--c-muted));
+}
+.maplibregl-ctrl-attrib a,
+.maplibregl-ctrl-attrib-inner > a {
+  color: rgb(var(--c-text)) !important;
 }
 
 /* Native <dialog> backdrop. */

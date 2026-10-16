@@ -243,6 +243,7 @@ export class FleetService implements FleetPort {
           ...pendingRow(link.personId),
           phoneHint: hints.get(link.personId) ?? null,
           invitedAt: link.createdAt,
+          plannedVehicleId: link.plannedVehicleId && vehicles.some((v) => v.id === link.plannedVehicleId) ? link.plannedVehicleId : null,
         });
         continue;
       }
@@ -357,9 +358,13 @@ export class FleetService implements FleetPort {
    */
   async addDriver(actor: Actor, input: AddFleetDriverInput): Promise<FleetDriver> {
     const fleetOrgId = await this.fleetOf(actor, input.fleetOrgId);
+    if (input.vehicleId) {
+      const v = await this.repo.vehicle(input.vehicleId);
+      if (!v || v.ownerOrgId !== fleetOrgId || !v.active) throw new DriverError('vehicle_not_found');
+    }
     const personId = await this.identity.ensurePersonByPhone(input.phone, actor.personId, 'fleet_invite');
     await this.uow.run(async (tx) => {
-      const link = await this.repo.addDriver({ fleetOrgId, personId, addedById: actor.personId, at: this.clock.now() }, tx);
+      const link = await this.repo.addDriver({ fleetOrgId, personId, addedById: actor.personId, at: this.clock.now(), plannedVehicleId: input.vehicleId }, tx);
       await this.events.emit(
         tx,
         {
@@ -393,13 +398,24 @@ export class FleetService implements FleetPort {
     const fleetNames = new Map<string, string | null>();
     for (const id of new Set(links.map((l) => l.fleetOrgId)))
       fleetNames.set(id, (await this.orgs?.find(id))?.name ?? null);
-    return links.map((l) => ({
-      fleetOrgId: l.fleetOrgId,
-      invitedAt: l.createdAt,
-      invitedByName: names[l.addedById] ?? null,
-      fleetName: fleetNames.get(l.fleetOrgId) ?? null,
-      accepted: l.acceptedAt !== null,
-    }));
+    // f5: a pending invite shows the car the owner picked for him (plate, model, colour).
+    const planned = new Map<string, VehicleRecord>();
+    for (const l of links)
+      if (l.acceptedAt === null && l.plannedVehicleId) {
+        const v = await this.repo.vehicle(l.plannedVehicleId);
+        if (v && v.ownerOrgId === l.fleetOrgId && v.active) planned.set(l.fleetOrgId, v);
+      }
+    return links.map((l) => {
+      const v = planned.get(l.fleetOrgId);
+      return {
+        fleetOrgId: l.fleetOrgId,
+        invitedAt: l.createdAt,
+        invitedByName: names[l.addedById] ?? null,
+        fleetName: fleetNames.get(l.fleetOrgId) ?? null,
+        accepted: l.acceptedAt !== null,
+        plannedVehicle: v ? { plate: v.plate, vehicleClass: v.vehicleClass, model: v.model, colour: v.colour } : null,
+      };
+    });
   }
 
   async myVehicle(actor: Actor): Promise<FleetVehicle | null> {
@@ -434,6 +450,17 @@ export class FleetService implements FleetPort {
       if (!link) throw new DriverError('fleet_not_found');
       if (!input.accept) {
         for (const v of await this.repo.vehicles(input.fleetOrgId, tx)) if (v.activeDriverId === actor.personId) await this.repo.setActiveDriver(v.id, null, tx);
+      } else if (link.plannedVehicleId) {
+        // f5: the car the owner picked with the invite becomes his now, if it is still the fleet's,
+        // in service and free (the owner may have given it to someone else meanwhile).
+        const v = await this.repo.vehicle(link.plannedVehicleId, tx);
+        if (v && v.ownerOrgId === input.fleetOrgId && (await this.repo.claimFreeVehicle(v.id, actor.personId, tx))) {
+          await this.events.emit(
+            tx,
+            { actorId: actor.personId, type: 'fleet.vehicle_assigned', occurredAt: now, payload: { fleetOrgId: input.fleetOrgId, vehicleId: v.id, driverId: actor.personId, previousDriverId: null } },
+            { name: 'org', id: input.fleetOrgId },
+          );
+        }
       }
       await this.events.emit(
         tx,

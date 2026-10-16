@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  type ActivityTodayInput,
   DISH_LABELS,
   type DishLabel,
   AZIZIYAH_MONEY_RULES,
@@ -15,41 +17,61 @@ import {
   type MerchantPotView,
   POT_RULES,
   type MerchantAdminPort,
+  type MerchantActivity,
   type MerchantCashAccount,
   type MerchantDaySummary,
   type MerchantDispute,
   type MerchantInsights,
   type MerchantScope,
   type MerchantStaffRole,
+  type MyStaffInvite,
   type MoneyToday,
   type Order,
+  type OrderWho,
+  type OrderWhoInput,
   type PriceChange,
   type ReorderCategoriesInput,
   type StaffMember,
   type UpsertCategoryInput,
   type UpsertItemInput,
   type WeeklyStatement,
+  homeLocalDay,
+  type HomeKitchenDish,
+  type HomeKitchenView,
+  type HomeSale,
+  type HomeTally,
+  type SaveHomeDishInput,
+  type SetHomeTodayInput,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
-import { CatalogService, itemOnSale, itemPhotoUrl, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
+import { CatalogService, homeDishView, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
-import { Accounts, LedgerFacade, LedgerService } from '../ledger/index.js';
+import { Accounts, LedgerFacade, LedgerService, MerchantCashService } from '../ledger/index.js';
 import { MerchantService } from '../merchant/index.js';
-import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, OrdersService } from '../orders/index.js';
+import { OpsService } from '../ops/index.js';
+import { activePauseWindow, CITY_PAUSE_WINDOWS, commissionPctOf, DEFAULT_TIMEZONE, ORDERS_RULES, OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { PROJECTION_BASIS_DAYS, projectDeal, PromotionsService, type DealProposal } from '../promotions/index.js';
+import { activityActorIds, activityEntries, composeActivity, ITEM_ACTIVITY_TYPES, ORDER_ACTIVITY_TYPES, type ActivityNames } from './activity.js';
 import { composeDaySummary, summaryDay } from './day-summary.js';
-import { composeInsights, defaultOutcome, disputeKindOf, staffInsights } from './insights.js';
+import { composeInsights, defaultOutcome, disputeKindOf, soldOutHabits, staffInsights } from './insights.js';
 import { MERCHANT_ADMIN_REPOSITORY, type DisputeResponseRecord, type MerchantAdminRepository } from './merchant-admin.repository.js';
 import { composeCashAccount, composeMoneyToday, composeStatement, HANDOVER_LOOKBACK_DAYS } from './money.js';
 
 const DAY_MS = 86_400_000;
+/** The feed also reads orders placed this long before the day starts (a late order readied after midnight). */
+const ACTIVITY_ORDER_LEAD_MS = 6 * 3_600_000;
 const STAFF_KINDS: readonly MerchantStaffRole[] = ['merchant_owner', 'merchant_staff'];
+/** p4: the event Driver's team records when it takes a shop's dish photo down (ops `dishPhotos.takeDown`). */
+export const PHOTO_TAKEN_DOWN_EVENT = 'catalog.photo_taken_down';
+/** p4: how long the menu keeps telling the owner why a photo came down (while the dish has none). */
+export const PHOTO_TAKEDOWN_NOTICE_DAYS = 14;
+type PhotoTakenDown = { reason: string; at: Date };
 /** Disputes the merchant still sees (domain §9: customers dispute until close, support after). */
 export const DISPUTE_LOOKBACK_DAYS = 30;
 /** The merchant answers a dispute within this; after it the default outcome stands. */
@@ -59,7 +81,7 @@ export const DISPUTE_RESPONSE_HOURS = 48;
  * Merchant app wave 2 (`merchantAdmin.*`). Every call is scoped to one merchant org the caller holds
  * `merchant_owner` / `merchant_staff` at; money, staff and deal changes are owner-only. Menu through
  * the catalog module, deals through promotions, money from the ledger, orders from orders, staff as
- * identity role grants (names from the vault, logged).
+ * identity role grants (names from the vault, logged), given only when the invitee accepts (PRV-08).
  */
 @Injectable()
 export class MerchantAdminService implements MerchantAdminPort {
@@ -78,6 +100,8 @@ export class MerchantAdminService implements MerchantAdminPort {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Optional() private readonly merchant?: MerchantService,
+    @Optional() private readonly ops?: OpsService,
+    @Optional() private readonly merchantCash?: MerchantCashService,
   ) {}
 
   // ───────────────────────── access ─────────────────────────
@@ -89,6 +113,10 @@ export class MerchantAdminService implements MerchantAdminPort {
     throw new DriverError('forbidden');
   }
 
+  /**
+   * Owner-only (MER-06): prices, new dishes, options, sections and menu imports. Staff keep the
+   * kitchen's daily switches (available, sold out today) and photo requests.
+   */
   private async owner(actor: Actor, merchantOrgId: string): Promise<void> {
     if ((await this.roleAt(actor, merchantOrgId)) !== 'merchant_owner') throw new DriverError('forbidden');
   }
@@ -111,7 +139,7 @@ export class MerchantAdminService implements MerchantAdminPort {
     return itemPhotoUrl(this.blobs, stored);
   }
 
-  private itemView(i: CatalogItemRecord): AdminMenuItem {
+  private itemView(i: CatalogItemRecord, takenDown?: ReadonlyMap<string, PhotoTakenDown>): AdminMenuItem {
     const now = this.clock.now();
     return {
       id: i.id,
@@ -138,15 +166,32 @@ export class MerchantAdminService implements MerchantAdminPort {
       servesMin: i.servesMin ?? null,
       servesMax: i.servesMax ?? null,
       labels: (i.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+      kind: kindOfLabels(i.labels),
+      photoLibrary: i.photoUrl ? (i.photoLibrary ?? null) : null,
+      photoReviewPending: !!i.photoUrl && !!i.photoReviewPendingAt,
+      ...(takenDown ? { photoTakenDown: i.photoUrl ? null : (takenDown.get(i.id) ?? null) } : {}),
     };
   }
 
+  /** p4: the store's photo take-downs of the last 14 days, the latest per dish. */
+  private async photoTakeDowns(merchantOrgId: string): Promise<Map<string, PhotoTakenDown>> {
+    const from = new Date(this.clock.now().getTime() - PHOTO_TAKEDOWN_NOTICE_DAYS * 86_400_000);
+    const events = await this.events.forAggregate('org', merchantOrgId, { from, types: [PHOTO_TAKEN_DOWN_EVENT] });
+    const out = new Map<string, PhotoTakenDown>();
+    for (const e of events) {
+      const p = e.payload as { itemId?: unknown; reason?: unknown };
+      if (typeof p.itemId !== 'string') continue;
+      out.set(p.itemId, { reason: typeof p.reason === 'string' ? p.reason : 'other', at: e.occurredAt });
+    }
+    return out;
+  }
+
   private async menuView(merchantOrgId: string): Promise<AdminMenu> {
-    const items = await this.catalog.adminMenu(merchantOrgId);
+    const [items, takenDown] = await Promise.all([this.catalog.adminMenu(merchantOrgId), this.photoTakeDowns(merchantOrgId)]);
     const sections = new Map<string | null, AdminMenuItem[]>();
     for (const i of items) {
       const list = sections.get(i.categoryAr) ?? [];
-      list.push(this.itemView(i));
+      list.push(this.itemView(i, takenDown));
       sections.set(i.categoryAr, list);
     }
     // Named sections in first-item order, the unnamed one last (as the customer menu shows them).
@@ -192,7 +237,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuUpdatePrice(actor: Actor, input: { merchantOrgId: string; itemId: string; priceIqd: number }): Promise<{ item: AdminMenuItem; history: PriceChange[] }> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
       const before = await this.catalog.adminItem(input.merchantOrgId, input.itemId, tx);
       const { item, changed } = await this.catalog.updatePrice(input.merchantOrgId, input.itemId, input.priceIqd, actor.personId, tx);
@@ -215,14 +260,23 @@ export class MerchantAdminService implements MerchantAdminPort {
   async menuReplacePhoto(actor: Actor, input: { merchantOrgId: string; itemId: string; uploadId: string }): Promise<AdminMenuItem> {
     await this.roleAt(actor, input.merchantOrgId);
     await this.assertUpload(actor.personId, input.uploadId);
-    return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { uploadId: input.uploadId }, (tx) =>
-      this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, tx),
+    // p4 (Ali 2026-10-08): the photo shows to customers at once; `review: 'pending'` puts it on the
+    // team's same-day review (the Console queue reads `CatalogService.photoReviewQueue`).
+    return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { uploadId: input.uploadId, review: 'pending' }, (tx) =>
+      this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, tx, null, true),
     );
   }
 
   async menuUpsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
+      // The customer labels and the ticket kind share one column: a save that names one keeps the other.
+      const stored = input.labels !== undefined || input.kind !== undefined
+        ? input.itemId ? ((await this.catalog.adminItem(input.merchantOrgId, input.itemId, tx)).labels ?? []) : []
+        : null;
+      const labels = stored === null
+        ? undefined
+        : withKind(input.labels ?? stored.filter((l) => (DISH_LABELS as readonly string[]).includes(l)), input.kind !== undefined ? input.kind : kindOfLabels(stored));
       const { item, created } = await this.catalog.upsertItem(
         input.merchantOrgId,
         {
@@ -238,7 +292,7 @@ export class MerchantAdminService implements MerchantAdminPort {
             ...(input.available !== undefined ? { available: input.available } : {}),
             ...(input.servesMin !== undefined ? { servesMin: input.servesMin } : {}),
             ...(input.servesMax !== undefined ? { servesMax: input.servesMax } : {}),
-            ...(input.labels !== undefined ? { labels: [...input.labels] } : {}),
+            ...(labels !== undefined ? { labels } : {}),
           },
         },
         actor.personId,
@@ -254,7 +308,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuUpsertCategory(actor: Actor, input: UpsertCategoryInput): Promise<AdminMenu> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     await this.uow.run(async (tx) => {
       const touched = await this.catalog.upsertCategory(input.merchantOrgId, input, tx);
       await this.events.emit(
@@ -267,7 +321,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuReorderCategories(actor: Actor, input: ReorderCategoriesInput): Promise<AdminMenu> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     await this.uow.run(async (tx) => {
       const touched = await this.catalog.reorderCategories(input.merchantOrgId, input.order, tx);
       await this.events.emit(
@@ -280,7 +334,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuSetModifiers(actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean; servesMin?: number | null | undefined; servesMax?: number | null | undefined }> }> }): Promise<AdminMenuItem> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.itemEvent(actor, input.merchantOrgId, 'item.modifiers_updated', { groups: input.groups.length }, (tx) => this.catalog.setModifiers(input.merchantOrgId, input.itemId, input.groups, tx));
   }
 
@@ -300,7 +354,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuImportFromPhotos(actor: Actor, input: { merchantOrgId: string; uploadIds: string[] }): Promise<MenuImportJob> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     for (const id of input.uploadIds) await this.assertUpload(actor.personId, id);
     return this.uow.run(async (tx) => {
       const job = await this.catalog.createImportJob(input.merchantOrgId, input.uploadIds, actor.personId, tx);
@@ -315,7 +369,7 @@ export class MerchantAdminService implements MerchantAdminPort {
   }
 
   async menuApplyImport(actor: Actor, input: { merchantOrgId: string; jobId: string; items: Array<{ nameAr: string; priceIqd: number; categoryAr?: string | null | undefined; description?: string | null | undefined; sourceUploadId?: string | null | undefined }> }): Promise<MenuImportJob> {
-    await this.roleAt(actor, input.merchantOrgId);
+    await this.owner(actor, input.merchantOrgId);
     return this.uow.run(async (tx) => {
       const job = await this.catalog.applyImport(input.merchantOrgId, input.jobId, input.items, actor.personId, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'menu.imported', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, jobId: job.id, items: job.appliedCount } }, { name: 'org', id: input.merchantOrgId });
@@ -380,10 +434,6 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.promotions.setActive(input.merchantOrgId, input.dealId, input.active, actor.personId);
   }
 
-  dealsReview(actor: Actor, input: { dealId: string; approve: boolean; reason?: string | undefined }): Promise<DealView> {
-    return this.promotions.review(input.dealId, input.approve, actor.personId, input.reason);
-  }
-
   // ───────────────────────── money ─────────────────────────
 
   private async ordersIn(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Map<string, Order>> {
@@ -422,11 +472,15 @@ export class MerchantAdminService implements MerchantAdminPort {
   async moneyStatement(actor: Actor, input: { merchantOrgId: string; weekOf?: Date | undefined }): Promise<WeeklyStatement> {
     await this.owner(actor, input.merchantOrgId);
     const range = localPeriod('week', input.weekOf ?? this.clock.now());
-    const [statement, orders] = await Promise.all([
+    const [statement, orders, org] = await Promise.all([
       this.ledger.statement(Accounts.merchantCash(input.merchantOrgId), { from: range.from, to: range.to }),
       this.ordersIn(input.merchantOrgId, { from: new Date(range.from.getTime() - DAY_MS), to: range.to }),
+      this.orgs.get(input.merchantOrgId),
     ]);
-    return composeStatement({ merchantOrgId: input.merchantOrgId, from: range.from, to: range.to, statement, orders });
+    // His rate now, for the statement's header; a starter shop also sees the day its starter period began.
+    const tier = org.merchant?.commissionTier ?? ORDERS_RULES.defaultCommissionTier;
+    const rate = { tier, pct: commissionPctOf(tier), starterSince: tier === 'starter' ? org.createdAt : null };
+    return { ...composeStatement({ merchantOrgId: input.merchantOrgId, from: range.from, to: range.to, statement, orders }), rate };
   }
 
   private async disputeOf(order: Order, responses: ReadonlyMap<string, DisputeResponseRecord>, names: ReadonlyMap<string, string>): Promise<MerchantDispute | null> {
@@ -472,6 +526,25 @@ export class MerchantAdminService implements MerchantAdminPort {
     return out.sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
   }
 
+  /**
+   * The restaurant takes its cash from a courier on its own tablet (decisions §3: confirmed by the
+   * tablet, with both sides' confirmation — the owner types what he counted, the courier reads his
+   * daily hand-over code). Never more than that courier holds for it; a mismatch opens an incident and
+   * posts nothing. A retry of the same sheet posts once.
+   */
+  async moneyReceiveCourierCash(actor: Actor, input: { merchantOrgId: string; courierId: string; amountIqd: number; code: string; idempotencyKey: string }): Promise<MerchantCashAccount> {
+    await this.owner(actor, input.merchantOrgId);
+    if (!this.ops || !this.merchantCash) throw new DriverError('forbidden');
+    // An owner who also delivers can't take his own hand-in: the cash goes to the shop through someone else.
+    if (input.courierId === actor.personId) throw new DriverError('staff_own_account');
+    const handoverId = `mt_${createHash('sha256').update(`${input.merchantOrgId}:${input.idempotencyKey}`).digest('hex').slice(0, 24)}`;
+    await this.ops.verifyCourierCode(actor, input.courierId, input.code);
+    // A retry or a double tap is answered under the merchant's lock: the hand-over posts once, and the
+    // same key with another amount or courier is refused.
+    await this.merchantCash.confirmHandover({ handoverId, courierId: input.courierId, merchantId: input.merchantOrgId, amountIqd: input.amountIqd, merchantConfirmedIqd: input.amountIqd, tabletTap: true });
+    return this.moneyCash(actor, { merchantOrgId: input.merchantOrgId });
+  }
+
   async moneyRespondDispute(actor: Actor, input: { merchantOrgId: string; orderId: string; decision: 'accept_default' | 'contest'; note?: string | undefined; evidenceUploadIds: string[] }): Promise<MerchantDispute> {
     await this.owner(actor, input.merchantOrgId);
     const order = await this.orders.get(input.orderId).catch(() => null);
@@ -505,8 +578,14 @@ export class MerchantAdminService implements MerchantAdminPort {
     const role = await this.roleAt(actor, input.merchantOrgId);
     const to = this.clock.now();
     const from = new Date(to.getTime() - input.days * DAY_MS);
-    const [orders, menu] = await Promise.all([this.orders.merchantOrders(input.merchantOrgId, { from, to: new Date(to.getTime() + 1) }), this.catalog.adminMenu(input.merchantOrgId)]);
-    const insights = composeInsights({ merchantOrgId: input.merchantOrgId, from, to, orders, itemNames: new Map(menu.map((i) => [i.id, i.nameAr])) });
+    const [orders, menu, soldOut] = await Promise.all([
+      this.orders.merchantOrders(input.merchantOrgId, { from, to: new Date(to.getTime() + 1) }),
+      this.catalog.adminMenu(input.merchantOrgId),
+      // m4: the store's sold-out events over the window (indexed aggregate + occurred_at).
+      this.events.forAggregate('org', input.merchantOrgId, { from, to: new Date(to.getTime() + 1), types: ['item.sold_out'] }),
+    ]);
+    const itemNames = new Map(menu.map((i) => [i.id, i.nameAr]));
+    const insights = { ...composeInsights({ merchantOrgId: input.merchantOrgId, from, to, orders, itemNames }), soldOutHabits: soldOutHabits(soldOut, itemNames) };
     // Review 2026-10-04 #10: money views are owner-only. Staff keep prep honesty, rejections, ratings,
     // peaks and what sells — ranked by quantity, without what each item brought in.
     return role === 'merchant_owner' ? insights : staffInsights(insights);
@@ -545,6 +624,143 @@ export class MerchantAdminService implements MerchantAdminPort {
       inPause: (at) => activePauseWindow(at, pauses, DEFAULT_TIMEZONE) !== null,
       netIqd,
     });
+  }
+
+  // ───────────────────────── who pressed what (owner only) ─────────────────────────
+
+  /**
+   * Names for the feed: one batched vault read (purpose `merchant_activity_view`) of the people who
+   * acted, name only (the phone is dropped here). The ids are the actors of kitchen actions, which
+   * are gated to a role at this store; the orders' customers are left out as a second fence.
+   */
+  private async activityNames(actor: Actor, events: Parameters<typeof activityActorIds>[0], notStaff: ReadonlySet<string>, merchantOrgId: string): Promise<ActivityNames> {
+    const ids = activityActorIds(events).filter((id) => !notStaff.has(id));
+    const [cards, menu] = await Promise.all([
+      ids.length > 0 ? this.identity.memberCards(ids, actor.personId, 'merchant_activity_view') : Promise.resolve({} as Record<string, { name: string | null }>),
+      events.some((e) => e.type.startsWith('item.')) ? this.catalog.adminMenu(merchantOrgId) : Promise.resolve([]),
+    ]);
+    const people = new Map<string, string | null>();
+    for (const id of ids) people.set(id, cards[id]?.name ?? null);
+    return { people, itemNames: new Map(menu.map((i) => [i.id, i.nameAr])), viewerId: actor.personId };
+  }
+
+  /**
+   * «مين سوّى شنو»: a Baghdad local day's kitchen actions (default today), newest first, with who did
+   * each. Owner only (staff FORBIDDEN on the server). Reads: the day's orders, the store's dish
+   * events for the day (indexed aggregate + occurred_at), the orders' action events (indexed
+   * order_id), then one vault read for the names.
+   */
+  async activityToday(actor: Actor, input: { merchantOrgId: string; date?: ActivityTodayInput['date'] }): Promise<MerchantActivity> {
+    await this.owner(actor, input.merchantOrgId);
+    const localDate = input.date ?? localDateKey(this.clock.now());
+    const noon = new Date(`${localDate}T12:00:00+03:00`);
+    if (Number.isNaN(noon.getTime())) throw new DriverError('invalid_input');
+    const from = startOfLocalDay(noon);
+    const window = { from, to: new Date(from.getTime() + DAY_MS) };
+    const [orders, itemEvents] = await Promise.all([
+      this.ordersIn(input.merchantOrgId, { from: new Date(from.getTime() - ACTIVITY_ORDER_LEAD_MS), to: window.to }),
+      this.events.forAggregate('org', input.merchantOrgId, { ...window, types: ITEM_ACTIVITY_TYPES }),
+    ]);
+    const orderEvents = await this.events.forOrders([...orders.keys()], { types: ORDER_ACTIVITY_TYPES });
+    const events = [...itemEvents, ...orderEvents.filter((e) => e.occurredAt >= window.from && e.occurredAt < window.to)].sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime());
+    const customers = new Set([...orders.values()].map((o) => o.ordererId));
+    const names = await this.activityNames(actor, events, customers, input.merchantOrgId);
+    return composeActivity({ merchantOrgId: input.merchantOrgId, localDate, events, names, window });
+  }
+
+  /** One order's kitchen actions, oldest first, with who did each. Owner only; another store's order is NOT_FOUND. */
+  async activityOrder(actor: Actor, input: { merchantOrgId: string; orderId: OrderWhoInput['orderId'] }): Promise<OrderWho> {
+    await this.owner(actor, input.merchantOrgId);
+    const order = await this.orders.get(input.orderId).catch(() => null);
+    if (!order || order.merchantOrgId !== input.merchantOrgId) throw new DriverError('not_found');
+    const types: ReadonlySet<string> = new Set(ORDER_ACTIVITY_TYPES);
+    const events = (await this.events.forOrder(order.id)).filter((e) => types.has(e.type));
+    const names = await this.activityNames(actor, events, new Set([order.ordererId]), input.merchantOrgId);
+    return { orderId: order.id, entries: activityEntries(events, names) };
+  }
+
+  // ───────────────────────── أكل بيت: the cook's side ─────────────────────────
+
+  /** «أكلاتي» (owner and staff): her dishes with today's plates, and the reservations coming. A store that isn't a home kitchen gets home: false. */
+  async homeGet(actor: Actor, input: MerchantScope): Promise<HomeKitchenView> {
+    await this.roleAt(actor, input.merchantOrgId);
+    if (!(await this.catalog.storefront(input.merchantOrgId))?.home) return { home: false, dishes: [], reservations: [] };
+    const now = this.clock.now();
+    const items = (await this.catalog.menu(input.merchantOrgId)).filter((i) => i.homeSale);
+    const { tally, reservations } = await this.orders.homeKitchenOrders(input.merchantOrgId, now);
+    const names = new Map(items.map((i) => [i.id, i.nameAr]));
+    return {
+      home: true,
+      dishes: items.map((i) => this.homeDish(i, now, tally)),
+      reservations: reservations.filter((r) => names.has(r.itemId)).map((r) => ({ ...r, nameAr: names.get(r.itemId)! })),
+    };
+  }
+
+  /** A new dish or an edit (owner): name, her line, portion, price, how it sells. A dish moved to ready starts with no plates today. */
+  async homeSaveDish(actor: Actor, input: SaveHomeDishInput): Promise<HomeKitchenDish> {
+    await this.owner(actor, input.merchantOrgId);
+    if (!(await this.catalog.storefront(input.merchantOrgId))?.home) throw new DriverError('forbidden');
+    const before = input.itemId ? await this.catalog.adminItem(input.merchantOrgId, input.itemId) : null;
+    if (before && !before.homeSale) throw new DriverError('catalog_item_unavailable');
+    const wasReady = before?.homeSale?.mode === 'ready' ? before.homeSale : null;
+    const homeSale: HomeSale = input.sale.mode === 'reserve' ? { mode: 'reserve', rule: input.sale.rule } : (wasReady ?? { mode: 'ready', cooked: null, cookedOn: null, setAt: null });
+    const { item } = await this.uow.run((tx) =>
+      this.catalog.upsertItem(
+        input.merchantOrgId,
+        {
+          itemId: input.itemId,
+          patch: {
+            nameAr: input.nameAr,
+            description: input.description,
+            priceIqd: input.priceIqd,
+            servesMin: input.servesMin,
+            servesMax: input.servesMax ?? input.servesMin,
+            portion: input.portion,
+            homeSale,
+            // A reserved dish is cooked to order: no plates count on it.
+            ...(input.sale.mode === 'reserve' ? { stock: null } : wasReady ? {} : { stock: 0 }),
+          },
+        },
+        actor.personId,
+        tx,
+      ),
+    );
+    const now = this.clock.now();
+    return this.homeDish(item, now, (await this.orders.homeKitchenOrders(input.merchantOrgId, now)).tally);
+  }
+
+  /** «جاهزة اليوم» (owner and staff): the plates of a ready dish she has now; null = not cooking it today. */
+  async homeSetToday(actor: Actor, input: SetHomeTodayInput): Promise<HomeKitchenDish> {
+    await this.roleAt(actor, input.merchantOrgId);
+    const item = await this.catalog.adminItem(input.merchantOrgId, input.itemId);
+    if (item.homeSale?.mode !== 'ready') throw new DriverError('catalog_item_unavailable');
+    const now = this.clock.now();
+    const today = homeLocalDay(now);
+    const cooked = input.left === null ? null : (input.cooked ?? (item.homeSale.cookedOn === today ? item.homeSale.cooked : null));
+    const homeSale: HomeSale = { mode: 'ready', cooked, cookedOn: input.left === null ? null : today, setAt: now.toISOString() };
+    const { item: saved } = await this.uow.run((tx) => this.catalog.upsertItem(input.merchantOrgId, { itemId: item.id, patch: { homeSale, stock: input.left ?? 0 } }, actor.personId, tx));
+    return this.homeDish(saved, now, (await this.orders.homeKitchenOrders(input.merchantOrgId, now)).tally);
+  }
+
+  private homeDish(i: CatalogItemRecord, now: Date, tally: HomeTally): HomeKitchenDish {
+    const sale = i.homeSale!;
+    const today = homeLocalDay(now);
+    let booked = 0;
+    for (const n of tally.slots.get(i.id)?.values() ?? []) booked += n;
+    return {
+      id: i.id,
+      nameAr: i.nameAr,
+      description: i.description,
+      priceIqd: i.priceIqd,
+      photoUrl: this.photoUrl(i.photoUrl),
+      servesMin: i.servesMin ?? null,
+      servesMax: i.servesMax ?? null,
+      portion: i.portion ?? null,
+      available: i.available,
+      sale: sale.mode === 'ready' ? { mode: 'ready', cooked: sale.cookedOn === today ? sale.cooked : null, cookingToday: sale.cookedOn === today } : { mode: 'reserve', rule: sale.rule },
+      view: homeDishView(sale, i.stock, now, i.id, tally),
+      booked,
+    };
   }
 
   // ───────────────────────── joy h2: «قدر اليوم» ─────────────────────────
@@ -630,77 +846,48 @@ export class MerchantAdminService implements MerchantAdminPort {
   // ───────────────────────── staff ─────────────────────────
 
   /**
-   * The store's people. A member who has not used the app since he was given the role is `pending`
-   * and shown without his name: the owner typed the phone, but inviting a number must not tell him
-   * whose it is (review 2026-10-04 #6). The name appears once the invitee signs in or refreshes.
+   * The store's people: everyone holding `merchant_owner` / `merchant_staff` there (members, with
+   * names), then the pending, unexpired invites (PRV-08, Ali 2026-10-10: a person joins only by
+   * accepting). A pending row holds no role yet and shows no name: inviting a number must not tell the
+   * owner whose it is (review 2026-10-04 #6); only the 4+4 hint of the number he typed.
    */
   private async staffRows(actor: Actor, merchantOrgId: string): Promise<StaffMember[]> {
     const holders = await this.identity.orgRoleHolders(merchantOrgId, STAFF_KINDS);
     const roleOf = new Map<string, MerchantStaffRole>();
-    const grantedAt = new Map<string, Date>();
-    for (const h of holders) {
-      if (roleOf.get(h.personId) !== 'merchant_owner') roleOf.set(h.personId, h.kind as MerchantStaffRole);
-      const prev = grantedAt.get(h.personId);
-      if (!prev || h.grantedAt > prev) grantedAt.set(h.personId, h.grantedAt);
-    }
+    for (const h of holders) if (roleOf.get(h.personId) !== 'merchant_owner') roleOf.set(h.personId, h.kind as MerchantStaffRole);
     const ids = [...roleOf.keys()];
-    const active = ids.length > 0 ? await this.identity.lastActiveAtOf(ids) : {};
-    const pendingOf = (personId: string) => {
-      if (personId === actor.personId) return false;
-      const last = active[personId] ?? null;
-      return last === null || last < grantedAt.get(personId)!;
-    };
+    const now = this.clock.now();
+    const invites = (await this.repo.pendingStaffInvitesOfOrg(merchantOrgId)).filter((i) => i.expiresAt > now && !roleOf.has(i.personId));
     const cards = ids.length > 0 ? await this.identity.memberCards(ids, actor.personId, 'merchant_staff_view') : {};
-    const pendingIds = ids.filter(pendingOf);
-    const hints =
-      pendingIds.length > 0
-        ? await this.identity.invitePhoneHints(pendingIds, actor.personId, 'merchant_staff_invite')
-        : {};
-    const sends =
-      pendingIds.length > 0 ? await this.inviteSends(merchantOrgId) : new Map<string, Date>();
+    const hints = invites.length > 0 ? await this.identity.invitePhoneHints(invites.map((i) => i.personId), actor.personId, 'merchant_staff_invite') : {};
     const cooldownMs = STAFF_INVITE_RULES.resendCooldownMin * 60_000;
-    return ids
-      .map((personId) => {
-        const pending = pendingOf(personId);
-        const invitedAt = grantedAt.get(personId)!;
-        const resent = sends.get(personId);
-        const sentAt = resent && resent > invitedAt ? resent : invitedAt;
-        return {
-          personId,
-          name: pending ? null : (cards[personId]?.name ?? null),
-          phoneMasked: cards[personId]?.phoneMasked ?? null,
-          role: roleOf.get(personId)!,
-          you: personId === actor.personId,
-          pending,
-          ...(pending
-            ? {
-                phoneHint: hints[personId] ?? null,
-                invitedAt,
-                inviteSentAt: sentAt,
-                resendAfter: new Date(sentAt.getTime() + cooldownMs),
-              }
-            : {}),
-        };
-      })
-      .sort((a, b) => (a.role === b.role ? a.personId.localeCompare(b.personId) : a.role === 'merchant_owner' ? -1 : 1));
-  }
-
-  /** When each invite last went out again (`merchant.staff_invite_sent` on the store's staff stream). */
-  private async inviteSends(merchantOrgId: string): Promise<Map<string, Date>> {
-    const out = new Map<string, Date>();
-    for (const e of await this.events.forAggregate('merchant_staff', merchantOrgId)) {
-      if (e.type !== 'merchant.staff_invite_sent') continue;
-      const personId = (e.payload as { personId?: unknown }).personId;
-      if (typeof personId !== 'string') continue;
-      const prev = out.get(personId);
-      if (!prev || e.occurredAt > prev) out.set(personId, e.occurredAt);
-    }
-    return out;
+    const members: StaffMember[] = ids.map((personId) => ({
+      personId,
+      name: cards[personId]?.name ?? null,
+      // The 4+4 form the owner saw on the invite («0780 ••• 4455»): they added this number themselves.
+      phoneMasked: cards[personId]?.phoneHint ?? null,
+      role: roleOf.get(personId)!,
+      you: personId === actor.personId,
+      pending: false,
+    }));
+    const waiting: StaffMember[] = invites.map((i) => ({
+      personId: i.personId,
+      name: null,
+      phoneMasked: hints[i.personId] ?? null,
+      role: i.role,
+      you: false,
+      pending: true,
+      phoneHint: hints[i.personId] ?? null,
+      invitedAt: i.createdAt,
+      inviteSentAt: i.sentAt,
+      resendAfter: new Date(i.sentAt.getTime() + cooldownMs),
+    }));
+    return [...members, ...waiting].sort((a, b) => (a.role === b.role ? a.personId.localeCompare(b.personId) : a.role === 'merchant_owner' ? -1 : 1));
   }
 
   /**
-   * The invite link goes out (WhatsApp, outbox `merchant.staff_invite_sent`): the store's name and the
-   * app link, to the invited number. No name read: the notifier resolves the number in the vault.
+   * Records the invite (outbox `merchant.staff_invite_sent`). Nothing is sent to the invited number yet
+   * (no subscriber): the owner tells them to install the app and sign in with that number (NTF2-05).
    */
   private async sendInvite(
     actor: Actor,
@@ -722,6 +909,12 @@ export class MerchantAdminService implements MerchantAdminPort {
     );
   }
 
+  private async pendingRow(actor: Actor, merchantOrgId: string, personId: string): Promise<StaffMember> {
+    const row = (await this.staffRows(actor, merchantOrgId)).find((s) => s.personId === personId);
+    if (!row) throw new DriverError('internal');
+    return row;
+  }
+
   /** Owner sends a waiting invite again; within the cooldown it is a no-op that returns the row. */
   async staffResendInvite(
     actor: Actor,
@@ -734,12 +927,11 @@ export class MerchantAdminService implements MerchantAdminPort {
     if (!row) throw new DriverError('not_found');
     if (!row.pending) throw new DriverError('staff_invite_not_pending');
     if (row.resendAfter && row.resendAfter.getTime() > this.clock.now().getTime()) return row;
+    const invite = await this.repo.staffInvite(input.merchantOrgId, input.personId);
+    if (!invite) throw new DriverError('not_found');
+    await this.repo.updateStaffInvite(invite.id, { sentAt: this.clock.now() });
     await this.sendInvite(actor, input.merchantOrgId, input.personId, row.role, true);
-    return (
-      (await this.staffRows(actor, input.merchantOrgId)).find(
-        (s) => s.personId === input.personId,
-      ) ?? row
-    );
+    return this.pendingRow(actor, input.merchantOrgId, input.personId);
   }
 
   async staffList(actor: Actor, input: MerchantScope): Promise<StaffMember[]> {
@@ -747,23 +939,109 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.staffRows(actor, input.merchantOrgId);
   }
 
-  /** Owner invites by phone (the Person is found or created pseudonymously; the number stays in the vault). */
+  /**
+   * Owner invites by phone (the Person is found or created pseudonymously; the number stays in the
+   * vault). PRV-08: this gives no role; the person joins when he accepts in the Merchant app
+   * (`staffRespondInvite`). Someone already at the store just gets the new role. A declined, cancelled
+   * or expired invite starts again as a fresh pending one; a waiting one keeps its dates, takes the new
+   * role and goes out again only after the resend cooldown.
+   */
   async staffInvite(actor: Actor, input: { merchantOrgId: string; phone: string; role: MerchantStaffRole }): Promise<StaffMember> {
     await this.owner(actor, input.merchantOrgId);
     const personId = await this.identity.ensurePersonByPhone(input.phone, actor.personId, 'merchant_staff_invite');
-    const row = await this.setRoleOf(actor, input.merchantOrgId, personId, input.role);
-    if (row.pending) await this.sendInvite(actor, input.merchantOrgId, personId, row.role, false);
-    return row;
+    const staff = await this.staffRows(actor, input.merchantOrgId);
+    if (staff.some((s) => s.personId === personId && !s.pending)) return this.setRoleOf(actor, input.merchantOrgId, personId, input.role);
+    const now = this.clock.now();
+    const existing = await this.repo.staffInvite(input.merchantOrgId, personId);
+    if (existing && existing.status === 'pending' && existing.expiresAt > now) {
+      const due = existing.sentAt.getTime() + STAFF_INVITE_RULES.resendCooldownMin * 60_000 <= now.getTime();
+      await this.repo.updateStaffInvite(existing.id, { role: input.role, ...(due ? { sentAt: now } : {}) });
+      if (due) await this.sendInvite(actor, input.merchantOrgId, personId, input.role, true);
+      return this.pendingRow(actor, input.merchantOrgId, personId);
+    }
+    await this.repo.upsertStaffInvite({
+      merchantOrgId: input.merchantOrgId,
+      personId,
+      role: input.role,
+      invitedById: actor.personId,
+      createdAt: now,
+      sentAt: now,
+      expiresAt: new Date(now.getTime() + STAFF_INVITE_RULES.expiresAfterDays * DAY_MS),
+    });
+    await this.sendInvite(actor, input.merchantOrgId, personId, input.role, false);
+    return this.pendingRow(actor, input.merchantOrgId, personId);
+  }
+
+  /**
+   * PRV-08: the caller's own pending, unexpired invites across stores: store name, role, dates (no
+   * owner name). Stores he already works at, and invites whose inviter is no longer an owner, are left out.
+   */
+  async staffMyInvites(actor: Actor): Promise<MyStaffInvite[]> {
+    const now = this.clock.now();
+    const invites = (await this.repo.pendingStaffInvitesOfPerson(actor.personId)).filter((i) => i.expiresAt > now);
+    if (invites.length === 0) return [];
+    const at = new Set((await this.identity.scopedOrgs(actor.personId, STAFF_KINDS)).map((g) => g.orgId));
+    const out: MyStaffInvite[] = [];
+    for (const i of invites) {
+      if (at.has(i.merchantOrgId)) continue;
+      // An invite from someone no longer an owner there can't be accepted, so it isn't shown.
+      if (!(await this.identity.hasRole(i.invitedById, 'merchant_owner', i.merchantOrgId))) continue;
+      const org = await this.orgs.find(i.merchantOrgId);
+      if (!org) continue;
+      out.push({ merchantOrgId: i.merchantOrgId, storeName: org.name, role: i.role, invitedAt: i.createdAt, expiresAt: i.expiresAt });
+    }
+    return out.sort((a, b) => b.invitedAt.getTime() - a.invitedAt.getTime());
+  }
+
+  /**
+   * PRV-08: only the invited person answers, only a pending, unexpired invite whose inviter is still
+   * an owner there. Accepting gives the invite's role (the same grant as a role change, granted by the
+   * owner who invited); declining gives nothing. Either way an event on the store's staff stream.
+   */
+  async staffRespondInvite(actor: Actor, input: { merchantOrgId: string; accept: boolean }): Promise<MyStaffInvite[]> {
+    const now = this.clock.now();
+    const invite = await this.repo.staffInvite(input.merchantOrgId, actor.personId);
+    if (!invite || invite.personId !== actor.personId || invite.status !== 'pending' || invite.expiresAt <= now) throw new DriverError('staff_invite_not_found');
+    if (input.accept && !(await this.identity.hasRole(invite.invitedById, 'merchant_owner', input.merchantOrgId))) throw new DriverError('staff_invite_not_found');
+    const already = (await this.identity.scopedOrgs(actor.personId, STAFF_KINDS)).some((g) => g.orgId === input.merchantOrgId);
+    await this.uow.run(async (tx) => {
+      if (input.accept && !already) {
+        const grantor = { personId: invite.invitedById };
+        await this.identity.grantRole(grantor, { personId: actor.personId, kind: invite.role, orgId: input.merchantOrgId });
+        const other: MerchantStaffRole = invite.role === 'merchant_owner' ? 'merchant_staff' : 'merchant_owner';
+        await this.identity.revokeRole(grantor, { personId: actor.personId, kind: other, orgId: input.merchantOrgId });
+      }
+      await this.repo.updateStaffInvite(invite.id, { status: input.accept ? 'accepted' : 'declined', answeredAt: now }, tx);
+      await this.events.emit(
+        tx,
+        {
+          actorId: actor.personId,
+          type: input.accept ? 'merchant.staff_invite_accepted' : 'merchant.staff_invite_declined',
+          occurredAt: now,
+          payload: { merchantOrgId: input.merchantOrgId, personId: actor.personId, role: invite.role, invitedById: invite.invitedById },
+        },
+        { name: 'merchant_staff', id: input.merchantOrgId },
+      );
+    });
+    return this.staffMyInvites(actor);
   }
 
   async staffSetRole(actor: Actor, input: { merchantOrgId: string; personId: string; role: MerchantStaffRole }): Promise<StaffMember> {
     await this.owner(actor, input.merchantOrgId);
-    if (!(await this.staffRows(actor, input.merchantOrgId)).some((s) => s.personId === input.personId)) throw new DriverError('not_found');
+    const row = (await this.staffRows(actor, input.merchantOrgId)).find((s) => s.personId === input.personId);
+    if (!row) throw new DriverError('not_found');
+    if (row.pending) {
+      // A waiting invite: change the role it offers (still nothing granted until he accepts).
+      const invite = await this.repo.staffInvite(input.merchantOrgId, input.personId);
+      if (!invite) throw new DriverError('not_found');
+      await this.repo.updateStaffInvite(invite.id, { role: input.role });
+      return this.pendingRow(actor, input.merchantOrgId, input.personId);
+    }
     return this.setRoleOf(actor, input.merchantOrgId, input.personId, input.role);
   }
 
   private async setRoleOf(actor: Actor, merchantOrgId: string, personId: string, role: MerchantStaffRole): Promise<StaffMember> {
-    const staff = await this.staffRows(actor, merchantOrgId);
+    const staff = (await this.staffRows(actor, merchantOrgId)).filter((s) => !s.pending);
     const current = staff.find((s) => s.personId === personId)?.role;
     if (current === 'merchant_owner' && role !== 'merchant_owner' && staff.filter((s) => s.role === 'merchant_owner').length <= 1) throw new DriverError('staff_last_owner');
     await this.uow.run(async () => {
@@ -776,12 +1054,27 @@ export class MerchantAdminService implements MerchantAdminPort {
     return row;
   }
 
+  /** A member loses his roles there; a waiting invite is cancelled (it can no longer be accepted). */
   async staffRemove(actor: Actor, input: { merchantOrgId: string; personId: string }): Promise<{ removed: boolean }> {
     await this.owner(actor, input.merchantOrgId);
     const staff = await this.staffRows(actor, input.merchantOrgId);
     const target = staff.find((s) => s.personId === input.personId);
     if (!target) return { removed: false };
-    if (target.role === 'merchant_owner' && staff.filter((s) => s.role === 'merchant_owner').length <= 1) throw new DriverError('staff_last_owner');
+    if (target.pending) {
+      const invite = await this.repo.staffInvite(input.merchantOrgId, input.personId);
+      if (!invite) return { removed: false };
+      await this.uow.run(async (tx) => {
+        await this.repo.updateStaffInvite(invite.id, { status: 'cancelled' }, tx);
+        await this.events.emit(
+          tx,
+          { actorId: actor.personId, type: 'merchant.staff_invite_cancelled', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, personId: input.personId, role: invite.role } },
+          { name: 'merchant_staff', id: input.merchantOrgId },
+        );
+      });
+      return { removed: true };
+    }
+    const members = staff.filter((s) => !s.pending);
+    if (target.role === 'merchant_owner' && members.filter((s) => s.role === 'merchant_owner').length <= 1) throw new DriverError('staff_last_owner');
     await this.uow.run(async () => {
       for (const kind of STAFF_KINDS) await this.identity.revokeRole(actor, { personId: input.personId, kind, orgId: input.merchantOrgId });
     });

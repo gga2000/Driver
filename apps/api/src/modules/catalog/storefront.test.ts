@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basePrepMin, etaRange, foldArabic, minutesUntilLocal, nextOpening, nextOpeningIn, openState, pinOf, popularItems, prepRange, twelveHour } from './storefront.js';
+import { basePrepMin, etaRange, foldArabic, minutesUntilLocal, nextOpening, nextOpeningIn, openState, pinOf, popularItems, prepRange, twelveHour, localTwelveHour } from './storefront.js';
 
 const TZ = 'Asia/Baghdad';
 const every = (start: string, end: string) => [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, start, end }));
@@ -8,6 +8,8 @@ describe('storefront helpers', () => {
   it('formats local times on the 12-hour clock', () => {
     expect(twelveHour('05:00')).toBe('5:00');
     expect(twelveHour('13:15')).toBe('1:15');
+    // A pause that reopens by itself shows its Baghdad clock time on the door.
+    expect(localTwelveHour(new Date('2026-10-09T10:15:00Z'), 'Asia/Baghdad')).toBe('1:15');
     expect(twelveHour('00:00')).toBe('12:00');
     expect(twelveHour('12:30')).toBe('12:30');
   });

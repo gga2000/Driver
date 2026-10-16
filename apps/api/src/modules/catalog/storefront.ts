@@ -1,5 +1,5 @@
-import { AZIZIYAH_ZONES, DISH_LABELS, servesOf, type DeliveryPoint, type DishLabel, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
-import type { AvailabilityWindow, CatalogItemRecord } from './catalog.repository.js';
+import { AZIZIYAH_ZONES, DISH_LABELS, EMPTY_HOME_TALLY, homeLocalDay, localClock, nextReserveSlot, readyLeft, servesOf, type DeliveryPoint, type DishLabel, type HomeDishView, type HomeTally, type MenuCategory, type MenuItem, type MenuModifierGroup } from '@driver/contracts';
+import type { AvailabilityWindow, CatalogItemRecord, HomeSaleRecord } from './catalog.repository.js';
 import { photoLink, type PhotoLink } from './photos.js';
 
 /** No signer: plain photo URLs pass, uploads are left out (an app can't load `upload:<id>`). */
@@ -58,6 +58,12 @@ export function twelveHour(hhmm: string): string {
   const h = Math.floor(total / 60) % 24;
   const m = total % 60;
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')}`;
+}
+
+/** A moment as the shutter writes it in the store's time zone: «1:15» (a quick pause's reopening). */
+export function localTwelveHour(at: Date, timeZone: string): string {
+  const m = localClock(at, timeZone).minutes;
+  return twelveHour(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
 }
 
 /** The next opening window's start after `at` (local) and the minutes until it, within a week; null when none. */
@@ -140,10 +146,28 @@ function isGroupVariant(g: CatalogItemRecord['modifierGroups'][number]): boolean
   return min === 1 && g.maxSelect === 1 && g.modifiers.some((m) => m.priceIqd > 0);
 }
 
+/** Plates a home kitchen already gave out (reserved per dish and time, ready plates sold). */
+export type HomeBooked = HomeTally;
+
+/**
+ * أكل بيت: what the menu says about a home dish now. A ready dish counts only what she cooked on this
+ * local day (yesterday's plates are gone); a reserve dish shows its earliest time with a plate free.
+ */
+export function homeDishView(sale: HomeSaleRecord, stock: number | null, at: Date, itemId: string, tally: HomeTally = EMPTY_HOME_TALLY): HomeDishView {
+  if (sale.mode === 'ready') {
+    const today = sale.cookedOn === homeLocalDay(at);
+    return { mode: 'ready', cooked: today ? sale.cooked : null, left: readyLeft(sale, stock, at, tally.sold.get(itemId)) };
+  }
+  return { mode: 'reserve', aheadMin: sale.rule.aheadMin, next: nextReserveSlot(sale.rule, at, tally.slots.get(itemId)) };
+}
+
 /** The customer's view of one dish; `photo` turns its stored photo into a link the app can load. */
-export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string, photo: PhotoLink = UNSIGNED): MenuItem {
-  const soldOut = !item.available || item.stock === 0;
-  const outOfSchedule = item.availability.length > 0 && activeWindow(at, item.availability, timeZone) === null;
+export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string, photo: PhotoLink = UNSIGNED, booked?: HomeBooked): MenuItem {
+  const home = item.homeSale ? homeDishView(item.homeSale, item.stock, at, item.id, booked) : null;
+  // A ready home dish is out when its plates are; a reserve one when the coming week is fully booked.
+  const homeOut = home?.mode === 'ready' ? home.left === 0 : home?.mode === 'reserve' ? home.next === null : false;
+  const soldOut = !item.available || (home?.mode !== 'reserve' && item.stock === 0) || homeOut;
+  const outOfSchedule = !home && item.availability.length > 0 && activeWindow(at, item.availability, timeZone) === null;
   const groups: MenuModifierGroup[] = item.modifierGroups.map((g) => ({
     id: g.id,
     name: g.nameAr,
@@ -168,7 +192,16 @@ export function menuItemView(item: CatalogItemRecord, at: Date, timeZone: string
     modifierGroups: groups,
     serves: servesOf(item.servesMin, item.servesMax),
     labels: (item.labels ?? []).filter((l): l is DishLabel => (DISH_LABELS as readonly string[]).includes(l)),
+    // «جهّز محلك»: a library photo is shown as «صورة توضيحية» until the kitchen's own photo replaces it.
+    ...(item.photoLibrary && item.photoUrl ? { photoIllustrative: true } : {}),
+    ...(item.portion ? { portion: item.portion } : {}),
+    ...(home ? { home } : {}),
   };
+}
+
+/** A card can add the dish in one tap: no option group asks for a choice (home's band +; else the dish opens). */
+export function oneTap(item: Pick<MenuItem, 'modifierGroups'>): boolean {
+  return item.modifierGroups.every((g) => g.min === 0);
 }
 
 /**
@@ -185,11 +218,11 @@ export function popularItems(counts: ReadonlyMap<string, number>, menuOrder: rea
 }
 
 /** Sections in menu order (first item of each); items without a section go last under `otherLabel`. */
-export function menuSections(items: readonly CatalogItemRecord[], at: Date, timeZone: string, photo: PhotoLink = UNSIGNED, otherLabel = 'أصناف ثانية'): MenuCategory[] {
+export function menuSections(items: readonly CatalogItemRecord[], at: Date, timeZone: string, photo: PhotoLink = UNSIGNED, otherLabel = 'أصناف ثانية', booked?: HomeBooked): MenuCategory[] {
   const sections = new Map<string, MenuItem[]>();
   const loose: MenuItem[] = [];
   for (const item of items) {
-    const view = menuItemView(item, at, timeZone, photo);
+    const view = menuItemView(item, at, timeZone, photo, booked);
     if (!item.categoryAr) {
       loose.push(view);
       continue;

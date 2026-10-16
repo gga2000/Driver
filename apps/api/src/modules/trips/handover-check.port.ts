@@ -22,3 +22,13 @@ export class NoChangeToWallet implements TripHandoverCheck {
     return handover.changeToWalletIqd !== undefined ? 'change_to_wallet_not_cash' : null;
   }
 }
+
+/**
+ * «دوّرلي»: before a pickup is recorded, orders may refuse it (an errand's shops stop needs the
+ * shopper's receipt first). Read-only, checked before anything is written; orders binds it at
+ * start-up. Unbound = every pickup completes as before.
+ */
+export interface TripPickupGuard {
+  /** Null when the pickup may complete; else the error code to refuse it with. */
+  problem(orderId: string): Promise<'errand_receipt_missing' | null>;
+}

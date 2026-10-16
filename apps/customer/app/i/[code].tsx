@@ -91,7 +91,7 @@ export default function InviteLanding() {
           {done ? t('invite.landing_done') : name ? t('invite.landing_title', { name }) : t('invite.landing_title_anon')}
         </Text>
         <Text variant="body" color="textMuted" align="center">
-          {done ? t('invite.landing_done_body') : t('invite.landing_body')}
+          {done ? t(preview.data && !preview.data.rule.rewardsOn ? 'invite.landing_done_body_plain' : 'invite.landing_done_body') : t('invite.landing_body')}
         </Text>
       </View>
       {problem ? (
@@ -104,6 +104,7 @@ export default function InviteLanding() {
           </View>
         </Card>
       ) : null}
+      {preview.data && !preview.data.rule.rewardsOn ? null : (
       <Card elevation={0} padding={4}>
         {preview.data ? (
           <View style={{ gap: theme.space[3] }}>
@@ -125,6 +126,7 @@ export default function InviteLanding() {
           </View>
         )}
       </Card>
+      )}
     </Screen>
   );
 }

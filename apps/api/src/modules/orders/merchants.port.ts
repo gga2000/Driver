@@ -1,5 +1,5 @@
 import { holidayOn, localClock, type CommissionTier, type DeliveryPoint } from '@driver/contracts';
-import type { OrgsService } from '../orgs/index.js';
+import { closedNow, type OrgsService } from '../orgs/index.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from './orders.config.js';
 import type { PauseWindow } from './pause.js';
 
@@ -19,10 +19,14 @@ export interface MerchantProfile {
   commissionTier: CommissionTier;
   /** Where couriers pick up (zone key + pin); null until the merchant's place is on file. */
   location: DeliveryPoint | null;
-  /** Busy mode until this time (+10 min on every prep time); null/absent = off. */
+  /** Busy mode until this time (+`busyExtraMin` on every prep time); null/absent = off. */
   busyUntil?: Date | null;
+  /** r5: the busy extra the shop picked (10 or 20 min); null/absent = the default +10. */
+  busyExtraMin?: number | null;
   /** Closed by hand from the Merchant app: `orders.place` refuses like a pause window. */
   closed?: boolean;
+  /** A quick pause from «المحل» reopens by itself at this time (counter step 5, h2); absent otherwise. */
+  reopensAt?: Date;
   /** Today is one of the store's holiday closures (Merchant app hours); `closed` is also true then. */
   holiday?: boolean;
 }
@@ -30,6 +34,8 @@ export interface MerchantProfile {
 export interface MerchantDirectory {
   profile(orgId: string): Promise<MerchantProfile | null>;
   heartbeat(orgId: string, at: Date): Promise<void>;
+  /** x1: when a merchant's settings last changed on this instance (epoch ms, 0 = never). */
+  changeStamp?(): number;
 }
 
 export const MERCHANT_DIRECTORY = Symbol('MERCHANT_DIRECTORY');
@@ -37,8 +43,8 @@ export const MERCHANT_DIRECTORY = Symbol('MERCHANT_DIRECTORY');
 /** Production binding over `OrgsService`. */
 export class OrgsMerchantDirectory implements MerchantDirectory {
   constructor(
-    private readonly orgs: Pick<OrgsService, 'find' | 'heartbeat'>,
-    /** The clock a holiday closure is judged by (local date). */
+    private readonly orgs: Pick<OrgsService, 'find' | 'heartbeat'> & Partial<Pick<OrgsService, 'merchantChangeStamp'>>,
+    /** The clock a holiday closure (local date) and a quick pause's reopening are judged by. */
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -47,6 +53,7 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
     if (!org || (org.type !== 'restaurant' && org.type !== 'grocer')) return null;
     const s = org.merchant ?? { autoAccept: false, pauseWindows: null, lastHeartbeatAt: null, defaultPrepMin: null, commissionTier: null, location: null };
     const holiday = s.holidays ? holidayOn(s.holidays, localClock(this.now(), DEFAULT_TIMEZONE).date) !== null : false;
+    const closed = closedNow(s.closed, this.now());
     return {
       orgId,
       cityId: org.cityId,
@@ -57,13 +64,19 @@ export class OrgsMerchantDirectory implements MerchantDirectory {
       commissionTier: s.commissionTier ?? ORDERS_RULES.defaultCommissionTier,
       location: s.location ?? null,
       busyUntil: s.busyUntil ?? null,
-      closed: Boolean(s.closed) || holiday,
+      busyExtraMin: s.busyExtraMin ?? null,
+      closed: closed !== null || holiday,
+      ...(closed?.until ? { reopensAt: closed.until } : {}),
       ...(holiday ? { holiday } : {}),
     };
   }
 
   async heartbeat(orgId: string, at: Date): Promise<void> {
     await this.orgs.heartbeat(orgId, at);
+  }
+
+  changeStamp(): number {
+    return this.orgs.merchantChangeStamp?.() ?? 0;
   }
 }
 

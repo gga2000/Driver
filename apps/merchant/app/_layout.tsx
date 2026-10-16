@@ -1,12 +1,14 @@
 import { router, Stack, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { Linking, Platform, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { getNetwork, ModalSheetDefaultsProvider, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
+import { CrashBoundary, getNetwork, ModalSheetDefaultsProvider, RetryState, ThemeProvider, ToastProvider, createTheme, useLoadTimeout, useNetwork } from '@driver/ui';
 import { BottomBar, NavRail, NAV_ITEMS, type NavItem } from '@/components/Shell';
+import { BoardSkeleton, SPLASH_SLOW_MS, useSlowSplash } from '@/components/BoardSkeleton';
+import { ScreenTrouble } from '@/components/ScreenTrouble';
 import { Wordmark } from '@/components/Wordmark';
 import { usePushRegistration } from '@/features/notify/Push';
 import { ReceiptPreview } from '@/features/print/ReceiptPreview';
@@ -14,19 +16,26 @@ import { MerchantRuntime } from '@/features/runtime/MerchantRuntime';
 import { newCount as countNew } from '@/features/board/logic';
 import { useBoard } from '@/features/board/queries';
 import { useCurrentStore } from '@/features/store/queries';
+import { UpdateRequired } from '@/features/update/UpdateRequired';
 import { ApiProvider } from '@/lib/api';
+import { isUpdateRequired, subscribeUpdateRequired } from '@/lib/app-version';
 import { SystemBanner } from '@/components/SystemBanner';
 import { SUPPORT_PHONE } from '@/lib/env';
+import { crashReporter, startCrashReports } from '@/lib/crash';
 import { useAppFonts } from '@/lib/fonts';
 import { useLocale, useT } from '@/lib/i18n';
 import { isSectionRoot, resolveGuard, sectionOf } from '@/lib/guard';
 import { haptics } from '@/lib/haptics';
+import { useToastTop } from '@/lib/toast';
 import { WIDE_MIN_WIDTH } from '@/lib/layout';
 import { prefs, usePrefs } from '@/lib/prefs';
+import { usePreloadScreens } from '@/lib/preload';
 import { enforceRtl } from '@/lib/rtl';
 import { session, useSession } from '@/lib/session';
 
 enforceRtl();
+// Crash reports: a no-op until EXPO_PUBLIC_SENTRY_DSN is set (src/lib/crash.ts).
+startCrashReports();
 
 /** Static colours for navigator chrome, which sits outside the React theme context. */
 const chrome = createTheme('light');
@@ -45,6 +54,8 @@ export default function RootLayout() {
   const fontsLoaded = useAppFonts();
   const { locale } = usePrefs();
   const { width } = useWindowDimensions();
+  // CORE-05: the server refused this build; nothing else mounts (no queries, no live stream) until a restart.
+  const updateRequired = useSyncExternalStore(subscribeUpdateRequired, isUpdateRequired, isUpdateRequired);
 
   useEffect(() => {
     void session.hydrate();
@@ -56,26 +67,46 @@ export default function RootLayout() {
     document.documentElement.lang = locale === 'en' ? 'en' : 'ar';
     document.documentElement.dir = locale === 'en' ? 'ltr' : 'rtl';
     document.body.style.backgroundColor = chrome.colors.bg;
-    document.title = locale === 'en' ? 'Driver Merchant' : 'درايفر للمطاعم';
+    document.title = locale === 'en' ? 'Driver Merchant' : 'درايفر للمحلات';
   }, [locale]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider theme="light" fonts={fontsLoaded ? 'plex' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
-          <ToastProvider bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
-            <ApiProvider>
-              <StatusBar style="dark" />
-              {/* Launch status banner from the Console (system.banner), above every screen. */}
-              <SheetDefaults>
-                <SystemBanner />
-                <RootNavigator />
-              </SheetDefaults>
-            </ApiProvider>
-          </ToastProvider>
+        <ThemeProvider theme="light" fonts={fontsLoaded ? 'brand' : 'system'} haptics={haptics} direction={Platform.OS === 'web' ? (locale === 'en' ? 'ltr' : 'rtl') : undefined}>
+          {/* A render crash anywhere shows «صار خلل» with a retry instead of a frozen tablet. */}
+          <CrashScreenBoundary locale={locale}>
+            {updateRequired ? (
+              <>
+                <StatusBar style="dark" />
+                <UpdateRequired />
+              </>
+            ) : (
+              <CounterToasts bottomOffset={width >= WIDE_MIN_WIDTH ? 24 : 96} maxWidth={width >= WIDE_MIN_WIDTH ? 560 : undefined}>
+                <ApiProvider>
+                  <StatusBar style="dark" />
+                  {/* Launch status banner from the Console (system.banner), above every screen. */}
+                  <SheetDefaults>
+                    <SystemBanner />
+                    <RootNavigator />
+                  </SheetDefaults>
+                </ApiProvider>
+              </CounterToasts>
+            )}
+          </CrashScreenBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+/** The root error boundary with the merchant app's own copy (apps/merchant/locales). */
+function CrashScreenBoundary({ locale, children }: { locale: ReturnType<typeof useLocale>; children: ReactNode }) {
+  const t = useT();
+  return (
+    <CrashBoundary reporter={crashReporter} locale={locale} title={t('merchant.crash.title')} body={t('merchant.crash.body')} retryLabel={t('merchant.crash.retry')}>
+      {children}
+    </CrashBoundary>
   );
 }
 
@@ -94,7 +125,7 @@ function RootNavigator() {
   const segments = useSegments();
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_MIN_WIDTH;
-  const { access, store, canSeeMoney } = useCurrentStore();
+  const { access, store } = useCurrentStore();
   const signedIn = status === 'signedIn';
   const ready = status !== 'loading' && p.loaded && (!signedIn || access !== 'loading');
 
@@ -111,10 +142,13 @@ function RootNavigator() {
 
   const section = sectionOf(segments);
   const showNav = signedIn && access === 'ready' && section !== null;
-  const items = NAV_ITEMS.filter((i) => i.section !== 'money' || canSeeMoney);
+  // Everyone gets the four tabs: staff see «يومك» without money (counter step 5).
+  const items = NAV_ITEMS;
   const board = useBoard(showNav && store ? store.orgId : null);
   // M-10: the same number as the جديد column and the banner.
   const newCount = countNew(board.data?.orders ?? []);
+  // d02 (web): once the board is up, every screen's code is fetched ahead, so a tab opens with no net.
+  usePreloadScreens(signedIn && access === 'ready');
   const navigate = (item: NavItem) => {
     if (section === item.section && isSectionRoot(segments)) return;
     router.navigate(item.href as Href);
@@ -124,9 +158,11 @@ function RootNavigator() {
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: chrome.colors.bg }}>
       {showNav && wide ? <NavRail items={items} active={section} newCount={newCount} onNavigate={navigate} /> : null}
       <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: chrome.colors.bg } }}>
+        {/* d02: a screen that fails shows its own small card in its place; the tabs, the rail and the board stay. */}
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: chrome.colors.bg } }} unstable_screenErrorBoundary={ScreenTrouble}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="not-activated" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="staff-alert" />
           <Stack.Screen name="stores" />
           <Stack.Screen name="index" options={{ animation: 'none' }} />
           <Stack.Screen name="menu/index" options={{ animation: 'none' }} />
@@ -178,11 +214,25 @@ function StartupGate({ loading }: { loading: boolean }) {
   );
 }
 
-/** While the session, prefs and stores load (a moment; avoids a flash of the wrong screen). */
+/**
+ * While the session, prefs and stores load (a moment; avoids a flash of the wrong screen). Day-one d10:
+ * past 2 s a bare logo looks frozen, so it says «دا نجيب طلباتك…» over the shape of the board.
+ */
 function Splash() {
+  const slow = useSlowSplash(SPLASH_SLOW_MS);
   return (
-    <View style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: chrome.colors.bg }}>
-      <Wordmark />
+    <View testID="splash" style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: chrome.colors.bg }}>
+      {slow ? <BoardSkeleton /> : <Wordmark />}
     </View>
+  );
+}
+
+/** The toast host, opening top toasts under the counter's status bar wherever it is showing. */
+function CounterToasts({ children, bottomOffset, maxWidth }: { children: ReactNode; bottomOffset: number; maxWidth: number | undefined }) {
+  const topOffset = useToastTop();
+  return (
+    <ToastProvider bottomOffset={bottomOffset} {...(topOffset !== undefined ? { topOffset } : {})} maxWidth={maxWidth}>
+      {children}
+    </ToastProvider>
   );
 }

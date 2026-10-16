@@ -2,6 +2,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 import { PHOTO_MAX_BYTES, type PhotoContentType, type PhotoUploadTicket } from '@driver/contracts';
 import { API_URL } from '@/lib/api';
+import { DOCUMENT_LONG_SIDE_PX, PHOTO_LONG_SIDE_PX } from '@/lib/photo-size';
+import { shrinkPhoto } from '@/lib/shrink-photo';
+import { countData, HEADERS_BYTES } from '@/lib/data-usage';
 
 /**
  * Photos for documents and the daily selfie: the camera on a phone (front camera for the selfie),
@@ -24,7 +27,7 @@ function contentTypeOf(mime: string | null | undefined, uri: string): PhotoConte
 }
 
 /** null = cancelled; 'denied' = camera permission refused. */
-export async function pickPhoto(source: PhotoSource, opts: { selfie?: boolean } = {}): Promise<PickedPhoto | null | 'denied'> {
+export async function pickPhoto(source: PhotoSource, opts: { selfie?: boolean; document?: boolean } = {}): Promise<PickedPhoto | null | 'denied'> {
   const useCamera = source === 'camera' && Platform.OS !== 'web';
   if (useCamera) {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -40,7 +43,8 @@ export async function pickPhoto(source: PhotoSource, opts: { selfie?: boolean } 
   const res = useCamera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
   const asset = res.canceled ? null : res.assets[0];
   if (!asset) return null;
-  return { uri: asset.uri, contentType: contentTypeOf(asset.mimeType, asset.uri) };
+  const picked = { uri: asset.uri, contentType: contentTypeOf(asset.mimeType, asset.uri) };
+  return shrinkPhoto(picked, asset.width, asset.height, opts.document ? DOCUMENT_LONG_SIDE_PX : PHOTO_LONG_SIDE_PX);
 }
 
 /** Upload URLs from the dev storage are relative to the API's origin. */
@@ -56,6 +60,7 @@ export async function uploadPhoto(photo: PickedPhoto, requestTicket: (input: { c
   if (blob.size === 0 || blob.size > PHOTO_MAX_BYTES) throw new Error('photo_size');
   const ticket = await requestTicket({ contentType: photo.contentType, sizeBytes: blob.size });
   const put = await fetch(absoluteUrl(ticket.uploadUrl), { method: ticket.method, headers: ticket.headers, body: blob });
+  countData(blob.size + HEADERS_BYTES);
   if (!put.ok) throw new Error(`upload_${put.status}`);
   return ticket.uploadId;
 }

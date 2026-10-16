@@ -6,7 +6,10 @@ import { Glyph } from '@/features/account/Glyph';
 import { baghdadDate } from '@/features/ops/logic';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
-import { INVITE_SEES, inviteNames } from './logic';
+import { colourKey } from '@/features/vehicle/logic';
+import { ColourDot } from '@/features/vehicle/VehicleParts';
+import { VehicleGlyph } from './FleetParts';
+import { CLASS_KEY, INVITE_SEES, inviteNames } from './logic';
 import { useRespondInvite } from './queries';
 
 /**
@@ -71,6 +74,8 @@ export function FleetInviteCard({
           </Text>
         </View>
       </View>
+
+      {invite.plannedVehicle ? <PlannedCar car={invite.plannedVehicle} /> : null}
 
       <View
         style={{
@@ -160,6 +165,44 @@ export function FleetInviteCard({
     >
       {body}
     </Card>
+  );
+}
+
+/** f5: the car the owner picked with the invite — what he will drive the moment he says yes. */
+function PlannedCar({ car }: { car: NonNullable<FleetInvite['plannedVehicle']> }) {
+  const theme = useTheme();
+  const t = useT();
+  const detail = [car.model ?? t(CLASS_KEY[car.vehicleClass]), car.colour ? t(colourKey(car.colour)) : null].filter(Boolean).join(' · ');
+  return (
+    <View
+      testID="fleet-invite-car"
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[3],
+        padding: theme.space[3],
+        borderRadius: theme.radius.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: theme.colors.surface,
+      }}
+    >
+      <VehicleGlyph vehicleClass={car.vehicleClass} size={44} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="caption" color="textMuted">
+          {t('partner.f5_invite_car')}
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+          {car.colour ? <ColourDot colour={car.colour} size={12} /> : null}
+          <Text variant="bodyStrong" style={{ flexShrink: 1 }}>
+            {detail}
+          </Text>
+        </View>
+        <Text variant="caption" color="textMuted" tabular>
+          {t('partner.f5_invite_plate', { plate: `\u2068${car.plate}\u2069` })}
+        </Text>
+      </View>
+    </View>
   );
 }
 

@@ -36,9 +36,11 @@ requireFromApi('reflect-metadata');
 const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const fromApp = (id) => import(pathToFileURL(requireFromApp.resolve(id)).href);
 
-// Many sign-ins from one address in a few seconds: lift the per-IP/device OTP limits for this run.
+// Many sign-ins from one address and device in a few seconds: lift the OTP guard's limits for this run.
 process.env.OTP_RATE_LIMIT_PER_IP_HOUR ??= '10000';
 process.env.OTP_RATE_LIMIT_PER_DEVICE_HOUR ??= '10000';
+process.env.OTP_RATE_LIMIT_PER_NUMBER_HOUR ??= '10000';
+process.env.OTP_RATE_LIMIT_PER_NUMBER_DAY ??= '10000';
 
 const PORT = Number(process.env.PORT ?? 3340);
 const BASE = `http://127.0.0.1:${PORT}`;

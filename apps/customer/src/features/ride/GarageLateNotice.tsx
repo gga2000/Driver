@@ -42,6 +42,11 @@ export function GarageLateNoticeView({ link, testID = 'garage-late-notice' }: { 
         <Text variant="body" color="text">
           {link.driverTold ? t('gtaxi.late_told', { minutes: link.toldMin ?? link.lateMin }) : t('gtaxi.late_not_told')}
         </Text>
+        {link.seatHeldUntil ? (
+          <Text variant="body" weight={600} color="successText" testID={`${testID}-held`}>
+            {t('gtaxi.late_held', { time: formatClock(link.seatHeldUntil, { locale }) })}
+          </Text>
+        ) : null}
         {link.expectedAt ? (
           <Text variant="caption" color="textMuted" tabular>
             {t('gtaxi.late_times', { depart: formatClock(link.departAt, { locale }), arrive: formatClock(link.expectedAt, { locale }) })}

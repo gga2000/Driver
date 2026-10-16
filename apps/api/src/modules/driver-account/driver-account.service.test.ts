@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AZIZIYAH_MONEY_RULES, type Actor, type MoneyRules, type Order, type RoleKind, type Trip } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, type Actor, type DriverDocumentKind, type MoneyRules, type Order, type RoleKind, type Trip } from '@driver/contracts';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { EventsShiftActivity } from '../ledger/index.js';
@@ -12,7 +12,7 @@ import { DevBlobStore, type BlobStore } from '../places/index.js';
 import { InMemorySupportRepository, SupportService } from '../support/index.js';
 import type { TripsService } from '../trips/index.js';
 import { InMemoryDriverAccountRepository } from './driver-account.repository.js';
-import { DriverAccountService } from './driver-account.service.js';
+import { DriverAccountService, requiredDocuments } from './driver-account.service.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const DAY = 86_400_000;
@@ -41,6 +41,11 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
   // `completedForDriver` / `endedForDriver` (the scorecard once read `forDriver` and saw none).
   const after = (at: Date | null, since: Date) => at !== null && at.getTime() >= since.getTime();
   const tripsFake = {
+    get: async (tripId: string) => {
+      const t = trips.find((x) => x.id === tripId);
+      if (!t) throw new Error('trip not found');
+      return t;
+    },
     forDriver: async (driverId: string) => trips.filter((t) => t.courierId === driverId && UNFINISHED.includes(t.state)),
     completedForDriver: async (driverId: string, since: Date) => trips.filter((t) => t.courierId === driverId && t.state === 'completed' && after(t.completedAt, since)),
     endedForDriver: async (driverId: string, since: Date) =>
@@ -65,13 +70,21 @@ function setup(start = '2026-10-03T09:00:00Z', rules: MoneyRules = AZIZIYAH_MONE
   const auditsFake = { record: async (a: { action: string; subjectId: string }) => void audits.push(a) } as unknown as AuditLogService;
   const none = {} as never;
   const support = new SupportService(supportRepo, ordersFake, tripsFake, none, none, none, none, id.service, ev.events, auditsFake, { of: async () => ({}) } as unknown as StaffNames, ev.uow, clock);
-  const service = new DriverAccountService(repo, ledger.facade, ev.events, tripsFake, ordersFake, id.service, blobs, ev.uow, clock, 'handover-test-secret', support, new ConfigService());
+  const service = new DriverAccountService(repo, ledger.facade, ev.events, tripsFake, ordersFake, id.service, blobs, ev.uow, clock, 'handover-test-secret', support, new ConfigService(), undefined, auditsFake, { of: async () => ({}) } as unknown as StaffNames);
   async function person(phone: string, roles: RoleKind[] = []): Promise<Actor> {
     const { actor } = await id.login(phone);
     for (const kind of roles) await id.service.grantRole({ personId: 'admin' }, { personId: actor.personId, kind });
     return actor;
   }
-  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, hourly, supportRepo, support, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
+  /** Uploads and approves the papers his roles need (ID, photo; licence and registration for car roles). */
+  async function papers(actor: Actor, kinds?: readonly DriverDocumentKind[]): Promise<void> {
+    const reviewer = { personId: 'field-ops-reviewer', sessionId: 's' } as Actor;
+    for (const kind of kinds ?? requiredDocuments(await id.service.activeRoles(actor.personId))) {
+      const doc = await service.uploadDocument(actor, { kind, uploadId: await storedUpload(blobs, actor.personId) });
+      await service.reviewDocument(reviewer, { documentId: doc.id, decision: 'approve', expiresAt: new Date(clock.now().getTime() + 400 * DAY) });
+    }
+  }
+  return { id, clock, ledger, ev, blobs, repo, trips, orders, service, person, papers, hourly, supportRepo, support, audits, upload: (ownerId: string) => storedUpload(blobs, ownerId) };
 }
 
 describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #7)', () => {
@@ -83,6 +96,20 @@ describe('driverAccount.reviewDocument separation of duties (review 2026-10-04 #
     expect(h.repo.documents.get(doc.id)?.status).toBe('pending');
     const other = await h.person('07700000012', ['field_ops']);
     await expect(h.service.reviewDocument(other, { documentId: doc.id, decision: 'approve' })).resolves.toMatchObject({ status: 'approved' });
+  });
+
+  it('driver.document_* carry the city (Console "Today" list)', async () => {
+    const h = setup();
+    const d = await h.person('07700000013', ['driver']);
+    const doc = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId) });
+    const ops = await h.person('07700000014', ['field_ops']);
+    await h.service.reviewDocument(ops, { documentId: doc.id, decision: 'reject', reason: 'الصورة مو واضحة' });
+    const mine = (await h.ev.events.forAggregate('person', d.personId)).filter((e) => e.type.startsWith('driver.document_'));
+    expect(mine.map((e) => [e.type, e.payload['cityId']])).toEqual([
+      ['driver.document_submitted', 'aziziyah'],
+      ['driver.document_reviewed', 'aziziyah'],
+    ]);
+    expect(mine[1]!.payload).toMatchObject({ documentId: doc.id, personId: d.personId, kind: 'licence', decision: 'reject' });
   });
 });
 
@@ -241,7 +268,8 @@ describe('driverAccount.documents', () => {
     expect(JSON.stringify(h.repo.documents.get(doc.id))).not.toContain(up);
 
     const view = await h.service.documents(d, {});
-    expect(view.missing).toEqual(['national_id_front', 'national_id_back', 'photo', 'vehicle_registration']);
+    // Under review is not approved yet: the licence still counts as missing.
+    expect(view.missing).toEqual(['national_id_front', 'national_id_back', 'photo', 'licence', 'vehicle_registration']);
 
     const ops = await h.person('07700000009', ['field_ops']);
     const approved = await h.service.reviewDocument(ops, { documentId: doc.id, decision: 'approve', expiresAt: new Date(h.clock.now().getTime() + 10 * DAY) });
@@ -266,6 +294,42 @@ describe('driverAccount.documents', () => {
     expect((await h.service.documents(d, {})).blocksOnline).toBe(false);
   });
 
+  it('keeps him offline until every paper his roles need is approved: never sent, rejected or under review all count as missing', async () => {
+    const h = setup();
+    const d = await h.person('07700000031', ['khat_driver']);
+    const ops = await h.person('07700000032', ['field_ops']);
+    const missing = async () => (await h.service.onlineGate(d)).reasons.filter((r) => r.code === 'document_missing').length;
+    // Nothing on file: all five papers a car role needs.
+    expect(await missing()).toBe(5);
+    expect((await h.service.documents(d, {})).missing).toEqual(['national_id_front', 'national_id_back', 'photo', 'licence', 'vehicle_registration']);
+    // A rejected licence is not a licence on file.
+    const licence = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId) });
+    await h.service.reviewDocument(ops, { documentId: licence.id, decision: 'reject', reason: 'الصورة مو واضحة' });
+    await h.papers(d, ['national_id_front', 'national_id_back', 'photo', 'vehicle_registration']);
+    const ch = await h.service.checkInChallenge(d);
+    await h.service.submitCheckIn(d, { challengeId: ch.challengeId, uploadId: await h.upload(d.personId) });
+    const gate = await h.service.onlineGate(d);
+    expect(gate.canGoOnline).toBe(false);
+    expect(gate.reasons).toEqual([{ code: 'document_missing', message_ar: expect.stringContaining('إجازة السوق') }]);
+    expect((await h.service.documents(d, {})).missing).toEqual(['licence']);
+    // Re-sent and under review: still not approved.
+    const again = await h.service.uploadDocument(d, { kind: 'licence', uploadId: await h.upload(d.personId) });
+    expect((await h.service.onlineGate(d)).canGoOnline).toBe(false);
+    await h.service.reviewDocument(ops, { documentId: again.id, decision: 'approve', expiresAt: new Date(h.clock.now().getTime() + 400 * DAY) });
+    expect(await h.service.onlineGate(d)).toMatchObject({ canGoOnline: true, reasons: [] });
+    expect((await h.service.documents(d, {})).missing).toEqual([]);
+  });
+
+  it('a courier needs his ID and photo, not a licence; a renewal under review keeps the approved paper in force', async () => {
+    const h = setup();
+    const d = await h.person('07700000033', ['courier']);
+    expect((await h.service.onlineGate(d)).reasons.filter((r) => r.code === 'document_missing')).toHaveLength(3);
+    await h.papers(d);
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).toEqual(['checkin_required']);
+    await h.service.uploadDocument(d, { kind: 'photo', uploadId: await h.upload(d.personId) });
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).toEqual(['checkin_required']);
+  });
+
   it('refuses an upload that is not his or not stored, and a rejection without a reason never reaches the service', async () => {
     const h = setup();
     const d = await h.person('07700000001', ['courier']);
@@ -276,10 +340,71 @@ describe('driverAccount.documents', () => {
   });
 });
 
+describe('driverAccount staff pause (r6, Ali 2026-10-08)', () => {
+  it('closes the online gate until staff lift it, audited both ways, and nobody pauses himself', async () => {
+    const h = setup();
+    const d = await h.person('07700000021', ['courier']);
+    const ops = await h.person('07700000022', ['support']);
+    const customer = await h.person('07700000023');
+    await expect(h.service.pause(ops, { personId: customer.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(h.service.pause(d, { personId: d.personId, reason: 'other', note: 'تجربة' })).rejects.toMatchObject({ code: 'staff_own_account' });
+
+    const paused = await h.service.pause(ops, { personId: d.personId, reason: 'safety_report', ticketId: 'tk_1', note: 'بلاغ سياقة خطرة، ننتظر نسمع منه' });
+    expect(paused.active).toMatchObject({ reason: 'safety_report', ticketId: 'tk_1', pausedById: ops.personId });
+    const gate = await h.service.onlineGate(d);
+    expect(gate.canGoOnline).toBe(false);
+    expect(gate.reasons[0]).toMatchObject({ code: 'staff_paused' });
+    // Pausing again keeps the first pause.
+    const again = await h.service.pause(ops, { personId: d.personId, reason: 'other', note: 'مرة ثانية' });
+    expect(again.active!.id).toBe(paused.active!.id);
+    expect((await h.service.pauseStatus(ops, { personId: d.personId })).active!.id).toBe(paused.active!.id);
+
+    const lifted = await h.service.liftPause(ops, { personId: d.personId, note: 'سمعنا منه والزبون، ما بيه شي' });
+    expect(lifted.active).toBeNull();
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).not.toContain('staff_paused');
+    await expect(h.service.liftPause(ops, { personId: d.personId, note: 'مرة ثانية' })).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(h.audits.map((a) => a.action)).toEqual(['driver.pause', 'driver.lift_pause']);
+    expect((await h.ev.events.forAggregate('person', d.personId)).map((e) => e.type).filter((t) => t.includes('paused'))).toEqual(['driver.paused', 'driver.unpaused']);
+  });
+});
+
+describe('driverAccount staff pause: never on himself', () => {
+  it('a staff member who also drives cannot lift his own pause; a colleague can', async () => {
+    const h = setup();
+    const both = await h.person('07700000026', ['field_ops', 'courier']);
+    const ops = await h.person('07700000027', ['support']);
+    await h.service.pause(ops, { personId: both.personId, reason: 'safety_report', note: 'بلاغ سياقة خطرة' });
+    await expect(h.service.liftPause(both, { personId: both.personId, note: 'رجعت' })).rejects.toMatchObject({ code: 'staff_own_account' });
+    expect((await h.service.pauseStatus(ops, { personId: both.personId })).active).not.toBeNull();
+    expect(h.audits.map((a) => a.action)).toEqual(['driver.pause']);
+    expect((await h.service.liftPause(ops, { personId: both.personId, note: 'سمعنا منه' })).active).toBeNull();
+  });
+});
+
+describe('driverAccount staff pause race', () => {
+  it('two staff pausing at the same moment leave one open pause, so one lift clears it', async () => {
+    const h = setup();
+    const d = await h.person('07700000024', ['courier']);
+    const a = await h.person('07700000025', ['support']);
+    const b = await h.person('07700000026', ['dispatcher']);
+    // Both read "not paused" before either writes: the second insert hits the one-open-pause index.
+    const read = h.repo.activePause.bind(h.repo);
+    let blind = 2;
+    h.repo.activePause = async (personId: string) => (blind-- > 0 ? null : read(personId));
+    const first = await h.service.pause(a, { personId: d.personId, reason: 'safety_report', note: 'بلاغ أول' });
+    const second = await h.service.pause(b, { personId: d.personId, reason: 'other', note: 'بلاغ ثاني' });
+    expect(second.active!.id).toBe(first.active!.id);
+    expect([...h.repo.pauses.values()].filter((p) => p.liftedAt === null)).toHaveLength(1);
+    expect((await h.service.liftPause(a, { personId: d.personId, note: 'راجعنا البلاغ' })).active).toBeNull();
+    expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).not.toContain('staff_paused');
+  });
+});
+
 describe('driverAccount daily check-in', () => {
   it('passes with a stored selfie inside the 2-minute challenge and unlocks going online', async () => {
     const h = setup();
     const d = await h.person('07700000001', ['courier']);
+    await h.papers(d);
     expect((await h.service.onlineGate(d)).reasons.map((r) => r.code)).toEqual(['checkin_required']);
     const ch = await h.service.checkInChallenge(d);
     expect(ch.gesture_ar.length).toBeGreaterThan(2);
@@ -296,6 +421,7 @@ describe('driverAccount daily check-in', () => {
   it('two failures lock him out for the day with an ops alert; an expired challenge is refused', async () => {
     const h = setup();
     const d = await h.person('07700000001', ['courier']);
+    await h.papers(d);
     const stale = await h.service.checkInChallenge(d);
     h.clock.advance(3 * 60_000);
     await expect(h.service.submitCheckIn(d, { challengeId: stale.challengeId, uploadId: await h.upload(d.personId) })).rejects.toMatchObject({ code: 'checkin_challenge_invalid' });
@@ -402,6 +528,15 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
     expect((await h.service.shiftSummary(d, { to: new Date('2026-10-04T09:00:00Z') })).to.toISOString()).toBe('2026-10-03T21:20:00.000Z');
   });
 
+  it('«يومك» km: straight lines between the stops of the shift\'s trips; null when no trip can be read', async () => {
+    const h = setup('2026-10-03T16:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    await h.ledger.posting.rideMoney({ tripId: 't_ride', occurredAt: new Date('2026-10-03T15:30:00Z'), customerId: 'c2', payment: 'cash', driverId: d.personId, takeClass: 'car', fareIqd: 5000 });
+    expect((await h.service.shiftSummary(d, { from: new Date('2026-10-03T12:00:00Z') })).minKm).toBeNull();
+    h.trips.push({ id: 't_ride', stops: [{ target: { lat: 32.91, lng: 45.06 } }, { target: { lat: 32.94, lng: 45.06 } }] } as unknown as Trip);
+    expect((await h.service.shiftSummary(d, { from: new Date('2026-10-03T12:00:00Z') })).minKm).toBe(3);
+  });
+
   it('one scorecard nudge at most, from day 31', async () => {
     const h = setup('2026-10-03T09:00:00Z');
     const d = await h.person('07700000001', ['courier']);
@@ -413,6 +548,34 @@ describe('driverAccount.shiftSummary (Partner S-4)', () => {
     const s = await h.service.shiftSummary(d, {});
     expect(s.nudge?.key).toBe('acceptance');
     expect(s.nudge?.message_ar.length).toBeGreaterThan(0);
+  });
+});
+
+describe('driverAccount.myBest (partner redesign e3 / e4)', () => {
+  it('his week so far, his best day and his best weekday hours over four weeks, from his own ledger', async () => {
+    // Saturday 3 Oct 2026, 22:00 Baghdad. Thursdays 17 Sep, 24 Sep, 1 Oct; 19:00–22:00 Baghdad is 16:00–19:00Z.
+    const h = setup('2026-10-03T19:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    const order = (id: string, iso: string, tipIqd = 0) => h.ledger.posting.orderMoney(workedExample({ orderId: id, courierId: d.personId, occurredAt: new Date(iso), tipIqd }));
+    await order('o1', '2026-09-24T16:10:00Z');
+    await order('o2', '2026-09-24T17:15:00Z', 1000);
+    await order('o3', '2026-10-01T16:30:00Z');
+    await order('o4', '2026-10-01T18:20:00Z');
+    // This week (from Sunday 27 Sep 21:00Z): o3, o4 and a Saturday morning job.
+    await order('o5', '2026-10-03T06:00:00Z');
+    // Older than four weeks: not counted for the best time.
+    await order('o_old', '2026-08-27T16:10:00Z');
+    const b = await h.service.myBest(d);
+    expect(b.sinceDays).toBe(28);
+    expect(b.week).toEqual({ from: new Date('2026-09-26T21:00:00Z'), netIqd: 3000, jobs: 3 });
+    expect(b.bestDay).toEqual({ at: new Date('2026-09-23T21:00:00Z'), netIqd: 3000, jobs: 2 });
+    expect(b.bestWindow).toMatchObject({ weekday: 4, fromHour: 19, toHour: 22, jobs: 4, days: 2 });
+  });
+
+  it('nothing to say for a new driver', async () => {
+    const h = setup('2026-10-03T19:00:00Z');
+    const d = await h.person('07700000001', ['courier']);
+    expect(await h.service.myBest(d)).toEqual({ week: { from: new Date('2026-09-26T21:00:00Z'), netIqd: 0, jobs: 0 }, bestDay: null, bestWindow: null, sinceDays: 28 });
   });
 });
 

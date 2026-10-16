@@ -39,7 +39,7 @@ interface ErrorDef {
   message_en?: string;
   retryHint: RetryHint;
   /** tRPC / HTTP class the transport maps the code to. */
-  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR';
+  status: 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS' | 'INTERNAL_SERVER_ERROR' | 'SERVICE_UNAVAILABLE';
 }
 
 /** Stable error-code table. Add codes here, never as ad-hoc strings in a service. */
@@ -50,15 +50,20 @@ export const ERROR_TABLE = {
   not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   invalid_input: { retryHint: 'never', status: 'BAD_REQUEST' },
   internal: { i18n: 'error.server', retryHint: 'later', status: 'INTERNAL_SERVER_ERROR' },
+  // x3: this server machine is full right now; the call was never run, so it is always safe to repeat.
+  server_busy: { retryHint: 'now', status: 'SERVICE_UNAVAILABLE' },
   dev_only: { retryHint: 'never', status: 'FORBIDDEN' },
 
   // partner & merchant wave 2 (driverAccount, khat, fleet, ops, merchantAdmin)
   document_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   checkin_challenge_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   checkin_locked: { retryHint: 'support', status: 'FORBIDDEN' },
+  /** Staff paused him while they look into a report (r6); ops lifts it. */
+  driver_paused: { retryHint: 'support', status: 'FORBIDDEN' },
   // partner.goOnline refused by the online gate (scoring §2: daily check-in, expired documents → offline)
   online_checkin_required: { retryHint: 'never', status: 'FORBIDDEN' },
   online_document_expired: { retryHint: 'never', status: 'FORBIDDEN' },
+  online_document_missing: { retryHint: 'never', status: 'FORBIDDEN' },
   // partner.goOnline: the vehicle is the registered one, and it has to fit his roles (backend review 2026-10-04 #20)
   vehicle_not_registered: { retryHint: 'support', status: 'FORBIDDEN' },
   khat_not_child_stop: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -80,6 +85,8 @@ export const ERROR_TABLE = {
   handover_code_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   handover_code_locked: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   cash_receipt_exceeds_held: { retryHint: 'never', status: 'CONFLICT' },
+  // ops.recordCashReceipt: more than he owes the company (the rest of his cash is his own pay)
+  cash_receipt_exceeds_owed: { retryHint: 'never', status: 'CONFLICT' },
   task_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   menu_item_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   import_job_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
@@ -91,7 +98,11 @@ export const ERROR_TABLE = {
   dispute_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   staff_last_owner: { retryHint: 'never', status: 'CONFLICT' },
   staff_invite_not_pending: { retryHint: 'never', status: 'CONFLICT' },
+  /** PRV-08: no pending, unexpired invite for the caller at that store (answered, cancelled, expired or never made). */
+  staff_invite_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   store_hours_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «جهّز محلك»: going live (or opening) with steps still open.
+  setup_not_ready: { retryHint: 'never', status: 'CONFLICT' },
 
   // launch control room (kill switches, throttle, banner, approvals, support desk)
   service_paused: { retryHint: 'later', status: 'CONFLICT' },
@@ -120,9 +131,20 @@ export const ERROR_TABLE = {
   refund_customer_cap: { retryHint: 'support', status: 'CONFLICT' },
   refund_exceeds_order: { retryHint: 'never', status: 'BAD_REQUEST' },
   refund_no_customer: { retryHint: 'never', status: 'BAD_REQUEST' },
+  refund_fault_not_attributed: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Staff never act on their own account (a cash hand-in, a top-up, a pause, a refund), nor refund a staff account
+  staff_own_account: { retryHint: 'support', status: 'FORBIDDEN' },
   // Console › حجز بالتلفون (taxi/tuktuk step 4): a landmark gone from the list; an order that was not booked by phone
   phone_booking_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
   phone_booking_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Console › المناوبة (on call): a shift that is not on the roster; a person who is not staff
+  on_call_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  on_call_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Console › اليوم (the Today list): a row that is gone; a row already closed; handing a row to someone off the desk
+  inbox_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  inbox_done: { retryHint: 'never', status: 'CONFLICT' },
+  inbox_not_staff: { retryHint: 'never', status: 'BAD_REQUEST' },
+  inbox_close_at_source: { retryHint: 'never', status: 'CONFLICT' },
 
   // identity
   phone_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -218,6 +240,7 @@ export const ERROR_TABLE = {
   invite_already_claimed: { retryHint: 'never', status: 'CONFLICT' },
   // Joy J7d: rides booked for later (20 min – 7 days), favourites (rated 4–5, scheduled only), regular trips.
   ride_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  order_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   favourite_needs_schedule: { retryHint: 'never', status: 'BAD_REQUEST' },
   // Ride ideas c9/s3: a ride for someone else — not the booker's own number, and a person he really has.
   ride_rider_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -235,6 +258,14 @@ export const ERROR_TABLE = {
   // partner.answerClimateCheck: no AC / heating question this shift (mild weather, no confirmed feature, not a ride car)
   climate_check_none: { retryHint: 'never', status: 'CONFLICT' },
   avoid_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  // Review #28: rides booked for later offered to drivers the evening before («مشاوير باچر»).
+  booked_job_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  booked_job_taken: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_closed: { retryHint: 'never', status: 'CONFLICT' },
+  booked_job_not_fit: { retryHint: 'never', status: 'FORBIDDEN' },
+  booked_job_clash: { retryHint: 'never', status: 'CONFLICT' },
+  booked_start_too_early: { retryHint: 'later', status: 'CONFLICT' },
+  booked_start_not_ready: { retryHint: 'now', status: 'CONFLICT' },
   merchant_paused: { retryHint: 'later', status: 'CONFLICT' },
   // backend review 2026-10-04 (apps review #10, #11): opening hours and the restaurant minimum, server-side
   merchant_closed: { i18n: 'error.merchant_closed_now', retryHint: 'later', status: 'CONFLICT' },
@@ -279,10 +310,14 @@ export const ERROR_TABLE = {
   trip_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   stop_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   trip_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  /** The pickup is done (food in the bag, rider in the car): the trip can't be cancelled any more. */
+  trip_picked_up: { retryHint: 'support', status: 'CONFLICT' },
   stop_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   not_trip_courier: { retryHint: 'never', status: 'FORBIDDEN' },
   vehicle_too_small: { retryHint: 'never', status: 'CONFLICT' },
   child_handover_required: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «دوّرلي»: the shops stop completes only once the shopper recorded the receipt (orders' pickup guard)
+  errand_receipt_missing: { retryHint: 'never', status: 'CONFLICT' },
   unreachable_not_started: { retryHint: 'never', status: 'CONFLICT' },
   unreachable_too_early: { retryHint: 'later', status: 'CONFLICT' },
   unreachable_not_active: { retryHint: 'never', status: 'CONFLICT' },
@@ -298,11 +333,19 @@ export const ERROR_TABLE = {
   override_reason_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   // ledger (M2 Step 6)
   payout_exceeds_balance: { retryHint: 'never', status: 'CONFLICT' },
+  // finance.payDriver: more than the platform owes him right now
+  payout_exceeds_due: { retryHint: 'never', status: 'CONFLICT' },
   settlement_nothing_due: { retryHint: 'never', status: 'CONFLICT' },
+  // a payout or hand-over retried under the same key but with a different amount, channel or person
+  idempotency_key_reused: { retryHint: 'never', status: 'CONFLICT' },
+  // account close (docs/api/account-close.md): something still stands in the way; not an account closed there
+  account_close_blocked: { retryHint: 'never', status: 'CONFLICT' },
+  account_close_not_work: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_incident_required: { retryHint: 'never', status: 'BAD_REQUEST' },
   adjustment_second_approver: { retryHint: 'never', status: 'FORBIDDEN' },
   handover_mismatch: { retryHint: 'support', status: 'CONFLICT' },
   new_customer_cash_cap: { retryHint: 'never', status: 'BAD_REQUEST' },
+  too_far_for_ice_cream: { retryHint: 'never', status: 'BAD_REQUEST' },
   // "الخردة علينا" (Phase 3, 2026-10-05): a stated note out of range; change-to-wallet refused at the door
   tender_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   change_to_wallet_not_cash: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -322,19 +365,43 @@ export const ERROR_TABLE = {
   booking_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   hold_expired: { i18n: 'intercity.hold_expired', retryHint: 'never', status: 'CONFLICT' },
   wallet_insufficient: { retryHint: 'never', status: 'CONFLICT' },
+  errand_cash_only: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «دوّرلي» (Ali 2026-10-12): the shopper won't fetch medicines, cigarettes or gas cylinders.
+  errand_item_not_allowed: { retryHint: 'never', status: 'BAD_REQUEST' },
   cash_reservation_revoked: { retryHint: 'never', status: 'FORBIDDEN' },
+  // Step 4b: a rider who still owes a no-show amount books with the wallet deposit until it is paid.
+  cash_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
+  /** Step 5: more children on laps than the booking's seats allow (one per seat, none on the front seat). */
+  lap_children_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   seat_cancel_too_late: { retryHint: 'never', status: 'CONFLICT' },
   pin_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
   walkup_seat_taken: { retryHint: 'never', status: 'CONFLICT' },
   no_show_not_allowed: { retryHint: 'later', status: 'CONFLICT' },
   depart_blocked: { retryHint: 'never', status: 'CONFLICT' },
   pickup_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Step 4 agreed prices (pin pickup / door drop): docs/specs/2026-10-08-agreed-trip-prices.md
+  agreement_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  agreement_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  agreement_amount_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  agreement_place_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  agreement_limit: { retryHint: 'never', status: 'TOO_MANY_REQUESTS' },
   door_pickup_limit: { retryHint: 'never', status: 'CONFLICT' },
   demand_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   demand_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
   request_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   request_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  // Step 6: a shared private car's link (unknown code, joining closed, no places left).
+  share_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  share_closed: { retryHint: 'never', status: 'CONFLICT' },
+  share_full: { retryHint: 'never', status: 'CONFLICT' },
+  // Way C (Ali 2026-10-09): «صعدت» only works next to the car.
+  share_board_far: { retryHint: 'later', status: 'PRECONDITION_FAILED' },
   offer_price_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // w1: a «يستناك وترجع» offer must say the waiting hours included and the extra-hour price.
+  offer_wait_terms_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «كلمة عن السفرة» (x14): a review line with a phone number, link or @handle; ops hide/unhide
+  review_contact_info: { retryHint: 'never', status: 'BAD_REQUEST' },
+  review_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   // Menu photo service (maps k3).
   menu_photo_request_open: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
@@ -343,6 +410,40 @@ export const ERROR_TABLE = {
   menu_photo_no_shots: { retryHint: 'never', status: 'CONFLICT' },
   menu_photo_item_not_listed: { retryHint: 'never', status: 'BAD_REQUEST' },
   menu_photo_schedule_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // The shopping side «السوق» (2026-10-11).
+  stall_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  bakery_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  daily_bread_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  daily_bread_limit: { retryHint: 'never', status: 'CONFLICT' },
+  // Food carts «عربانات» (2026-10-11).
+  cart_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  cart_closed: { retryHint: 'later', status: 'CONFLICT' },
+  cart_dish_unavailable: { retryHint: 'never', status: 'CONFLICT' },
+  cart_follow_limit: { retryHint: 'never', status: 'CONFLICT' },
+  walkup_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  walkup_state_conflict: { retryHint: 'never', status: 'CONFLICT' },
+  walkup_code_wrong: { retryHint: 'never', status: 'BAD_REQUEST' },
+  walkup_too_many: { retryHint: 'later', status: 'CONFLICT' },
+  // W3 staff way-out and money outcomes: a money rule still switched off (M-1 … M-4, M-10), cash limits.
+  money_rule_off: { retryHint: 'support', status: 'FORBIDDEN' },
+  open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
+  cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
+  prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // أكل بيت: a reservation he never took at the door is owed before he reserves again (Ali, 2026-10-11).
+  home_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
+  commission_tier_home_only: { retryHint: 'never', status: 'FORBIDDEN' },
+  // Parcels طرود (2026-10-12): the parcel, the receiver's door link and its area, the photo.
+  parcel_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  parcel_door_closed: { retryHint: 'never', status: 'CONFLICT' },
+  parcel_door_outside_zone: { retryHint: 'never', status: 'BAD_REQUEST' },
+  parcel_photo_unknown: { retryHint: 'never', status: 'BAD_REQUEST' },
+  parcel_not_cancellable: { retryHint: 'never', status: 'CONFLICT' },
+  parcel_receiver_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
+  parcel_pin_locked: { retryHint: 'support', status: 'FORBIDDEN' },
+  parcel_pin_not_verified: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
+  parcel_refuse_too_far: { retryHint: 'never', status: 'CONFLICT' },
+  // CORE-05: this build of the app is older than the minimum the server accepts (`app-version.ts`).
+  update_required: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
 } as const satisfies Record<string, ErrorDef>;
 
 export type ErrorCode = keyof typeof ERROR_TABLE;

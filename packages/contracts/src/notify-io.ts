@@ -88,10 +88,15 @@ export const NotifyPreferences = z.object({
    * minutes before his usual time. On by default, at most one a day; this switch silences it.
    */
   sameRide: z.boolean(),
+  /**
+   * Food carts (2026-10-11): «{cart} فتح» when a cart the person follows opens. On by default
+   * (following is the opt-in), once a cart a day, never for an opening 23:00–08:00.
+   */
+  foodCarts: z.boolean(),
 });
 export type NotifyPreferences = z.infer<typeof NotifyPreferences>;
 
-export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true };
+export const DEFAULT_NOTIFY_PREFERENCES: NotifyPreferences = { orderUpdates: true, chat: true, whatsappReceipts: true, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true, foodCarts: true };
 
 export const SetNotifyPreferencesInput = NotifyPreferences.partial();
 export type SetNotifyPreferencesInput = z.infer<typeof SetNotifyPreferencesInput>;
@@ -108,7 +113,7 @@ export const MARKETING_MAX_PER_WEEK = 2;
  * offers, new orders) and `money` (settlement, cash receipts to partners and merchants) are never
  * switched off by a preference.
  */
-export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip', 'same_ride']);
+export const NotifyCategory = z.enum(['otp', 'order_updates', 'chat', 'receipts', 'money', 'work', 'safety', 'marketing', 'dish_pot', 'regular_trip', 'same_ride', 'food_cart']);
 export type NotifyCategory = z.infer<typeof NotifyCategory>;
 
 /**
@@ -116,8 +121,9 @@ export type NotifyCategory = z.infer<typeof NotifyCategory>;
  * Only `marketing` counts toward the weekly offer cap; `dish_pot` is one a day by its event key.
  * `regular_trip` (joy r5, the «تأكد رحلتك؟» reminder) follows the same quiet rules — the app still
  * shows the occurrence to confirm when the push is held — and is never counted in the cap.
+ * `food_cart` («أبو حيدر فتح») is one a cart a Baghdad day, never sent for an opening at night.
  */
-export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot', 'regular_trip']);
+export const PROMOTIONAL_CATEGORIES: ReadonlySet<NotifyCategory> = new Set<NotifyCategory>(['marketing', 'dish_pot', 'regular_trip', 'food_cart']);
 
 export const NotifyTemplateId = z.enum([
   'order_accepted',
@@ -125,6 +131,7 @@ export const NotifyTemplateId = z.enum([
   'order_late_apology',
   'order_picked_up',
   'courier_arriving',
+  'courier_arriving_paid',
   'order_receipt',
   'ride_receipt',
   'ride_matched',
@@ -134,10 +141,13 @@ export const NotifyTemplateId = z.enum([
   'phone_ride_matched',
   'phone_driver_arrived',
   'merchant_new_order',
+  'merchant_order_cancelled',
   'partner_new_job',
   'partner_zone_nudge',
   'ride_nudge',
   'merchant_cash_handover',
+  'merchant_activated',
+  'home_kitchen_activated',
   'menu_photos_ready',
   'courier_cash_receipt',
   'driver_pay_reply',
@@ -146,12 +156,17 @@ export const NotifyTemplateId = z.enum([
   'driver_pay_resolved',
   'wallet_topup_receipt',
   'cash_change_credit',
+  'order_late_credit',
   'rajaa_boarding_pass',
   'rajaa_pass_update',
   'khat_child_arrived',
   'khat_sweep_reminder',
   'khat_sweep_dispatch_alert',
   'sos_dispatch_alert',
+  'sos_desk_ring',
+  'console_unwatched_alert',
+  'console_live_down_alert',
+  'staff_new_device',
   'sos_emergency_contact',
   'rajaa_arrived_contact',
   'trip_shared_contact',
@@ -171,6 +186,53 @@ export const NotifyTemplateId = z.enum([
   'garage_taxi_failed',
   'same_ride_offer',
   'same_ride_after_weekend',
+  'booked_ride_confirmed',
+  'booked_ride_unconfirmed',
+  'booked_ride_released',
+  'booked_ride_searching',
+  'ride_driver_cancelled',
+  'ride_driver_cancelled_credit',
+  'ride_no_driver',
+  'partner_booked_offer',
+  'partner_booked_favourite',
+  'partner_booked_reminder',
+  'partner_booked_cancelled',
+  // The desk took a job off him before pickup («شيل الطلب منه»): it went back to dispatch.
+  'partner_job_taken_off',
+  // W2 (CRIT1-01, NTF-03): the order's bad turns and the courier at the door reach the customer.
+  'order_rejected',
+  'order_kitchen_no_answer',
+  'order_cancelled',
+  'order_payer_declined',
+  'order_payer_no_answer',
+  'courier_at_door',
+  'courier_unreachable',
+  'courier_unreachable_reminder',
+  'order_on_the_way',
+  'order_partial_ask',
+  'order_partial_no_answer',
+  'order_rejected_credit',
+  'support_reply',
+  'support_refund',
+  'support_resolved',
+  // W3 staff way-out: staff ended the order, a complaint's outcome, a free cancel when we failed.
+  'order_ops_cancelled',
+  'order_dispute_refunded',
+  'order_dispute_stands',
+  'order_dispute_redelivery',
+  'order_dispute_void',
+  'order_free_cancel',
+  'order_courier_lost',
+  // طرود (parcels): the receiver's text with the door link, the receipt code once the door is set, and
+  // the sender's notice when the door was never set in time.
+  'parcel_door_link',
+  'parcel_pin',
+  'parcel_door_lapsed',
+  // Food carts: a followed cart opened; a walk-over ticket is ready, turned down, or called off at closing.
+  'food_cart_opened',
+  'food_cart_walkup_ready',
+  'food_cart_walkup_rejected',
+  'food_cart_walkup_closed',
 ]);
 export type NotifyTemplateId = z.infer<typeof NotifyTemplateId>;
 
@@ -209,10 +271,11 @@ export interface NotifyTemplateDef {
   /**
    * The SMS's own words (`sms.*` with `{name}` params) when SMS is a primary channel and says more than
    * the push (a link, a code), or when the person has no app at all (a ride booked by phone, step 4).
-   * `withCode` is used instead when the `code` param is set. Absent: the SMS is the WhatsApp text,
-   * else "title — body".
+   * `withCode` is used instead when the `code` param is set; `noLink` / `withCodeNoLink` when the
+   * message has no `link` param (the link's address is not configured). Absent: the SMS is the
+   * WhatsApp text, else "title — body".
    */
-  sms?: { key: MessageKey; withCode?: MessageKey };
+  sms?: { key: MessageKey; withCode?: MessageKey; noLink?: MessageKey; withCodeNoLink?: MessageKey };
   /** Channels attempted at once (subject to preferences). */
   primary: readonly NotifyChannel[];
   /**
@@ -266,6 +329,150 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'send',
   },
+  // W2: picked up when no arrival time can be read (no courier fix, no locked ride minutes) — never a made-up time.
+  order_on_the_way: {
+    id: 'order_on_the_way',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_on_the_way.title', body: 'push.order_on_the_way.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // W2 CRIT1-01: the kitchen said no, or never answered — told at once, with the way on (another kitchen).
+  order_rejected: {
+    id: 'order_rejected',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_rejected.title', body: 'push.order_rejected.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // M-17 (Ali, 2026-10-08): the kitchen cancels after accepting — 500 دينار to his wallet, paid by the kitchen.
+  order_rejected_credit: {
+    id: 'order_rejected_credit',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_rejected_credit.title', body: 'push.order_rejected_credit.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_kitchen_no_answer: {
+    id: 'order_kitchen_no_answer',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_kitchen_no_answer.title', body: 'push.order_kitchen_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // W2 BENCH-03: the kitchen has a dish out — he has 60 s to send the rest or cancel free. Push at once;
+  // the SMS twin at 20 s still leaves time to open the app. Then, if no answer came, why it was cancelled.
+  order_partial_ask: {
+    id: 'order_partial_ask',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_partial_ask.title', body: 'push.order_partial_ask.body', androidChannel: 'orders', deepLink: 'driver://kitchen/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: 20,
+    quietHours: 'send',
+  },
+  order_partial_no_answer: {
+    id: 'order_partial_no_answer',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_partial_no_answer.title', body: 'push.order_partial_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // W2 CRIT1-01: we cancelled it (no answer on a changed order, ops); the household payer said no or never answered.
+  order_cancelled: {
+    id: 'order_cancelled',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_cancelled.title', body: 'push.order_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_payer_declined: {
+    id: 'order_payer_declined',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_payer_declined.title', body: 'push.order_payer_declined.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_payer_no_answer: {
+    id: 'order_payer_no_answer',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_payer_no_answer.title', body: 'push.order_payer_no_answer.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // W2 NTF-03: the courier is at the door. Then, if he can't reach the customer, the 5-minute clock is
+  // never silent: push + WhatsApp at once, SMS when neither is delivered in 60 s, a reminder at minute 3.
+  // Safety category: the customer can't turn these off (he is billed when the clock runs out).
+  courier_at_door: {
+    id: 'courier_at_door',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.courier_at_door.title', body: 'push.courier_at_door.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  courier_unreachable: {
+    id: 'courier_unreachable',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.unreachable.title', body: 'push.unreachable.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    whatsapp: wa('courier_unreachable', 'wa.courier_unreachable', ['courier'], ['حيدر']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  courier_unreachable_reminder: {
+    id: 'courier_unreachable_reminder',
+    category: 'safety',
+    app: 'customer',
+    push: { title: 'push.unreachable_reminder.title', body: 'push.unreachable_reminder.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  // W2 NTF-02: support's answer on a complaint reaches him (a chat case is answered in the chat itself).
+  // `link` is the screen to open: `order/<id>` for an order's complaint, else `help`.
+  support_reply: {
+    id: 'support_reply',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.support_reply.title', body: 'push.support_reply.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    primary: ['push'],
+    smsTwinAfterSec: 120,
+    quietHours: 'defer',
+  },
+  support_refund: {
+    id: 'support_refund',
+    category: 'money',
+    app: 'customer',
+    push: { title: 'push.support_refund.title', body: 'push.support_refund.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'defer',
+  },
+  support_resolved: {
+    id: 'support_resolved',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.support_resolved.title', body: 'push.support_resolved.body', androidChannel: 'orders', deepLink: 'driver://{link}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
   courier_arriving: {
     id: 'courier_arriving',
     category: 'order_updates',
@@ -275,12 +482,22 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push', 'whatsapp'],
     quietHours: 'send',
   },
+  // NTF-21: the same moment for an order already paid (wallet, prepaid) — no «جهّز الكاش».
+  courier_arriving_paid: {
+    id: 'courier_arriving_paid',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.courier_arriving.title', body: 'push.courier_arriving_paid.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    whatsapp: wa('courier_arriving_paid', 'wa.courier_arriving_paid', ['name', 'courier', 'merchant'], ['علي', 'حيدر', 'مطعم خالد']),
+    primary: ['push', 'whatsapp'],
+    quietHours: 'send',
+  },
   order_receipt: {
     id: 'order_receipt',
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.order_delivered.title', body: 'push.order_delivered.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('order_receipt', 'wa.order_delivered', ['merchant', 'amount', 'receiptUrl'], ['مطعم خالد', '12,500', 'https://driver.iq/r/ord_123']),
+    whatsapp: wa('order_receipt', 'wa.order_delivered', ['merchant', 'amount', 'receiptUrl'], ['مطعم خالد', '12,500', 'https://app.example.com/r/ord_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -290,7 +507,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.ride_completed.title', body: 'push.ride_completed.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://driver.iq/r/ord_123']),
+    whatsapp: wa('ride_receipt', 'wa.trip_completed', ['amount', 'driver', 'receiptUrl'], ['4,000', 'حيدر', 'https://app.example.com/r/ord_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -357,6 +574,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     // Domain §8: "push + loud alert + optional SMS" — the SMS goes when the push is not confirmed in 30 s.
     smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  merchant_order_cancelled: {
+    id: 'merchant_order_cancelled',
+    category: 'work',
+    app: 'merchant',
+    // An order the kitchen already accepted was cancelled: it hears at once, so nobody keeps cooking it.
+    push: { title: 'push.merchant_order_cancelled.title', body: 'push.merchant_order_cancelled.body', androidChannel: 'offers', deepLink: 'driver-merchant://order/{orderId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
   partner_new_job: {
@@ -433,6 +659,26 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'send',
   },
+  // «جهّز محلك»: ops approved the shop — its owners hear it is live and where to finish setting it up.
+  merchant_activated: {
+    id: 'merchant_activated',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.merchant_activated.title', body: 'push.merchant_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://setup' },
+    sms: { key: 'sms.merchant_activated' },
+    primary: ['push', 'sms'],
+    quietHours: 'defer',
+  },
+  // أكل بيت: staff approved a cook's kitchen — the same news, but it opens «أكلاتي» and says «ضيف أكلاتك».
+  home_kitchen_activated: {
+    id: 'home_kitchen_activated',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.merchant_activated.title', body: 'push.home_kitchen_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://home-kitchen' },
+    sms: { key: 'sms.merchant_activated' },
+    primary: ['push', 'sms'],
+    quietHours: 'defer',
+  },
   merchant_cash_handover: {
     id: 'merchant_cash_handover',
     category: 'money',
@@ -459,6 +705,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'receipts',
     app: 'customer',
     push: { title: 'push.cash_change_credit.title', body: 'push.cash_change_credit.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // NTF-22: the honest-delay credit (step two) is in his wallet — told like the change credit above.
+  order_late_credit: {
+    id: 'order_late_credit',
+    category: 'receipts',
+    app: 'customer',
+    push: { title: 'push.order_late_credit.title', body: 'push.order_late_credit.body', androidChannel: 'orders', deepLink: 'driver://wallet' },
     primary: ['push'],
     quietHours: 'send',
   },
@@ -518,7 +773,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.khat_sweep_dispatch.title', body: 'push.khat_sweep_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety' },
-    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.driver.iq/safety']),
+    whatsapp: wa('khat_sweep_dispatch_alert', 'wa.khat_sweep_dispatch', ['name', 'route', 'minutes', 'link'], ['حيدر ك.', '#4821', '5 دقايق', 'https://console.example.com/safety']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -529,9 +784,51 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'any',
     push: { title: 'push.sos_dispatch.title', body: 'push.sos_dispatch.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
-    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.driver.iq/safety/sos_123']),
+    whatsapp: wa('sos_dispatch_alert', 'wa.sos_dispatch', ['name', 'role', 'what', 'link'], ['حيدر ك.', 'سايق', 'مشوار تكتك #1290', 'https://console.example.com/safety/sos_123']),
     primary: ['push', 'whatsapp'],
     smsTwinAfterSec: 30,
+    quietHours: 'send',
+  },
+  // SOS ladder (Console E1, CON-02): nobody took it yet, so the desk is rung again every 30 s. Push
+  // only and never an SMS twin (the on-call step at 60 s carries WhatsApp and SMS).
+  sos_desk_ring: {
+    id: 'sos_desk_ring',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.sos_ring.title', body: 'push.sos_ring.body', androidChannel: 'offers', deepLink: 'driver://safety/{incidentId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // The Console watching itself (E1 step 3): nobody has had a staff screen open for 5 minutes during
+  // working hours, or live updates have been stopped on every screen for a minute. The people on call
+  // (the admins when nobody is), once per gap, push and WhatsApp; SMS twin after the usual 60 s.
+  console_unwatched_alert: {
+    id: 'console_unwatched_alert',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.console_unwatched.title', body: 'push.console_unwatched.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    whatsapp: wa('console_unwatched_alert', 'wa.console_unwatched', ['minutes', 'link'], ['5 دقيقة', 'https://console.example.com']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  console_live_down_alert: {
+    id: 'console_live_down_alert',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.console_live_down.title', body: 'push.console_live_down.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    whatsapp: wa('console_live_down_alert', 'wa.console_live_down', ['minutes', 'link'], ['1 دقيقة', 'https://console.example.com']),
+    primary: ['push', 'whatsapp'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // A staff account signed in from a device never seen on it: every admin, push only, at any hour.
+  staff_new_device: {
+    id: 'staff_new_device',
+    category: 'safety',
+    app: 'any',
+    push: { title: 'push.staff_new_device.title', body: 'push.staff_new_device.body', androidChannel: 'offers', deepLink: 'driver://safety' },
+    primary: ['push'],
     quietHours: 'send',
   },
   // SOS: the pressing person's emergency contact (a number, not an account): WhatsApp, SMS after 30 s.
@@ -539,7 +836,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'sos_emergency_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://driver.iq/sos/abc.def']),
+    whatsapp: wa('sos_emergency_contact', 'wa.sos_contact', ['name', 'link'], ['علي', 'https://app.example.com/sos/abc.def']),
     primary: ['whatsapp'],
     smsTwinAfterSec: 30,
     quietHours: 'send',
@@ -560,7 +857,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     id: 'trip_shared_contact',
     category: 'safety',
     app: 'customer',
-    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://driver.iq/share/shr_abc']),
+    whatsapp: wa('trip_shared_contact', 'wa.trip_shared_contact', ['name', 'what', 'link'], ['زينب', 'الرجعة بغداد ← العزيزية', 'https://app.example.com/share/shr_abc']),
     primary: ['whatsapp'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',
@@ -573,7 +870,7 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'safety',
     app: 'customer',
     push: { title: 'push.ride_for_rider.title', body: 'push.ride_for_rider.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
-    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code' },
+    sms: { key: 'sms.ride_for_rider', withCode: 'sms.ride_for_rider_code', noLink: 'sms.ride_for_rider_nolink', withCodeNoLink: 'sms.ride_for_rider_code_nolink' },
     primary: ['push', 'sms'],
     quietHours: 'send',
   },
@@ -610,6 +907,42 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.dish_pot.title', body: 'push.dish_pot.body', androidChannel: 'marketing', deepLink: 'driver://restaurant/{merchantOrgId}' },
     primary: ['push'],
     quietHours: 'defer',
+  },
+  // Food carts: a cart the person follows opened («أبو حيدر فتح»), once a cart a Baghdad day.
+  food_cart_opened: {
+    id: 'food_cart_opened',
+    category: 'food_cart',
+    app: 'customer',
+    push: { title: 'push.food_cart_opened.title', body: 'push.food_cart_opened.body', androidChannel: 'marketing', deepLink: 'driver://food-carts/{cartId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  // Food carts: the walk-over ticket is ready at the cart; come with the code and pay there.
+  food_cart_walkup_ready: {
+    id: 'food_cart_walkup_ready',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.food_cart_walkup_ready.title', body: 'push.food_cart_walkup_ready.body', androidChannel: 'orders', deepLink: 'driver://food-carts/ticket/{walkupId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Food carts: the cart turned the ticket down before starting it («ما أگدر هسه»); nothing was paid.
+  food_cart_walkup_rejected: {
+    id: 'food_cart_walkup_rejected',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.food_cart_walkup_rejected.title', body: 'push.food_cart_walkup_rejected.body', androidChannel: 'orders', deepLink: 'driver://food-carts/ticket/{walkupId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Food carts: the cart closed before starting the ticket; nothing was paid.
+  food_cart_walkup_closed: {
+    id: 'food_cart_walkup_closed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.food_cart_walkup_closed.title', body: 'push.food_cart_walkup_closed.body', androidChannel: 'orders', deepLink: 'driver://food-carts/ticket/{walkupId}' },
+    primary: ['push'],
+    quietHours: 'send',
   },
   // Joy w4: an order on the household wallet over a limit waits for the payer's yes.
   household_approval: {
@@ -713,6 +1046,206 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'send',
   },
+  // Review #28, the rider of a ride booked for later: «سايقك محجوز: حسين» when a driver confirms; at the
+  // deadline with nobody, a calm «نلگيلك سايق قبل وكتك»; when the confirmed one drops it. Good news or no
+  // news yet: held through quiet hours, never waking him.
+  booked_ride_confirmed: {
+    id: 'booked_ride_confirmed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_confirmed.title', body: 'push.booked_confirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  booked_ride_unconfirmed: {
+    id: 'booked_ride_unconfirmed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_unconfirmed.title', body: 'push.booked_unconfirmed.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  // NTF-05: T−30, the search for the driver of a ride booked for later starts now (his own ride, soon: any hour).
+  booked_ride_searching: {
+    id: 'booked_ride_searching',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_searching.title', body: 'push.booked_searching.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // NTF-04: the driver who took the ride cancelled; the ride is back in the search. Any hour: he may be at the curb.
+  ride_driver_cancelled: {
+    id: 'ride_driver_cancelled',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // M-15: the same, after he reached the pickup — the orderer also hears the credit in his wallet.
+  ride_driver_cancelled_credit: {
+    id: 'ride_driver_cancelled_credit',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body_credit', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // NTF-04: no driver took it by the free-cancel time: wait, cancel free, or book for later.
+  ride_no_driver: {
+    id: 'ride_no_driver',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_no_driver.title', body: 'push.ride_no_driver.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  booked_ride_released: {
+    id: 'booked_ride_released',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.booked_released.title', body: 'push.booked_released.body', androidChannel: 'orders', deepLink: 'driver://ride/booked/{orderId}' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  // Review #28, drivers: a booked ride open to confirm in «مشاوير باچر» (the favourite's own, or the best
+  // placed fitting drivers once it opens to all) — held through quiet hours like any nice news; the
+  // reminder an hour before and a cancellation of a job he holds go out at any hour (he committed to it).
+  partner_booked_offer: {
+    id: 'partner_booked_offer',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_offer.title', body: 'push.partner_booked_offer.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  partner_booked_favourite: {
+    id: 'partner_booked_favourite',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_favourite.title', body: 'push.partner_booked_favourite.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
+  partner_booked_reminder: {
+    id: 'partner_booked_reminder',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_reminder.title', body: 'push.partner_booked_reminder.body', androidChannel: 'offers', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  partner_booked_cancelled: {
+    id: 'partner_booked_cancelled',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_booked_cancelled.title', body: 'push.partner_booked_cancelled.body', androidChannel: 'orders', deepLink: 'driver-partner://booked' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  partner_job_taken_off: {
+    id: 'partner_job_taken_off',
+    category: 'work',
+    app: 'partner',
+    push: { title: 'push.partner_job_taken_off.title', body: 'push.partner_job_taken_off.body', androidChannel: 'orders', deepLink: 'driver-partner://' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  order_ops_cancelled: {
+    id: 'order_ops_cancelled',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_ops_cancelled.title', body: 'push.order_ops_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_dispute_refunded: {
+    id: 'order_dispute_refunded',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_dispute_refunded.title', body: 'push.order_dispute_refunded.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_dispute_stands: {
+    id: 'order_dispute_stands',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_dispute_stands.title', body: 'push.order_dispute_stands.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_dispute_redelivery: {
+    id: 'order_dispute_redelivery',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_dispute_redelivery.title', body: 'push.order_dispute_redelivery.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_dispute_void: {
+    id: 'order_dispute_void',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_dispute_void.title', body: 'push.order_dispute_void.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_free_cancel: {
+    id: 'order_free_cancel',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_free_cancel.title', body: 'push.order_free_cancel.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  order_courier_lost: {
+    id: 'order_courier_lost',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_courier_lost.title', body: 'push.order_courier_lost.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // طرود: the receiver (a number, often not an account) gets the door link by SMS: the sender's first
+  // name from the vault and our own link only — never the parcel's own words, the sender's number or an
+  // address. Sent by the parcels module (its sweep holds a night link until 08:00, so `send` here);
+  // capped per sender and per receiver there, and counted in the day's SMS budget like every SMS.
+  parcel_door_link: {
+    id: 'parcel_door_link',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'parcel.t_door_sms' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  // طرود: the receipt code the receiver reads out to the courier, sent when the door is set (any hour).
+  parcel_pin: {
+    id: 'parcel_pin',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'parcel.pin_recipient_body' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  // طرود: the door was never set in time, so the parcel was cancelled with no fee — the sender hears it
+  // in his app and may send it again. No names, gender-free.
+  parcel_door_lapsed: {
+    id: 'parcel_door_lapsed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'parcel.t_lapsed_title', body: 'parcel.t_lapsed_body', androidChannel: 'orders', deepLink: 'driver://parcel/{parcelId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
 };
 
 /** Categories a preference can switch off, and which switch. */
@@ -721,6 +1254,7 @@ export function preferenceFor(category: NotifyCategory, channel: NotifyChannel):
   if (category === 'dish_pot') return 'dishPots';
   if (category === 'regular_trip') return 'regularTrips';
   if (category === 'same_ride') return 'sameRide';
+  if (category === 'food_cart') return 'foodCarts';
   if ((category === 'order_updates' || category === 'receipts') && channel === 'push') return 'orderUpdates';
   if (category === 'chat') return 'chat';
   if (category === 'receipts' && channel === 'whatsapp') return 'whatsappReceipts';

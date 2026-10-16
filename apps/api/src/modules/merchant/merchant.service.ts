@@ -1,7 +1,12 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
+  CANCELLED_CARD_MIN,
   DELIVERY_AREA_CACHE_MS,
+  DRINKS_DEFAULT_PREP_MIN,
   DriverError,
+  type DishKind,
+  doorsOfTags,
+  prepKindOf,
   daysFromWindows,
   localClock,
   scheduleState,
@@ -21,6 +26,7 @@ import {
   type MissedSummary,
   type Order,
   type PartnerPickupSpot,
+  type PrepKind,
   type PickupSpotPhoto,
   type PickupSpotView,
   type RoleKind,
@@ -39,12 +45,12 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { activePauseWindow, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, ORDERS_RULES } from '../orders/index.js';
-import type { MerchantPickupSpot, MerchantSettings, Org } from '../orgs/index.js';
+import { closedNow, type MerchantPickupSpot, type MerchantSettings, type Org } from '../orgs/index.js';
 import { courierMaySeePlaceDetails } from '../places/index.js';
 import { EtaService } from '../routing/index.js';
 import { composeCustomerZones, composeDeliveryArea } from './area.js';
-import { courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
-import { busyUntilFor, toStoreStatus } from './status.js';
+import { cancelledCards, courierView, radarOf, missedSummary, sortBoard, toBoardOrder } from './board.js';
+import { busyExtraFor, busyUntilFor, toStoreStatus } from './status.js';
 
 /**
  * The slices of other modules' public services the Merchant app's reads and switches need. Typed
@@ -54,6 +60,10 @@ export interface MerchantOrdersPort {
   listActive(filter: { merchantOrgId: string }): Promise<Order[]>;
   /** The store's orders placed in `[from, to)` — today's misses for the board (M-01). Optional for fakes. */
   merchantOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
+  /** Perf z5: only the store's orders placed in `[from, to)` that it missed. Fakes may leave it out (then `merchantOrders`). */
+  merchantMissedOrders?(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]>;
+  /** Orders the store had accepted that were cancelled since `since` (the board's red cards). Fakes may leave it out. */
+  merchantCancelledAfterAccept?(merchantOrgId: string, since: Date): Promise<Order[]>;
   /** Delivered orders placed in `[from, to)` per drop-off zone: counts only (maps program r6). */
   deliveredByDropoffZone(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Array<{ zoneKey: string | null; orders: number }>>;
 }
@@ -67,6 +77,11 @@ export interface MerchantPeoplePort {
   hasRole(personId: string, kind: RoleKind, orgId?: string): Promise<boolean>;
   /** First name only, read from the vault and logged (purpose `courier_card`). */
   courierFirstName(courierId: string, accessorId: string): Promise<string | null>;
+  /**
+   * N16: his first name and approved main photo in one vault read (purpose `courier_card`, logged); the
+   * board prefers it to `courierFirstName` when the module provides it.
+   */
+  courierCard?(courierId: string, accessorId: string): Promise<{ firstName: string | null; photoRef: string | null }>;
   /** His vehicle class and plate (the counter tells couriers apart by it, S-M4). */
   courierVehicle(courierId: string, vehicleId: string | null): Promise<{ vehicleClass: VehicleClass; plate: string | null } | null>;
 }
@@ -78,8 +93,14 @@ export interface MerchantStoresPort {
 }
 export interface MerchantCatalogPort {
   itemNames(orgId: string, itemIds: readonly string[]): Promise<Map<string, string>>;
+  /** k4/j6: the owner's ticket kinds for these dishes (only the ones he set). */
+  itemKinds?(orgId: string, itemIds: readonly string[]): Promise<Map<string, DishKind>>;
   /** The customer storefront's weekly hours (the onboarding seed); null when the store has none. */
   storefrontHours?(orgId: string): Promise<WeeklyWindow[] | null>;
+  /** The customer storefront's tags (what it sells, for shops from before «شنو تبيع؟»); null without one. */
+  storefrontTags?(orgId: string): Promise<string[] | null>;
+  /** أكل بيت: true when the store is a home cook's kitchen. */
+  isHomeKitchen?(orgId: string): Promise<boolean>;
   /** Writes the store's own weekly hours onto its customer storefront (the card's open/closed). */
   mirrorHours?(orgId: string, windows: readonly WeeklyWindow[]): Promise<void>;
 }
@@ -113,6 +134,19 @@ export interface MerchantAreaPort {
   pausedZones(cityId: string, merchantOrgId: string, kitchenZone: string, zoneKeys: readonly string[]): Promise<Set<string>>;
 }
 
+/**
+ * «جهّز محلك» as the status header and the open switch see it (bound to `MerchantSetupService`):
+ * the setup line on `storeStatus`, and opening a shop still in setup is going live.
+ */
+export interface MerchantSetupLinePort {
+  statusLine(org: Org, s: MerchantSettings): Promise<StoreStatusView['setup']>;
+  isInSetup(s: MerchantSettings): boolean;
+  /** A new shop (no storefront yet, nothing set up) starts its setup the first time it is read. */
+  adopt(org: Org): Promise<void>;
+  goLive(actor: Actor, input: MerchantOrgInput): Promise<unknown>;
+}
+
+export const MERCHANT_SETUP_LINE = Symbol('MERCHANT_SETUP_LINE');
 export const MERCHANT_ORDERS = Symbol('MERCHANT_ORDERS');
 export const MERCHANT_AREA = Symbol('MERCHANT_AREA');
 export const MERCHANT_TRIPS = Symbol('MERCHANT_TRIPS');
@@ -136,8 +170,9 @@ const DAY_MS = 86_400_000;
  */
 @Injectable()
 export class MerchantService implements MerchantPort {
-  /** Courier first names per trip and reader: a board polled every few seconds logs one vault read per trip. */
-  private readonly names = new Map<string, string | null>();
+  private readonly logger = new Logger(MerchantService.name);
+  /** Courier cards per trip and reader: a board polled every few seconds logs one vault read per trip. */
+  private readonly names = new Map<string, { firstName: string | null; photoRef: string | null }>();
   /** Delivery maps per store, with when they were priced (DELIVERY_AREA_CACHE_MS, same Baghdad hour). */
   private readonly areas = new Map<string, { at: number; view: MerchantDeliveryArea }>();
 
@@ -152,6 +187,7 @@ export class MerchantService implements MerchantPort {
     private readonly eta: EtaService,
     @Inject(MERCHANT_AREA) private readonly area: MerchantAreaPort,
     @Optional() @Inject(MERCHANT_PHOTOS) private readonly photos: MerchantPhotosPort | null = null,
+    @Optional() @Inject(MERCHANT_SETUP_LINE) private readonly setup: MerchantSetupLinePort | null = null,
   ) {}
 
   async myStores(actor: Actor): Promise<MerchantStore[]> {
@@ -166,7 +202,8 @@ export class MerchantService implements MerchantPort {
       }
       if (org.type !== 'restaurant' && org.type !== 'grocer') continue;
       const role = g.kind === OWNER || byOrg.get(org.id)?.role === 'owner' ? 'owner' : 'staff';
-      byOrg.set(org.id, { orgId: org.id, name: org.name, type: org.type, cityId: org.cityId, role });
+      const home = (await this.catalog.isHomeKitchen?.(org.id)) ?? false;
+      byOrg.set(org.id, { orgId: org.id, name: org.name, type: org.type, cityId: org.cityId, role, ...(home ? { home } : {}) });
     }
     return [...byOrg.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.orgId.localeCompare(b.orgId));
   }
@@ -174,18 +211,44 @@ export class MerchantService implements MerchantPort {
   async board(actor: Actor, input: MerchantOrgInput): Promise<MerchantBoard> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
-    const kitchen = (await this.stores.merchantSettings(org.id)).location?.pin ?? null;
+    const settings = await this.stores.merchantSettings(org.id);
+    const kitchen = settings.location?.pin ?? null;
     const live = await this.orders.listActive({ merchantOrgId: org.id });
+    const closedAt = live.some((o) => o.state === 'placed' && o.merchantOfferedAt) ? await this.closedAt(org, settings, now) : undefined;
     const itemIds = [...new Set(live.flatMap((o) => o.lines.map((l) => l.catalogItemId)).filter((id): id is string => id !== null))];
     const names = itemIds.length > 0 ? await this.catalog.itemNames(org.id, itemIds) : new Map<string, string>();
+    const kinds = itemIds.length > 0 && this.catalog.itemKinds ? await this.catalog.itemKinds(org.id, itemIds) : new Map<string, DishKind>();
     const cards: BoardOrder[] = [];
     for (const order of live) {
-      const courier = await this.courierOf(order, kitchen, actor.personId);
-      const card = toBoardOrder({ order, itemNames: names, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now });
+      // MER-04: one order whose courier lookup throws must not blank the whole board; its card goes
+      // out without courier details and the error is logged.
+      const courier = await this.courierOf(order, kitchen, actor.personId).catch((err: unknown) => {
+        this.logger.error(`board courier lookup failed for order ${order.id}: ${err instanceof Error ? err.message : String(err)}`);
+        return courierView(order.id, { trip: null, firstName: null, vehicleClass: null, etaMinutes: null, plate: null });
+      });
+      const card = toBoardOrder({ order, itemNames: names, itemKinds: kinds, courier, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, now, closedAt });
       if (card) cards.push(card);
     }
     const missed = await this.missedToday(org, now);
-    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}) };
+    // An accepted order that was cancelled stays as a red card for 15 minutes: it never just vanishes.
+    const since = new Date(now.getTime() - CANCELLED_CARD_MIN * 60_000);
+    const cancelled = this.orders.merchantCancelledAfterAccept ? cancelledCards(await this.orders.merchantCancelledAfterAccept(org.id, since)) : [];
+    return { merchantOrgId: org.id, now, acceptWindowSec: ORDERS_RULES.merchantAcceptSec, orders: sortBoard(cards), ...(missed ? { missed } : {}), cancelled };
+  }
+
+  /**
+   * Whether the store was closed at a past moment, for the alarm's quiet rule (m6a): closed by hand
+   * since then, or outside its hours / on a holiday then. A hand close after that moment means the
+   * order was already waiting when the owner closed, so it counts as offered while open.
+   */
+  private async closedAt(org: Org, s: MerchantSettings, now: Date): Promise<(at: Date) => boolean> {
+    const hand = closedNow(s.closed, now);
+    const { windows: weekly } = await this.weeklyHours(org.id, s);
+    return (at) => {
+      if (hand) return hand.at.getTime() <= at.getTime();
+      if (s.setup && weekly.length === 0) return true;
+      return !scheduleState(at, weekly, s.holidays ?? [], DEFAULT_TIMEZONE).inHours;
+    };
   }
 
   /** Orders that left today without the kitchen's answer (M-01): they never vanish silently. */
@@ -193,7 +256,9 @@ export class MerchantService implements MerchantPort {
     if (!this.orders.merchantOrders) return null;
     const local = localClock(now, DEFAULT_TIMEZONE);
     const from = new Date(Math.floor((now.getTime() - local.minutes * 60_000) / 60_000) * 60_000);
-    const today = await this.orders.merchantOrders(org.id, { from, to: new Date(now.getTime() + 1) });
+    const range = { from, to: new Date(now.getTime() + 1) };
+    // Perf z5: read the day's misses only (a few rows), not every order of the day on every board read.
+    const today = this.orders.merchantMissedOrders ? await this.orders.merchantMissedOrders(org.id, range) : await this.orders.merchantOrders(org.id, range);
     const s = await this.stores.merchantSettings(org.id);
     const pauses = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     return missedSummary(today, (at) => activePauseWindow(at, pauses, DEFAULT_TIMEZONE) !== null);
@@ -207,13 +272,20 @@ export class MerchantService implements MerchantPort {
   async setOpen(actor: Actor, input: SetStoreOpenInput): Promise<StoreStatusView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
+    // «جهّز محلك»: a shop still in setup opens by going live (every step done; owner only), and a
+    // close (a quick pause included) leaves setup's own close in place, so "not live" stays closed.
+    if (this.setup?.isInSetup(await this.stores.merchantSettings(org.id))) {
+      if (input.open) await this.setup.goLive(actor, { merchantOrgId: org.id });
+      return this.status(org);
+    }
     if (input.open) {
       await this.stores.setMerchantSettings(org.id, { closed: null });
       await this.events.record('merchant.opened', actor.personId, org.id, { at: now.toISOString() });
     } else {
-      const closed = { reason: input.reason ?? 'other', note: input.note?.trim() || null, at: now };
+      const until = input.pauseMinutes ? new Date(now.getTime() + input.pauseMinutes * 60_000) : null;
+      const closed = { reason: input.reason ?? 'other', note: input.note?.trim() || null, at: now, until };
       await this.stores.setMerchantSettings(org.id, { closed });
-      await this.events.record('merchant.closed_early', actor.personId, org.id, { reason: closed.reason, note: closed.note, at: now.toISOString() });
+      await this.events.record('merchant.closed_early', actor.personId, org.id, { reason: closed.reason, note: closed.note, at: now.toISOString(), ...(until ? { until: until.toISOString() } : {}) });
     }
     return this.status(org);
   }
@@ -222,8 +294,10 @@ export class MerchantService implements MerchantPort {
     const org = await this.assertStore(actor, input.merchantOrgId);
     const now = this.clock.now();
     const busyUntil = busyUntilFor(input.on, now);
-    await this.stores.setMerchantSettings(org.id, { busyUntil });
-    await this.events.record(input.on ? 'merchant.busy_on' : 'merchant.busy_off', actor.personId, org.id, { until: busyUntil?.toISOString() ?? null });
+    // r5 (Ali 2026-10-08): +10 or +20, still for the hour; the schema lets only 10 or 20 through.
+    const busyExtraMin = input.on ? busyExtraFor(input.extraMinutes) : null;
+    await this.stores.setMerchantSettings(org.id, { busyUntil, busyExtraMin });
+    await this.events.record(input.on ? 'merchant.busy_on' : 'merchant.busy_off', actor.personId, org.id, { until: busyUntil?.toISOString() ?? null, ...(busyExtraMin !== null ? { extraMinutes: busyExtraMin } : {}) });
     return this.status(org);
   }
 
@@ -298,7 +372,7 @@ export class MerchantService implements MerchantPort {
     const pauses = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     const pause = activePauseWindow(now, pauses, DEFAULT_TIMEZONE);
     const sched = scheduleState(now, windows, holidays, DEFAULT_TIMEZONE);
-    const state: StoreHoursView['state'] = s.closed
+    const state: StoreHoursView['state'] = closedNow(s.closed, now)
       ? { open: false, reason: 'closed', closesAt: null, opensAt: null }
       : !sched.inHours
         ? {
@@ -463,12 +537,20 @@ export class MerchantService implements MerchantPort {
 
   private async status(org: Org): Promise<StoreStatusView> {
     const now = this.clock.now();
+    if (this.setup) await this.setup.adopt(org);
     const s = await this.stores.merchantSettings(org.id);
     const windows = s.pauseWindows ?? [...(CITY_PAUSE_WINDOWS[org.cityId] ?? [])];
     const pause = activePauseWindow(now, windows, DEFAULT_TIMEZONE);
     const { windows: weekly } = await this.weeklyHours(org.id, s);
-    const sched = scheduleState(now, weekly, s.holidays ?? [], DEFAULT_TIMEZONE);
+    // A shop set up through «جهّز محلك» with no hours on file is closed, not open around the clock
+    // (older shops keep reading no hours as always open).
+    const sched = s.setup && weekly.length === 0 ? { inHours: false, holiday: null, closesAt: null, opensAt: null } : scheduleState(now, weekly, s.holidays ?? [], DEFAULT_TIMEZONE);
+    const setup = this.setup ? await this.setup.statusLine(org, s) : null;
+    const prepKind = await this.prepKind(org.id, s);
     return toStoreStatus({
+      prepKind,
+      busyExtraMin: s.busyExtraMin ?? null,
+      setup,
       schedule: {
         inHours: sched.inHours,
         holiday: sched.holiday ? { to: sched.holiday.to, note: sched.holiday.note } : null,
@@ -479,12 +561,23 @@ export class MerchantService implements MerchantPort {
       name: org.name,
       now,
       busyUntil: s.busyUntil ?? null,
-      closed: s.closed ?? null,
+      closed: closedNow(s.closed, now),
       printer: s.printer ?? null,
       pause,
       lastHeartbeatAt: s.lastHeartbeatAt,
-      defaultPrepMinutes: s.defaultPrepMin ?? ORDERS_RULES.defaultPrepMin,
+      defaultPrepMinutes: s.defaultPrepMin ?? (prepKind === 'drinks' ? DRINKS_DEFAULT_PREP_MIN : ORDERS_RULES.defaultPrepMin),
     });
+  }
+
+  /**
+   * t5 (Ali 2026-10-08): juice bars and cafés pick 3 / 5 / 8 minutes. What the shop sells comes from
+   * «شنو تبيع؟» when it went through setup, else from its storefront's tags; a shop with food as well,
+   * or with nothing on file, is food.
+   */
+  private async prepKind(orgId: string, s: MerchantSettings): Promise<PrepKind> {
+    if (s.setup?.kinds && s.setup.kinds.length > 0) return prepKindOf(s.setup.kinds);
+    const tags = (await this.catalog.storefrontTags?.(orgId)) ?? [];
+    return prepKindOf(doorsOfTags(tags));
   }
 
   private async courierOf(order: Order, kitchen: LatLng | null, readerId: string): Promise<BoardCourier> {
@@ -495,6 +588,7 @@ export class MerchantService implements MerchantPort {
     // Accepted and no trip yet: dispatch is about to look for one.
     if (!trip) return courierView(order.id, { trip: { state: 'created', courierId: null, stops: [] }, ...nobody });
     let firstName: string | null = null;
+    let photoUrl: string | null = null;
     let vehicleClass: VehicleClass | null = null;
     let plate: string | null = null;
     let position: LatLng | null = null;
@@ -502,15 +596,21 @@ export class MerchantService implements MerchantPort {
       const key = `${trip.id}:${trip.courierId}:${readerId}`;
       if (!this.names.has(key)) {
         if (this.names.size >= CARD_CACHE_MAX) this.names.delete(this.names.keys().next().value!);
-        this.names.set(key, await this.people.courierFirstName(trip.courierId, readerId));
+        const card = this.people.courierCard
+          ? await this.people.courierCard(trip.courierId, readerId)
+          : { firstName: await this.people.courierFirstName(trip.courierId, readerId), photoRef: null };
+        this.names.set(key, card);
       }
-      firstName = this.names.get(key) ?? null;
+      const card = this.names.get(key);
+      firstName = card?.firstName ?? null;
+      // N16: his approved main photo on the board's map, signed on each read (the cache keeps the ref).
+      photoUrl = card?.photoRef && this.photos ? this.photos.readUrl(card.photoRef) : null;
       const vehicle = await this.people.courierVehicle(trip.courierId, trip.vehicleId ?? null);
       vehicleClass = vehicle?.vehicleClass ?? null;
       plate = vehicle?.plate ?? null;
       position = (await this.trips.lastPosition(trip.id))?.pin ?? null;
     }
-    const facts = { trip, firstName, vehicleClass, plate, etaMinutes: null, pickupCode: trip.courierId ? pickupCodeFor(order.id, trip.courierId) : null };
+    const facts = { trip, firstName, photoUrl, vehicleClass, plate, etaMinutes: null, pickupCode: trip.courierId ? pickupCodeFor(order.id, trip.courierId) : null };
     const view = courierView(order.id, facts);
     if (view.state !== 'on_the_way' || !position || !kitchen) return view;
     // One ETA everywhere (maps program SP4b): the same service the customer's screen uses; the radar
@@ -537,8 +637,10 @@ export class MerchantService implements MerchantPort {
     let org: Org;
     try {
       org = await this.stores.get(merchantOrgId);
-    } catch {
-      throw new DriverError('org_not_found');
+    } catch (err) {
+      // DRL-08: only a missing org is `org_not_found`; a database that is down stays a retryable error.
+      if (err instanceof DriverError) throw new DriverError('org_not_found');
+      throw err;
     }
     if (org.type !== 'restaurant' && org.type !== 'grocer') throw new DriverError('org_not_found');
     return org;

@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
-import { AppState, Platform, Switch, View } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import { AppState, Linking, View } from 'react-native';
 import type { NotifyPreferences } from '@driver/contracts';
-import { Button, Card, DataSaverCard, Icon, ListRow, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, DataSaverCard, Icon, ListRow, QueryBoundary, Skeleton, Text, Toggle, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { SectionHeader } from '@/components/SectionHeader';
+import { batteryFamily, batterySteps, phoneMaker } from '@/features/notify/battery';
 import { useNotifyPreferences, usePushPermission, useSetNotifyPreferences } from '@/features/notify/usePush';
 import { TimetablePicker } from '@/features/season/TimetablePicker';
 import { apiErrorMessage } from '@/lib/api';
@@ -16,9 +17,9 @@ type PrefKey = keyof NotifyPreferences;
 
 const PUSH_ROWS: ReadonlyArray<{
   key: PrefKey;
-  icon: 'bag' | 'chat' | 'gift' | 'bell' | 'refresh' | 'car';
-  title: 'notify.pref.order_updates' | 'notify.pref.chat' | 'notify.pref.marketing' | 'notify.pref.dish_pots' | 'notify.pref.regular_trips' | 'notify.pref.same_ride';
-  hint: 'notify.pref.order_updates_hint' | 'notify.pref.chat_hint' | 'notify.pref.marketing_hint' | 'notify.pref.dish_pots_hint' | 'notify.pref.regular_trips_hint' | 'notify.pref.same_ride_hint';
+  icon: 'bag' | 'chat' | 'gift' | 'bell' | 'refresh' | 'car' | 'food';
+  title: 'notify.pref.order_updates' | 'notify.pref.chat' | 'notify.pref.marketing' | 'notify.pref.dish_pots' | 'notify.pref.regular_trips' | 'notify.pref.same_ride' | 'notify.pref.food_carts';
+  hint: 'notify.pref.order_updates_hint' | 'notify.pref.chat_hint' | 'notify.pref.marketing_hint' | 'notify.pref.dish_pots_hint' | 'notify.pref.regular_trips_hint' | 'notify.pref.same_ride_hint' | 'notify.pref.food_carts_hint';
 }> = [
   { key: 'orderUpdates', icon: 'bag', title: 'notify.pref.order_updates', hint: 'notify.pref.order_updates_hint' },
   { key: 'chat', icon: 'chat', title: 'notify.pref.chat', hint: 'notify.pref.chat_hint' },
@@ -28,6 +29,8 @@ const PUSH_ROWS: ReadonlyArray<{
   { key: 'regularTrips', icon: 'refresh', title: 'notify.pref.regular_trips', hint: 'notify.pref.regular_trips_hint' },
   // Step 4 (o4): «نفس مشوار البارحة؟» for a ride he takes most working days (on by default, one a day).
   { key: 'sameRide', icon: 'car', title: 'notify.pref.same_ride', hint: 'notify.pref.same_ride_hint' },
+  // Food carts: «{cart} فتح» when a followed cart opens (on by default; following is the opt-in).
+  { key: 'foodCarts', icon: 'food', title: 'notify.pref.food_carts', hint: 'notify.pref.food_carts_hint' },
   { key: 'marketing', icon: 'gift', title: 'notify.pref.marketing', hint: 'notify.pref.marketing_hint' },
 ];
 
@@ -51,6 +54,8 @@ export default function NotificationSettings() {
   const prefs = useNotifyPreferences();
   const save = useSetNotifyPreferences();
   const { permission, refresh, ask } = usePushPermission();
+  // CRIT3-01: the battery manager of this phone's maker, if it is one that stops apps.
+  const family = useMemo(() => batteryFamily(phoneMaker()), []);
 
   // Coming back from the phone's settings: read the permission again.
   useEffect(() => {
@@ -70,7 +75,7 @@ export default function NotificationSettings() {
     );
   };
 
-  const row = (r: { key: PrefKey; icon: 'bag' | 'chat' | 'gift' | 'bell' | 'receipt' | 'phone' | 'refresh' | 'car'; title: Parameters<typeof t>[0]; hint: Parameters<typeof t>[0] }, divider: boolean) => (
+  const row = (r: { key: PrefKey; icon: 'bag' | 'chat' | 'gift' | 'bell' | 'receipt' | 'phone' | 'refresh' | 'car' | 'food'; title: Parameters<typeof t>[0]; hint: Parameters<typeof t>[0] }, divider: boolean) => (
     <ListRow
       key={r.key}
       testID={`pref-${r.key}`}
@@ -81,16 +86,14 @@ export default function NotificationSettings() {
       divider={divider}
       trailing={
         prefs.data ? (
-          <Switch
+          <Toggle
             accessibilityLabel={t(r.title)}
             value={prefs.data[r.key]}
             onValueChange={(v) => toggle(r.key, v)}
-            trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-            {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
           />
-        ) : (
+        ) : prefs.isPending ? (
           <Skeleton width={44} height={24} />
-        )
+        ) : null
       }
     />
   );
@@ -117,6 +120,47 @@ export default function NotificationSettings() {
         </View>
       </Card>
 
+      {family && permission !== 'denied' ? (
+        <Card padding={4} elevation={0} testID="battery-guide" style={{ gap: theme.space[3] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+            <Icon name="battery" size={22} color="accentText" />
+            <Text variant="label" weight={700} style={{ flex: 1 }}>
+              {t('notify.battery.title')}
+            </Text>
+          </View>
+          <Text variant="footnote" color="textMuted">
+            {t('notify.battery.body')}
+          </Text>
+          <View style={{ gap: theme.space[2] }}>
+            {batterySteps(family).map((key, i) => (
+              <View key={key} style={{ flexDirection: 'row', gap: theme.space[2] }}>
+                <Text variant="label" weight={700} color="accentText" tabular>
+                  {i + 1}
+                </Text>
+                <Text variant="body" style={{ flex: 1 }}>
+                  {t(key)}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <Button testID="battery-open" size="md" variant="secondary" label={t('notify.battery.open')} onPress={() => void Linking.openSettings()} />
+        </Card>
+      ) : null}
+
+      {/* FLOW-29: switches that failed to load say so, with a retry, instead of skeletons forever. */}
+      {prefs.isError && prefs.data === undefined ? (
+        <QueryBoundary
+          query={prefs}
+          size="inline"
+          locale={locale}
+          testID="notify-prefs-state"
+          skeleton={null}
+          retry={{ server: { title: t('notify.settings.load_failed') }, slow: { title: t('notify.settings.load_failed') }, unreachable: { title: t('notify.settings.load_failed') } }}
+        >
+          {() => null}
+        </QueryBoundary>
+      ) : null}
+
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('notify.settings.section_push')} />
         <Card elevation={0} padding={0}>
@@ -141,12 +185,10 @@ export default function NotificationSettings() {
             subtitle={t('notify.settings.tracking_sounds_hint')}
             chevron={false}
             trailing={
-              <Switch
+              <Toggle
                 accessibilityLabel={t('notify.settings.tracking_sounds')}
                 value={sounds}
                 onValueChange={setSounds}
-                trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-                {...(Platform.OS === 'web' ? { activeThumbColor: theme.colors.surface } : {})}
               />
             }
           />

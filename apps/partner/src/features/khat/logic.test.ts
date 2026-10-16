@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { KhatRunTrip, KhatStopView } from '@driver/contracts';
-import { activeRunIndex, canReportAbsent, childAction, deliveredShare, groupPlaces, lookPauseLeft, needsSweep, nextStopAt, runChips, runFinished, runStart, runUnderway } from './logic';
+import { activeRunIndex, canReportAbsent, childAction, deliveredShare, groupPlaces, lookPauseLeft, minutesUntil, needsSweep, nextChild, nextStopAt, runChips, runFinished, runStart, runUnderway } from './logic';
 
 const T = (min: number) => new Date(Date.UTC(2026, 9, 4, 4, min));
 
 function stop(seq: number, type: 'pickup' | 'dropoff', zoneKey: string, ref: string, over: Partial<KhatStopView> = {}): KhatStopView {
-  return { stopId: `s${seq}`, seq, type, state: 'pending', zoneKey, windowStart: T(seq * 5), windowEnd: T(seq * 5 + 5), child: { childRef: ref, firstName: ref, photoUrl: null }, tappedInAt: null, tappedOutAt: null, absent: false, ...over };
+  return { stopId: `s${seq}`, seq, type, state: 'pending', zoneKey, windowStart: T(seq * 5), windowEnd: T(seq * 5 + 5), landmark: null, child: { childRef: ref, firstName: ref, photoUrl: null }, tappedInAt: null, tappedOutAt: null, absent: false, ...over };
 }
 
 function trip(stops: KhatStopView[], over: Partial<KhatRunTrip> = {}): KhatRunTrip {
@@ -112,5 +112,54 @@ describe('lookPauseLeft (sweep step 1 forced pause)', () => {
 
   it('a clock that steps back never lengthens the wait', () => {
     expect(lookPauseLeft(5_000, 4_000, 3)).toBe(3);
+  });
+});
+
+describe('partner redesign k2: the next child', () => {
+  const at = new Date('2026-10-08T05:00:00Z');
+  const st = (o: Partial<KhatStopView> & Pick<KhatStopView, 'stopId' | 'seq' | 'type' | 'zoneKey'>, name: string | null): KhatStopView => ({
+    state: 'pending',
+    windowStart: at,
+    windowEnd: null,
+    landmark: null,
+    child: name ? { childRef: `c-${name}`, firstName: name, photoUrl: null } : null,
+    tappedInAt: null,
+    tappedOutAt: null,
+    absent: false,
+    ...o,
+  });
+
+  it('is the first child at the current place who still needs a tap, with the others waiting there', () => {
+    const trip = {
+      stops: [
+        st({ stopId: 'a', seq: 1, type: 'pickup', zoneKey: 'hashimi', tappedInAt: at, state: 'completed' }, 'زينب'),
+        st({ stopId: 'b', seq: 2, type: 'pickup', zoneKey: 'shukri', absent: true }, 'علي'),
+        st({ stopId: 'c', seq: 3, type: 'pickup', zoneKey: 'shukri' }, 'مريم'),
+        st({ stopId: 'd', seq: 4, type: 'pickup', zoneKey: 'shukri' }, 'سجى'),
+        st({ stopId: 'e', seq: 5, type: 'dropoff', zoneKey: 'centre' }, 'زينب'),
+      ],
+    };
+    const n = nextChild(trip, groupPlaces(trip));
+    expect(n?.stop.stopId).toBe('c');
+    expect(n?.alsoHere).toEqual(['سجى']);
+  });
+
+  it('at the school it is the first child to drop; none when the run is done', () => {
+    const trip = {
+      stops: [
+        st({ stopId: 'a', seq: 1, type: 'pickup', zoneKey: 'hashimi', tappedInAt: at, state: 'completed' }, 'زينب'),
+        st({ stopId: 'e', seq: 2, type: 'dropoff', zoneKey: 'centre' }, 'زينب'),
+      ],
+    };
+    expect(nextChild(trip, groupPlaces(trip))?.stop.stopId).toBe('e');
+    const done = { stops: trip.stops.map((s) => ({ ...s, state: 'completed' as const, tappedOutAt: s.type === 'dropoff' ? at : null })) };
+    expect(nextChild(done, groupPlaces(done))).toBeNull();
+  });
+
+  it('counts whole minutes up to the stop time, 0 once due, null without a time', () => {
+    expect(minutesUntil(at, at.getTime() - 5 * 60_000 - 100)).toBe(6);
+    expect(minutesUntil(at, at.getTime() - 60_000)).toBe(1);
+    expect(minutesUntil(at, at.getTime() + 1)).toBe(0);
+    expect(minutesUntil(null, 0)).toBeNull();
   });
 });

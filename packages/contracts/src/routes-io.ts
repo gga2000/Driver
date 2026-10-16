@@ -1,8 +1,11 @@
 import { z } from 'zod';
 import { CityId, Iqd, LatLng } from './common.js';
-import type { Actor } from './identity-io.js';
+import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
+import { RIDE_RIDER_NAME_MAX } from './order.js';
 import type { CallSession } from './chat-io.js';
 import type { SafetyCallSession } from './safety-io.js';
+import type { OverdueDeparture, OverdueDeparturesInput, StaffDepartureDriver, StaffDepartureDriversInput, StaffDepartureInput, StaffDepartureResult } from './departure-staff-io.js';
+import { modelFitsLayout, VehicleModelKey } from './vehicle-models.js';
 
 /**
  * الرجعة — the intercity system (customer spec §2, domain §2 Departure/Seat, edge-case decisions
@@ -129,6 +132,16 @@ export const MeetingPointView = z.object({
 });
 export type MeetingPointView = z.infer<typeof MeetingPointView>;
 
+/** A police checkpoint on the road (idea r1: on the trip's road line); its geofence stays on the server. */
+export const CheckpointView = z.object({
+  id: z.string(),
+  nameAr: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  draft: z.boolean(),
+});
+export type CheckpointView = z.infer<typeof CheckpointView>;
+
 export const CorridorView = z.object({
   id: z.string(),
   nameAr: z.string(),
@@ -142,6 +155,8 @@ export const CorridorView = z.object({
   /** True while the fare is a placeholder awaiting Ali's real fares. */
   placeholderPrice: z.boolean(),
   meetingPoints: z.array(MeetingPointView),
+  /** Checkpoints on the road, in no particular order (the app orders them by the direction). */
+  checkpoints: z.array(CheckpointView).default([]),
 });
 export type CorridorView = z.infer<typeof CorridorView>;
 
@@ -163,6 +178,8 @@ export const PickupChoice = z.discriminatedUnion('kind', [
     lng: LatLng.shape.lng,
     note: z.string().max(200).optional(),
   }),
+  /** Step 4: the rider's pin on the way, at the price the driver and rider agreed (`agreements.*`). */
+  z.object({ kind: z.literal('pin'), agreementId: z.string().min(1) }),
 ]);
 export type PickupChoice = z.infer<typeof PickupChoice>;
 
@@ -170,7 +187,7 @@ export const PickupStatus = z.enum(['accepted', 'pending', 'declined']);
 export type PickupStatus = z.infer<typeof PickupStatus>;
 
 export const PickupView = z.object({
-  kind: z.enum(['garage', 'meeting_point', 'door']),
+  kind: z.enum(['garage', 'meeting_point', 'door', 'pin']),
   meetingPointId: z.string().nullable(),
   nameAr: z.string().nullable(),
   lat: z.number(),
@@ -181,8 +198,89 @@ export const PickupView = z.object({
   status: PickupStatus,
   /** Door pickups: the driver's detour (both ways) the driver sees before accepting. */
   detourMin: z.number().int().nullable(),
+  /** Step 4: a pin pickup's agreement (its price is `feeIqd`, locked on the booking). */
+  agreementId: z.string().nullable().default(null),
 });
 export type PickupView = z.infer<typeof PickupView>;
+
+// ───────────────────────── agreed prices (step 4) ─────────────────────────
+
+/**
+ * Agreed trip prices (Ali 2026-10-07, design votes 2026-10-08; docs/specs/2026-10-08-agreed-trip-prices.md):
+ * the rider asks for a pickup from his pin on the way or a drop at a door, the departure's driver
+ * names the price (whole 1,000s, 0 = «ببلاش»), the rider accepts, and booking locks it.
+ */
+export const AGREEMENT_STEP_IQD = 1_000;
+export const AGREEMENT_MAX_IQD = 25_000;
+/** An unanswered proposal expires after this long (a7). */
+export const AGREEMENT_PROPOSAL_TTL_MIN = 30;
+/** Asks one rider may make on one departure (spam guard). */
+export const AGREEMENT_ASKS_PER_DEPARTURE = 6;
+
+export const AgreementKind = z.enum(['pin_pickup', 'door_drop']);
+export type AgreementKind = z.infer<typeof AgreementKind>;
+
+export const AgreementState = z.enum(['asked', 'proposed', 'accepted', 'declined', 'expired', 'withdrawn', 'used']);
+export type AgreementState = z.infer<typeof AgreementState>;
+
+/** An agreed amount: whole 1,000s from 0 («ببلاش») to 25,000. */
+export function agreementAmountOk(n: number): boolean {
+  return Number.isInteger(n) && n >= 0 && n <= AGREEMENT_MAX_IQD && n % AGREEMENT_STEP_IQD === 0;
+}
+
+export const AskAgreementInput = z.object({
+  departureId: z.string().min(1),
+  kind: AgreementKind,
+  lat: LatLng.shape.lat,
+  lng: LatLng.shape.lng,
+  note: z.string().trim().max(200).optional(),
+});
+export type AskAgreementInput = z.input<typeof AskAgreementInput>;
+
+export const AgreementIdInput = z.object({ agreementId: z.string().min(1) });
+export type AgreementIdInput = z.infer<typeof AgreementIdInput>;
+
+export const ProposeAgreementInput = z.object({
+  agreementId: z.string().min(1),
+  amountIqd: z.number().int(),
+});
+export type ProposeAgreementInput = z.infer<typeof ProposeAgreementInput>;
+
+export const RespondAgreementInput = z.object({ agreementId: z.string().min(1), accept: z.boolean() });
+export type RespondAgreementInput = z.infer<typeof RespondAgreementInput>;
+
+export const AgreementView = z.object({
+  id: z.string(),
+  departureId: z.string(),
+  riderId: z.string(),
+  kind: AgreementKind,
+  state: AgreementState,
+  lat: z.number(),
+  lng: z.number(),
+  note: z.string().nullable(),
+  /** The driver's price; null while only asked. */
+  amountIqd: Iqd.nullable(),
+  askedAt: z.coerce.date(),
+  proposedAt: z.coerce.date().nullable(),
+  /** When an unanswered proposal lapses. */
+  expiresAt: z.coerce.date().nullable(),
+  decidedAt: z.coerce.date().nullable(),
+  /** The booking that locked it. */
+  bookingId: z.string().nullable(),
+  /** Driver's view only: the rider's first name (vault read, logged); null for the rider. */
+  riderFirstName: z.string().nullable().default(null),
+});
+export type AgreementView = z.infer<typeof AgreementView>;
+
+/** A booking's agreed door drop (step 4), locked like the pin pickup. */
+export const DropoffView = z.object({
+  agreementId: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+  note: z.string().nullable(),
+  feeIqd: Iqd,
+});
+export type DropoffView = z.infer<typeof DropoffView>;
 
 // ───────────────────────── the board ─────────────────────────
 
@@ -213,8 +311,17 @@ export const IntercityVehicle = z.object({
   kind: IntercityVehicleKind,
   layout: IntercitySeatLayout,
   plate: z.string(),
+  /** The listed model (`vehicle-models.ts`); null on runs announced before the list existed. */
+  modelKey: VehicleModelKey.nullable().default(null),
+  /** Free text: the model when `modelKey` is `other` (or a pre-list run). */
   model: z.string().nullable(),
   color: z.string().nullable(),
+  /** The driver's word for this run (idea x15): nobody smokes in the car → «ما يدخن». */
+  noSmoking: z.boolean().default(false),
+  /** The driver's word for this run: the boot takes big suitcases → «جناط كبيرة». */
+  bigBags: z.boolean().default(false),
+  /** The driver's word for this run (idea b7): the AC works (cool in summer, warm in winter) → «مكيّفة». */
+  ac: z.boolean().default(false),
 });
 export type IntercityVehicle = z.infer<typeof IntercityVehicle>;
 
@@ -282,6 +389,14 @@ export type IntercityBoard = z.infer<typeof IntercityBoard>;
 
 // ───────────────────────── bookings ─────────────────────────
 
+/** Step 5: most children on laps in one booking (and never more than its seats other than the front). */
+export const LAP_CHILDREN_MAX = 3;
+
+/** Step 5: lap children a booking of these seats may carry: one per seat, the front seat none. */
+export function lapChildrenAllowed(seatIds: readonly IntercitySeatId[]): number {
+  return Math.min(LAP_CHILDREN_MAX, seatIds.filter((s) => s !== 'front').length);
+}
+
 export const SeatSelection = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('seats'), seatIds: z.array(IntercitySeatId).min(1).max(7) }),
   /** "Book the row". */
@@ -298,6 +413,13 @@ export const HoldSeatInput = z.object({
   pickup: PickupChoice.default({ kind: 'garage' }),
   /** Large bags declared at booking (review C-43). */
   largeBags: z.boolean().default(false),
+  /** Step 4: a door drop at the agreed price. */
+  dropoff: AgreementIdInput.optional(),
+  /**
+   * Step 5 (Ali's item 52): small children riding on a lap, free. At most one per booked seat, never on
+   * the front seat; the driver sees them on his list.
+   */
+  lapChildren: z.number().int().min(0).max(LAP_CHILDREN_MAX).default(0),
 });
 export type HoldSeatInput = z.input<typeof HoldSeatInput>;
 
@@ -310,11 +432,15 @@ export type BookingIdInput = z.infer<typeof BookingIdInput>;
 export const DepartureSummary = z.object({
   id: z.string(),
   corridorId: z.string(),
+  /** The corridor's far city (Baghdad, Kut), so a ticket names its road even when the network read fails. */
+  cityId: CityId.optional(),
   direction: IntercityDirection,
   garageId: z.string(),
   departAt: z.coerce.date(),
   latestDepartureAt: z.coerce.date(),
   state: IntercityDepartureState,
+  /** When the car actually left (the pass on the road says «طلعت 7:24»); null before. */
+  departedAt: z.coerce.date().nullable().default(null),
   vehicle: IntercityVehicle,
   driverId: z.string(),
 });
@@ -332,11 +458,49 @@ export const RAJAA_LOW_TAGS: readonly RajaaRatingTag[] = ['late', 'fast_driving'
 /** Stars at or under this ask what went wrong. */
 export const RAJAA_LOW_STARS = 3;
 
-export const BookingRating = z.object({ stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag), at: z.coerce.date() });
+/**
+ * «كلمة عن السفرة» (idea x14, Ali 2026-10-07): one optional line under the stars. Other riders read it on
+ * the driver's profile without the writer's name, newest first; ops can hide one (`routes.hideReview`).
+ */
+export const RAJAA_REVIEW_MAX = 140;
+
+const ARABIC_DIGITS = /[\u0660-\u0669\u06F0-\u06F9]/g;
+
+/**
+ * Why a review line can't be posted as written, or null. Reviews are public, so they must not carry a
+ * way to reach someone off the app: a phone number (7+ digits, Western or Arabic-Indic, spaces and
+ * dashes between them ignored), a link, or an @handle. Checked on the server and, for an inline hint,
+ * in the app.
+ */
+export function reviewTextProblem(text: string): 'contact' | null {
+  const western = text.replace(ARABIC_DIGITS, (d) => String(d.charCodeAt(0) & 0xf));
+  if (/\d(?:[\s\-.\u200f\u200e]*\d){6,}/.test(western)) return 'contact';
+  if (/(?:https?:\/\/|www\.)|\b[a-z0-9-]+\.(?:com|net|org|iq|me|ly|link)\b/i.test(western)) return 'contact';
+  if (/(?:^|\s)@[a-z0-9_.]{3,}/i.test(western)) return 'contact';
+  return null;
+}
+
+export const BookingRating = z.object({
+  stars: z.number().int().min(1).max(5),
+  tags: z.array(RajaaRatingTag),
+  /** The rider's one line, as he wrote it; null when he wrote none. */
+  comment: z.string().nullable().default(null),
+  at: z.coerce.date(),
+});
 export type BookingRating = z.infer<typeof BookingRating>;
 
-/** Once, on the rider's own completed booking. */
-export const RateBookingInput = z.object({ bookingId: z.string().min(1), stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag).max(7).default([]) });
+/** Once, on the rider's own completed booking. An empty line is no line. */
+export const RateBookingInput = z.object({
+  bookingId: z.string().min(1),
+  stars: z.number().int().min(1).max(5),
+  tags: z.array(RajaaRatingTag).max(7).default([]),
+  comment: z
+    .string()
+    .trim()
+    .max(RAJAA_REVIEW_MAX)
+    .optional()
+    .transform((c) => (c ? c : undefined)),
+});
 export type RateBookingInput = z.input<typeof RateBookingInput>;
 
 export const BookingView = z.object({
@@ -351,6 +515,22 @@ export const BookingView = z.object({
   seatPriceIqd: Iqd,
   frontPremiumIqd: Iqd,
   pickupFeeIqd: Iqd,
+  /** Step 4: the agreed door drop's price (0 without one); in `totalIqd`. */
+  dropoffFeeIqd: Iqd.default(0),
+  /**
+   * Step 5: the return-trip discount on this booking (taken off `totalIqd`). On a hold it is what booking
+   * now would give (his seat the other way is still booked); on a booking it is locked with its pair.
+   */
+  returnDiscountIqd: Iqd.default(0),
+  /** Step 5: the booking the other way this one is paired with (null: none). */
+  returnPairBookingId: z.string().nullable().default(null),
+  /**
+   * Step 5: booking a seat back on this road now takes this percent off both (switch on, this seat is
+   * booked, unpaired, and its car has not left); null otherwise. Labels only: the server prices it.
+   */
+  returnOfferPercent: z.number().int().nullable().default(null),
+  /** Step 5: small children riding free on a lap. */
+  lapChildren: z.number().int().nonnegative().default(0),
   totalIqd: Iqd,
   payment: SeatPayment.nullable(),
   prepaid: z.boolean(),
@@ -359,6 +539,8 @@ export const BookingView = z.object({
   /** The rider's boarding PIN; shown to the rider only. */
   pin: z.string().nullable(),
   pickup: PickupView,
+  /** Step 4: the agreed door drop, or null (the destination garage). */
+  dropoff: DropoffView.nullable().default(null),
   largeBags: z.boolean(),
   movedToBookingId: z.string().nullable(),
   movedFromBookingId: z.string().nullable(),
@@ -464,7 +646,7 @@ export const DemandPostView = z.object({
   corridorId: z.string(),
   direction: IntercityDirection,
   garageId: z.string().nullable(),
-  pickupKind: z.enum(['garage', 'meeting_point', 'door']),
+  pickupKind: z.enum(['garage', 'meeting_point', 'door', 'pin']),
   windowStart: z.coerce.date(),
   windowEnd: z.coerce.date(),
   seats: z.number().int(),
@@ -489,24 +671,102 @@ export type DemandBoardInput = z.infer<typeof DemandBoardInput>;
 
 // ───────────────────────── request board ─────────────────────────
 
+/** y2: the places most private trips from Aziziyah go to, picked with one tap (the app's chips). */
+export const RequestPlaceId = z.enum(['baghdad_airport', 'karbala', 'najaf', 'kut', 'medical_city']);
+export type RequestPlaceId = z.infer<typeof RequestPlaceId>;
+
 export const RequestPlace = z.object({
   label: z.string().min(1).max(120),
   lat: LatLng.shape.lat.optional(),
   lng: LatLng.shape.lng.optional(),
   garageId: z.string().min(1).optional(),
+  /** Set when the place came from a chip: the usual price range (p1) is kept per known place. */
+  placeId: RequestPlaceId.optional(),
 });
 export type RequestPlace = z.infer<typeof RequestPlace>;
 
-export const PostRequestInput = z.object({
-  from: RequestPlace,
-  to: RequestPlace,
-  when: z.coerce.date(),
-  seats: z.number().int().min(1).max(7),
-  /** Whole car for the rider (8 % take) vs seats to another destination. */
-  privateCar: z.boolean().default(true),
-  travellingAs: TravellingAs,
-  note: z.string().max(300).optional(),
+/**
+ * What kind of trip a private-car request is (idea y1, Ali 2026-10-07): one way («بس رايح»); there and
+ * back the same day with the driver waiting some hours; there one day and back on another (within a
+ * week); or «جيب واحد» (k1, Ali 2026-10-07): the car goes to fetch someone else and brings them to
+ * home or another place (k4), booked and paid by the poster, who need not be in the car.
+ */
+export const RequestTripKind = z.enum(['one_way', 'wait_return', 'two_days', 'fetch']);
+export type RequestTripKind = z.infer<typeof RequestTripKind>;
+
+/** Hours a driver may be asked to wait on a same-day return. */
+export const REQUEST_WAIT_HOURS_MAX = 12;
+/** A two-day trip comes back within this many days. */
+export const REQUEST_RETURN_DAYS_MAX = 7;
+
+/** The request's details the drivers price on (y1): trip kind, big bags, the car wanted. */
+export const RequestDetails = z.object({
+  trip: RequestTripKind.default('one_way'),
+  /** `wait_return`: how long the driver waits before the way back. */
+  waitHours: z.number().int().min(1).max(REQUEST_WAIT_HOURS_MAX).nullable().default(null),
+  /** `two_days`: when to come back. */
+  returnAt: z.coerce.date().nullable().default(null),
+  /** Suitcases that need the boot. */
+  bigBags: z.number().int().min(0).max(7).default(0),
+  /** The car wanted; null = any. */
+  carKind: IntercityVehicleKind.nullable().default(null),
+  /** The rider wants the AC working. */
+  ac: z.boolean().default(false),
 });
+export type RequestDetails = z.infer<typeof RequestDetails>;
+export const DEFAULT_REQUEST_DETAILS: RequestDetails = { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false };
+
+/**
+ * p1 with k1: the known place a trip's usual range is kept for, the far end of the trip: where a
+ * «جيب واحد» car fetches someone from, otherwise where the trip goes.
+ */
+export function requestKnownPlace(r: { from: Pick<RequestPlace, 'placeId'>; to: Pick<RequestPlace, 'placeId'>; details: Pick<RequestDetails, 'trip'> }): RequestPlaceId | null {
+  return (r.details.trip === 'fetch' ? r.from.placeId : r.to.placeId) ?? null;
+}
+
+/** Why a request's details don't hold together (checked on the server and, for the form, the app). */
+export function requestDetailsProblem(d: RequestDetails, when: Date): 'wait_hours_needed' | 'return_needed' | 'return_too_early' | 'return_too_late' | null {
+  if (d.trip === 'wait_return' && d.waitHours === null) return 'wait_hours_needed';
+  if (d.trip !== 'two_days') return null;
+  if (!d.returnAt) return 'return_needed';
+  if (d.returnAt.getTime() <= when.getTime() + 3_600_000) return 'return_too_early';
+  if (d.returnAt.getTime() > when.getTime() + REQUEST_RETURN_DAYS_MAX * 86_400_000) return 'return_too_late';
+  return null;
+}
+
+/**
+ * k2 «جيب واحد»: who the car fetches, as on a taxi booked for someone else (`RideRiderInput`,
+ * docs/api/ride-for-someone.md): a name and Iraqi mobile number typed now, one of the poster's trusted
+ * people (w9, by list position), or someone in his household. The server turns it into a person; the
+ * name lives in the identity vault only and the number never leaves it.
+ */
+export const RequestRiderInput = z.discriminatedUnion('from', [
+  z.object({ from: z.literal('typed'), name: z.string().trim().min(1).max(RIDE_RIDER_NAME_MAX), phone: z.string().min(7).max(20) }),
+  z.object({ from: z.literal('trusted'), index: z.number().int().min(0).max(TRUSTED_CONTACTS_MAX - 1) }),
+  z.object({ from: z.literal('household'), householdId: z.string().min(1), personId: z.string().min(1) }),
+]);
+export type RequestRiderInput = z.infer<typeof RequestRiderInput>;
+
+export const PostRequestInput = z
+  .object({
+    from: RequestPlace,
+    to: RequestPlace,
+    when: z.coerce.date(),
+    seats: z.number().int().min(1).max(7),
+    /** Whole car for the rider (8 % take) vs seats to another destination. */
+    privateCar: z.boolean().default(true),
+    travellingAs: TravellingAs,
+    note: z.string().max(300).optional(),
+    details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+    /** k2: the person a «جيب واحد» trip fetches; required on that kind, refused on the others. */
+    rider: RequestRiderInput.optional(),
+  })
+  .superRefine((v, ctx) => {
+    const problem = requestDetailsProblem(v.details, v.when);
+    if (problem) ctx.addIssue({ code: 'custom', path: ['details'], message: problem });
+    if (v.details.trip === 'fetch' && !v.rider) ctx.addIssue({ code: 'custom', path: ['rider'], message: 'rider_needed' });
+    if (v.details.trip !== 'fetch' && v.rider) ctx.addIssue({ code: 'custom', path: ['rider'], message: 'rider_only_on_fetch' });
+  });
 export type PostRequestInput = z.input<typeof PostRequestInput>;
 
 export const RequestState = z.enum([
@@ -533,18 +793,173 @@ export const RequestOfferDriver = z.object({
   /** Short-lived signed URL (absolute, or relative to the API origin); only an approved photo. */
   photoUrl: z.string().nullable(),
   vehicle: IntercityVehicle.nullable(),
+  /** His record on الرجعة runs (y5: rating, trips, on-time); null on a driver's own view. */
+  stats: z.lazy(() => RajaaDriverStats).nullable().default(null),
+  /** Private trips (request board) he completed (y5). */
+  privateTrips: z.number().int().nonnegative().default(0),
 });
 export type RequestOfferDriver = z.infer<typeof RequestOfferDriver>;
+
+/**
+ * w1 (Ali 2026-10-07): on a «يستناك وترجع» trip each driver says in his offer how many hours of
+ * waiting his price includes and what each extra hour costs; no app-wide number. Shown on his card.
+ */
+export const OfferWaitTerms = z.object({
+  includedHours: z.number().int().min(0).max(REQUEST_WAIT_HOURS_MAX),
+  /** 0 = extra hours free; otherwise in multiples of 1,000 like the offer. */
+  extraHourIqd: Iqd.min(0).max(50_000),
+});
+export type OfferWaitTerms = z.infer<typeof OfferWaitTerms>;
+
+/** Trip kinds whose offers must carry waiting terms. */
+export function offerNeedsWaitTerms(d: RequestDetails): boolean {
+  return d.trip === 'wait_return';
+}
+
+/**
+ * w2–w4: the waiting clock on a «يستناك وترجع» trip. The driver starts it when he drops the rider and
+ * stops it when the rider is back in the car; both apps show the same clock from these two times.
+ * Extra waiting (w4, Ali 2026-10-08 "do what is best and fair"): the first `freeMin` minutes past the
+ * included hours are free, then each started hour costs the driver's own extra-hour price. The server
+ * counts it; nobody types it. `charged` is false while the money rule is switched off.
+ */
+export const RequestWaitClock = z.object({
+  startedAt: z.coerce.date(),
+  endedAt: z.coerce.date().nullable(),
+  includedHours: z.number().int().min(0).max(REQUEST_WAIT_HOURS_MAX),
+  extraHourIqd: Iqd.min(0),
+  freeMin: z.number().int().nonnegative(),
+  charged: z.boolean(),
+});
+export type RequestWaitClock = z.infer<typeof RequestWaitClock>;
+
+/** w3: both sides hear this long before the included hours run out. */
+export const WAIT_REMINDER_MIN = 10;
+
+/** Whole minutes waited so far (or in all, once stopped). */
+export function waitedMinutes(c: Pick<RequestWaitClock, 'startedAt' | 'endedAt'>, now: Date): number {
+  const end = c.endedAt ?? now;
+  return Math.max(0, Math.floor((end.getTime() - c.startedAt.getTime()) / 60_000));
+}
+
+/** When the included hours end. */
+export function includedWaitEndsAt(c: Pick<RequestWaitClock, 'startedAt' | 'includedHours'>): Date {
+  return new Date(c.startedAt.getTime() + c.includedHours * 3_600_000);
+}
+
+/** Extra hours for a wait: 0 within the included hours and the free minutes after them, then each started hour. */
+export function extraWaitHours(waitedMin: number, includedHours: number, freeMin: number): number {
+  const over = waitedMin - includedHours * 60 - freeMin;
+  return over > 0 ? Math.ceil(over / 60) : 0;
+}
+
+/** What the extra waiting adds to the cash (0 while the rule is off). */
+export function waitExtraIqd(c: RequestWaitClock, now: Date): number {
+  if (!c.charged) return 0;
+  return extraWaitHours(waitedMinutes(c, now), c.includedHours, c.freeMin) * c.extraHourIqd;
+}
+
+/**
+ * p1–p3 (Ali 2026-10-07): «عادةً بين … و …» from real finished private trips only, to the same known
+ * place with the same trip kind, at least 5 in the last 90 days; never a made-up number. The middle
+ * of what people paid (20th to 80th percentile), rounded to 1,000.
+ */
+export const UsualRange = z.object({
+  lowIqd: Iqd,
+  highIqd: Iqd,
+  /** How many finished trips it comes from. */
+  trips: z.number().int().positive(),
+});
+export type UsualRange = z.infer<typeof UsualRange>;
+
+export const USUAL_RANGE_MIN_TRIPS = 5;
+export const USUAL_RANGE_DAYS = 90;
+/** p3: an offer more than a quarter above the top of the range gets a soft «أغلى من المعتاد». */
+export const PRICIER_THAN_USUAL = 1.25;
+
+export function pricierThanUsual(priceIqd: number, range: UsualRange | null | undefined): boolean {
+  return range != null && priceIqd > range.highIqd * PRICIER_THAN_USUAL;
+}
+
+/** The range from finished trips' prices (null below the minimum count). */
+export function usualRangeOf(prices: readonly number[]): UsualRange | null {
+  if (prices.length < USUAL_RANGE_MIN_TRIPS) return null;
+  const sorted = [...prices].sort((a, b) => a - b);
+  // Nearest-rank percentiles, so every bound is a price someone actually paid before rounding.
+  const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!;
+  const round = (v: number) => Math.max(1_000, Math.round(v / 1_000) * 1_000);
+  return { lowIqd: round(at(0.2)), highIqd: round(at(0.8)), trips: sorted.length };
+}
+
+/** Step 4b a6: a rider's «احجز وادفع كاش» ask on one offer, and the driver's answer. */
+export const OfferCashState = z.enum(['asked', 'accepted', 'declined']);
+export type OfferCashState = z.infer<typeof OfferCashState>;
 
 export const RequestOfferView = z.object({
   id: z.string(),
   driverId: z.string(),
   priceIqd: Iqd,
+  /** w1: what his price includes on a «يستناك وترجع» trip; null on other trips. */
+  wait: OfferWaitTerms.nullable().default(null),
   at: z.coerce.date(),
   state: z.enum(['open', 'picked', 'withdrawn', 'lost']),
   driver: RequestOfferDriver.nullable(),
+  /** Step 4b a6 «احجز وادفع كاش»: the rider asked this driver, and his answer; null when never asked. */
+  cash: OfferCashState.nullable().default(null),
 });
 export type RequestOfferView = z.infer<typeof RequestOfferView>;
+
+/**
+ * Step 6 (Ali's item 56, rules s1–s4): the booker of a private car shares it by a link. The price is
+ * split evenly over the people he posted for (`seats`): each place rounded down to 250, the rest on
+ * him. A friend pays his places from his wallet (held until the trip ends); joining closes a set
+ * time before the trip, and places nobody took stay the booker's, in cash.
+ */
+export const REQUEST_SHARE_PLACES_MAX = 6;
+export const RequestShareMemberState = z.enum(['joined', 'left', 'released', 'paid']);
+export type RequestShareMemberState = z.infer<typeof RequestShareMemberState>;
+
+/** What one place costs: the price over the people, rounded down to 250. */
+export function sharePlaceIqd(priceIqd: number, people: number): number {
+  return Math.floor(priceIqd / people / 250) * 250;
+}
+
+/** Way C (Ali 2026-10-09): who confirmed a friend got in, the friend himself or the driver for him. */
+export const RequestShareBoardedBy = z.enum(['self', 'driver']);
+export type RequestShareBoardedBy = z.infer<typeof RequestShareBoardedBy>;
+
+export const RequestShareMember = z.object({
+  /** The member row (the driver names it when he taps «صعد» for this friend). */
+  id: z.string(),
+  /** First name from the identity vault (the booker's view, and the picked driver's while the trip is live). */
+  firstName: z.string().nullable(),
+  places: z.number().int().positive(),
+  amountIqd: Iqd,
+  state: RequestShareMemberState,
+  /** «صعدت»: null until he (or the driver for him) confirms he is in the car. */
+  boardedBy: RequestShareBoardedBy.nullable().default(null),
+});
+export type RequestShareMember = z.infer<typeof RequestShareMember>;
+
+export const RequestShareView = z.object({
+  /** The link's path (`/rajaa/join/<code>`); the booker's view only (null for the driver). */
+  path: z.string().nullable(),
+  /** Everyone in the car: the people the request was posted for. */
+  people: z.number().int().positive(),
+  bookerPlaces: z.number().int().positive(),
+  placeIqd: Iqd,
+  /** Joining closes at this time; after it, places nobody took stay the booker's. */
+  closesAt: z.coerce.date(),
+  open: z.boolean(),
+  placesLeft: z.number().int().nonnegative(),
+  /** Friends who joined (and those who left or were released), oldest first. */
+  members: z.array(RequestShareMember),
+  /** What friends' wallets cover now. */
+  friendsIqd: Iqd,
+  /** What is left for the driver to collect in cash at the end (after the deposit and the friends). */
+  cashIqd: Iqd,
+});
+export type RequestShareView = z.infer<typeof RequestShareView>;
 
 export const RequestPostView = z.object({
   id: z.string(),
@@ -556,6 +971,11 @@ export const RequestPostView = z.object({
   privateCar: z.boolean(),
   travellingAs: TravellingAs,
   note: z.string().nullable(),
+  details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+  /** p1/p2: what this trip usually costs, for the rider and the drivers offering; null when not known. */
+  usualRange: UsualRange.nullable().default(null),
+  /** «9 سواق شافوا طلبك» (y4): drivers who opened this request; only the rider sees it. */
+  seenBy: z.number().int().nonnegative().default(0),
   state: RequestState,
   /** `stranded`: opened by the platform at the seat price for a forfeited or stranded rider (review C-40/46). */
   origin: z.enum(['rider', 'stranded']),
@@ -563,11 +983,84 @@ export const RequestPostView = z.object({
   priceCapIqd: Iqd.nullable(),
   offers: z.array(RequestOfferView),
   pickedOfferId: z.string().nullable(),
-  /** 20 % of the picked price, min 5,000, held on the wallet (review C-50). */
+  /**
+   * 20 % of the picked price, min 5,000 (review C-50): held on the wallet, or on a cash reservation
+   * (step 4b) not held and only owed on a no-show.
+   */
   depositIqd: Iqd.nullable(),
+  /** Step 4b a6: picked as «احجز وادفع كاش» (the driver agreed): no deposit held, all of it in cash. */
+  cashReserved: z.boolean().default(false),
+  /** Step 4b: whether «احجز وادفع كاش» can be asked on this post now (the money switch is on). */
+  cashReservationOn: z.boolean().default(false),
+  /** w2: the waiting clock once the driver started it («يستناك وترجع» only). */
+  waitClock: RequestWaitClock.nullable().default(null),
+  /**
+   * k2 «جيب واحد»: the person fetched, by the name the poster gave them («ماما»), read from the vault
+   * for the poster and the driver he picked only; null on other trips and for everyone else.
+   */
+  rider: z.object({ name: z.string() }).nullable().default(null),
+  /** Step 6: the car shared by link (booker and picked driver); null while not shared. */
+  share: RequestShareView.nullable().default(null),
+  /** Step 6: whether the booker can open the share link now (switch on, picked, before it closes, 2+ people). */
+  shareable: z.boolean().default(false),
   createdAt: z.coerce.date(),
 });
 export type RequestPostView = z.infer<typeof RequestPostView>;
+
+/** Step 6: the booker opens the link, saying how many of the places are his own (him and his family). */
+export const RequestShareOpenInput = z.object({
+  postId: z.string().min(1),
+  bookerPlaces: z.number().int().min(1).max(REQUEST_SHARE_PLACES_MAX).default(1),
+});
+export type RequestShareOpenInput = z.input<typeof RequestShareOpenInput>;
+
+export const RequestShareCodeInput = z.object({ code: z.string().regex(/^[A-Z2-9]{8}$/) });
+export type RequestShareCodeInput = z.infer<typeof RequestShareCodeInput>;
+
+/** Way C: the friend's «صعدت», with where he is (checked against the car, never stored). */
+export const RequestShareBoardInput = RequestShareCodeInput.extend({ lat: LatLng.shape.lat, lng: LatLng.shape.lng });
+export type RequestShareBoardInput = z.infer<typeof RequestShareBoardInput>;
+
+/** Way C: the driver's «صعد» for a friend whose phone can't. */
+export const RequestShareBoardForInput = z.object({ postId: z.string().min(1), memberId: z.string().min(1) });
+export type RequestShareBoardForInput = z.infer<typeof RequestShareBoardForInput>;
+
+export const RequestShareJoinInput = RequestShareCodeInput.extend({
+  places: z.number().int().min(1).max(REQUEST_SHARE_PLACES_MAX).default(1),
+});
+export type RequestShareJoinInput = z.input<typeof RequestShareJoinInput>;
+
+/**
+ * Step 6: what a friend sees from the link: the trip (no offers, no other prices), his own places
+ * and what they cost, and the live state once he joined.
+ */
+export const RequestShareInvite = z.object({
+  code: z.string(),
+  postId: z.string(),
+  state: RequestState,
+  from: RequestPlace,
+  to: RequestPlace,
+  when: z.coerce.date(),
+  details: RequestDetails.default(DEFAULT_REQUEST_DETAILS),
+  /** The booker's first name («أحمد يتقاسم السيارة وياك»). */
+  bookerName: z.string().nullable(),
+  driver: RequestOfferDriver.nullable(),
+  people: z.number().int().positive(),
+  placeIqd: Iqd,
+  placesLeft: z.number().int().nonnegative(),
+  closesAt: z.coerce.date(),
+  open: z.boolean(),
+  /** His own places (0 before he joins) and their state. */
+  myPlaces: z.number().int().nonnegative(),
+  myAmountIqd: Iqd,
+  myState: RequestShareMemberState.nullable(),
+  driverArrivedAt: z.coerce.date().nullable(),
+  /** Way C: whether he is in the car, and who said so (a driver's tap he can answer «ما صعدت»). */
+  myBoardedBy: RequestShareBoardedBy.nullable().default(null),
+  /** Way C: «صعدت» works within this many metres of where the driver pressed «وصلت». */
+  boardNearM: z.number().int().positive().default(300),
+});
+export type RequestShareInvite = z.infer<typeof RequestShareInvite>;
 
 export const RequestIdInput = z.object({ postId: z.string().min(1) });
 export type RequestIdInput = z.infer<typeof RequestIdInput>;
@@ -576,13 +1069,32 @@ export const RequestOfferInput = z.object({
   postId: z.string().min(1),
   /** Offers in multiples of 1,000 (review C-50). */
   priceIqd: Iqd.positive(),
+  /** w1: required on a «يستناك وترجع» request, refused on others. */
+  wait: OfferWaitTerms.optional(),
 });
 export type RequestOfferInput = z.infer<typeof RequestOfferInput>;
 
-export const PickOfferInput = z.object({ postId: z.string().min(1), offerId: z.string().min(1) });
+export const PickOfferInput = z.object({
+  postId: z.string().min(1),
+  offerId: z.string().min(1),
+  /** Step 4b a6: book on the driver's «احجز وادفع كاش» yes (no deposit held). */
+  cash: z.boolean().default(false),
+});
 export type PickOfferInput = z.infer<typeof PickOfferInput>;
 
+/** Step 4b a6: the rider asks one driver who offered whether he may book and pay it all in cash. */
+export const AskCashInput = z.object({ postId: z.string().min(1), offerId: z.string().min(1) });
+export type AskCashInput = z.infer<typeof AskCashInput>;
+
+/** Step 4b a6: the driver's answer to «احجز وادفع كاش» on his own offer. */
+export const AnswerCashInput = z.object({ postId: z.string().min(1), offerId: z.string().min(1), accept: z.boolean() });
+export type AnswerCashInput = z.infer<typeof AnswerCashInput>;
+
 export const RequestListInput = z.object({ cityId: CityId.optional() }).default({});
+
+/** p1: the usual range on the request form, before posting. */
+export const UsualRangeInput = z.object({ placeId: RequestPlaceId, trip: RequestTripKind });
+export type UsualRangeInput = z.infer<typeof UsualRangeInput>;
 export type RequestListInput = z.input<typeof RequestListInput>;
 
 export const RequestPositionInput = z.object({
@@ -604,14 +1116,26 @@ export const AnnounceInput = z
       kind: IntercityVehicleKind,
       layout: IntercitySeatLayout,
       plate: z.string().min(2).max(20),
+      modelKey: VehicleModelKey.optional(),
       model: z.string().max(60).optional(),
       color: z.string().max(30).optional(),
+      noSmoking: z.boolean().optional(),
+      ac: z.boolean().optional(),
+      bigBags: z.boolean().optional(),
     }),
     familyOnly: z.boolean().default(false),
   })
   .refine((a) => a.latestDepartureAt.getTime() >= a.departAt.getTime(), {
     message: 'latestDepartureAt must not be before departAt',
     path: ['latestDepartureAt'],
+  })
+  .refine((a) => !a.vehicle.modelKey || modelFitsLayout(a.vehicle.modelKey, a.vehicle.layout), {
+    message: 'this model cannot carry that seat layout',
+    path: ['vehicle', 'modelKey'],
+  })
+  .refine((a) => a.vehicle.modelKey !== 'other' || !!a.vehicle.model?.trim(), {
+    message: 'name the model when it is not on the list',
+    path: ['vehicle', 'model'],
   });
 export type AnnounceInput = z.input<typeof AnnounceInput>;
 
@@ -769,13 +1293,21 @@ export const DriverBookingRow = z.object({
   totalIqd: Iqd,
   /** Driver sees each stop (door address included); riders never see each other's. */
   pickup: PickupView,
+  /** Step 4: the agreed door drop, or null (the destination garage). */
+  dropoff: DropoffView.nullable().default(null),
   largeBags: z.boolean(),
+  /** Step 5: small children riding free on a lap. */
+  lapChildren: z.number().int().nonnegative().default(0),
   atGarage: z.boolean(),
   checkedInAt: z.coerce.date().nullable(),
   /** Minutes on this rider's late meter now (null: not running). */
   meterMinutes: z.number().int().nullable(),
   /** The driver may mark no-show / leave without this rider now. */
   canNoShow: z.boolean(),
+  /** x3: our taxi bringing this rider is late; when it is due at the garage (null: none late). */
+  taxiDueAt: z.coerce.date().nullable().default(null),
+  /** x3: his seat is held for that taxi right now (RIDE_SEAT_HOLD on and before the hold ends). */
+  seatHeld: z.boolean().default(false),
 });
 export type DriverBookingRow = z.infer<typeof DriverBookingRow>;
 
@@ -817,6 +1349,52 @@ export type DepartureRiderName = z.infer<typeof DepartureRiderName>;
  * `intercity_driver_card`), whether he did this run's selfie check-in today, and his approved main
  * photo (Ali, 2026-10-06; null → the app draws his initial). Never a phone or full name.
  */
+/**
+ * The driver badges (idea x15, Ali 2026-10-07). Earned ones come and go with his record
+ * (`RAJAA_REPUTATION_RULES`); `no_smoking` and `big_bags` are his own word for the run he announced.
+ */
+export const RajaaDriverBadge = z.enum(['top_driver', 'family_trusted', 'no_smoking', 'big_bags']);
+export type RajaaDriverBadge = z.infer<typeof RajaaDriverBadge>;
+
+/**
+ * When a driver's record is shown and when he earns a badge. A number shows only once enough riders
+ * stand behind it, so one early 1★ (or 5★) never defines a new driver. Not money rules.
+ */
+export const RAJAA_REPUTATION_RULES = {
+  /** Ratings before the average, the quality bars and the two things riders say most show. */
+  minRatings: 3,
+  /** Finished runs (with a garage check-in) before the on-time share shows. */
+  minRunsForOnTime: 3,
+  /** Newest reviews the profile lists. */
+  reviewsShown: 20,
+  topDriver: { minRatings: 20, minAverage: 4.8, minOnTimeShare: 0.9 },
+  /** Ratings from riders travelling as women or as a family. */
+  familyTrusted: { minRatings: 8, minAverage: 4.8, noTag: 'fast_driving' as RajaaRatingTag },
+} as const;
+
+/**
+ * A driver's record as riders see it (ideas x12, x16, x17), computed on the server from finished runs
+ * and riders' ratings. Numbers below their minimum are null rather than misleading.
+ */
+export const RajaaDriverStats = z.object({
+  /** Runs he finished (arrived) with riders. */
+  trips: z.number().int().nonnegative(),
+  /** Average stars, one decimal; null under `minRatings`. */
+  ratingAvg: z.number().min(1).max(5).nullable(),
+  ratingCount: z.number().int().nonnegative(),
+  /**
+   * Share of finished runs that were on time (0–1): his garage late meter stayed within its grace, the
+   * same meter that pays waiting riders. Null under `minRunsForOnTime` judged runs.
+   */
+  onTimeShare: z.number().min(0).max(1).nullable(),
+  /** The good chips riders tick most, most first (at most two); empty under `minRatings`. */
+  topTags: z.array(RajaaRatingTag).max(2),
+  badges: z.array(RajaaDriverBadge),
+  /** «سافرت وياه قبل» (x17): finished trips the viewer took with him. */
+  ridesWithYou: z.number().int().nonnegative(),
+});
+export type RajaaDriverStats = z.infer<typeof RajaaDriverStats>;
+
 export const RajaaDriverCard = z.object({
   departureId: z.string(),
   driverId: z.string(),
@@ -826,8 +1404,91 @@ export const RajaaDriverCard = z.object({
   verifiedTodayAt: z.coerce.date().nullable(),
   /** Short-lived signed URL (absolute, or relative to the API origin); only an approved photo. */
   photoUrl: z.string().nullable(),
+  stats: RajaaDriverStats,
 });
 export type RajaaDriverCard = z.infer<typeof RajaaDriverCard>;
+
+/** One bar per good quality (x13): how many of his ratings ticked it, of `ratingCount`. */
+export const RajaaQualityBar = z.object({
+  tag: RajaaRatingTag,
+  count: z.number().int().nonnegative(),
+  share: z.number().min(0).max(1),
+});
+export type RajaaQualityBar = z.infer<typeof RajaaQualityBar>;
+
+/**
+ * A review as other riders see it: no name, no booking, and only the month, so a line can't be
+ * traced back to the one rider who sat on a given day.
+ */
+export const RajaaPublicReview = z.object({
+  stars: z.number().int().min(1).max(5),
+  text: z.string(),
+  /** First day of the month it was written (Baghdad). */
+  month: z.coerce.date(),
+});
+export type RajaaPublicReview = z.infer<typeof RajaaPublicReview>;
+
+/**
+ * `routes.driverProfile` (x12–x17): the driver of a departure the rider can see (on the board, or one
+ * he holds a seat on), opened from «ملفه». Asked by departure, never by driver id.
+ */
+export const RajaaDriverProfile = z.object({
+  card: RajaaDriverCard,
+  /** This run's car. */
+  vehicle: IntercityVehicle,
+  /** His first finished run on Driver; null before the first one. */
+  firstTripAt: z.coerce.date().nullable(),
+  /** In `RAJAA_GOOD_TAGS` order; empty under `minRatings`. */
+  qualities: z.array(RajaaQualityBar),
+  /** Visible reviews, newest first, at most `reviewsShown`. */
+  reviews: z.array(RajaaPublicReview),
+  /** All his visible reviews (the list may show fewer). */
+  reviewCount: z.number().int().nonnegative(),
+});
+export type RajaaDriverProfile = z.infer<typeof RajaaDriverProfile>;
+
+export const RajaaDriverProfileInput = z.object({ departureId: z.string().min(1) });
+export type RajaaDriverProfileInput = z.infer<typeof RajaaDriverProfileInput>;
+
+/** Who reads and hides riders' written reviews (Console «كلام الركاب»). */
+export const REVIEW_MODERATION_ROLES = ['support', 'admin'] as const;
+
+/** Why ops hid a review (Console). */
+export const ReviewHideReason = z.enum(['rude', 'personal_info', 'not_about_trip', 'untrue']);
+export type ReviewHideReason = z.infer<typeof ReviewHideReason>;
+
+/** Console «كلام الركاب»: reviews with a line, newest first, with who wrote them and about whom (ids). */
+export const ReviewsOpsInput = z.object({
+  /** Only hidden ones, only shown ones, or both (default). */
+  hidden: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  /** Paging: reviews written before this (the last row's `at`); tRPC's infinite-query cursor. */
+  cursor: z.coerce.date().nullish(),
+});
+export type ReviewsOpsInput = z.input<typeof ReviewsOpsInput>;
+
+export const ReviewOpsView = z.object({
+  bookingId: z.string(),
+  departureId: z.string(),
+  driverId: z.string(),
+  driverFirstName: z.string().nullable(),
+  riderId: z.string(),
+  stars: z.number().int().min(1).max(5),
+  tags: z.array(RajaaRatingTag),
+  text: z.string(),
+  at: z.coerce.date(),
+  corridorId: z.string(),
+  direction: IntercityDirection,
+  hiddenAt: z.coerce.date().nullable(),
+  hiddenBy: z.string().nullable(),
+  hiddenReason: ReviewHideReason.nullable(),
+});
+export type ReviewOpsView = z.infer<typeof ReviewOpsView>;
+
+export const HideReviewInput = z.object({ bookingId: z.string().min(1), reason: ReviewHideReason });
+export type HideReviewInput = z.infer<typeof HideReviewInput>;
+export const UnhideReviewInput = z.object({ bookingId: z.string().min(1) });
+export type UnhideReviewInput = z.infer<typeof UnhideReviewInput>;
 
 export const DriverCardsInput = z.object({ departureIds: z.array(z.string().min(1)).min(1).max(30) });
 export type DriverCardsInput = z.infer<typeof DriverCardsInput>;
@@ -842,7 +1503,7 @@ export const DriverRequestRide = RequestPostView.extend({
   driverArrivedAt: z.coerce.date().nullable(),
   /** From when "الراكب ما إجا" is allowed (arrival or trip time, the later, + the wait); null before arrival. */
   riderNoShowAt: z.coerce.date().nullable(),
-  /** Cash the driver collects at the end (price minus the wallet deposit). */
+  /** Cash the driver collects at the end (price minus the wallet deposit; all of it on a cash reservation). */
   cashToCollectIqd: Iqd,
 });
 export type DriverRequestRide = z.infer<typeof DriverRequestRide>;
@@ -880,7 +1541,8 @@ export interface RoutesPort {
   network(): Promise<IntercityNetwork>;
   board(actor: Actor, input: BoardInput): Promise<IntercityBoard>;
   // customer
-  holdSeat(actor: Actor, input: z.infer<typeof HoldSeatInput>): Promise<BookingView>;
+  /** Step 5: in-server callers (a habit's rebooking) may leave `lapChildren` out (none). */
+  holdSeat(actor: Actor, input: Omit<z.infer<typeof HoldSeatInput>, 'lapChildren'> & { lapChildren?: number }): Promise<BookingView>;
   bookSeat(actor: Actor, input: BookSeatInput): Promise<BookingView>;
   cancelSeat(actor: Actor, input: BookingIdInput): Promise<BookingView>;
   myBookings(actor: Actor): Promise<BookingView[]>;
@@ -893,9 +1555,25 @@ export interface RoutesPort {
   cancelDemand(actor: Actor, input: DemandPostIdInput): Promise<DemandPostView>;
   postRequest(actor: Actor, input: z.infer<typeof PostRequestInput>): Promise<RequestPostView>;
   myRequests(actor: Actor): Promise<RequestPostView[]>;
+  usualRange(actor: Actor, input: UsualRangeInput): Promise<UsualRange | null>;
   pickOffer(actor: Actor, input: PickOfferInput): Promise<RequestPostView>;
+  askCash(actor: Actor, input: AskCashInput): Promise<RequestPostView>;
   cancelRequest(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportDriverNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
+  /** Step 6: the booker opens (or, while nobody joined, changes) the share link. */
+  openShare(actor: Actor, input: RequestShareOpenInput): Promise<RequestPostView>;
+  /** Step 6: anyone signed in with the link reads the trip. */
+  shareInvite(actor: Actor, input: RequestShareCodeInput): Promise<RequestShareInvite>;
+  joinShare(actor: Actor, input: RequestShareJoinInput): Promise<RequestShareInvite>;
+  leaveShare(actor: Actor, input: RequestShareCodeInput): Promise<RequestShareInvite>;
+  /** Step 6: the shared cars a friend joined that are still ahead or on the road. */
+  sharedWithMe(actor: Actor): Promise<RequestShareInvite[]>;
+  /** Way C: a friend's «صعدت» next to the car. */
+  shareBoard(actor: Actor, input: RequestShareBoardInput): Promise<RequestShareInvite>;
+  /** Way C: a friend's «ما صعدت» on the driver's tap for him (cleared and logged for support). */
+  shareNotBoarded(actor: Actor, input: RequestShareCodeInput): Promise<RequestShareInvite>;
+  /** Way C: the picked driver's «صعد» for a friend whose phone can't (logged; the friend is told). */
+  shareBoardFor(actor: Actor, input: RequestShareBoardForInput): Promise<RequestPostView>;
   // driver
   announce(actor: Actor, input: z.infer<typeof AnnounceInput>): Promise<DriverDepartureView>;
   myDepartures(actor: Actor): Promise<DriverDepartureView[]>;
@@ -913,11 +1591,25 @@ export interface RoutesPort {
   arrive(actor: Actor, input: DepartureIdInput): Promise<DriverDepartureView>;
   cancelDeparture(actor: Actor, input: CancelDepartureInput): Promise<DriverDepartureView>;
   driverRiders(actor: Actor, input: DepartureIdInput): Promise<DepartureRiderName[]>;
+  // agreed prices (step 4)
+  askAgreement(actor: Actor, input: AskAgreementInput): Promise<AgreementView>;
+  withdrawAgreement(actor: Actor, input: AgreementIdInput): Promise<AgreementView>;
+  respondAgreement(actor: Actor, input: RespondAgreementInput): Promise<AgreementView>;
+  myAgreements(actor: Actor, input: DepartureIdInput): Promise<AgreementView[]>;
+  proposeAgreement(actor: Actor, input: ProposeAgreementInput): Promise<AgreementView>;
+  departureAgreements(actor: Actor, input: DepartureIdInput): Promise<AgreementView[]>;
   /** Riders: the driver of each departure that is on the board or that they hold a seat on (others are left out). */
   driverCards(actor: Actor, input: DriverCardsInput): Promise<RajaaDriverCard[]>;
+  /** Riders: the full profile of a departure's driver (same visibility as `driverCards`). */
+  driverProfile(actor: Actor, input: RajaaDriverProfileInput): Promise<RajaaDriverProfile>;
   openRequests(actor: Actor, input: RequestListInput): Promise<RequestPostView[]>;
+  requestSeen(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   offerOnRequest(actor: Actor, input: RequestOfferInput): Promise<RequestPostView>;
+  answerCash(actor: Actor, input: AnswerCashInput): Promise<RequestPostView>;
   requestArrived(actor: Actor, input: RequestPositionInput): Promise<RequestPostView>;
+  requestWaitStart(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
+  requestWaitEnd(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
+  requestCall(actor: Actor, input: RequestIdInput): Promise<CallSession>;
   requestCompleted(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   reportRiderNoShow(actor: Actor, input: RequestIdInput): Promise<RequestPostView>;
   myRequestRides(actor: Actor): Promise<DriverRequestRide[]>;
@@ -929,4 +1621,19 @@ export interface RoutesPort {
   pinAttempts(actor: Actor, input: PinAttemptsInput): Promise<PinAttemptView[]>;
   /** The strip's call button: a masked call from the staff member to the car's driver. */
   callPinAlertDriver(actor: Actor, input: PinAlertCallInput): Promise<SafetyCallSession>;
+  /** Console «كلام الركاب»: written reviews, newest first. */
+  reviews(actor: Actor, input: z.infer<typeof ReviewsOpsInput>): Promise<ReviewOpsView[]>;
+  /** Hide a review from the driver's profile (kept, logged, reversible). */
+  hideReview(actor: Actor, input: HideReviewInput): Promise<ReviewOpsView>;
+  unhideReview(actor: Actor, input: UnhideReviewInput): Promise<ReviewOpsView>;
+  /** W3 / NTF-14: staff cancel of a departure whose driver never came (riders moved, no fee). */
+  opsCancelDeparture(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult>;
+  /** W3 / NTF-14: staff «وصلت» for a departure whose driver forgot it (seats complete and settle). */
+  opsArriveDeparture(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult>;
+  /** W3 / NTF-10: close an arrived departure now instead of waiting for the scheduler. */
+  opsCloseDeparture(actor: Actor, input: StaffDepartureInput): Promise<StaffDepartureResult>;
+  /** W3 / NTF-14: departures past their latest time with no driver, or departed and never arrived. */
+  overdueDepartures(actor: Actor, input: OverdueDeparturesInput): Promise<OverdueDeparture[]>;
+  /** Console garage view: who drives each departure in any state (one logged staff vault read). */
+  departureDrivers(actor: Actor, input: StaffDepartureDriversInput): Promise<StaffDepartureDriver[]>;
 }

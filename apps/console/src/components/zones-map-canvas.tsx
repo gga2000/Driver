@@ -1,12 +1,14 @@
 'use client';
 
-import maplibregl, { type GeoJSONSource, type Map as MlMap, type StyleSpecification } from 'maplibre-gl';
+import maplibregl, { type GeoJSONSource, type Map as MlMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
 import type { LatLng, ZonePlacementView } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, buildMapStyle, MAP_COLORS, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
+import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, MAP_COLORS, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
+import { GOLDEN_FIRST_LABEL } from '@driver/map/golden';
 import { useEffect, useRef, useState } from 'react';
+import { openConsoleMapStyle, watchGoldenMap } from '@/lib/map-runtime';
 import { midpoints, type EditorAction, type EditorState } from '@/lib/zone-editor';
 
 const SRC_OTHERS = 'zone-edit-others';
@@ -66,6 +68,8 @@ export default function ZonesMapCanvas(props: ZonesMapCanvasProps) {
   const mapRef = useRef<MlMap | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** Bumped when our Golden hour map fails to open: the map reopens on the original one. */
+  const [reopen, setReopen] = useState(0);
   const cb = useRef(props);
   cb.current = props;
   const handles = useRef<{ corners: maplibregl.Marker[]; mids: maplibregl.Marker[]; centre: maplibregl.Marker | null }>({ corners: [], mids: [], centre: null });
@@ -76,10 +80,12 @@ export default function ZonesMapCanvas(props: ZonesMapCanvasProps) {
     if (!el) return;
     const palette = theme === 'dark' ? MAP_COLORS : MAP_COLORS_LIGHT;
     let map: MlMap;
+    const look = { theme, zoneShading: 'sequential' } as const;
+    const { style, golden } = openConsoleMapStyle(look);
     try {
       map = new maplibregl.Map({
         container: el,
-        style: buildMapStyle({ theme, zoneShading: 'sequential' }) as StyleSpecification,
+        style,
         bounds: AZIZIYAH_BOUNDS,
         fitBoundsOptions: { padding: 32 },
         maxBounds: AZIZIYAH_MAX_BOUNDS,
@@ -92,23 +98,33 @@ export default function ZonesMapCanvas(props: ZonesMapCanvasProps) {
       setFailed(true);
       return;
     }
-    mapRef.current = map;
+    const stopWatch = golden
+      ? watchGoldenMap(map, look, () => {
+          // The old map is loading the original style now: nothing may draw on it until the reopen.
+          mapRef.current = null;
+          setReopen((n) => n + 1);
+        })
+      : () => undefined;
     map.touchZoomRotate.disableRotation();
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
     // Tile errors (offline, OSM throttling) must not take the page down; the outlines still draw.
     map.on('error', () => undefined);
+    // Drawn on only once its style is in, so a map being replaced (theme, fallback) is never drawn on.
     const markReady = () => {
+      mapRef.current = map;
       // The style's own zone layers show the seed hexagons; this page draws the saved outlines instead.
       for (const layer of map.getStyle().layers) {
         if ('source' in layer && layer.source === SOURCE.zones) map.setLayoutProperty(layer.id, 'visibility', 'none');
       }
+      // On the Golden hour map the outlines go under the street names, so they stay readable.
+      const under = golden && map.getLayer(GOLDEN_FIRST_LABEL) ? GOLDEN_FIRST_LABEL : undefined;
       map.addSource(SRC_OTHERS, { type: 'geojson', data: EMPTY });
       map.addSource(SRC_CURRENT, { type: 'geojson', data: EMPTY });
-      map.addLayer({ id: LAYERS.othersFill, type: 'fill', source: SRC_OTHERS, paint: { 'fill-color': palette.muted, 'fill-opacity': ['case', ['==', ['get', 'placement'], 'draft'], 0.05, 0.14] } });
-      map.addLayer({ id: LAYERS.othersLine, type: 'line', source: SRC_OTHERS, filter: ['!=', ['get', 'placement'], 'draft'], paint: { 'line-color': palette.muted, 'line-width': 1.5 } });
-      map.addLayer({ id: LAYERS.othersDraft, type: 'line', source: SRC_OTHERS, filter: ['==', ['get', 'placement'], 'draft'], paint: { 'line-color': palette.muted, 'line-width': 1, 'line-dasharray': [2, 2] } });
-      map.addLayer({ id: LAYERS.currentFill, type: 'fill', source: SRC_CURRENT, paint: { 'fill-color': ['case', ['get', 'invalid'], palette.danger, palette.accent], 'fill-opacity': 0.2 } });
-      map.addLayer({ id: LAYERS.currentLine, type: 'line', source: SRC_CURRENT, paint: { 'line-color': ['case', ['get', 'invalid'], palette.danger, palette.accent], 'line-width': 2.5 } });
+      map.addLayer({ id: LAYERS.othersFill, type: 'fill', source: SRC_OTHERS, paint: { 'fill-color': palette.muted, 'fill-opacity': ['case', ['==', ['get', 'placement'], 'draft'], 0.05, 0.14] } }, under);
+      map.addLayer({ id: LAYERS.othersLine, type: 'line', source: SRC_OTHERS, filter: ['!=', ['get', 'placement'], 'draft'], paint: { 'line-color': palette.muted, 'line-width': 1.5 } }, under);
+      map.addLayer({ id: LAYERS.othersDraft, type: 'line', source: SRC_OTHERS, filter: ['==', ['get', 'placement'], 'draft'], paint: { 'line-color': palette.muted, 'line-width': 1, 'line-dasharray': [2, 2] } }, under);
+      map.addLayer({ id: LAYERS.currentFill, type: 'fill', source: SRC_CURRENT, paint: { 'fill-color': ['case', ['get', 'invalid'], palette.danger, palette.accent], 'fill-opacity': 0.2 } }, under);
+      map.addLayer({ id: LAYERS.currentLine, type: 'line', source: SRC_CURRENT, paint: { 'line-color': ['case', ['get', 'invalid'], palette.danger, palette.accent], 'line-width': 2.5 } }, under);
       map.on('click', LAYERS.othersFill, (e) => {
         const key: unknown = e.features?.[0]?.properties['key'];
         if (typeof key === 'string') cb.current.onPick(key);
@@ -124,11 +140,12 @@ export default function ZonesMapCanvas(props: ZonesMapCanvasProps) {
     if (map.isStyleLoaded()) markReady();
     else map.once('style.load', markReady);
     return () => {
+      stopWatch();
       map.remove();
       mapRef.current = null;
       setReady(false);
     };
-  }, [theme]);
+  }, [theme, reopen]);
 
   // Other zones (outline + name label).
   useEffect(() => {

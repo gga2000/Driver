@@ -1,9 +1,15 @@
 export { RoutesModule } from './routes.module.js';
 export { RoutesRpc } from './routes.rpc.js';
 export { DeparturesService } from './departures.service.js';
+export { DeparturesStaffService, DEPARTURES_AUDIT, GARAGE_WATCH_RULES, DEFAULT_GARAGE_WATCH_RULES, garageWatchRulesFromEnv } from './departures.staff.js';
+export type { GarageWatchRules, DepartureAuditPort } from './departures.staff.js';
 export type { Fill, NoShowVerdict, DepartBlocker } from './departures.service.js';
 export { DemandService } from './demand.service.js';
 export { RequestBoardService } from './request-board.service.js';
+export { AgreementsService } from './agreements.service.js';
+/** Step 4c: who the two people of a run or private-car request are, for the chat module. */
+export { TripChatSubjects } from './trip-chat.subjects.js';
+export type { TripChatPair, TripCardLive, TripCardTarget } from './trip-chat.subjects.js';
 /** Dispatch's DEPARTURES port (seats filled incl. counted walk-ups; low-fill cancel owned here). */
 export { RoutesDeparturesPort } from './departures.port.js';
 export { RoutesScheduler } from './scheduler.js';

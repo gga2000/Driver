@@ -4,10 +4,13 @@
  * so browser and native bundles never pull server code.
  */
 export * from './common.js';
+export * from './app-version.js';
 export * from './place.js';
 export * from './pricing.js';
 export * from './trip.js';
 export * from './order.js';
+export * from './order-staff-io.js';
+export * from './departure-staff-io.js';
 export * from './order-tip.js';
 export * from './order-compliment.js';
 export * from './rajaa-pass-push.js';
@@ -35,40 +38,57 @@ export * from './climate-check.js';
 export * from './ride-cargo.js';
 export * from './console-io.js';
 export * from './routes-io.js';
+export * from './vehicle-models.js';
 export * from './deals.js';
 export * from './catalog-io.js';
+export * from './dish-kind.js';
 export * from './habits-io.js';
 export * from './ride-habits-io.js';
 export * from './phone-booking-io.js';
+export * from './on-call-io.js';
+export * from './inbox-io.js';
 export * from './garage-taxi-io.js';
+export * from './booked-rides.js';
 export * from './carry-over.js';
 export * from './search.js';
 export * from './zone-geometry.js';
 export * from './zones-io.js';
+export * from './closed-street.js';
+// Console and ops closure schemas: `@driver/contracts/closures`; the apps only need the types.
+export type * from './closures-io.js';
 export * from './safety-io.js';
 export * from './tracking.js';
 export * from './account-io.js';
+export * from './stats-io.js';
 export * from './driver-account-io.js';
 export * from './khat-io.js';
 export * from './fleet-io.js';
 export * from './ops-io.js';
 export * from './menu-photos-io.js';
+export * from './shop-lines.js';
+export * from './food-carts-io.js';
+export * from './dish-photos-io.js';
 export * from './merchant-admin-io.js';
 export * from './partner-io.js';
 export * from './merchant-io.js';
+export * from './merchant-setup-io.js';
 export * from './pickup-draft.js';
 export * from './store-hours.js';
 export * from './topup-io.js';
 export * from './chat-io.js';
+export * from './trip-chat-io.js';
 export * from './share-io.js';
 export * from './referral-io.js';
 export * from './live-io.js';
 export * from './notify-io.js';
 export * from './control-room-io.js';
 export * from './support-io.js';
+export * from './account-close-io.js';
+export * from './parcels-io.js';
 export * from './errors.js';
+export * from './request-limits.js';
 export { transformer } from './transformer.js';
-export { HealthPing, DependencyStatus, CityConfigInput } from './router-io.js';
+export { HealthPing, HealthLive, HealthReady, DependencyStatus, CityConfigInput, LIVE_DB_GRACE_MS, liveDbGate } from './router-io.js';
 export type { AppRouter, AppContext, IdentityPort, Actor } from './router.js';
 export {
   MeView,
@@ -98,3 +118,9 @@ export {
 } from './identity-io.js';
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';
+export * from './food-doors.js';
+export * from './home-kitchens.js';
+// Schemas live with the routers that parse them; apps only need the types (the customer bundle skips them).
+export type * from './home-kitchen-admin-io.js';
+export * from './featured.js';
+export * from './weights.js';

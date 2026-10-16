@@ -53,15 +53,15 @@ export interface SeedMeetingPoint {
 /** 4 intercity garages (150 m late-meter geofence) + 6 neighbourhood street-pickup points. */
 export const MEETING_POINTS: SeedMeetingPoint[] = [
   // garages
-  { key: 'garage_bab1', cityId: 'aziziyah', zoneKey: 'centre', nameAr: 'كراج البوابة ١', nameEn: 'Gate 1 garage', lat: 32.9032, lng: 45.0578, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
-  { key: 'garage_bab2', cityId: 'aziziyah', zoneKey: 'street_30', nameAr: 'كراج البوابة ٢', nameEn: 'Gate 2 garage', lat: 32.9088, lng: 45.0648, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
-  { key: 'garage_souq', cityId: 'aziziyah', zoneKey: 'centre', nameAr: 'كراج السوق', nameEn: 'Souq garage', lat: 32.9062, lng: 45.0612, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'garage_bab1', cityId: 'aziziyah', zoneKey: 'hawas_bridge', nameAr: 'كراج البوابة 1', nameEn: 'Gate 1 garage', lat: 32.91575, lng: 45.0405, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'garage_bab2', cityId: 'aziziyah', zoneKey: 'fidaa', nameAr: 'كراج البوابة 2', nameEn: 'Gate 2 garage', lat: 32.9155, lng: 45.0641, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
+  { key: 'garage_souq', cityId: 'aziziyah', zoneKey: 'centre', nameAr: 'كراج السوق', nameEn: 'Souq garage', lat: 32.9021, lng: 45.0666, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
   { key: 'garage_nahdha', cityId: 'baghdad', nameAr: 'كراج النهضة', nameEn: 'Al-Nahdha garage', lat: 33.3344, lng: 44.4165, garage: true, reachableBy: ['car', 'suv', 'van', 'intercity'] },
   // street-pickup meeting points
   { key: 'mp_jami_kabir', cityId: 'aziziyah', zoneKey: 'centre', nameAr: 'باب الجامع الكبير', nameEn: 'Grand Mosque gate', lat: 32.9045, lng: 45.0595, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
   { key: 'mp_hadiqat_shasha', cityId: 'aziziyah', zoneKey: 'mahdood_1', nameAr: 'حديقة الشاشة', nameEn: 'Al-Shasha park', lat: 32.9122, lng: 45.0552, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
   { key: 'mp_kuliyat_tarbiya', cityId: 'aziziyah', zoneKey: 'saadouniya', nameAr: 'باب كلية التربية الأساسية', nameEn: 'College of Basic Education gate', lat: 32.9012, lng: 45.0478, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
-  { key: 'mp_shari_30', cityId: 'aziziyah', zoneKey: 'street_30', nameAr: 'تقاطع شارع ٣٠', nameEn: 'Street 30 junction', lat: 32.9098, lng: 45.0628, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
+  { key: 'mp_shari_30', cityId: 'aziziyah', zoneKey: 'street_30', nameAr: 'تقاطع شارع 30', nameEn: 'Street 30 junction', lat: 32.9098, lng: 45.0628, garage: false, reachableBy: ['bike', 'tuktuk', 'car'] },
   { key: 'mp_hawas_bridge', cityId: 'aziziyah', zoneKey: 'hawas_bridge', nameAr: 'رأس جسر حواس', nameEn: 'Hawas bridge head', lat: 32.9172, lng: 45.0378, garage: false, reachableBy: ['tuktuk', 'car'] },
   { key: 'mp_khamas_bridge', cityId: 'aziziyah', zoneKey: 'khamas_bridge', nameAr: 'رأس جسر خماس', nameEn: 'Khamas bridge head', lat: 32.9382, lng: 45.0812, garage: false, reachableBy: ['tuktuk', 'car'] },
 ];
@@ -92,9 +92,11 @@ export const TAXONOMY: SeedTaxonomyNode[] = [
   { slug: 'rice_dishes', nameAr: 'تمن ومرق', nameEn: 'Rice & stew', parent: 'food' },
   { slug: 'bread_pastry', nameAr: 'خبز ومعجنات', nameEn: 'Bread & pastry', parent: 'food' },
   { slug: 'sweets', nameAr: 'حلويات', nameEn: 'Sweets', parent: 'food' },
+  { slug: 'ice_cream', nameAr: 'آيس كريم', nameEn: 'Ice cream', parent: 'food' },
   { slug: 'drinks', nameAr: 'مشروبات', nameEn: 'Drinks' },
   { slug: 'juice', nameAr: 'عصائر', nameEn: 'Juice', parent: 'drinks' },
   { slug: 'soft_drinks', nameAr: 'مشروبات غازية', nameEn: 'Soft drinks', parent: 'drinks' },
+  { slug: 'coffee', nameAr: 'قهوة وچاي', nameEn: 'Coffee & tea', parent: 'drinks' },
   { slug: 'grocery', nameAr: 'بقالة', nameEn: 'Grocery' },
   { slug: 'produce', nameAr: 'خضرة وفواكه', nameEn: 'Produce', parent: 'grocery' },
   { slug: 'dairy', nameAr: 'ألبان', nameEn: 'Dairy', parent: 'grocery' },

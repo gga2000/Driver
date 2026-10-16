@@ -1,6 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  AZIZIYAH_ZONES,
+  type LatLng,
+  DEMAND_GLOW_RULES,
   DEMAND_MAP_RULES,
+  demandGlow,
+  glowFor,
+  type DemandGlowSnapshot,
+  type PartnerDemandGlow,
   DriverError,
   sortCargo,
   PARTNER_DRIVING_ROLES,
@@ -8,13 +15,21 @@ import {
   partnerModesOf,
   type Actor,
   type AnswerClimateCheckInput,
+  type AnswerBookedJobInput,
   type Order,
   type OrderRoute,
-  type PartnerDemandMap,
+  type PartnerBookedJob,
+  type PartnerBookedJobs,
   type PartnerGoOnlineInput,
+  type PartnerGoOnlineResult,
+  type PartnerHeartbeatAck,
   type PartnerJob,
   type PartnerDoor,
   type PartnerPickupSpot,
+  type PartnerErrandReceipt,
+  type PartnerErrandReceiptInput,
+  type PartnerShopItem,
+  type PartnerShopList,
   type PartnerJobStop,
   type PartnerMerchantPrep,
   type PartnerClimateCheck,
@@ -31,8 +46,8 @@ import {
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
-import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, startOfLocalDay, todayFromLines } from './logic.js';
-import { DEFAULT_CITY, PARTNER_DEPS, type PartnerDeps, type PartnerPresence } from './ports.js';
+import { buildPay, demandHint, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines, workStateVersion } from './logic.js';
+import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
 function cargoOf(orders: readonly Order[]): RideCargo[] {
@@ -51,6 +66,8 @@ const FORECAST_CACHE_MS = 5 * 60_000;
 @Injectable()
 export class PartnerService implements PartnerPort {
   private readonly forecasts = new Map<string, { bucket: number; byZone: Map<string, number> }>();
+  /** N17: one glow picture per city per `DEMAND_GLOW_RULES.snapshotMs` (aggregated and a few minutes old). */
+  private readonly glows = new Map<string, { bucket: number; snap: Promise<DemandGlowSnapshot> }>();
 
   constructor(
     @Inject(PARTNER_DEPS) private readonly deps: PartnerDeps,
@@ -117,6 +134,18 @@ export class PartnerService implements PartnerPort {
     return climate.check(driverId);
   }
 
+  /**
+   * «دوّرلي»: the shops' receipt total and photo, from the courier of this trip at its errand shops
+   * stop. Orders does the money and the checks that matter (arrived, not picked up, his own photo).
+   */
+  async errandReceipt(actor: Actor, input: PartnerErrandReceiptInput): Promise<PartnerErrandReceipt> {
+    const trip = await this.deps.trips.get(input.tripId);
+    if (trip.courierId !== actor.personId) throw new DriverError('forbidden');
+    const stop = trip.stops.find((s) => s.id === input.stopId);
+    if (!stop || stop.type !== 'pickup' || !stop.orderId || !this.deps.orders.errandReceipt) throw new DriverError('order_state_conflict');
+    return this.deps.orders.errandReceipt(actor.personId, { orderId: stop.orderId, totalIqd: input.totalIqd, photoUploadId: input.photoUploadId });
+  }
+
   /** نعم / لا for this shift; only while the question stands (`climate_check_none` otherwise). */
   async answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus> {
     const id = actor.personId;
@@ -128,11 +157,35 @@ export class PartnerService implements PartnerPort {
   }
 
   /**
-   * Scoring §2: no daily check-in, a lock-out after two failed check-ins or an expired document keep
-   * him offline. A refused call while he is online (the heartbeat) also takes him out of the index,
-   * except for the check-in alone between local midnight and 04:00 (`gateAllowsHeartbeat`).
+   * Go online, and the heartbeat that keeps him there. Scoring §2: no daily check-in, a lock-out after
+   * two failed check-ins or an expired document keep him offline. A refused call while he is online
+   * (the heartbeat) also takes him out of the index, except for the check-in alone between local
+   * midnight and 04:00 (`gateAllowsHeartbeat`).
+   *
+   * Perf o4: an app that sends `knownVersion` gets the small `PartnerHeartbeatAck` — when his work
+   * state still has that version, only `{ changed: false, version }`, without building the status;
+   * otherwise the full status with its new version. Without `knownVersion`, the full status as before,
+   * so older apps keep working.
    */
-  async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerStatus> {
+  goOnline(actor: Actor, input: Omit<PartnerGoOnlineInput, 'knownVersion'> & { knownVersion?: undefined }): Promise<PartnerStatus>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput & { knownVersion: string }): Promise<PartnerHeartbeatAck>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult>;
+  async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult> {
+    const beat = await this.beat(actor, input);
+    if (input.knownVersion === undefined) return this.status(actor);
+    const id = actor.personId;
+    const [trips, offer, climateCheck] = await Promise.all([
+      this.deps.trips.forDriver(id),
+      this.deps.dispatch.openOffer(id, beat.presence.cityId),
+      this.climateCheckOf(id, beat.roles, beat.presence.vehicle),
+    ]);
+    const version = workStateVersion({ ...beat, tripIds: trips.map((t) => t.id), offerId: offer?.offer.id ?? null, climateCheck });
+    if (version === input.knownVersion) return { changed: false, version };
+    return { changed: true, version, status: await this.status(actor) };
+  }
+
+  /** Checks the gate and the vehicle, then marks him online; what it read is half his work state (o4). */
+  private async beat(actor: Actor, input: PartnerGoOnlineInput) {
     const id = actor.personId;
     const [gate, present] = await Promise.all([this.deps.gate.onlineGate(id), this.deps.presence.get(id)]);
     if (!gateAllowsHeartbeat(gate, present !== null, this.clock.now())) {
@@ -150,14 +203,16 @@ export class PartnerService implements PartnerPort {
       if (present) await this.deps.presence.offline(id);
       throw new DriverError('vehicle_not_registered');
     }
-    await this.deps.presence.online(id, {
+    const presence = await this.deps.presence.online(id, {
       cityId: input.cityId,
       at: input.at,
       vehicle,
       tier: cap.tier,
       verticals,
     });
-    return this.status(actor);
+    // Just came online (not the 30-s beat): a job nobody took may be his now.
+    if (!present) await this.deps.dispatch.retryUnassigned?.(input.cityId);
+    return { roles, registered, gate, presence, cap };
   }
 
   async goOffline(actor: Actor): Promise<PartnerStatus> {
@@ -188,7 +243,7 @@ export class PartnerService implements PartnerPort {
     const names = await this.merchantNames(orders);
     const pickupLabel = orders[0]?.merchantOrgId ? (names.get(orders[0].merchantOrgId) ?? null) : null;
     const dropPin = dropStop?.target ?? null;
-    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd + (o.debtCollectIqd ?? 0), 0);
     return {
       offerId: offer.id,
       tripId: trip.id,
@@ -196,12 +251,14 @@ export class PartnerService implements PartnerPort {
       wave: offer.wave,
       sentAt: offer.sentAt,
       expiresAt: offer.expiresAt,
+      serverNow: now,
       ringSec: Math.max(1, Math.round((offer.expiresAt.getTime() - offer.sentAt.getTime()) / 1000)),
       seen: offer.seenAt !== null || offer.state === 'seen',
       // Spec: the offer names zones. Every driver in every wave sees it, so a person's door (the
       // dropoff, a ride's pickup) stays off it; the one who accepts gets the pins on `activeJob`.
-      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: orders[0]?.merchantOrgId ? request.pickup : null },
-      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: null },
+      // o7: the public landmark each stop is near («يم باب الجامع الكبير») — a town place, never the door.
+      pickup: { zoneId: request.zoneId, label: pickupLabel, pin: orders[0]?.merchantOrgId ? request.pickup : null, landmark: nearestLandmark(request.pickup) },
+      dropoff: { zoneId: request.dropoffZoneId ?? dropStop?.zoneKey ?? request.zoneId, label: null, pin: null, landmark: nearestLandmark(dropPin) },
       distanceToPickupKm: offer.distanceKm ?? (presence ? kmBetween(presence, request.pickup) : null),
       tripKm: dropPin ? kmBetween(request.pickup, dropPin) : null,
       pay,
@@ -216,6 +273,62 @@ export class PartnerService implements PartnerPort {
       rideCargo: cargoOf(orders),
       // c9/s3: booked for someone else — «المشوار لـ أم علي».
       rider: await this.riderOf(orders[0], id),
+      // o12: «يوم حار · المكيّفة» on a car ride when x1 routes rides by AC (heating).
+      climate: offerClimate(request.vertical, presence?.vehicle ?? null, now),
+      // o10: how many rides the rider finished before («أول مشوار له» / «ركب 12 مشوار»); rides only.
+      riderTrips: orders[0]?.type === 'ride' && this.deps.orders.riderTrips ? await this.deps.orders.riderTrips(orders[0].id) : null,
+    };
+  }
+
+  /**
+   * «مشاوير باچر» (edge-case review #28): rides booked for later he confirmed, and — while he is online —
+   * the ones that fit him to confirm. Each says what an offer says: the time, the pickup and drop-off
+   * zones, the trip km and his pay. Never a door or a name.
+   */
+  async bookedJobs(actor: Actor): Promise<PartnerBookedJobs> {
+    const id = actor.personId;
+    if (!this.deps.dispatch.bookedJobs) return { online: false, mine: [], open: [] };
+    const presence = await this.deps.presence.get(id);
+    const found = await this.deps.dispatch.bookedJobs(id, presence?.cityId ?? DEFAULT_CITY);
+    const [mine, open] = await Promise.all([Promise.all(found.mine.map((r) => this.bookedView(r))), Promise.all(found.open.map((r) => this.bookedView(r)))]);
+    return { online: found.online, mine, open };
+  }
+
+  async answerBookedJob(actor: Actor, input: AnswerBookedJobInput): Promise<PartnerBookedJobs> {
+    if (!this.deps.dispatch.answerBookedJob) throw new DriverError('booked_job_not_found');
+    await this.deps.dispatch.answerBookedJob(actor.personId, input.tripId, input.answer);
+    return this.bookedJobs(actor);
+  }
+
+  private async bookedView(r: PartnerBookedRecord): Promise<PartnerBookedJob> {
+    const trip = await this.deps.trips.get(r.request.tripId);
+    const orders = await this.ordersOf(trip);
+    const pay = buildPay({
+      vertical: r.request.vertical,
+      orders,
+      feeComponents: [],
+      batchedSecond: false,
+      batchShare: this.deps.money.batchShare,
+      compensationIqd: 0,
+      take: this.deps.money.take(r.request.vertical),
+    });
+    const dropStop = trip.stops.find((s) => s.type === 'dropoff');
+    const dropPin = dropStop?.target ?? null;
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd + (o.debtCollectIqd ?? 0), 0);
+    return {
+      tripId: trip.id,
+      vertical: r.request.vertical,
+      scheduledFor: r.scheduledFor,
+      state: r.held ? 'confirmed' : 'open',
+      pickup: { zoneId: r.request.zoneId },
+      dropoff: { zoneId: r.request.dropoffZoneId ?? dropStop?.zoneKey ?? r.request.zoneId },
+      tripKm: dropPin ? kmBetween(r.request.pickup, dropPin) : null,
+      pay,
+      collectIqd: collect > 0 ? collect : null,
+      favourite: r.favourite,
+      confirmBy: r.confirmBy,
+      startFrom: r.startFrom,
+      showBy: r.showBy,
     };
   }
 
@@ -230,31 +343,65 @@ export class PartnerService implements PartnerPort {
     if (!orders[0]?.merchantOrgId) return none;
     const from = { lat: presence.lat, lng: presence.lng };
     const r = await this.deps.roads.path([from, found.request.pickup]);
-    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
   }
 
   async jobRoute(actor: Actor): Promise<OrderRoute> {
     const now = this.clock.now();
     const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
-    const trip = await this.jobTrip(actor.personId);
-    if (!trip || !this.deps.roads) return none;
+    const way = await this.jobWay(actor.personId);
+    if (!way || !this.deps.roads) return none;
+    const { from, ahead } = way;
+    const r = await this.deps.roads.path([from, ...ahead]);
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
+  }
+
+  /**
+   * Where he is on his job (his last fix on the trip, else his live position) and the stops still ahead;
+   * null off a job. Also N20's «الشارع مسدود قدامي»: the report is taken from here, never from the app.
+   */
+  async jobWay(personId: string): Promise<{ cityId: string; from: LatLng; ahead: LatLng[] } | null> {
+    const trip = await this.jobTrip(personId);
+    if (!trip) return null;
     const ahead = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .filter((s) => s.state !== 'completed' && s.state !== 'skipped' && s.target)
       .map((s) => s.target!);
     const fix = await this.deps.trips.lastPosition?.(trip.id);
-    const presence = fix && fix.driverId === actor.personId ? null : await this.deps.presence.get(actor.personId);
-    const from = fix && fix.driverId === actor.personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
-    if (!from || ahead.length === 0) return none;
-    const r = await this.deps.roads.path([from, ...ahead]);
-    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+    const presence = fix && fix.driverId === personId ? null : await this.deps.presence.get(personId);
+    const from = fix && fix.driverId === personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
+    return from && ahead.length > 0 ? { cityId: trip.cityId, from, ahead } : null;
   }
 
-  async demandMap(actor: Actor): Promise<PartnerDemandMap> {
+  /**
+   * N17 «وين الطلبات»: the city's glow picture, taken once per `snapshotMs` and shared by every courier;
+   * his own view keeps only the busy zone picked for him hot. Advice only: dispatch never reads it.
+   */
+  async demandGlow(actor: Actor): Promise<PartnerDemandGlow> {
     const now = this.clock.now();
     const cityId = (await this.deps.presence.get(actor.personId))?.cityId ?? DEFAULT_CITY;
-    const [waiting, drivers, expected] = await Promise.all([this.deps.dispatch.waitingZones(cityId), this.deps.presence.zones(cityId), this.expectedPickups(cityId, now)]);
-    return { zones: demandZones(waiting, drivers, expected), at: now };
+    const bucket = Math.floor(now.getTime() / DEMAND_GLOW_RULES.snapshotMs);
+    let hit = this.glows.get(cityId);
+    if (!hit || hit.bucket !== bucket) {
+      const snap = this.takeGlow(cityId, now);
+      hit = { bucket, snap };
+      this.glows.set(cityId, hit);
+      // A failed picture is not kept: the next read tries again.
+      snap.catch(() => {
+        if (this.glows.get(cityId) === hit) this.glows.delete(cityId);
+      });
+    }
+    return glowFor(await hit.snap, actor.personId);
+  }
+
+  private async takeGlow(cityId: string, now: Date): Promise<DemandGlowSnapshot> {
+    const [waitingZones, drivers, expected] = await Promise.all([
+      this.deps.dispatch.waitingZones(cityId),
+      this.deps.presence.live ? this.deps.presence.live(cityId) : Promise.resolve([]),
+      this.expectedPickups(cityId, now),
+    ]);
+    const centres = new Map(AZIZIYAH_ZONES.map((z) => [z.id, { lat: z.lat, lng: z.lng }] as const));
+    return demandGlow({ waitingZones, drivers, expected, centres, at: now });
   }
 
   /**
@@ -294,6 +441,8 @@ export class PartnerService implements PartnerPort {
     const codes = await this.startCodesOf(trip);
     const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
     const riders = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.riderOf(o, actor.personId)] as const)));
+    const recipients = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.recipientOf(o, actor.personId)] as const)));
+    const lists = await this.shopListsOf(trip, byId);
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -311,14 +460,19 @@ export class PartnerService implements PartnerPort {
           // M-09: the courier reads the customer's note for him; an order placed with one note for
           // everyone (no courier note) keeps showing that one.
           note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
-          collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
+          // M-3: the owed fees the order collects ride on the cash he takes (`owedFeesIqd` names them).
+          collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd + (order.debtCollectIqd ?? 0) : 0,
+          ...(isDrop && order?.paymentMethod === 'cash' && order.debtCollectIqd ? { owedFeesIqd: order.debtCollectIqd } : {}),
+          // HUNT-02: «بالشارع» — the customer comes out to the street; he calls instead of going to the door.
+          ...(isDrop && order?.streetHandover ? { streetHandover: true } : {}),
           // "الخردة علينا": the note the customer said he will pay with, so he brings the change.
           tenderIqd: isDrop && order?.paymentMethod === 'cash' ? (order.statedTenderIqd ?? null) : null,
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,
           // Maps program r4: the code he shows at the counter, while the pickup is still to do. Rides have
-          // no counter (and a second 4-digit number next to the night trip code would only confuse).
-          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
+          // no counter (and a second 4-digit number next to the night trip code would only confuse); nor
+          // does a دوّرلي shop or a parcel sender (it has its own PIN): only an order from one of our merchants.
+          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && order?.merchantOrgId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
           door: doors.get(s.id) ?? null,
           pickupSpot: spots.get(s.id) ?? null,
           // «عزيمة» (joy g1): «هدية — لا تذكر السعر» at the door, no receipt in the bag at the kitchen.
@@ -327,6 +481,12 @@ export class PartnerService implements PartnerPort {
           ...(codes.has(s.id) ? { startCodeRequired: true } : {}),
           // c9/s3: the rider he picks up and drops off when the ride was booked for someone else.
           rider: s.orderId ? (riders.get(s.orderId) ?? null) : null,
+          // SEC-14: whom he hands it to, on the drop-off, when someone else receives the order.
+          recipient: isDrop && s.orderId ? (recipients.get(s.orderId) ?? null) : null,
+          // j2: the public landmark it is near, for the headline and the spoken prompt.
+          landmark: s.target ? nearestLandmark(s.target) : null,
+          // «الليستة»: a دوّرلي pickup still to do.
+          shopList: lists.get(s.id) ?? null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -334,7 +494,8 @@ export class PartnerService implements PartnerPort {
       vertical: trip.vertical,
       orders,
       feeComponents: this.feeComponents(trip.cityId, request, orders[0]),
-      batchedSecond: false,
+      // The batch rate his offer showed, kept once he took it (the ledger pays the same).
+      batchedSecond: trip.batchId !== null && trip.batchId !== trip.id,
       batchShare: this.deps.money.batchShare,
       compensationIqd: 0,
       take: this.deps.money.take(trip.vertical),
@@ -413,7 +574,54 @@ export class PartnerService implements PartnerPort {
     return name ? { name } : null;
   }
 
+  /** SEC-14: the recipient of an order someone else receives, by the name the sender gave; null otherwise. */
+  private async recipientOf(order: Order | undefined, driverId: string): Promise<{ name: string } | null> {
+    if (!order?.participants.some((p) => p.role === 'recipient') || !this.deps.orders.recipientName) return null;
+    const name = await this.deps.orders.recipientName(order.id, driverId);
+    return name ? { name } : null;
+  }
+
   /** Orders currently on the trip (detached ones are someone else's now). */
+  /**
+   * «الليستة» on دوّرلي pickups still to do of the job on his screen (activeJob reads only his own trip).
+   * Gone once the pickup is done or the trip ends; photo and voice links are minted per read.
+   */
+  private async shopListsOf(trip: Trip, orders: ReadonlyMap<string, Order>): Promise<Map<string, PartnerShopList>> {
+    const out = new Map<string, PartnerShopList>();
+    if (trip.cancelledAt !== null || trip.completedAt !== null) return out;
+    const media = this.deps.errandMedia;
+    for (const s of trip.stops) {
+      if (s.type !== 'pickup' || s.state === 'completed' || s.state === 'skipped' || !s.orderId) continue;
+      const order = orders.get(s.orderId);
+      if (order?.type !== 'errand') continue;
+      const items: PartnerShopItem[] = [];
+      let listMaxIqd: number | null = null;
+      for (const l of order.lines) {
+        const e = l.errandItem;
+        if (!e) continue;
+        listMaxIqd ??= e.listMaxIqd ?? null;
+        const where = e.where;
+        items.push({
+          what: l.freeText ?? '',
+          qty: l.qty,
+          unit: e.unit,
+          where:
+            where.kind === 'app'
+              ? { kind: 'app', name: (await this.deps.merchants.name(where.shopId)) ?? null, pin: null }
+              : where.kind === 'known'
+                ? { kind: 'known', name: where.name, pin: where.pin }
+                : { kind: 'near', name: null, pin: null },
+          ifMissing: e.ifMissing,
+          maxIqd: e.maxIqd,
+          photoUrl: media && e.photoUploadId ? media.readUrl(e.photoUploadId) : null,
+          voice: media && e.voiceUploadId && e.voiceSec ? { url: media.readUrl(e.voiceUploadId), sec: e.voiceSec } : null,
+        });
+      }
+      if (items.length) out.set(s.id, { items, listMaxIqd });
+    }
+    return out;
+  }
+
   private async ordersOf(trip: Trip): Promise<Order[]> {
     const ids = trip.orders.filter((o) => o.detachedAt === null).map((o) => o.orderId);
     const found = await Promise.all(ids.map((oid) => this.deps.orders.get(oid)));

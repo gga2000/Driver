@@ -31,7 +31,7 @@ export function MealResults({
   if (dishes.length === 0 && kitchens.length === 0) return null;
   return (
     <View style={{ gap: theme.space[3] }} testID={`search-meal-${meal}`}>
-      <SectionHeader voice title={t(`search.meal_${meal}`)} />
+      <SectionHeader big title={t(`search.meal_${meal}`)} />
       {dishes.length > 0 ? (
         <Card elevation={0} padding={0}>
           {dishes.map((d, i) => (

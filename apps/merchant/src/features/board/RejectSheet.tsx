@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { BoardOrder } from '@driver/contracts';
-import { Button, ModalSheet, Text, TextField, useTheme, useToast } from '@driver/ui';
+import { Button, ModalSheet, Text, TextField, useTheme } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { MIcon, type MIconName } from '@/components/MIcon';
 import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT, type TKey } from '@/lib/i18n';
@@ -28,7 +29,7 @@ export function RejectSheet({ order, onClose, onAlternative }: RejectSheetProps)
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { reject } = useOrderActions();
   const [reason, setReason] = useState<RejectReason | null>(null);
   const [other, setOther] = useState('');

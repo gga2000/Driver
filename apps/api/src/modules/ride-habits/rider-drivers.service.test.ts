@@ -185,6 +185,13 @@ describe('the driver profile (ride step 3, n5)', () => {
     expect(await s.habits.driverProfile(RIDER, { orderId: 'r1' })).toMatchObject({ firstName: 'عباس', plate: '12345 واسط' });
   });
 
+  it('r4: the driver sees his own profile the way riders do, without a plate', async () => {
+    const s = setup();
+    const p = DriverProfile.parse(await s.habits.ownProfile({ personId: 'd_abbas', sessionId: 's' } as Actor));
+    expect(p).toMatchObject({ firstName: 'عباس', rating: 4.8, ratingCount: 37, tripCount: 412, onTimePct: 94, vehicleModel: 'Toyota Corolla', plate: null, features: ['ac', 'family'] });
+    expect(p.compliments[0]).toEqual({ key: 'polite', count: 9 });
+  });
+
   it('refuses an offer of the ride once it stopped searching, an unknown offer and a ride with no driver', async () => {
     const s = setup();
     expect(await code(s.habits.driverProfile(ME, { orderId: 'r1', offerId: 'nope' }))).toBe('not_found');

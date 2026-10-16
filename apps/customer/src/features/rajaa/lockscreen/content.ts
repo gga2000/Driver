@@ -96,6 +96,8 @@ export interface PassCardInput {
   toCity: string;
   /** "1,500"-style amount for the fare line (the app's money formatter). */
   amount: (iqd: number) => string;
+  /** On the road (r6): when the car reaches the city, for «توصل حوالي 9:28»; null when unknown. */
+  arriveAt?: Date | null;
   now: Date;
 }
 
@@ -126,7 +128,10 @@ export function passCard(input: PassCardInput, t: T): PassCard | null {
     };
   }
   if (phase === 'on_board') return { ...base, title: t('rajaa.lock_checked_in_title', { time }), body: t('rajaa.lock_seat_body', { seat }), sub: null, sticky: true, imHere: null };
-  if (phase === 'on_road') return { ...base, title: t('rajaa.lock_on_road_title', { city: input.toCity }), body: t('rajaa.lock_seat_body', { seat }), sub: null, sticky: true, imHere: null };
+  if (phase === 'on_road') {
+    const sub = input.arriveAt ? t('rajaa.lock_arrive_sub', { time: formatClock(input.arriveAt) }) : null;
+    return { ...base, title: t('rajaa.lock_on_road_title', { city: input.toCity }), body: t('rajaa.lock_seat_body', { seat }), sub, sticky: true, imHere: null };
+  }
   return { ...base, title: t('rajaa.lock_arrived_title'), body: t('rajaa.lock_arrived_body', { amount: input.amount(b.totalIqd) }), sub: null, sticky: false, imHere: null };
 }
 

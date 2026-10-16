@@ -1,4 +1,4 @@
-import type { EtaBasis, LatLng, Order, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { AvoidedStreet, EtaBasis, LatLng, Order, PartnerBookedAnswer, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -42,6 +42,17 @@ export interface PartnerOfferRequest {
   pickup: LatLng;
 }
 
+/** A ride booked for later as dispatch holds it (review #28). */
+export interface PartnerBookedRecord {
+  request: PartnerOfferRequest & { cashIqd?: number | undefined };
+  scheduledFor: Date;
+  confirmBy: Date;
+  startFrom: Date;
+  showBy: Date;
+  favourite: boolean;
+  held: boolean;
+}
+
 export interface PartnerCapStatus {
   tier: 'bronze' | 'silver' | 'gold';
   owedIqd: number;
@@ -67,11 +78,19 @@ export interface PartnerDeps {
     offline(driverId: string): Promise<void>;
     /** Online drivers' zones in the city (demand hint). */
     zones(cityId: string): Promise<Array<string | null>>;
+    /** N17: the city's online drivers with where they are and whether they're free. Absent in older fakes = none. */
+    live?(cityId: string): Promise<Array<{ driverId: string; zoneId: string | null; lat: number; lng: number; free: boolean }>>;
   };
   dispatch: {
     openOffer(driverId: string, cityId: string): Promise<{ offer: PartnerOfferRecord; request: PartnerOfferRequest } | null>;
     /** Zones of the city's jobs that are waiting for a driver. */
     waitingZones(cityId: string): Promise<string[]>;
+    /** «مشاوير باچر» (review #28): booked rides he confirmed, and the ones open to him. Absent in older fakes = none. */
+    bookedJobs?(driverId: string, cityId: string): Promise<{ online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] }>;
+    /** His answer on one (dispatch's rules: first confirm wins, fit, clash, start window). */
+    answerBookedJob?(driverId: string, tripId: string, answer: PartnerBookedAnswer): Promise<void>;
+    /** He just came online: red jobs nobody took try again now. Absent in older fakes = nothing. */
+    retryUnassigned?(cityId: string): Promise<void>;
   };
   trips: {
     forDriver(driverId: string): Promise<Trip[]>;
@@ -82,13 +101,20 @@ export interface PartnerDeps {
     lastPosition?(tripId: string): Promise<{ pin: LatLng; driverId: string } | null>;
   };
   /** The road router (maps program d2); absent in fakes = straight lines on the app. */
-  roads?: { path(points: readonly LatLng[]): Promise<{ polyline6: string | null; basis: EtaBasis }> };
+  /** The road ahead, and (N20) the streets closed today it goes around. */
+  roads?: { path(points: readonly LatLng[]): Promise<{ polyline6: string | null; basis: EtaBasis; closures?: AvoidedStreet[] }> };
   orders: {
     get(orderId: string): Promise<Order | null>;
     /** s1: whether a ride needs the rider's night code to start (the code itself never reaches the partner side). */
     startCodeRequired?(orderId: string): Promise<boolean>;
     /** Ride ideas c9/s3: the name the booker gave a ride's rider, read for this driver (logged); null when he booked it himself. Optional for fakes. */
     riderName?(orderId: string, driverId: string): Promise<string | null>;
+    /** SEC-14: the name the sender gave the order's recipient, read for this courier (logged); null when none. Optional for fakes. */
+    recipientName?(orderId: string, driverId: string): Promise<string | null>;
+    /** o10: rides the ride's orderer finished before this one (a count, no names). Optional for fakes. */
+    riderTrips?(orderId: string): Promise<number | null>;
+    /** «دوّرلي»: `OrdersService.recordErrandReceipt` (it checks the courier, the stop and the photo). Optional for fakes. */
+    errandReceipt?(courierId: string, input: { orderId: string; totalIqd: number; photoUploadId: string }): Promise<{ receiptIqd: number; cashDueIqd: number; overCeiling: boolean }>;
   };
   merchants: { name(orgId: string): Promise<string | null> | string | null };
   quotes: { quote(input: { cityId: string; vertical: Vertical; pickupZone: string; dropoffZone: string; at: Date }): Quote | null };
@@ -115,6 +141,11 @@ export interface PartnerDeps {
   pickupSpots?: {
     forCourier(merchantOrgId: string, input: { courierId: string; trip: { courierId: string | null; acceptedAt: Date | null; completedAt: Date | null; cancelled?: boolean }; now: Date }): Promise<PartnerPickupSpot | null>;
   };
+  /**
+   * «الليستة» (دوّرلي): signed read links for the customer's item photos and voice notes, minted per
+   * request for the assigned courier's job, each valid 15 minutes. Absent in fakes = items show their words only.
+   */
+  errandMedia?: { readUrl(uploadId: string): string };
   /** `DriverAccountService.onlineGateFor`: daily check-in, lock-out, expired documents (scoring §2). */
   gate: { onlineGate(driverId: string): Promise<PartnerOnlineGate> };
   /**

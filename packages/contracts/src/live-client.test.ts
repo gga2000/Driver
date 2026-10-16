@@ -235,7 +235,7 @@ describe('SSE parsing and the React Native ponyfills', () => {
       abort() {}
     }
     const ES = createXhrEventSource(FakeXhr);
-    const es = new ES('http://api/trpc/live.order?input=1');
+    const es = new ES('http://api/trpc/live.order?input=1', { headers: { 'x-driver-app': 'merchant/1.0.3' } });
     const seen: string[] = [];
     es.addEventListener('open', () => seen.push('open'));
     es.addEventListener('connected', (e) => seen.push(`connected:${e.data}`));
@@ -245,6 +245,7 @@ describe('SSE parsing and the React Native ponyfills', () => {
     expect((xhr as unknown as { headers: Record<string, string> }).headers['Accept']).toBe(
       'text/event-stream',
     );
+    expect((xhr as unknown as { headers: Record<string, string> }).headers['x-driver-app']).toBe('merchant/1.0.3');
     xhr.push('event: connected\ndata: {}\n\n');
     xhr.push('data: {"json":1}\n');
     xhr.push('\n');

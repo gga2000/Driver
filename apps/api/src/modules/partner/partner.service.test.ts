@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { isDriverError, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
+import { describe, expect, it, vi } from 'vitest';
+import { isDriverError, PartnerGoOnlineResult, PartnerStatus, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { PartnerService } from './partner.service.js';
-import type { PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
+import type { PartnerBookedRecord, PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
 
 const NOW = new Date('2026-10-03T10:00:00Z');
 const actor = { personId: 'drv1', sessionId: 's1' };
@@ -112,6 +112,8 @@ function harness(
     roads?: Array<readonly { lat: number; lng: number }[]>;
     lastFix?: { lat: number; lng: number } | null;
     rideOrder?: boolean;
+    /** A «دوّرلي» order: no merchant behind the pickup. */
+    errandOrder?: boolean;
     /** c9: the ride was booked for someone else, by this name. */
     rideFor?: string;
     places?: PartnerDeps['places'];
@@ -119,10 +121,13 @@ function harness(
     startCodeFor?: string[];
     rideCargo?: Order['rideCargo'];
     climate?: PartnerDeps['climate'];
+    booked?: { online: boolean; mine: PartnerBookedRecord[]; open: PartnerBookedRecord[] };
+    answers?: Array<{ driverId: string; tripId: string; answer: string }>;
+    /** HUNT-02: the food order was priced «بالشارع». */
+    street?: boolean;
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
-  const offerTrip = opts.offerTrip ?? null;
   const deps: PartnerDeps = {
     presence: {
       get: async () => presence,
@@ -135,20 +140,36 @@ function harness(
         presence = null;
       },
       zones: async () => ['centre', 'zakur'],
+      // N17: one courier waiting in zakur (him), one busy in the centre.
+      live: async () => [
+        { driverId: 'drv1', zoneId: 'zakur', lat: 32.9, lng: 45.07, free: true },
+        { driverId: 'drv2', zoneId: 'centre', lat: 32.905, lng: 45.06, free: false },
+      ],
     },
     dispatch: {
-      openOffer: async () =>
-        offerTrip
+      openOffer: async () => {
+        // Read on each call, so a test can make an offer ring between two beats (perf o4).
+        const offerTrip = opts.offerTrip ?? null;
+        return offerTrip
           ? {
               offer: { id: 'do_1', tripId: offerTrip.id, wave: 1, state: 'sent', distanceKm: 0.8, compensationIqd: 0, sentAt: NOW, seenAt: null, expiresAt: new Date(NOW.getTime() + 15_000), ...(opts.offerPolicy ? { policy: opts.offerPolicy } : {}) },
               request: { tripId: offerTrip.id, vertical: 'food', zoneId: 'street_30', dropoffZoneId: 'zakur', pickup: KITCHEN },
             }
-          : null,
+          : null;
+      },
       waitingZones: async () => ['centre', 'centre', 'centre'],
+      ...(opts.booked
+        ? {
+            bookedJobs: async () => opts.booked!,
+            answerBookedJob: async (driverId: string, tripId: string, answer: string) => {
+              opts.answers?.push({ driverId, tripId, answer });
+            },
+          }
+        : {}),
     },
     trips: {
       forDriver: async () => opts.trips ?? [],
-      get: async (id) => [...(opts.trips ?? []), ...(offerTrip ? [offerTrip] : [])].find((t) => t.id === id)!,
+      get: async (id) => [...(opts.trips ?? []), ...(opts.offerTrip ? [opts.offerTrip] : [])].find((t) => t.id === id)!,
       lastPosition: async () => (opts.lastFix ? { pin: opts.lastFix, driverId: actor.personId } : null),
     },
     ...(opts.roads
@@ -165,11 +186,13 @@ function harness(
       get: async (id) =>
         opts.rideFor
           ? order({ type: 'ride', merchantOrgId: null, participants: [{ id: 'pt1', role: 'rider', personId: 'mum', label: null, note: null }] as Order['participants'] })
-          : opts.rideOrder
+          : opts.errandOrder
+            ? order({ type: 'errand', merchantOrgId: null, lines: [] })
+            : opts.rideOrder
             ? order({ type: 'ride', merchantOrgId: null, ...(opts.rideCargo ? { rideCargo: opts.rideCargo } : {}) })
             : id === 'o2'
               ? order({ id: 'o2', paymentMethod: 'wallet' })
-              : order(),
+              : order(opts.street ? { streetHandover: true } : {}),
       ...(opts.startCodeFor ? { startCodeRequired: async (id: string) => opts.startCodeFor!.includes(id) } : {}),
       ...(opts.rideFor ? { riderName: async (_orderId: string, driverId: string) => (driverId === actor.personId ? opts.rideFor! : null) } : {}),
     },
@@ -193,6 +216,9 @@ function harness(
   };
   return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
 }
+
+/** The harness options a test changes between two beats (perf o4). */
+type Mutable = NonNullable<Parameters<typeof harness>[0]>;
 
 describe('PartnerService', () => {
   it('status offline: modes from roles, cash vs cap with the near-cap warning, today, demand', async () => {
@@ -232,6 +258,58 @@ describe('PartnerService', () => {
     const off = await svc.goOffline(actor);
     expect(off.online).toBe(false);
     expect(off.onlineSince).toBeNull();
+  });
+
+  it('perf o4: an old app (no knownVersion) gets the full status, as before', async () => {
+    const svc = harness();
+    const at = { lat: 32.9095, lng: 45.0635 };
+    const res = await svc.goOnline(actor, { cityId: 'aziziyah', at });
+    expect(res).not.toHaveProperty('changed');
+    expect(res).toEqual(await svc.status(actor));
+    // The wire shape still reads as a status for an old client.
+    expect(PartnerStatus.parse(PartnerGoOnlineResult.parse(res))).toMatchObject({ online: true, position: at, zoneId: 'street_30' });
+  });
+
+  it('perf o4: with knownVersion, an unchanged work state answers only the version, without building the status', async () => {
+    const svc = harness();
+    const lines = vi.spyOn(svc['deps'].money, 'driverLines');
+    const at = { lat: 32.9095, lng: 45.0635 };
+    // No version held yet (""): the status and its version.
+    const first = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: '' });
+    if (!first.changed) throw new Error('expected the status');
+    expect(first.status).toEqual(await svc.status(actor));
+    expect(first.version).toMatch(/^[\w-]{16}$/);
+    expect(PartnerGoOnlineResult.parse(first)).toEqual(first);
+    lines.mockClear();
+    // Same work state: the version alone, and today's earnings were never read.
+    const same = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: first.version });
+    expect(same).toEqual({ changed: false, version: first.version });
+    expect(PartnerGoOnlineResult.parse(same)).toEqual(same);
+    // Moving within the zone is not a change: the app knows its own position.
+    expect(await svc.goOnline(actor, { cityId: 'aziziyah', at: { lat: at.lat + 0.001, lng: at.lng }, knownVersion: first.version })).toEqual({ changed: false, version: first.version });
+    expect(lines).not.toHaveBeenCalled();
+    // A stale or unknown version always gets the status.
+    const stale = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: 'stale' });
+    expect(stale).toMatchObject({ changed: true, version: first.version, status: { online: true } });
+  });
+
+  it.each([
+    ['his cash moved', (o: Mutable) => (o.cap = { owedIqd: 140_000, capRemainingIqd: 10_000 })],
+    ['an offer is ringing', (o: Mutable) => (o.offerTrip = trip('t_offer', []))],
+    ['a job is his', (o: Mutable) => (o.trips = [trip('t_job', [])])],
+    ['the gate closed (check-in alone, after midnight)', (o: Mutable) => (o.gate = NO_CHECKIN)],
+  ])('perf o4: when %s, the heartbeat sends the new status with a new version', async (_name, change) => {
+    const o: Mutable = { now: new Date('2026-10-02T21:30:00Z') };
+    const svc = harness(o);
+    const at = { lat: 32.9095, lng: 45.0635 };
+    const first = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: '' });
+    change(o);
+    const next = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: first.version });
+    if (!next.changed) throw new Error('expected the status');
+    expect(next.version).not.toBe(first.version);
+    expect(next.status).toEqual(await svc.status(actor));
+    // And the beat after that is quiet again.
+    expect(await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: next.version })).toEqual({ changed: false, version: next.version });
   });
 
   it.each([
@@ -278,6 +356,12 @@ describe('PartnerService', () => {
     expect(await harness({ online: true, offerTrip: t, roads: [], rideOrder: true }).offerRoute(actor, { offerId: 'do_1' })).toMatchObject({ polyline6: null });
   });
 
+  it('the counter code is for our merchants only: a food pickup shows it, a دوّرلي pickup none', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    expect((await harness({ trips: [t] }).activeJob(actor))!.stops[0]!.pickupCode).toMatch(/^\d{4}$/);
+    expect((await harness({ trips: [trip('t1', t.stops, { vertical: 'errand' })], errandOrder: true }).activeJob(actor))!.stops[0]!.pickupCode).toBeNull();
+  });
+
   it('«رمز المشوار» (ride s1): a night ride’s pickup still to do says a code is needed, never the code', async () => {
     const ride = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'arrived'), stop('s2', 1, 'dropoff', 'zakur', HOME)], { vertical: 'taxi', state: 'arrived_pickup' });
     const job = await harness({ trips: [ride], rideOrder: true, startCodeFor: ['o1'] }).activeJob(actor);
@@ -303,13 +387,14 @@ describe('PartnerService', () => {
     expect(await harness({ trips: [], roads: [] }).jobRoute(actor)).toMatchObject({ polyline6: null });
   });
 
-  it('demandMap (maps program d5): waiting now, the usual pickups this hour, drivers there', async () => {
-    const m = await harness().demandMap(actor);
-    // The harness: three jobs waiting in the centre, drivers in the centre and zakur, no history.
-    expect(m.zones).toEqual([
-      { zoneId: 'centre', waiting: 3, expected: 0, drivers: 1, level: 'hot' },
-      { zoneId: 'zakur', waiting: 0, expected: 0, drivers: 1, level: 'calm' },
-    ]);
+  it('demandGlow (N17): no counts, the short zone picked for the nearest free courier, one picture per 3 minutes', async () => {
+    const h = harness();
+    // The harness: three jobs waiting in the centre with one (busy) courier there; he waits in zakur.
+    const g = await h.demandGlow(actor);
+    expect(g.zones).toEqual([{ zoneId: 'centre', level: 'hot', forYou: true }]);
+    // Another courier reading the same picture sees the centre warm: it was picked for drv1.
+    expect((await h.demandGlow({ ...actor, personId: 'drv9' })).zones).toEqual([{ zoneId: 'centre', level: 'warm', forYou: false }]);
+    expect((await h.demandGlow(actor)).at).toEqual(g.at);
   });
 
   it('currentOffer: zones, merchant prep, cash to collect, ring, named pay', async () => {
@@ -328,12 +413,44 @@ describe('PartnerService', () => {
       collectIqd: 15_500,
     });
     expect(offer!.tripKm).toBeGreaterThan(2);
+    // The phone counts the ring from the server's clock, not its own.
+    expect(offer!.serverNow).toEqual(NOW);
   });
 
   it('joy l9: a ride the rider booked asking for him says so — and nothing else about who', async () => {
     const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'offered', courierId: null });
     expect((await harness({ online: true, offerTrip: t, offerPolicy: 'favourite' }).currentOffer(actor))!.favourite).toBe(true);
     expect((await harness({ online: true, offerTrip: t }).currentOffer(actor))!.favourite).toBe(false);
+  });
+
+  it('«مشاوير باچر» (review #28): time, zones, km and pay — never a door; his own say confirmed', async () => {
+    const ride = trip('tb', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)], { state: 'created', courierId: null, vertical: 'taxi' });
+    const at = new Date('2026-10-04T02:00:00Z');
+    const record = (held: boolean, favourite: boolean): PartnerBookedRecord => ({
+      request: { tripId: 'tb', vertical: 'taxi', zoneId: 'street_30', dropoffZoneId: 'zakur', pickup: KITCHEN },
+      scheduledFor: at,
+      confirmBy: new Date('2026-10-03T19:00:00Z'),
+      startFrom: new Date('2026-10-04T01:00:00Z'),
+      showBy: new Date('2026-10-04T01:30:00Z'),
+      favourite,
+      held,
+    });
+    const answers: Array<{ driverId: string; tripId: string; answer: string }> = [];
+    const svc = harness({ online: true, rideOrder: true, trips: [ride], booked: { online: true, mine: [record(true, false)], open: [record(false, true)] }, answers });
+    const view = await svc.bookedJobs(actor);
+    expect(view.online).toBe(true);
+    expect(view.mine[0]).toMatchObject({ tripId: 'tb', vertical: 'taxi', state: 'confirmed', scheduledFor: at, pickup: { zoneId: 'street_30' }, dropoff: { zoneId: 'zakur' }, favourite: false, collectIqd: 15_500 });
+    expect(view.mine[0]!.pay.totalIqd).toBeGreaterThan(0);
+    expect(view.mine[0]!.tripKm).toBeGreaterThan(2);
+    expect(view.open[0]).toMatchObject({ state: 'open', favourite: true, showBy: new Date('2026-10-04T01:30:00Z') });
+    expect(JSON.stringify(view)).not.toContain(String(HOME.lat));
+    expect(JSON.stringify(view)).not.toContain('باب أخضر');
+    await svc.answerBookedJob(actor, { tripId: 'tb', answer: 'confirm' });
+    expect(answers).toEqual([{ driverId: 'drv1', tripId: 'tb', answer: 'confirm' }]);
+  });
+
+  it('«مشاوير باچر» without dispatch wiring (fakes) is empty', async () => {
+    expect(await harness().bookedJobs(actor)).toEqual({ online: false, mine: [], open: [] });
   });
 
   it("an offer names zones, never the customer's exact door (review 2026-10-04 #13)", async () => {
@@ -380,6 +497,12 @@ describe('PartnerService', () => {
       ['s1', 'مطعم خالد', 0, null],
       ['s2', null, 15_500, 'باب أخضر يم الجامع'],
     ]);
+  });
+
+  it('HUNT-02: a «بالشارع» order tells him on the drop-off only; a door order says nothing', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    expect((await harness({ trips: [t], street: true }).activeJob(actor))!.stops.map((s) => s.streetHandover)).toEqual([undefined, true]);
+    expect((await harness({ trips: [t] }).activeJob(actor))!.stops.map((s) => s.streetHandover)).toEqual([undefined, undefined]);
   });
 
   it('activeJob: a drop-off at a saved place shows its door and whether he was ever there (maps f6, a5)', async () => {

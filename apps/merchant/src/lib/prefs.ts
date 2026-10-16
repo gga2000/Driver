@@ -18,10 +18,12 @@ export interface PrefsState {
   soundOn: boolean;
   /** Print each order as soon as it is accepted. */
   autoPrint: boolean;
+  /** s6: tickets in bigger type, to read from across the kitchen. */
+  bigText: boolean;
 }
 
 const KEY = 'driver.merchant.prefs';
-const EMPTY: PrefsState = { loaded: false, storeId: null, locale: 'ar-IQ', soundOn: true, autoPrint: true };
+const EMPTY: PrefsState = { loaded: false, storeId: null, locale: 'ar-IQ', soundOn: true, autoPrint: true, bigText: false };
 
 export function parsePrefs(raw: string | null): Omit<PrefsState, 'loaded'> {
   let v: Partial<PrefsState> = {};
@@ -35,6 +37,7 @@ export function parsePrefs(raw: string | null): Omit<PrefsState, 'loaded'> {
     locale: v.locale === 'en' ? 'en' : 'ar-IQ',
     soundOn: v.soundOn !== false,
     autoPrint: v.autoPrint !== false,
+    bigText: v.bigText === true,
   };
 }
 
@@ -80,6 +83,7 @@ export function createPrefsStore(store: KeyValueStorage) {
     setLocale: (locale: AppLocale) => save({ locale }),
     setSound: (soundOn: boolean) => save({ soundOn }),
     setAutoPrint: (autoPrint: boolean) => save({ autoPrint }),
+    setBigText: (bigText: boolean) => save({ bigText }),
   };
 }
 

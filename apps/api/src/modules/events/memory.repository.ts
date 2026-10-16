@@ -1,7 +1,9 @@
 import { afterCommit, onRollback, type Tx } from '../../shared/db/unit-of-work.js';
-import type { EventFilter, EventsRepository, OutboxFilter } from './events.repository.js';
-import { newId } from './events.repository.js';
+import type { EventFilter, EventsRepository, OutboxFilter, OutboxRequeueSelect } from './events.repository.js';
+import { assertKeyedFilter, newId } from './events.repository.js';
 import type { OutboxPatch, OutboxRecord, OutboxStats, StoredEvent } from './events.types.js';
+import { OUTBOX_LEASE_MS } from './timestamps.js';
+import { matchesType } from './subscriber.registry.js';
 
 interface Delivery {
   outboxId: string;
@@ -25,15 +27,14 @@ interface Staged {
  * commits; a rollback discards them (no event, no outbox row, no delivery record). Writes with no
  * managed transaction apply at once.
  *
- * `claimDue` simulates `FOR NO KEY UPDATE SKIP LOCKED`: rows are locked by the claiming drain until
- * its callback settles, and a concurrent drain skips them.
+ * `claimDue` mirrors the Postgres claim: the claimed rows' next attempt moves `OUTBOX_LEASE_MS` ahead
+ * at once, so a concurrent drain skips them, and a batch that dies mid-way comes back after the lease.
  */
 export class InMemoryEventsRepository implements EventsRepository {
   private readonly events: StoredEvent[] = [];
   private readonly rows: OutboxRecord[] = [];
   private readonly deliveries = new Map<string, Delivery>();
   private readonly staged = new Map<object, Staged>();
-  private readonly locked = new Set<string>();
   // Indexes over the committed rows (the simulator writes hundreds of thousands): same answers as a
   // full scan, in recording order.
   private readonly byIdempotencyKey = new Map<string, StoredEvent>();
@@ -143,6 +144,10 @@ export class InMemoryEventsRepository implements EventsRepository {
   }
 
   async find(filter: EventFilter, tx?: Tx): Promise<StoredEvent[]> {
+    assertKeyedFilter(filter);
+    if (filter.orderIds && filter.orderIds.length === 0) return [];
+    const orderIds = filter.orderIds ? new Set(filter.orderIds) : null;
+    const types = filter.types ? new Set(filter.types) : null;
     // Narrow by an index when the filter has a key (the rest of the filter still applies below);
     // this transaction's staged events come last, after every committed one, as in a full scan.
     const indexed = filter.tripId
@@ -153,9 +158,11 @@ export class InMemoryEventsRepository implements EventsRepository {
           ? this.byActor.get(filter.actorId)
           : filter.aggregate
             ? this.byAggregate.get(aggKey(filter.aggregate.name, filter.aggregate.id))
-            : null;
+            : orderIds
+              ? this.byOrders(orderIds)
+              : null;
     const staged = tx ? this.staged.get(tx as object) : undefined;
-    const keyed = Boolean(filter.tripId || filter.orderId || filter.actorId || filter.aggregate);
+    const keyed = Boolean(filter.tripId || filter.orderId || filter.actorId || filter.aggregate || orderIds);
     const all = keyed ? [...(indexed ?? []), ...(staged?.events ?? [])] : this.visibleEvents(tx);
     let scope = all;
     if (filter.before) {
@@ -168,8 +175,35 @@ export class InMemoryEventsRepository implements EventsRepository {
         (!filter.actorId || e.actorId === filter.actorId) &&
         (!filter.tripId || e.tripId === filter.tripId) &&
         (!filter.orderId || e.orderId === filter.orderId) &&
-        (!filter.aggregate || (e.aggregate === filter.aggregate.name && e.aggregateId === filter.aggregate.id)),
+        (!filter.aggregate || (e.aggregate === filter.aggregate.name && e.aggregateId === filter.aggregate.id)) &&
+        (!orderIds || (e.orderId !== undefined && orderIds.has(e.orderId))) &&
+        (!types || types.has(e.type)) &&
+        (!filter.from || e.occurredAt.getTime() >= filter.from.getTime()) &&
+        (!filter.to || e.occurredAt.getTime() < filter.to.getTime()),
     );
+  }
+
+  async firstOccurredAt(actorId: string): Promise<Date | null> {
+    let first: Date | null = null;
+    for (const e of this.byActor.get(actorId) ?? []) if (!first || e.occurredAt < first) first = e.occurredAt;
+    return first;
+  }
+
+  async countUpTo(actorId: string, types: readonly string[], cap: number): Promise<number> {
+    const wanted = new Set(types);
+    let n = 0;
+    for (const e of this.byActor.get(actorId) ?? []) {
+      if (n >= cap) break;
+      if (wanted.has(e.type)) n += 1;
+    }
+    return n;
+  }
+
+  /** The committed events of several orders, in recording order. */
+  private byOrders(orderIds: ReadonlySet<string>): StoredEvent[] {
+    const out: StoredEvent[] = [];
+    for (const id of orderIds) out.push(...(this.byOrder.get(id) ?? []));
+    return out.sort((a, b) => (this.position.get(a.id) ?? 0) - (this.position.get(b.id) ?? 0));
   }
 
   // ───────────────────────── outbox ─────────────────────────
@@ -178,29 +212,32 @@ export class InMemoryEventsRepository implements EventsRepository {
     return { ...this.stats };
   }
 
+  async oldestDueAt(now: Date): Promise<Date | null> {
+    let oldest: Date | null = null;
+    for (const r of this.pendingRows.values()) if (r.nextAttemptAt <= now && (!oldest || r.nextAttemptAt < oldest)) oldest = r.nextAttemptAt;
+    return oldest;
+  }
+
   async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {
     const rows = this.rows.filter((r) => (!filter.status || r.status === filter.status) && (!filter.eventId || r.eventId === filter.eventId)).map((r) => ({ ...r }));
     if (filter.newestFirst) rows.reverse();
     return filter.limit === undefined ? rows : rows.slice(0, filter.limit);
   }
 
-  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>): Promise<T> {
-    // Selection and locking happen synchronously, before the first await: two drains started
+  async claimDue<T>(now: Date, limit: number, fn: (rows: OutboxRecord[], tx: Tx | undefined) => Promise<T>, leaseMs = OUTBOX_LEASE_MS): Promise<T> {
+    // Selection and the lease happen synchronously, before the first await: two drains started
     // together can never pick the same row.
+    const leaseUntil = new Date(now.getTime() + leaseMs);
     const claimed: OutboxRecord[] = [];
     for (const r of this.pendingRows.values()) {
       if (claimed.length >= limit) break;
-      if (r.nextAttemptAt.getTime() <= now.getTime() && !this.locked.has(r.id)) claimed.push(r);
+      if (r.nextAttemptAt.getTime() <= now.getTime()) claimed.push(r);
     }
-    for (const r of claimed) this.locked.add(r.id);
-    try {
-      return await fn(
-        claimed.map((r) => ({ ...r })),
-        undefined,
-      );
-    } finally {
-      for (const r of claimed) this.locked.delete(r.id);
-    }
+    for (const r of claimed) r.nextAttemptAt = leaseUntil;
+    return fn(
+      claimed.map((r) => ({ ...r })),
+      undefined,
+    );
   }
 
   async updateOutbox(id: string, patch: OutboxPatch): Promise<void> {
@@ -221,6 +258,9 @@ export class InMemoryEventsRepository implements EventsRepository {
 
   // ───────────────────────── deliveries ─────────────────────────
 
+  /** One process, one drain at a time (`OutboxPublisher`): nothing to wait for. */
+  async lockDelivery(): Promise<void> {}
+
   async deliveredTo(outboxId: string, tx?: Tx): Promise<Set<string>> {
     const names = new Set<string>();
     for (const d of this.deliveriesByRow.get(outboxId)?.values() ?? []) if (d.deliveredAt) names.add(d.subscriber);
@@ -239,6 +279,24 @@ export class InMemoryEventsRepository implements EventsRepository {
     const d = this.delivery(outboxId, subscriber);
     d.attempts += 1;
     d.lastError = error;
+  }
+
+  async requeueFailed(select: OutboxRequeueSelect, now: Date, limit: number): Promise<string[]> {
+    const match = 'ids' in select ? ((ids) => (r: OutboxRecord) => ids.has(r.id))(new Set(select.ids)) : (r: OutboxRecord) => r.type === select.type && r.createdAt >= select.from && r.createdAt < select.to;
+    const picked = this.rows.filter((r) => r.status === 'failed' && match(r)).slice(0, limit);
+    for (const r of picked) await this.updateOutbox(r.id, { status: 'pending', attempts: 0, lastError: null, nextAttemptAt: now });
+    return picked.map((r) => r.id);
+  }
+
+  async stuckFor(subscriberPrefix: string, pendingTypes: readonly string[] | '*'): Promise<{ failed: number; oldestPendingAt: Date | null }> {
+    let failed = 0;
+    for (const r of this.rows) {
+      if (r.status !== 'failed') continue;
+      if ([...(this.deliveriesByRow.get(r.id)?.values() ?? [])].some((d) => d.subscriber.startsWith(subscriberPrefix) && !d.deliveredAt)) failed += 1;
+    }
+    let oldest: Date | null = null;
+    for (const r of this.pendingRows.values()) if (matchesType(pendingTypes, r.type) && (!oldest || r.createdAt < oldest)) oldest = r.createdAt;
+    return { failed, oldestPendingAt: oldest };
   }
 
   /** Delivery records (tests and the Console). */

@@ -187,3 +187,45 @@ describe('subscribers see the stored event', () => {
     expect(got[0]!.outboxId).toMatch(/^ob_/);
   });
 });
+
+describe('narrowed reads: forOrders and forAggregate with a window', () => {
+  async function seeded() {
+    const clock = new FakeClock(START);
+    const h = createInMemoryEvents({ clock, contradictions: false });
+    const at = (min: number) => new Date(new Date(START).getTime() + min * 60_000);
+    await h.events.emit(undefined, { type: 'order.accepted', actorId: 'p1', occurredAt: at(1), orderId: 'o1' }, { name: 'order', id: 'o1' });
+    await h.events.emit(undefined, { type: 'order.ready', actorId: 'p2', occurredAt: at(2), orderId: 'o2' }, { name: 'order', id: 'o2' });
+    await h.events.emit(undefined, { type: 'order.placed', actorId: 'c1', occurredAt: at(3), orderId: 'o1' }, { name: 'order', id: 'o1' });
+    await h.events.emit(undefined, { type: 'order.ready', actorId: 'p1', occurredAt: at(4), orderId: 'o3' }, { name: 'order', id: 'o3' });
+    await h.events.emit(undefined, { type: 'item.sold_out', actorId: 'p1', occurredAt: at(5), payload: { itemId: 'i1' } }, { name: 'org', id: 'org_1' });
+    await h.events.emit(undefined, { type: 'item.restocked', actorId: 'p2', occurredAt: at(65), payload: { itemId: 'i1' } }, { name: 'org', id: 'org_1' });
+    await h.events.emit(undefined, { type: 'item.price_changed', actorId: 'p2', occurredAt: at(66), payload: { itemId: 'i1' } }, { name: 'org', id: 'org_1' });
+    return { ...h, at };
+  }
+
+  it('forOrders reads several orders in recording order, narrowed by type; [] for no ids', async () => {
+    const h = await seeded();
+    expect((await h.events.forOrders(['o1', 'o2'])).map((e) => e.type)).toEqual(['order.accepted', 'order.ready', 'order.placed']);
+    expect((await h.events.forOrders(['o3', 'o1'], { types: ['order.accepted', 'order.ready'] })).map((e) => [e.orderId, e.type])).toEqual([
+      ['o1', 'order.accepted'],
+      ['o3', 'order.ready'],
+    ]);
+    expect(await h.events.forOrders([])).toEqual([]);
+    expect(await h.repo.find({ orderIds: [] })).toEqual([]);
+  });
+
+  it('forAggregate keeps its old two-argument call and takes a from/to/types window', async () => {
+    const h = await seeded();
+    expect(await h.events.forAggregate('org', 'org_1')).toHaveLength(3);
+    const hour = await h.events.forAggregate('org', 'org_1', { from: h.at(0), to: h.at(60) });
+    expect(hour.map((e) => e.type)).toEqual(['item.sold_out']);
+    const typed = await h.events.forAggregate('org', 'org_1', { from: h.at(5), to: h.at(66), types: ['item.sold_out', 'item.restocked'] });
+    expect(typed.map((e) => e.type)).toEqual(['item.sold_out', 'item.restocked']); // from inclusive, to exclusive
+  });
+
+  it('a type or time narrowing with no indexed key is refused rather than scanning the log', async () => {
+    const h = await seeded();
+    await expect(h.repo.find({ types: ['order.ready'] })).rejects.toThrow(/need/);
+    await expect(h.repo.find({ from: h.at(0) })).rejects.toThrow(/need/);
+  });
+});

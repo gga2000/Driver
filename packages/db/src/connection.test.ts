@@ -19,6 +19,11 @@ describe('pgPoolConfig', () => {
     expect(c.ssl).toEqual({ ca: PEM, rejectUnauthorized: true });
     expect(c.max).toBe(5);
   });
+
+  it('passes a statement time limit to every connection it opens; 0 leaves the server limit', () => {
+    expect(pgPoolConfig('postgresql://localhost/driver', { statementTimeoutMs: 5000 }).statement_timeout).toBe(5000);
+    expect(pgPoolConfig('postgresql://localhost/driver', { statementTimeoutMs: 0 })).not.toHaveProperty('statement_timeout');
+  });
 });
 
 describe('dbOptionsFromEnv', () => {

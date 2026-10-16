@@ -1,6 +1,7 @@
 import { View } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
-import { DISH_KINDS, DishDrawing, SCENE_NAMES, SKETCH, SketchScene, Text, useTheme, type SceneName, type SceneVehicle } from '../src';
+import { DISH_KINDS, DishDrawing } from '../src/dishes';
+import { SCENE_NAMES, SKETCH, SketchScene, Text, useTheme, type SceneName, type SceneVehicle } from '../src';
 
 /**
  * Every drawing of the Aziziyah sketchbook (joy J4): the dish set in its three looks at menu size, and

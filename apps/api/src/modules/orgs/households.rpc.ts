@@ -103,8 +103,8 @@ export class HouseholdsRpc implements HouseholdsPort {
   }
 
   async create(actor: Actor, input: z.infer<typeof CreateHouseholdInput>): Promise<HouseholdView> {
-    if ((await this.orgs.householdsOf(actor.personId)).length > 0) throw new DriverError('household_exists');
-    const home = await this.orgs.createHousehold({ name: input.name.trim(), cityId: input.cityId, payerId: actor.personId });
+    // Checked and created under a lock on the payer: a double tap makes one household (RDB-05).
+    const home = await this.orgs.createOwnHousehold({ name: input.name.trim(), cityId: input.cityId, payerId: actor.personId });
     return this.view(home, actor.personId);
   }
 

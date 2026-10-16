@@ -1,16 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import type { MerchantBoard } from '@driver/contracts';
 import { useNetwork } from '@driver/ui';
 import { useApi, useApiClient } from '@/lib/api';
 import { LIVE_MERCHANT_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
 import { useSignedIn } from '@/lib/session';
-import { clockOffset, startServerClock } from '@/lib/time';
+import { clockOffset } from '@/lib/time';
+import { acceptWindow, serverClock } from './clock';
+import { isPractice, practice, usePractice } from './practice';
 import { applyRadar } from './radar';
+import { readyQueue, useReadyQueue, withQueuedReady } from './ready-queue';
+import { beatLog, boardSeesOrders } from './shop-load';
 
 /**
  * The store's live channel (`live.merchantBoard`, SSE), mounted once app-wide by MerchantRuntime: a
- * new order rings the moment it arrives (`new_order`, before the board is even re-read); a courier
+ * new order rings the moment it arrives (`new_order`, before the board is even re-read); an accepted
+ * order that is cancelled (`cancelled`) re-reads the board for its red card; a courier
  * on his way moves on the radar with each fix (`courier_radar`, patched in place); order, courier and
  * store changes re-read the board. The board keeps a slow safety refetch while live and
  * polls every 30 s when SSE does not get through.
@@ -28,6 +34,11 @@ export function useLiveMerchantBoard(merchantOrgId: string | null, onNewOrder: (
         qc.setQueriesData<MerchantBoard>(api.merchant.board.pathFilter(), (b) => applyRadar(b, e));
         return;
       }
+      // An accepted order was cancelled: re-read now so its red «انلغى» card is up at once.
+      if (e.type === 'cancelled' && e.merchantOrgId === merchantOrgId) {
+        void qc.invalidateQueries(api.merchant.board.pathFilter());
+        return;
+      }
       if (e.type !== 'new_order' || e.merchantOrgId !== merchantOrgId) return;
       onNewOrder(e.orderId);
       void qc.invalidateQueries(api.merchant.board.pathFilter());
@@ -37,7 +48,10 @@ export function useLiveMerchantBoard(merchantOrgId: string | null, onNewOrder: (
 /** Merchant presence ping (edge-case review A.2): silent for 2 min counts as "no presence". */
 export const HEARTBEAT_MS = 30_000;
 
-/** The live board, and the server-clock offset for timers (rings, "من 4 د"). */
+/**
+ * The live board, and the server-clock offset for timers (rings, "من 4 د"). Step 6: the practice
+ * order (device-only) sits on top, and a «صار جاهز» kept offline already reads as ready.
+ */
 export function useBoard(merchantOrgId: string | null) {
   const api = useApi();
   const signedIn = useSignedIn();
@@ -50,14 +64,27 @@ export function useBoard(merchantOrgId: string | null) {
     staleTime: 0,
   });
   const offset = q.data ? clockOffset(q.data.now, q.dataUpdatedAt) : 0;
-  return { ...q, offset };
+  useEffect(() => serverClock.setOffset(offset), [offset]);
+  const windowSec = q.data?.acceptWindowSec;
+  if (windowSec !== undefined) acceptWindow.setSec(windowSec);
+  const trial = usePractice().order;
+  const queue = useReadyQueue();
+  const data = useMemo(() => {
+    if (!q.data || (!trial && queue.length === 0)) return q.data;
+    const orders = withQueuedReady(q.data.orders, queue);
+    return { ...q.data, orders: trial ? [trial, ...orders] : orders };
+  }, [q.data, trial, queue]);
+  return { ...q, data, offset };
 }
 
-/** Ticks every `ms` with server time (board `now` + elapsed): the board re-renders its timers on each tick. */
-export function useServerNow(offset: number, ms = 1000): number {
-  const [now, setNow] = useState(() => Date.now() + offset);
-  useEffect(() => startServerClock(offset, ms, setNow), [offset, ms]);
-  return now;
+/**
+ * A board action that the practice order answers on the device (s2): its id never reaches the server.
+ * Everything else goes to the server as before.
+ */
+function trial<O extends { mutationFn?: unknown }>(opts: O, action: Parameters<typeof practice.run>[0]): O {
+  const real = opts.mutationFn as (input: unknown, ...rest: unknown[]) => Promise<unknown>;
+  const mutationFn = (input: { orderId: string; prepMinutes?: number }, ...rest: unknown[]) => (isPractice(input.orderId) ? practice.run(action, input) : real(input, ...rest));
+  return { ...opts, mutationFn } as O;
 }
 
 export function useOrderActions() {
@@ -65,14 +92,39 @@ export function useOrderActions() {
   const qc = useQueryClient();
   const refresh = () => void qc.invalidateQueries(api.merchant.board.pathFilter());
   return {
-    accept: useMutation({ ...api.orders.merchant.accept.mutationOptions(), onSettled: refresh }),
-    reject: useMutation({ ...api.orders.merchant.reject.mutationOptions(), onSettled: refresh }),
-    ready: useMutation({ ...api.orders.merchant.ready.mutationOptions(), onSettled: refresh }),
+    accept: useMutation({ ...trial(api.orders.merchant.accept.mutationOptions(), 'accept'), onSettled: refresh }),
+    reject: useMutation({ ...trial(api.orders.merchant.reject.mutationOptions(), 'reject'), onSettled: refresh }),
+    ready: useMutation({ ...trial(api.orders.merchant.ready.mutationOptions(), 'ready'), onSettled: refresh }),
     /** "+5 د" once per order (M-12): moves the promised time; the customer is told. */
-    extend: useMutation({ ...api.orders.merchant.extendPrep.mutationOptions(), onSettled: refresh }),
+    extend: useMutation({ ...trial(api.orders.merchant.extendPrep.mutationOptions(), 'extend'), onSettled: refresh }),
     /** "سلّمته" (S-M4): the bag went to the courier at the pass; idempotent on the server. */
-    handOver: useMutation({ ...api.orders.merchant.handOver.mutationOptions(), onSettled: refresh }),
+    handOver: useMutation({ ...trial(api.orders.merchant.handOver.mutationOptions(), 'handOver'), onSettled: refresh }),
   };
+}
+
+/**
+ * y6: sends the «صار جاهز» taps kept offline as soon as the board can act again (and at start, for a
+ * tablet that restarted offline). Mounted once, app-wide (MerchantRuntime).
+ */
+export function useReadyQueueFlush(merchantOrgId: string | null): void {
+  const client = useApiClient();
+  const api = useApi();
+  const qc = useQueryClient();
+  const online = useOnline();
+  const queued = useReadyQueue().length;
+  useEffect(() => {
+    void readyQueue.load();
+  }, []);
+  useEffect(() => {
+    if (!online || queued === 0 || !merchantOrgId) return;
+    let alive = true;
+    void readyQueue.flush((orderId) => client.orders.merchant.ready.mutate({ orderId })).then((sent) => {
+      if (alive && sent > 0) void qc.invalidateQueries(api.merchant.board.pathFilter());
+    });
+    return () => {
+      alive = false;
+    };
+  }, [online, queued, merchantOrgId, client, api, qc]);
 }
 
 /** Last heartbeat outcome, shared by the runtime (which pings) and the board (offline strip). */
@@ -102,17 +154,35 @@ export function useOnline(): boolean {
 /**
  * `orders.merchant.heartbeat` every 30 s while the app is open on a store (and once at start).
  * Mounted once, app-wide (MerchantRuntime); a missing response flips `useOnline()` to false.
+ *
+ * h5 (Ali, 2026-10-08): 5 minutes without a heartbeat pause the shop for customers, and an app in the
+ * background sends none. So the moment the app is in front again it beats at once (the 30-s rhythm
+ * restarts from there), and every answered beat goes in the beat log, which tells the board how long
+ * the shop was paused while the app was away.
  */
-export function useHeartbeat(merchantOrgId: string | null): void {
+export function useHeartbeat(merchantOrgId: string | null, boardOkAt: number): void {
   const client = useApiClient();
   const signedIn = useSignedIn();
+  // MER-04: the heartbeat keeps the shop open for customers, so it only goes while the board itself
+  // loads; a kitchen that can't see its orders lets the shop pause (h5) instead of taking new ones.
+  const boardAt = useRef(boardOkAt);
+  boardAt.current = boardOkAt;
+  const skipped = useRef(false);
+  const beatRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!signedIn || !merchantOrgId) return;
     let alive = true;
+    void beatLog.load(merchantOrgId);
     const beat = () => {
+      skipped.current = !boardSeesOrders(boardAt.current, Date.now());
+      if (skipped.current) return;
       client.orders.merchant.heartbeat
         .mutate({ merchantOrgId })
-        .then(() => alive && setOnline(true))
+        .then(() => {
+          if (!alive) return;
+          setOnline(true);
+          void beatLog.ok(merchantOrgId, Date.now());
+        })
         .catch((err: unknown) => {
           // A refused call (4xx) is not "offline"; only a missing response is.
           const status = (err as { data?: { httpStatus?: number } } | null)?.data?.httpStatus;
@@ -120,10 +190,41 @@ export function useHeartbeat(merchantOrgId: string | null): void {
         });
     };
     beat();
-    const id = setInterval(beat, HEARTBEAT_MS);
+    let id = setInterval(beat, HEARTBEAT_MS);
+    let state: AppStateStatus = AppState.currentState;
+    const sub = AppState.addEventListener('change', (next) => {
+      const wasAway = state !== 'active';
+      state = next;
+      if (next !== 'active' || !wasAway) return;
+      beat();
+      clearInterval(id);
+      id = setInterval(beat, HEARTBEAT_MS);
+    });
+    beatRef.current = beat;
     return () => {
       alive = false;
+      beatRef.current = null;
       clearInterval(id);
+      sub.remove();
     };
   }, [client, signedIn, merchantOrgId]);
+  // A beat held back for a board that didn't load goes out the moment the board loads again.
+  useEffect(() => {
+    if (skipped.current && boardOkAt > 0) beatRef.current?.();
+  }, [boardOkAt]);
+}
+
+
+/** `orders.merchant.remakeRule` (c6): whether «سوّيناه من جديد» may show, and from when after «جاهز». */
+export function useRemakeRule(enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.orders.merchant.remakeRule.queryOptions(), enabled: signedIn && enabled, staleTime: 5 * 60_000 });
+}
+
+/** c6: «سوّيناه من جديد» — Driver pays the first batch of a ready order no courier came for. */
+export function useRemake() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({ ...api.orders.merchant.remake.mutationOptions(), onSettled: () => void qc.invalidateQueries(api.merchant.board.pathFilter()) });
 }

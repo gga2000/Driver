@@ -3,24 +3,29 @@ import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
+import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
-import { ControlsModule, ControlsService } from '../controls/index.js';
-import { LedgerModule, LedgerService } from '../ledger/index.js';
+import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
+import { LedgerModule, LedgerService, NightlyJob, WalletHolds } from '../ledger/index.js';
+import { AgreementsService } from './agreements.service.js';
+import { TripChatSubjects } from './trip-chat.subjects.js';
 import { DemandService } from './demand.service.js';
 import { RoutesDeparturesPort } from './departures.port.js';
 import { DeparturesService } from './departures.service.js';
+import { DEPARTURES_AUDIT, DeparturesStaffService, GARAGE_BOARD, GARAGE_BOARD_PORT, GARAGE_WATCH_RULES, garageWatchRulesFromEnv, type GarageBoardPort } from './departures.staff.js';
 import { EventsServiceAdapter, ROUTES_EVENTS } from './events.adapter.js';
 import { INTERCITY_NETWORK, INTERCITY_RULES } from './intercity.config.js';
 import { TrailCheckpointWaiver } from './late-meter.js';
 import { PrismaRoutesRepository } from './prisma.repository.js';
 import { RequestBoardService } from './request-board.service.js';
-import { InMemoryRoutesRepository, ROUTES_REPOSITORY } from './routes.repository.js';
+import { identityRequestRiders, ROUTES_REQUEST_RIDERS, type RequestRidersPort } from './request-riders.js';
+import { InMemoryRoutesRepository, ROUTES_REPOSITORY, type RoutesRepository } from './routes.repository.js';
 import { RoutesRpc } from './routes.rpc.js';
 import { RoutesScheduler } from './scheduler.js';
-import { randomIds, ROUTES_IDS } from './support.js';
+import { randomIds, ROUTES_IDS, walletHolds } from './support.js';
 import { callBridgeFor } from '../../shared/call-bridge.js';
 import { CHECKPOINT_WAIVER, ROUTES_CALLS, ROUTES_CONTROLS, ROUTES_MONEY_RULES, ROUTES_NETWORK, ROUTES_POINTS, ROUTES_RIDER_NAMES, ROUTES_RULES, type RiderNamesReader, type RoutesCallPort } from './tokens.js';
-import { LedgerPoints, LedgerWallet, ROUTES_WALLET } from './wallet.js';
+import { LedgerPoints, LedgerWallet, ROUTES_WALLET, ROUTES_WALLET_HOLDS } from './wallet.js';
 import { RoutesWriter } from './writer.js';
 
 /**
@@ -33,7 +38,7 @@ import { RoutesWriter } from './writer.js';
  * `DEPARTURES` port.
  */
 @Module({
-  imports: [EventsModule, LedgerModule, IdentityModule, ControlsModule, PlacesModule],
+  imports: [EventsModule, LedgerModule, IdentityModule, ControlsModule, PlacesModule, OrgsModule],
   providers: [
     {
       provide: ROUTES_REPOSITORY,
@@ -48,8 +53,13 @@ import { RoutesWriter } from './writer.js';
     },
     {
       provide: ROUTES_WALLET,
-      useFactory: (ledger: LedgerService) => new LedgerWallet(ledger),
-      inject: [LedgerService],
+      // SEC-07: intercity's holds (prepaid seats, request deposits) join the platform's wallet-holds
+      // registry, and seat / deposit spends see everyone else's.
+      useFactory: (ledger: LedgerService, holds: WalletHolds, repo: RoutesRepository) => {
+        holds.register(ROUTES_WALLET_HOLDS, (customerId, tx) => walletHolds(repo, customerId, tx));
+        return new LedgerWallet(ledger, holds);
+      },
+      inject: [LedgerService, WalletHolds, ROUTES_REPOSITORY],
     },
     // r2: «+15 نقطة» on the safe-arrival card, read from where the ledger posted the seat's points.
     { provide: ROUTES_POINTS, useFactory: (ledger: LedgerService) => new LedgerPoints(ledger), inject: [LedgerService] },
@@ -67,6 +77,16 @@ import { RoutesWriter } from './writer.js';
       }),
       inject: [IdentityService, BLOB_STORE],
     },
+    // k2 «جيب واحد»: who a private car fetches, resolved like a taxi booked for someone else.
+    {
+      provide: ROUTES_REQUEST_RIDERS,
+      useFactory: (identity: IdentityService, orgs: OrgsService): RequestRidersPort =>
+        identityRequestRiders(identity, async (householdId, personId) => {
+          const org = await orgs.find(householdId);
+          return org?.type === 'household' && org.members.some((m) => m.personId === personId);
+        }),
+      inject: [IdentityService, OrgsService],
+    },
     // Launch kill switches: corridor / الرجعة switches refuse new holds and request posts.
     { provide: ROUTES_CONTROLS, useExisting: ControlsService },
     // Garage mode "اتصل": the same masked-call bridge as in-order chat (dev: the rider's own number, logged).
@@ -79,17 +99,43 @@ import { RoutesWriter } from './writer.js';
     RequestBoardService,
     DeparturesService,
     DemandService,
+    AgreementsService,
+    TripChatSubjects,
     RoutesRpc,
     RoutesDeparturesPort,
     RoutesScheduler,
+    // W3 / NTF-14: the Console's way out of a dead departure; the auto-cancel switch is off by default.
+    { provide: GARAGE_WATCH_RULES, useFactory: () => garageWatchRulesFromEnv() },
+    { provide: DEPARTURES_AUDIT, useExisting: AuditLogService },
+    // Lane E's Today rows for late cars: `departure.overdue` / `_cleared` marks on their own board.
+    {
+      provide: GARAGE_BOARD_PORT,
+      useFactory: (events: EventsService): GarageBoardPort => ({
+        marks: async () =>
+          (await events.forAggregate(GARAGE_BOARD.name, GARAGE_BOARD.id)).map((e) => ({ type: e.type, departureId: String(e.payload['departureId']), occurredAt: e.occurredAt, payload: e.payload })),
+        emit: async (event) => void (await events.emit(undefined, event, GARAGE_BOARD)),
+        lastActor: async (departureId, since) => {
+          const after = (await events.forAggregate('departure', departureId, { from: since })).filter((e) => e.actorId);
+          return after.at(-1)?.actorId ?? 'system';
+        },
+      }),
+      inject: [EventsService],
+    },
+    DeparturesStaffService,
   ],
-  exports: [RoutesRpc, DeparturesService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler],
+  exports: [RoutesRpc, DeparturesService, DeparturesStaffService, RequestBoardService, RoutesDeparturesPort, RoutesScheduler, TripChatSubjects],
 })
 export class RoutesModule implements OnModuleInit {
-  constructor(private readonly controls: ControlsService) {}
+  constructor(
+    private readonly controls: ControlsService,
+    private readonly departures: DeparturesService,
+    private readonly nightly: NightlyJob,
+  ) {}
 
   /** The console's corridor switches name and validate the corridors this module serves. */
   onModuleInit(): void {
     this.controls.registerCorridors(INTERCITY_NETWORK.corridors.map((c) => ({ id: c.id, name_ar: c.nameAr })));
+    // The nightly close checks every seat settled the day before posted exactly one money group.
+    this.nightly.watchClosures({ closedBetween: async (from, to) => (await this.departures.settledSeatsBetween(from, to)).map((id) => ({ kind: 'seat' as const, id })) });
   }
 }

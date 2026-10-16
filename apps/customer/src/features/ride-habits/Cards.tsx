@@ -9,8 +9,8 @@ import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { apiPhoto } from '@/lib/photo';
 import { profile } from '@/lib/profile';
 import { dinnerStore, useDinnerPick } from './dinner-store';
-import { corridorCity, daysLabel, timeAt } from './logic';
-import { useBookedRoute, useRecentGoodDriver, useSetFavourite } from './queries';
+import { bookedLine, corridorCity, daysLabel, timeAt } from './logic';
+import { useBookedRideStatus, useBookedRoute, useRecentGoodDriver, useSetFavourite } from './queries';
 
 /** A driver's face: his approved photo, else his initial (the person glyph when he has no name). */
 export function DriverFace({ name, photoUrl, size = 48, testID }: { name: string | null; photoUrl: string | null; size?: number; testID?: string }) {
@@ -215,8 +215,12 @@ export function BookedRideCard({ order, now }: { order: Order; now: Date }) {
   const theme = useTheme();
   const t = useT();
   const memo = useBookedRoute(order.id);
+  const status = useBookedRideStatus(order.id);
   if (!order.scheduledFor) return null;
   const when = t('habits.booked_home', { when: formatWhen(order.scheduledFor, now) });
+  // Review #28: «سايقك محجوز: حسين» once a driver confirmed it; «ندوّرلك سايق» until then.
+  const line = bookedLine(status.data, order);
+  const driverLine = line?.kind === 'confirmed' ? t('habits.booked_driver_title', { name: line.name ?? t('habits.fav_unnamed') }) : status.data ? t('habits.booked_looking_short') : null;
   const open = () => router.push({ pathname: '/ride/booked/[id]', params: { id: order.id } });
   return (
     <Card testID="home-booked-ride" padding={3} elevation={1} onPress={open} accessibilityLabel={when}>
@@ -232,6 +236,14 @@ export function BookedRideCard({ order, now }: { order: Order; now: Date }) {
             <Text variant="bodyStrong" numberOfLines={1}>
               {t('rajaa.route', { from: memo.from, to: memo.to })}
             </Text>
+          ) : null}
+          {driverLine ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }} testID={line?.kind === 'confirmed' ? 'home-booked-driver' : 'home-booked-looking'}>
+              {line?.kind === 'confirmed' ? <DriverFace name={line.name} photoUrl={line.photoUrl} size={20} /> : <Icon name="clock" size={14} color="textMuted" />}
+              <Text variant="caption" color={line?.kind === 'confirmed' ? 'successText' : 'textMuted'} weight={line?.kind === 'confirmed' ? 600 : 400} numberOfLines={1} style={{ flexShrink: 1 }}>
+                {driverLine}
+              </Text>
+            </View>
           ) : null}
         </View>
         <Icon name="chevron-forward" size={18} color="textMuted" />

@@ -1,6 +1,11 @@
 import type { Event } from '@driver/contracts';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import type { EventsService } from '../events/index.js';
+import type { Clock } from '../../shared/clock.js';
+import type { OtpAlert, OtpAlertSink } from './rate-limit.js';
+
+/** The event an OTP guard alert writes: one row ops alerting reads (rule, counts, carrier; never a number or IP). */
+export const OTP_ALERT_EVENT = 'security.otp_alert';
 
 /**
  * Identity's only path to the event log: a direct call to the transactional
@@ -40,3 +45,15 @@ export class RecordingEventEmitter implements IdentityEventEmitter {
 }
 
 export const IDENTITY_EVENTS = Symbol('IDENTITY_EVENTS');
+
+/** OTP guard alerts as `security.otp_alert` events, committed on their own (no caller transaction). */
+export class EventOtpAlerts implements OtpAlertSink {
+  constructor(
+    private readonly events: IdentityEventEmitter,
+    private readonly clock: Clock,
+  ) {}
+
+  async raise(alert: OtpAlert): Promise<void> {
+    await this.events.emit(undefined, { actorId: 'system', type: OTP_ALERT_EVENT, occurredAt: this.clock.now(), payload: { ...alert } }, { name: 'security', id: 'otp' });
+  }
+}

@@ -13,6 +13,10 @@ counts when every word of the pick starts a word of its name (`searchScore ≥ 2
 the word («باچة» before «تشريب باچة»), then price. Variety: one dish per kitchen first, then a dish of a
 word not yet shown, then the rest. Guests are rate-limited like the rest of the catalog.
 
+Each dish (here and in `catalog.search`) carries `quickAdd`: true when none of its option groups asks
+for a choice, so the home band's + adds it in one tap and opens a − 1 + counter; otherwise the + opens
+the dish to choose (the menu's own `canQuickAdd` rule, without availability).
+
 Used by the home's daypart band (`features/home/daypart.ts` → `bandWords`) and by search's meal words
 («فطور», «غدا», «عشا», «حلو», «عصير» in `features/search/intents.ts`).
 

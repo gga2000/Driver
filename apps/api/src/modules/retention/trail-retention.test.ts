@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { FakeClock } from '../../shared/clock.js';
 import type { SupportService } from '../support/index.js';
 import { PINS, tripsHarness } from '../trips/test-harness.js';
@@ -32,5 +32,22 @@ describe('TrailRetention (decision D6)', () => {
     const support = { openIncidentTripIds: async () => [] } as unknown as SupportService;
     expect(await new TrailRetention(h.trips, support, later).tick()).toBe(TRAIL_PURGE_BATCH + 3);
     expect(h.repo.trail).toHaveLength(0);
+  });
+
+  it('runs its hourly purge only where jobs run (DRIVER_ROLE web leaves it to the worker)', () => {
+    const h = tripsHarness();
+    const support = { openIncidentTripIds: async () => [] } as unknown as SupportService;
+    const spy = vi.spyOn(globalThis, 'setInterval');
+    try {
+      const web = new TrailRetention(h.trips, support, new FakeClock(), 'web');
+      web.onModuleInit();
+      expect(spy).not.toHaveBeenCalled();
+      const worker = new TrailRetention(h.trips, support, new FakeClock(), 'worker');
+      worker.onModuleInit();
+      expect(spy).toHaveBeenCalledTimes(1);
+      worker.onModuleDestroy();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

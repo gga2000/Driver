@@ -1,4 +1,6 @@
 import { foldArabic } from '@driver/contracts';
+import type { PotPlace } from './gallery';
+import type { RamadanPhase } from './ramadan-day';
 
 /**
  * «وقت العزيزية» (joy h1, discovery D-02 and idea 4-1): the town's rhythm, read from a clock in
@@ -51,27 +53,38 @@ export type GreetingKey =
   | `home.daypart.${DaypartKey | 'friday_lunch'}`
   | `home.daypart.${DaypartKey | 'friday_lunch'}_anon`
   | `home.daypart.quiet_${'dawn' | 'lunch' | 'evening' | 'late'}`
-  | `home.daypart.quiet_${'dawn' | 'lunch' | 'evening' | 'late'}_anon`;
+  | `home.daypart.quiet_${'dawn' | 'lunch' | 'evening' | 'late'}_anon`
+  | 'home.daypart.late_closed'
+  | 'home.daypart.late_closed_anon'
+  | `home.ramadan.${RamadanPhase | 'quiet'}`
+  | `home.ramadan.${RamadanPhase | 'quiet'}_anon`;
 
 /**
  * The greeting line's locale key. On a quiet day (mourning, set in the Console) there is no playful
  * line («سهرانين؟», «شي خفيف للعصر؟», «غدا الجمعة للعائلة»): only a plain good morning or evening.
- * `named` = the person told us their name (the `{name}` variant).
+ * `named` = the person told us their name (the `{name}` variant). `closed` = every kitchen is closed
+ * right now: late at night the line can't say «هذني فاتحين», so it says they're back in the morning.
+ * `ramadan` = where the fast is (home roast 4): «رمضان كريم» in the day, iftar, sweets, suhoor, never
+ * «وقت الغدا»; on a quiet day only «رمضان كريم».
  */
-export function greetingKey(d: Pick<Daypart, 'key' | 'friday'>, opts: { quiet: boolean; named: boolean }): GreetingKey {
+export function greetingKey(d: Pick<Daypart, 'key' | 'friday'>, opts: { quiet: boolean; named: boolean; closed?: boolean; ramadan?: RamadanPhase | null }): GreetingKey {
   const suffix = opts.named ? '' : '_anon';
+  if (opts.ramadan && opts.quiet) return `home.ramadan.quiet${suffix}`;
+  if (opts.ramadan && !(opts.closed && d.key === 'late')) return `home.ramadan.${opts.ramadan}${suffix}`;
   if (opts.quiet) {
     const plain = d.key === 'dawn' ? 'dawn' : d.key === 'lunch' ? 'lunch' : d.key === 'late' ? 'late' : 'evening';
     return `home.daypart.quiet_${plain}${suffix}`;
   }
+  if (opts.closed && d.key === 'late') return `home.daypart.late_closed${suffix}`;
   const key = isFridayLunch(d) ? 'friday_lunch' : d.key;
   return `home.daypart.${key}${suffix}`;
 }
 
-export type BandTitleKey = `home.band.${DaypartKey | 'friday_lunch'}`;
+export type BandTitleKey = `home.band.${DaypartKey | 'friday_lunch'}` | `home.ramadan_band.${RamadanPhase}`;
 
 /** The daypart band's title (a dish row, not a second greeting). Quiet days: no Friday flourish. */
-export function bandTitleKey(d: Pick<Daypart, 'key' | 'friday'>, quiet: boolean): BandTitleKey {
+export function bandTitleKey(d: Pick<Daypart, 'key' | 'friday'>, quiet: boolean, ramadan: RamadanPhase | null = null): BandTitleKey {
+  if (ramadan) return `home.ramadan_band.${ramadan}`;
   return `home.band.${!quiet && isFridayLunch(d) ? 'friday_lunch' : d.key}`;
 }
 
@@ -88,8 +101,26 @@ const BAND_WORDS: Record<DaypartKey | 'friday_lunch', readonly string[]> = {
   late: ['شاورما', 'فلافل', 'لفة', 'عربي شاورما', 'منقوشة', 'كباب'],
 };
 
-export function bandWords(d: Pick<Daypart, 'key' | 'friday'>): readonly string[] {
+/** Ramadan's dishes: iftar's all day (the last hours too), sweets and tea after it, suhoor's at night. */
+const RAMADAN_WORDS: Record<RamadanPhase, readonly string[]> = {
+  fast: ['شوربة', 'تمر', 'دولمة', 'تمن', 'مرق', 'كبة', 'سمبوسة', 'لبن', 'عصير'],
+  iftar_soon: ['شوربة', 'تمر', 'دولمة', 'تمن', 'مرق', 'كبة', 'سمبوسة', 'لبن', 'عصير'],
+  after_iftar: ['زلابية', 'بقلاوة', 'كنافة', 'داطلي', 'حلاوة', 'محلبي', 'چاي', 'عصير', 'آيس'],
+  suhoor: ['كاهي', 'قيمر', 'بيض', 'لبن', 'جبن', 'تمر', 'فلافل', 'منقوشة'],
+};
+
+export function bandWords(d: Pick<Daypart, 'key' | 'friday'>, ramadan: RamadanPhase | null = null): readonly string[] {
+  if (ramadan) return RAMADAN_WORDS[ramadan];
   return BAND_WORDS[isFridayLunch(d) ? 'friday_lunch' : d.key];
+}
+
+/**
+ * The day's pots lead the hour's food at meal times only; at other hours they follow its dishes. In
+ * Ramadan they lead in the day (the iftar pot), stay out of the sweets after iftar, and follow suhoor's.
+ */
+export function potPlace(d: Pick<Daypart, 'key'>, ramadan: RamadanPhase | null = null): PotPlace {
+  if (ramadan) return ramadan === 'after_iftar' ? 'none' : ramadan === 'suhoor' ? 'after' : 'first';
+  return d.key === 'lunch' || d.key === 'dinner' ? 'first' : 'after';
 }
 
 /** Cuisine words that suit each daypart, in order (the kitchens' own cuisine lines). */

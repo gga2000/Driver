@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
-import { Platform, Text as RNText, type TextProps as RNTextProps } from 'react-native';
+import { Platform, Text as RNText, StyleSheet, type TextProps as RNTextProps, type TextStyle } from 'react-native';
 import type { BrandFace, TypeVariant } from '@driver/design-tokens';
+import { scaleText } from '../logic/text-scale';
 import { textOf, voiceAllowed } from '../logic/voice';
 import { resolveColor, type ColorValue } from '../theme/color';
 import { useTheme } from '../theme/ThemeProvider';
@@ -24,6 +25,8 @@ export interface TextProps extends RNTextProps {
    * back to `display`: Marhey never sets a number.
    */
   face?: BrandFace;
+  /** A letter drawn inside a fixed box (an avatar's initial, a plate's number): the app's text size setting leaves it alone. */
+  fixed?: boolean;
 }
 
 /**
@@ -31,7 +34,7 @@ export interface TextProps extends RNTextProps {
  * on both native and web; `end` is resolved against the theme direction.
  */
 export const Text = forwardRef<RNText, TextProps>(function Text(
-  { variant = 'body', color = 'text', weight, align, tabular, compact, face, style, ...rest },
+  { variant = 'body', color = 'text', weight, align, tabular, compact, face, fixed, style, ...rest },
   ref,
 ) {
   const theme = useTheme();
@@ -44,23 +47,42 @@ export const Text = forwardRef<RNText, TextProps>(function Text(
   const textAlign =
     align === 'center' ? 'center' : align === 'end' ? (physical ? 'left' : 'right') : align === 'start' ? (physical ? 'right' : 'left') : undefined;
   const numeral = variant.startsWith('numeral') || variant === 'amount';
+  const scale = fixed ? 1 : theme.textScale;
+  const sized = scaleText({ fontSize: t.size, lineHeight: t.lineHeight }, scale, Boolean(compact), theme.fontScale.compact);
   return (
     <RNText
       ref={ref}
-      maxFontSizeMultiplier={compact ? theme.fontScale.compact : undefined}
+      maxFontSizeMultiplier={sized.maxFontSizeMultiplier}
       style={[
         {
-          fontSize: t.size,
-          lineHeight: t.lineHeight,
+          fontSize: sized.fontSize,
+          lineHeight: sized.lineHeight,
           color: resolveColor(theme, color),
           writingDirection: theme.direction,
           ...(brand ? theme.face(brand) : theme.font(w)),
         },
         textAlign ? { textAlign } : null,
         tabular || numeral || brand === 'display' ? { fontVariant: ['tabular-nums'] } : null,
-        style,
+        scale === 1 ? style : scaledOverride(style, scale, Boolean(compact), theme.fontScale.compact),
       ]}
       {...rest}
     />
   );
 });
+
+/**
+ * A caller's own fixed size or line height (a ring's number, a hero line) grows with the app's text size
+ * too, so a scaled font never sits in an unscaled line box and clips.
+ */
+function scaledOverride(style: TextProps['style'], scale: number, compact: boolean, cap: number): TextProps['style'] {
+  const flat = StyleSheet.flatten(style) as TextStyle | undefined;
+  if (!flat || (typeof flat.fontSize !== 'number' && typeof flat.lineHeight !== 'number')) return style;
+  const factor = compact ? Math.min(scale, cap) : scale;
+  return [
+    style,
+    {
+      ...(typeof flat.fontSize === 'number' ? { fontSize: Math.round(flat.fontSize * factor * 2) / 2 } : null),
+      ...(typeof flat.lineHeight === 'number' ? { lineHeight: Math.round(flat.lineHeight * factor * 2) / 2 } : null),
+    },
+  ];
+}

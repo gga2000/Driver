@@ -18,15 +18,20 @@ export default {
     await signIn('0770 123 4567');
     await byTestId('board').waitFor();
     await page.locator('[data-testid^="order-"]').first().waitFor({ timeout: 15_000 });
-    // Clear what the earlier sections left (missed orders) and let the "ابدأ الشغل" toast go.
-    if (await has('missed-ok')) await byTestId('missed-ok').click();
+    // Let the "ابدأ الشغل" toast go.
     await page.waitForTimeout(4500);
     await shot('rush-10', { wait: 800 });
 
-    if (!phone && (await has('rush-queue'))) {
-      // Tap the fourth chip: its ticket opens in the column, the rest stay compact.
-      await page.locator('[data-testid^="rush-chip-"]').nth(3).click();
+    if (!phone && (await page.locator('[data-testid^="compact-"]').count()) > 3) {
+      // Tap the fourth short ticket: it opens in full in the column, the rest stay short.
+      await page.locator('[data-testid^="compact-"]').nth(3).click();
       await shot('rush-picked', { wait: 1200 });
+    }
+    if (phone && (await page.locator('[data-testid^="row-"]').count()) > 1) {
+      // Phone «هسة»: a row tapped comes to the top in full.
+      await page.locator('[data-testid^="row-"]').nth(1).click();
+      await shot('rush-row-picked', { wait: 1200 });
+      await top();
     }
     if (phone && (await has('sticky-accept'))) {
       await page.evaluate(() => document.querySelectorAll('[data-testid="board"] div').forEach((e) => (e.scrollTop = 600)));
@@ -59,7 +64,8 @@ export default {
     }
 
     // Best sellers (M-13): rank and bar from the same measure.
-    await byTestId(phone ? 'tab-insights' : 'nav-insights').click();
+    await byTestId(phone ? 'tab-money' : 'nav-money').click();
+    await byTestId('segment-insights').click();
     await byTestId('insights-best').waitFor({ timeout: 20_000 });
     // Panel top just under the page's sticky title.
     await byTestId('insights-best').evaluate((e) => {

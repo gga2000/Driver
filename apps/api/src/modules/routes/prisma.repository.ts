@@ -1,23 +1,30 @@
-import { BookingRating, PinAlertKind, PinAttemptResult, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { DEFAULT_REQUEST_DETAILS, PinAlertKind, type RequestShareBoardedBy, type RequestShareMemberState, type RequestPlaceId, type RequestTripKind, type OfferCashState, PinAttemptResult, RajaaRatingTag, RequestDetails, ReviewHideReason, VehicleModelKey, type BookingState, type IntercitySeatId } from '@driver/contracts';
+import { z } from 'zod';
 import { Prisma } from '@driver/db';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import type {
-  BookingRecord,
-  DemandPostRecord,
-  DepartureRecord,
-  Fix,
-  PickupRecord,
-  PinAttemptRecord,
-  RequestOfferRecord,
-  RequestPlaceRecord,
-  RequestRecord,
-  WalkUp,
+import {
+  FINISHED_RUN,
+  type AgreementRecord,
+  type BookingRecord,
+  type DemandPostRecord,
+  type DepartureRecord,
+  type DropoffRecord,
+  type Fix,
+  type PickupRecord,
+  type PinAttemptRecord,
+  type RequestOfferRecord,
+  type RequestPlaceRecord,
+  type RequestRecord,
+  type ReviewRecord,
+  type WalkUp,
 } from './model.js';
 import type {
   DemandFilter,
   DepartureFilter,
+  DriverRecord,
   RequestFilter,
+  ReviewFilter,
   RiderRecordStats,
   RoutesRepository,
 } from './routes.repository.js';
@@ -138,12 +145,17 @@ export class PrismaRoutesRepository implements RoutesRepository {
       seatPriceIqd: b.seatPriceIqd,
       frontPremiumIqd: b.frontPremiumIqd,
       pickupFeeIqd: b.pickupFeeIqd,
+      dropoffFeeIqd: b.dropoffFeeIqd ?? 0,
+      dropoff: b.dropoff ? ({ ...b.dropoff } as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
       payment: b.payment,
       prepaid: b.prepaid,
       trusted: b.trusted,
       pin: b.pin,
       pickup: b.pickup as unknown as Prisma.InputJsonObject,
       largeBags: b.largeBags,
+      lapChildren: b.lapChildren ?? 0,
+      returnDiscountIqd: b.returnDiscountIqd ?? 0,
+      returnPairId: b.returnPairId ?? null,
       heldUntil: b.heldUntil,
       bookedAt: b.bookedAt,
       atGarageAt: b.atGarageAt,
@@ -152,10 +164,16 @@ export class PrismaRoutesRepository implements RoutesRepository {
       completedAt: b.completedAt,
       cancelledAt: b.cancelledAt,
       lateMinutes: b.lateMinutes,
+      taxiLateUntil: b.taxiLateUntil ?? null,
       demandPostId: b.demandPostId,
       movedFromBookingId: b.movedFromBookingId,
       movedToBookingId: b.movedToBookingId,
       rating: b.rating ? ({ stars: b.rating.stars, tags: [...b.rating.tags], at: b.rating.at.toISOString() } as Prisma.InputJsonObject) : Prisma.DbNull,
+      reviewText: b.review?.text ?? null,
+      reviewAt: b.review?.at ?? null,
+      reviewHiddenAt: b.review?.hiddenAt ?? null,
+      reviewHiddenBy: b.review?.hiddenBy ?? null,
+      reviewHiddenReason: b.review?.hiddenReason ?? null,
     };
     await this.db(tx).seatBooking.upsert({
       where: { id: b.id },
@@ -187,6 +205,36 @@ export class PrismaRoutesRepository implements RoutesRepository {
       where: { riderId, ...(states ? { state: { in: [...states] } } : {}) },
       orderBy: { createdAt: 'asc' },
     });
+    return rows.map(toBooking);
+  }
+
+  async driverRecord(driverId: string, tx?: Tx): Promise<DriverRecord> {
+    const db = this.db(tx);
+    const finished = { driverId, state: { in: [...FINISHED_RUN] } };
+    const [runs, rated] = await Promise.all([
+      db.departure.findMany({ where: finished, orderBy: { scheduledAt: 'asc' } }),
+      db.seatBooking.findMany({ where: { departure: finished, rating: { not: Prisma.DbNull } }, orderBy: { completedAt: 'asc' } }),
+    ]);
+    const records = rated.map(toBooking).filter((b) => b.rating);
+    records.sort((a, b) => a.rating!.at.getTime() - b.rating!.at.getTime());
+    return { runs: runs.map(toDeparture), rated: records };
+  }
+
+  async reviews(f: ReviewFilter, tx?: Tx): Promise<BookingRecord[]> {
+    const rows = await this.db(tx).seatBooking.findMany({
+      where: {
+        reviewText: { not: null },
+        ...(f.hidden === undefined ? {} : { reviewHiddenAt: f.hidden ? { not: null } : null }),
+        ...(f.before ? { reviewAt: { lt: f.before } } : {}),
+      },
+      orderBy: [{ reviewAt: 'desc' }, { id: 'desc' }],
+      take: f.limit,
+    });
+    return rows.map(toBooking);
+  }
+
+  async settledBetween(from: Date, to: Date, tx?: Tx): Promise<BookingRecord[]> {
+    const rows = await this.db(tx).seatBooking.findMany({ where: { OR: [{ completedAt: { gte: from, lt: to } }, { noShowAt: { gte: from, lt: to } }] } });
     return rows.map(toBooking);
   }
 
@@ -265,15 +313,25 @@ export class PrismaRoutesRepository implements RoutesRepository {
       privateCar: r.privateCar,
       travellingAs: r.travellingAs,
       note: r.note,
+      details: r.details as unknown as Prisma.InputJsonObject,
+      seenDriverIds: r.seenDriverIds,
       state: r.state,
       origin: r.origin,
       priceCapIqd: r.priceCapIqd,
       pickedOfferId: r.pickedOfferId,
       depositIqd: r.depositIqd,
+      cashReserved: r.cashReserved,
       driverArrivedAt: r.driverArrivedAt,
       driverArrivedPin: r.driverArrivedPin
         ? (r.driverArrivedPin as unknown as Prisma.InputJsonObject)
         : Prisma.DbNull,
+      waitStartedAt: r.waitStartedAt,
+      waitEndedAt: r.waitEndedAt,
+      fetchPersonId: r.fetchPersonId,
+      shareCode: r.share?.code ?? null,
+      shareBookerPlaces: r.share?.bookerPlaces ?? null,
+      sharePlaceIqd: r.share?.placeIqd ?? null,
+      shareOpenedAt: r.share?.openedAt ?? null,
       closedAt: r.closedAt,
     };
     await db.rideRequest.upsert({
@@ -289,18 +347,53 @@ export class PrismaRoutesRepository implements RoutesRepository {
           requestId: r.id,
           driverId: o.driverId,
           priceIqd: o.priceIqd,
+          waitIncludedHours: o.wait?.includedHours ?? null,
+          extraHourIqd: o.wait?.extraHourIqd ?? null,
           state: o.state,
+          cashState: o.cash,
           createdAt: o.at,
         },
-        update: { state: o.state },
+        update: { state: o.state, cashState: o.cash },
       });
     }
+    for (const m of r.share?.members ?? []) {
+      await db.rideRequestShare.upsert({
+        where: { id: m.id },
+        create: {
+          id: m.id,
+          requestId: r.id,
+          personId: m.personId,
+          places: m.places,
+          amountIqd: m.amountIqd,
+          state: m.state,
+          joinedAt: m.joinedAt,
+          closedAt: m.closedAt,
+          boardedAt: m.boardedAt,
+          boardedBy: m.boardedBy,
+        },
+        update: { state: m.state, closedAt: m.closedAt, boardedAt: m.boardedAt, boardedBy: m.boardedBy },
+      });
+    }
+  }
+
+  async markRequestSeen(id: string, driverId: string, tx?: Tx): Promise<boolean> {
+    // One targeted update: the row's state, pick, deposit and offers are never written back here.
+    const n = await this.db(tx).$executeRaw`
+      UPDATE "public"."ride_requests"
+         SET seen_driver_ids = array_append(seen_driver_ids, ${driverId}::text)
+       WHERE id = ${id}::text AND state = 'open' AND NOT (${driverId}::text = ANY(seen_driver_ids))`;
+    return n > 0;
+  }
+
+  async getRequestByShareCode(code: string, tx?: Tx): Promise<RequestRecord | null> {
+    const row = await this.db(tx).rideRequest.findUnique({ where: { shareCode: code }, include: REQUEST_INCLUDE });
+    return row ? toRequest(row) : null;
   }
 
   async getRequest(id: string, tx?: Tx): Promise<RequestRecord | null> {
     const row = await this.db(tx).rideRequest.findUnique({
       where: { id },
-      include: { offers: { orderBy: { createdAt: 'asc' } } },
+      include: REQUEST_INCLUDE,
     });
     return row ? toRequest(row) : null;
   }
@@ -310,11 +403,44 @@ export class PrismaRoutesRepository implements RoutesRepository {
       where: {
         ...(f.riderId ? { riderId: f.riderId } : {}),
         ...(f.states ? { state: { in: [...f.states] } } : {}),
+        ...(f.memberId ? { shares: { some: { personId: f.memberId } } } : {}),
       },
-      include: { offers: { orderBy: { createdAt: 'asc' } } },
+      include: REQUEST_INCLUDE,
       orderBy: [{ when: 'asc' }, { createdAt: 'asc' }],
     });
     return rows.map(toRequest);
+  }
+
+  async completedPrivatePrices(f: { placeId: RequestPlaceId; trip: RequestTripKind; since: Date }, tx?: Tx): Promise<number[]> {
+    // The picked offer's price on each finished private trip a rider posted to that place and kind.
+    const rows = await this.db(tx).rideRequestOffer.findMany({
+      where: {
+        state: 'picked',
+        request: {
+          state: 'completed',
+          origin: 'rider',
+          privateCar: true,
+          closedAt: { gte: f.since },
+          // k1: a «جيب واحد» trip is known by where the car fetched from (`requestKnownPlace`).
+          ...(f.trip === 'fetch' ? { fromPlace: { path: ['placeId'], equals: f.placeId } } : { toPlace: { path: ['placeId'], equals: f.placeId } }),
+          details: { path: ['trip'], equals: f.trip },
+        },
+      },
+      select: { priceIqd: true },
+    });
+    return rows.map((r) => r.priceIqd);
+  }
+
+  async privateTripCounts(driverIds: readonly string[], tx?: Tx): Promise<Record<string, number>> {
+    const out: Record<string, number> = Object.fromEntries(driverIds.map((id) => [id, 0]));
+    if (driverIds.length === 0) return out;
+    const rows = await this.db(tx).rideRequestOffer.groupBy({
+      by: ['driverId'],
+      where: { driverId: { in: [...driverIds] }, state: 'picked', request: { state: 'completed' } },
+      _count: { _all: true },
+    });
+    for (const r of rows) out[r.driverId] = r._count._all;
+    return out;
   }
 
   // ───────────────────────── seat PIN attempts ─────────────────────────
@@ -356,11 +482,72 @@ export class PrismaRoutesRepository implements RoutesRepository {
     const row = await this.db(tx).intercityPinAttempt.findUnique({ where: { id } });
     return row ? toPinAttempt(row) : null;
   }
+
+  // ───────────────────────── agreed prices (step 4) ─────────────────────────
+
+  async saveAgreement(a: AgreementRecord, tx?: Tx): Promise<void> {
+    const data = {
+      departureId: a.departureId,
+      riderId: a.riderId,
+      driverId: a.driverId,
+      kind: a.kind,
+      lat: a.lat,
+      lng: a.lng,
+      note: a.note,
+      state: a.state,
+      amountIqd: a.amountIqd,
+      askedAt: a.askedAt,
+      proposedAt: a.proposedAt,
+      expiresAt: a.expiresAt,
+      decidedAt: a.decidedAt,
+      bookingId: a.bookingId,
+    };
+    await this.db(tx).tripAgreement.upsert({ where: { id: a.id }, create: { id: a.id, ...data }, update: data });
+  }
+
+  async getAgreement(id: string, tx?: Tx): Promise<AgreementRecord | null> {
+    const row = await this.db(tx).tripAgreement.findUnique({ where: { id } });
+    return row ? toAgreement(row) : null;
+  }
+
+  async agreementsFor(departureId: string, riderId?: string, tx?: Tx): Promise<AgreementRecord[]> {
+    const rows = await this.db(tx).tripAgreement.findMany({
+      where: { departureId, ...(riderId ? { riderId } : {}) },
+      orderBy: [{ askedAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map(toAgreement);
+  }
+
+  async openAgreements(tx?: Tx): Promise<AgreementRecord[]> {
+    const rows = await this.db(tx).tripAgreement.findMany({ where: { state: { in: ['asked', 'proposed'] } } });
+    return rows.map(toAgreement);
+  }
 }
 
 // ───────────────────────── row mapping ─────────────────────────
 
 type PinAttemptRow = Awaited<ReturnType<Tx['intercityPinAttempt']['findUniqueOrThrow']>>;
+type AgreementRow = Awaited<ReturnType<Tx['tripAgreement']['findUniqueOrThrow']>>;
+
+function toAgreement(r: AgreementRow): AgreementRecord {
+  return {
+    id: r.id,
+    departureId: r.departureId,
+    riderId: r.riderId,
+    driverId: r.driverId,
+    kind: r.kind as AgreementRecord['kind'],
+    lat: r.lat,
+    lng: r.lng,
+    note: r.note,
+    state: r.state as AgreementRecord['state'],
+    amountIqd: r.amountIqd,
+    askedAt: r.askedAt,
+    proposedAt: r.proposedAt,
+    expiresAt: r.expiresAt,
+    decidedAt: r.decidedAt,
+    bookingId: r.bookingId,
+  };
+}
 
 function toPinAttempt(r: PinAttemptRow): PinAttemptRecord {
   return {
@@ -405,7 +592,34 @@ type BookingRow = Awaited<ReturnType<Tx['seatBooking']['findUniqueOrThrow']>>;
 type DemandRow = Awaited<ReturnType<Tx['demandPost']['findUniqueOrThrow']>>;
 type RequestRow = Awaited<ReturnType<Tx['rideRequest']['findUniqueOrThrow']>> & {
   offers: Array<Awaited<ReturnType<Tx['rideRequestOffer']['findUniqueOrThrow']>>>;
+  shares: Array<Awaited<ReturnType<Tx['rideRequestShare']['findUniqueOrThrow']>>>;
 };
+const REQUEST_INCLUDE = {
+  offers: { orderBy: { createdAt: 'asc' as const } },
+  shares: { orderBy: [{ joinedAt: 'asc' as const }, { id: 'asc' as const }] },
+} satisfies Prisma.RideRequestInclude;
+
+/** Runs announced before the model list carry no `modelKey`; an unknown key (list shrank) reads as none. */
+/** Snapshots written before a field existed read its default (no model, no promises about the car). */
+function vehicleFromSnapshot(json: unknown): DepartureRecord['vehicle'] {
+  const v = json as Omit<DepartureRecord['vehicle'], 'modelKey' | 'noSmoking' | 'bigBags' | 'ac'> & { modelKey?: unknown; noSmoking?: unknown; bigBags?: unknown; ac?: unknown };
+  const key = VehicleModelKey.safeParse(v.modelKey);
+  return { ...v, modelKey: key.success ? key.data : null, noSmoking: v.noSmoking === true, bigBags: v.bigBags === true, ac: v.ac === true };
+}
+
+const RatingJson = z.object({ stars: z.number().int().min(1).max(5), tags: z.array(RajaaRatingTag), at: z.coerce.date() });
+
+function reviewFromRow(r: BookingRow): ReviewRecord | null {
+  if (r.reviewText === null) return null;
+  const reason = ReviewHideReason.safeParse(r.reviewHiddenReason);
+  return {
+    text: r.reviewText,
+    at: r.reviewAt ?? r.updatedAt,
+    hiddenAt: r.reviewHiddenAt,
+    hiddenBy: r.reviewHiddenBy,
+    hiddenReason: reason.success ? reason.data : null,
+  };
+}
 
 function toDeparture(r: DepartureRow): DepartureRecord {
   const run = (r.runState ?? {}) as unknown as Partial<RunState>;
@@ -422,7 +636,7 @@ function toDeparture(r: DepartureRow): DepartureRecord {
     announcedAt: r.announcedAt,
     state: r.state,
     layout: (r.seatLayout ?? 4) as DepartureRecord['layout'],
-    vehicle: r.vehicleSnapshot as unknown as DepartureRecord['vehicle'],
+    vehicle: vehicleFromSnapshot(r.vehicleSnapshot),
     familyOnly: r.familyOnly,
     seatPriceIqd: r.seatPriceIqd ?? 0,
     frontPremiumIqd: r.frontPremiumIqd,
@@ -457,12 +671,17 @@ function toBooking(r: BookingRow): BookingRecord {
     seatPriceIqd: r.seatPriceIqd,
     frontPremiumIqd: r.frontPremiumIqd,
     pickupFeeIqd: r.pickupFeeIqd,
+    dropoffFeeIqd: r.dropoffFeeIqd,
+    dropoff: (r.dropoff as unknown as DropoffRecord | null) ?? null,
     payment: r.payment as BookingRecord['payment'],
     prepaid: r.prepaid,
     trusted: r.trusted,
     pin: r.pin,
     pickup: r.pickup as unknown as PickupRecord,
     largeBags: r.largeBags,
+    lapChildren: r.lapChildren,
+    returnDiscountIqd: r.returnDiscountIqd,
+    returnPairId: r.returnPairId,
     heldUntil: r.heldUntil,
     bookedAt: r.bookedAt,
     atGarageAt: r.atGarageAt,
@@ -471,11 +690,13 @@ function toBooking(r: BookingRow): BookingRecord {
     completedAt: r.completedAt,
     cancelledAt: r.cancelledAt,
     lateMinutes: r.lateMinutes,
+    taxiLateUntil: r.taxiLateUntil,
     demandPostId: r.demandPostId,
     movedFromBookingId: r.movedFromBookingId,
     movedToBookingId: r.movedToBookingId,
     createdAt: r.createdAt,
-    rating: r.rating ? (BookingRating.safeParse(r.rating).data ?? null) : null,
+    rating: r.rating ? (RatingJson.safeParse(r.rating).data ?? null) : null,
+    review: reviewFromRow(r),
   };
 }
 
@@ -498,6 +719,12 @@ function toDemand(r: DemandRow): DemandPostRecord {
   };
 }
 
+/** Stored details through the contract (dates revived, defaults for rows written before y1). */
+function parseRequestDetails(raw: unknown): RequestDetails {
+  const parsed = RequestDetails.safeParse(raw ?? {});
+  return parsed.success ? parsed.data : { ...DEFAULT_REQUEST_DETAILS };
+}
+
 function toRequest(r: RequestRow): RequestRecord {
   return {
     id: r.id,
@@ -510,6 +737,8 @@ function toRequest(r: RequestRow): RequestRecord {
     privateCar: r.privateCar,
     travellingAs: r.travellingAs,
     note: r.note,
+    details: parseRequestDetails(r.details),
+    seenDriverIds: r.seenDriverIds,
     state: r.state,
     origin: r.origin as RequestRecord['origin'],
     priceCapIqd: r.priceCapIqd,
@@ -517,13 +746,42 @@ function toRequest(r: RequestRow): RequestRecord {
       id: o.id,
       driverId: o.driverId,
       priceIqd: o.priceIqd,
+      wait:
+        o.waitIncludedHours !== null && o.extraHourIqd !== null
+          ? { includedHours: o.waitIncludedHours, extraHourIqd: o.extraHourIqd }
+          : null,
       at: o.createdAt,
       state: o.state,
+      cash: (o.cashState as OfferCashState | null) ?? null,
     })),
     pickedOfferId: r.pickedOfferId,
     depositIqd: r.depositIqd,
+    cashReserved: r.cashReserved,
     driverArrivedAt: r.driverArrivedAt,
     driverArrivedPin: (r.driverArrivedPin as unknown as RequestRecord['driverArrivedPin']) ?? null,
+    waitStartedAt: r.waitStartedAt,
+    waitEndedAt: r.waitEndedAt,
+    fetchPersonId: r.fetchPersonId,
+    share:
+      r.shareCode && r.shareBookerPlaces !== null && r.sharePlaceIqd !== null && r.shareOpenedAt
+        ? {
+            code: r.shareCode,
+            bookerPlaces: r.shareBookerPlaces,
+            placeIqd: r.sharePlaceIqd,
+            openedAt: r.shareOpenedAt,
+            members: r.shares.map((m) => ({
+              id: m.id,
+              personId: m.personId,
+              places: m.places,
+              amountIqd: m.amountIqd,
+              state: m.state as RequestShareMemberState,
+              joinedAt: m.joinedAt,
+              closedAt: m.closedAt,
+              boardedAt: m.boardedAt,
+              boardedBy: m.boardedBy as RequestShareBoardedBy | null,
+            })),
+          }
+        : null,
     closedAt: r.closedAt,
     createdAt: r.createdAt,
   };

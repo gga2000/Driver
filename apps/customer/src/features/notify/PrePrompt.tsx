@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Button, Card, SketchScene, Text, useTheme } from '@driver/ui';
+import { placeWord, type PlaceKind } from '@/features/track/place-kind';
 import { useT } from '@/lib/i18n';
 import { storage } from '@/lib/storage';
 import { PREPROMPT_KEY, shouldShowPrePrompt } from './prompt';
@@ -52,9 +53,11 @@ const DOORBELL_WIDTH = 88;
 /**
  * Joy f1 (L-01): the ask as an inline card, never a sheet over the live map. Food: under the ring on
  * the kitchen-waiting screen («نخبرك أول ما المطعم يقبل؟»); rides: in the collapsed sheet from the search
- * on («نخبرك أول ما يقبل سايق؟» while searching, «نخبرك لمن يوصل السايق؟» once one is coming).
+ * on («نخبرك أول ما يقبل سايق؟» while searching, «نخبرك لمن يوصل السايق؟» once one is coming); a
+ * Baghdad/Kut seat (CRIT2-05): on the boarding pass («نخبرك إذا تغيّر شي بسيارتك؟»), so a seat-only
+ * customer is asked too and hears a moved or cancelled car.
  */
-export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | 'ride' | 'ride_search'; busy: boolean; onAllow: () => void; onLater: () => void }) {
+export function PushAskCard({ kind, place = 'restaurant', busy, onAllow, onLater }: { kind: 'food' | 'ride' | 'ride_search' | 'seat'; /** Food: who accepts it (a shop or a shopper says so). */ place?: PlaceKind; busy: boolean; onAllow: () => void; onLater: () => void }) {
   const theme = useTheme();
   const t = useT();
   return (
@@ -66,7 +69,7 @@ export function PushAskCard({ kind, busy, onAllow, onLater }: { kind: 'food' | '
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="label" weight={700}>
-            {t(kind === 'ride' ? 'notify.ask.ride_title' : kind === 'ride_search' ? 'notify.ask.ride_search_title' : 'notify.ask.food_title')}
+            {t(kind === 'ride' ? 'notify.ask.ride_title' : kind === 'ride_search' ? 'notify.ask.ride_search_title' : kind === 'seat' ? 'notify.ask.seat_title' : placeWord('notify.ask.food_title', place))}
           </Text>
           <Text variant="footnote" color="textMuted">
             {t('notify.ask.body')}

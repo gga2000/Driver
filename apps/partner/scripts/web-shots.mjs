@@ -18,6 +18,7 @@
 // SHOTS=core,earnings (comma list of module names, default all) runs only those modules.
 // VIEWPORT=360x740 shoots a small Android phone instead of 390×844.
 // p.expectRefusal() / p.expectRefusal(false) brackets a step that is refused on purpose (a 400).
+// p.hold(id) presses and holds a HoldButton until it confirms.
 // p.slide(id) drags a SlideToConfirm thumb to the end (right → left); p.slideHalf(id) stops half way
 // and holds (call p.release() after the shot).
 // DIST_DIR and DEMO_API override the export folder and the demo API origin.
@@ -53,7 +54,7 @@ const written = [];
 let lastPage = null;
 
 /** Error noise from the sandbox, not from the app. */
-const IGNORED = /findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_CONNECTION_REFUSED.*tile|Failed to load resource: net::ERR_TUNNEL/;
+const IGNORED = /findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_CONNECTION_REFUSED.*tile|Failed to load resource: net::ERR_TUNNEL|mapbox-gl-rtl-text/;
 
 async function demoPost(path) {
   const r = await fetch(`${apiBase}${path}`, { method: 'POST' });
@@ -71,13 +72,19 @@ async function demoPost(path) {
 async function openPage(group, { prePrompt = false } = {}) {
   const context = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 2, locale: 'ar-IQ' });
   if (!prePrompt) await context.addInitScript(() => localStorage.setItem('driver.partner.push-preprompt', String(Date.now())));
+  // The night look (n2) follows the clock; shots pin it so they don't change with the time they run.
+  // SHOTS_LOOK=night shows every screen in the ember palette.
+  await context.addInitScript((look) => localStorage.setItem('driver.partner.appearance', look), process.env.SHOTS_LOOK === 'night' ? 'night' : 'day');
   const page = await context.newPage();
   // A refusal the flow provokes on purpose (p.expectRefusal()): the browser's "400" line is not an error.
   let refusalExpected = false;
   page.on('console', (m) => {
     if (m.type() === 'error' && !IGNORED.test(m.text()) && !(refusalExpected && /status of 400/.test(m.text()))) errors.push(`[${group}] ${m.text()}`);
   });
-  page.on('pageerror', (e) => errors.push(`[${group}] ${e.stack ?? e.message}`));
+  // The Golden hour map's Arabic shaping plugin comes from unpkg, which this container cannot reach.
+  page.on('pageerror', (e) => {
+    if (!IGNORED.test(e.message)) errors.push(`[${group}] ${e.stack ?? e.message}`);
+  });
   page.on('response', (r) => {
     if (r.status() >= 400 && !r.url().includes('tile')) console.log(`[http ${r.status()}] ${r.request().method()} ${r.url()}`);
   });
@@ -111,7 +118,7 @@ async function openPage(group, { prePrompt = false } = {}) {
       if (full) {
         const h = await page.evaluate(() => {
           let max = document.documentElement.scrollHeight;
-          for (const el of document.querySelectorAll('div')) {
+          for (const el of document.querySelectorAll('*')) {
             const s = getComputedStyle(el);
             if (s.overflowY === 'auto' || s.overflowY === 'scroll') max = Math.max(max, el.scrollHeight + 160);
           }
@@ -142,6 +149,17 @@ async function openPage(group, { prePrompt = false } = {}) {
         await page.waitForTimeout(16);
       }
       if (share >= 1) await page.mouse.up();
+    },
+    /** Presses and holds a HoldButton (o3) until it confirms. */
+    async hold(id, ms = 900) {
+      const el = p.byTestId(id);
+      await el.scrollIntoViewIfNeeded();
+      const box = await el.boundingBox();
+      if (!box) throw new Error(`${id}: not on screen`);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(ms);
+      await page.mouse.up();
     },
     async slideHalf(id) {
       await p.slide(id, 0.5);

@@ -1,36 +1,46 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { Redis } from 'ioredis';
 import { DriverError } from '@driver/contracts';
-import { OtpRequestGuard, RedisRateLimiter } from './rate-limit.js';
+import { FakeClock } from '../../shared/clock.js';
+import { RedisWindowCounter } from '../../shared/window-counter.js';
+import { DEFAULT_OTP_GUARD, OtpGuard, RecordingOtpAlerts, type OtpSendRequest } from './rate-limit.js';
 
 /** Runs against a real Redis when REDIS_URL is set (CI service / `pnpm db:up`). */
 const redisUrl = process.env['REDIS_URL'];
 
-describe.skipIf(!redisUrl)('OTP rate limits on Redis (integration, M2 follow-up)', () => {
+describe.skipIf(!redisUrl)('the OTP guard on Redis (integration)', () => {
   const conns: Redis[] = [];
+  const clock = new FakeClock();
   const connect = () => {
     const r = new Redis(redisUrl!);
     conns.push(r);
-    return r;
+    return new RedisWindowCounter(r, clock);
   };
   afterAll(() => {
     for (const c of conns) c.disconnect();
   });
+  const run = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-7);
+  const send = (n: number, origin: OtpSendRequest['origin'] = {}): OtpSendRequest => {
+    const e164 = `+9647${run.slice(0, 2)}${String(n).padStart(7, '0')}`;
+    return { phoneE164: e164, phoneHash: `hash-${run}-${e164}`, purpose: 'login', channel: undefined, whatsappAvailable: true, knownNumber: async () => false, origin };
+  };
 
-  it('two API pods share one per-IP counter; the 11th request in the hour is refused with retryAfterSec', async () => {
-    const ip = `198.51.100.${Date.now() % 250}-${Math.random()}`;
-    const pods = [new OtpRequestGuard(new RedisRateLimiter(connect())), new OtpRequestGuard(new RedisRateLimiter(connect()))];
-    for (let i = 0; i < 10; i += 1) await pods[i % 2]!.check({ ip });
-    const err = await pods[0]!.check({ ip }).catch((e: unknown) => e);
+  it('two API pods share one per-number counter: the 6th code to a number in the hour is refused with retryAfterSec', async () => {
+    const alerts = new RecordingOtpAlerts();
+    const pods = [new OtpGuard(connect(), alerts), new OtpGuard(connect(), alerts)];
+    for (let i = 0; i < 5; i += 1) await pods[i % 2]!.admit(send(1));
+    const err = await pods[0]!.admit(send(1)).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DriverError);
     expect((err as DriverError).code).toBe('rate_limited');
     expect((err as DriverError).envelope.retryAfterSec).toBeGreaterThan(3500);
   });
 
-  it('per device: 5 per hour', async () => {
-    const guard = new OtpRequestGuard(new RedisRateLimiter(connect()));
-    const deviceFingerprint = `fp-${Date.now()}-${Math.random()}`;
-    for (let i = 0; i < 5; i += 1) await guard.check({ deviceFingerprint });
-    await expect(guard.check({ deviceFingerprint })).rejects.toMatchObject({ code: 'rate_limited' });
+  it('the IP rule only alerts, once, however many pods see the crowd', async () => {
+    const alerts = new RecordingOtpAlerts();
+    const config = { ...DEFAULT_OTP_GUARD, perIpPerHour: 3 };
+    const pods = [new OtpGuard(connect(), alerts, config), new OtpGuard(connect(), alerts, config)];
+    const ip = `198.51.100.${run}`;
+    for (let i = 0; i < 8; i += 1) await pods[i % 2]!.admit(send(100 + i, { ip }));
+    expect(alerts.raised.filter((a) => a.rule === 'ip')).toHaveLength(1);
   });
 });

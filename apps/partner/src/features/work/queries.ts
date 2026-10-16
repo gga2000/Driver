@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DEMAND_MAP_RULES, isPartner, type OrderRoute } from '@driver/contracts';
+import { DEMAND_GLOW_RULES, isPartner, type OrderRoute } from '@driver/contracts';
 import { liteInterval, useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
 import type { PartnerGate } from '@/lib/guard';
-import { LIVE_PARTNER_KEY, useLiveChannel, useLivePollMs } from '@/lib/live';
+import { LIVE_PARTNER_KEY, useLiveChannel, useLiveMode } from '@/lib/live';
+import { offerPollMs, workPollMs } from './offer-poll';
 import { useSignedIn } from '@/lib/session';
+import { heartbeatStep, versionToSend, type HeldVersion } from './heartbeat-version';
 
 /**
  * Partner query hooks over `partner.*`, `dispatch.*` and `trips.*`. The driver's own channel
@@ -41,35 +43,52 @@ export function usePartnerGate(): PartnerGate {
   return isPartner(me.data.roles.map((r) => r.kind)) ? 'allowed' : 'denied';
 }
 
+/** l2: the status/job refetch, three times slower in low-data mode while the stream is live. */
+function useWorkPollMs(): number {
+  const mode = useLiveMode(LIVE_PARTNER_KEY);
+  const lite = useLiteMode();
+  return workPollMs(mode, (ms) => liteInterval(ms, lite));
+}
+
 export function useStatus() {
   const api = useApi();
   const signedIn = useSignedIn();
   const gate = usePartnerGate();
-  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
+  const pollMs = useWorkPollMs();
   return useQuery({ ...api.partner.status.queryOptions(), enabled: signedIn && gate === 'allowed', refetchInterval: pollMs });
 }
 
 export function useCurrentOffer(enabled: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
-  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
-  return useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
+  const mode = useLiveMode(LIVE_PARTNER_KEY);
+  const lite = useLiteMode();
+  const q = useQuery({ ...api.partner.currentOffer.queryOptions(), enabled: signedIn && enabled, refetchInterval: offerPollMs(mode, (ms) => liteInterval(ms, lite)), staleTime: 0 });
+  // The stream just dropped: look for an offer now rather than at the next tick.
+  const was = useRef(mode);
+  const { refetch } = q;
+  useEffect(() => {
+    if (was.current === 'live' && mode !== 'live' && signedIn && enabled) void refetch();
+    was.current = mode;
+  }, [mode, signedIn, enabled, refetch]);
+  return q;
 }
 
 export function useActiveJob(enabled = true) {
   const api = useApi();
   const signedIn = useSignedIn();
-  const pollMs = useLivePollMs(LIVE_PARTNER_KEY);
+  const pollMs = useWorkPollMs();
   return useQuery({ ...api.partner.activeJob.queryOptions(), enabled: signedIn && enabled, refetchInterval: pollMs, staleTime: 0 });
 }
 
-/** Busy zones for the home map (maps program d5), every minute while he is online. */
-export function useDemandMap(online: boolean) {
+/**
+ * N17 «وين الطلبات»: the busy zones glowing on his map, read at the server's picture pace (one every
+ * 3 minutes; the low-data mode keeps the same pace, it is already slow).
+ */
+export function useDemandGlow(online: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
-  // Low-data mode (maps program q2): every 3 minutes instead of every minute.
-  const lite = useLiteMode();
-  return useQuery({ ...api.partner.demandMap.queryOptions(), enabled: signedIn && online, refetchInterval: online ? liteInterval(DEMAND_MAP_RULES.refreshMs, lite) : false, staleTime: DEMAND_MAP_RULES.refreshMs / 2 });
+  return useQuery({ ...api.partner.demandGlow.queryOptions(), enabled: signedIn && online, refetchInterval: online ? DEMAND_GLOW_RULES.snapshotMs : false, staleTime: DEMAND_GLOW_RULES.snapshotMs / 2 });
 }
 
 /** A road keeps for two minutes; the job's road is also re-read when the stop changes. */
@@ -116,12 +135,30 @@ export function useRefreshWork() {
     ]);
 }
 
+/** Perf o4: the version the last heartbeat answered with (`heartbeat-version.ts`). */
+let heldVersion: HeldVersion | null = null;
+
 export function useGoOnline() {
   const api = useApi();
   const qc = useQueryClient();
+  const key = api.partner.status.queryKey();
+  const base = api.partner.goOnline.mutationOptions();
+  type BaseFn = NonNullable<typeof base.mutationFn>;
+  const updatedAt = () => qc.getQueryState(key)?.dataUpdatedAt ?? -1;
   return useMutation({
-    ...api.partner.goOnline.mutationOptions(),
-    onSuccess: (status) => qc.setQueryData(api.partner.status.queryKey(), status),
+    ...base,
+    mutationFn: (input: Omit<Parameters<BaseFn>[0], 'knownVersion'>, context: Parameters<BaseFn>[1]) =>
+      base.mutationFn!({ ...input, knownVersion: versionToSend(heldVersion, updatedAt()) }, context),
+    onSuccess: (res, input) => {
+      const step = heartbeatStep(res, input.at, heldVersion, updatedAt());
+      if (step.kind === 'forget') {
+        heldVersion = null;
+        return;
+      }
+      if (step.kind === 'replace') qc.setQueryData(key, step.status);
+      else qc.setQueryData(key, (prev) => (prev ? { ...prev, position: step.position } : prev));
+      heldVersion = step.version === null ? null : { version: step.version, updatedAt: updatedAt() };
+    },
   });
 }
 
@@ -141,6 +178,32 @@ export function useAnswerClimateCheck() {
   return useMutation({
     ...api.partner.answerClimateCheck.mutationOptions(),
     onSuccess: (status) => qc.setQueryData(api.partner.status.queryKey(), status),
+  });
+}
+
+/** «مشاوير باچر» (review #28): his booked rides and the open ones; re-read every minute (lighter in low-data mode). */
+export function useBookedJobs(enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const lite = useLiteMode();
+  return useQuery({ ...api.partner.bookedJobs.queryOptions(), enabled: signedIn && enabled, staleTime: 30_000, refetchInterval: enabled ? liteInterval(BOOKED_REFRESH_MS, lite) : false });
+}
+
+const BOOKED_REFRESH_MS = 60_000;
+
+/** Confirm / pass / release / start: the answer comes back with the fresh list; a start opens the job. */
+export function useAnswerBookedJob() {
+  const api = useApi();
+  const qc = useQueryClient();
+  const refresh = useRefreshWork();
+  return useMutation({
+    ...api.partner.answerBookedJob.mutationOptions(),
+    onSuccess: (jobs, input) => {
+      qc.setQueryData(api.partner.bookedJobs.queryKey(), jobs);
+      if (input.answer === 'start') void refresh();
+    },
+    // Taken by someone else, closed, or changed since the list was read: show what is true now.
+    onError: () => void qc.invalidateQueries({ queryKey: api.partner.bookedJobs.queryKey() }),
   });
 }
 

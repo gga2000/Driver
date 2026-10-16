@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPostView, TravellingAs } from '@driver/contracts';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AgreementView, BookingView, DemandPostView, IntercityDirection, IntercityNetwork, RajaaDriverCard, RequestPlaceId, RequestPostView, RequestShareInvite, RequestTripKind, TravellingAs } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { activeBooking, boardSummary, DEFAULT_DIRECTION, isLiveBooking, PRIMARY_CORRIDOR, RAJAA_RULES, publicPlaceName } from './logic';
@@ -49,6 +49,38 @@ export function useBoard(key: BoardKey, opts: { poll?: boolean } = {}) {
 }
 
 /**
+ * One garage's live board (map idea N12, «شوف الكراج»): its cars for the next 12 h, on one line when
+ * the rider came from that line's board. Polled every 5 s like the board.
+ */
+export function useGarageBoard(garageId: string, corridorId?: string) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.board.queryOptions({ garageId, ...(corridorId ? { corridorId } : {}) }),
+    enabled: signedIn && !!garageId,
+    staleTime: 2_000,
+    refetchInterval: RAJAA_RULES.pollMs,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/**
+ * Today's cars on every line, for the «بغداد» / «الكوت» cards (s1): one read per corridor, the same
+ * span as the board, not polled (the picked line's own board polls).
+ */
+export function useCorridorBoards(corridorIds: readonly string[], direction: IntercityDirection, span: { from: Date; to: Date }) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQueries({
+    queries: corridorIds.map((corridorId) => ({
+      ...api.routes.board.queryOptions({ corridorId, direction, from: span.from, to: span.to }),
+      enabled: signedIn,
+      staleTime: 30_000,
+    })),
+  });
+}
+
+/**
  * Who drives each departure (`routes.driverCards`, audit C-19): first name, today's check-in, photo.
  * One read for a whole board (ids sorted so the key is stable); cards change rarely.
  */
@@ -62,6 +94,17 @@ export function useDriverCards(departureIds: readonly string[]) {
     staleTime: 60_000,
     placeholderData: (prev) => prev,
     select: (cards: RajaaDriverCard[]) => new Map(cards.map((c) => [c.departureId, c])),
+  });
+}
+
+/** «ملفه» (x12–x17): the driver of a departure the rider can see. Not polled; a minute fresh is plenty. */
+export function useDriverProfile(departureId: string | undefined) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.driverProfile.queryOptions({ departureId: departureId ?? 'none' }),
+    enabled: signedIn && !!departureId,
+    staleTime: 60_000,
   });
 }
 
@@ -133,6 +176,38 @@ export function useCancelSeat() {
   return useMutation(api.routes.cancelSeat.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
+/**
+ * Step 4: the rider's agreed-price asks on one departure. Polls every 5 s while one waits on the
+ * driver (asked) or on him (priced), so the driver's price shows up without a refresh.
+ */
+export function useMyAgreements(departureId: string | undefined) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.agreements.mine.queryOptions({ departureId: departureId ?? '' }),
+    enabled: signedIn && !!departureId,
+    refetchInterval: (q) => (q.state.data?.some((a: AgreementView) => a.state === 'asked' || a.state === 'proposed') ? RAJAA_RULES.pollMs : false),
+  });
+}
+
+export function useAskAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.ask.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useRespondAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.respond.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useWithdrawAgreement() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.agreements.withdraw.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
 /** «شلون كانت الرجعة؟» (r2): stars and chips once; the bookings list picks up the rating. */
 export function useRateBooking() {
   const api = useApi();
@@ -182,6 +257,17 @@ export function useMyRequests() {
   });
 }
 
+/** p1: what a private trip to a known place usually costs; off until a chip names the place. */
+export function useUsualRange(placeId: RequestPlaceId | null, trip: RequestTripKind) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.requestBoard.usualRange.queryOptions({ placeId: placeId ?? 'kut', trip }),
+    enabled: signedIn && placeId !== null,
+    staleTime: 10 * 60_000,
+  });
+}
+
 export function usePostRequest() {
   const api = useApi();
   const invalidate = useInvalidateRoutes();
@@ -194,18 +280,68 @@ export function usePickOffer() {
   return useMutation(api.routes.requestBoard.pick.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
+/** Step 4b a6: ask the driver behind an offer for «احجز وادفع كاش». */
+export function useAskCash() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.askCash.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
 export function useCancelRequest() {
   const api = useApi();
   const invalidate = useInvalidateRoutes();
   return useMutation(api.routes.requestBoard.cancel.mutationOptions({ onSettled: () => void invalidate() }));
 }
 
-/**
- * TODO(api): the customer wallet balance. No customer wallet read exists yet, so the pay step offers
- * the wallet and lets the server answer (`wallet_insufficient` → Arabic message, switch to cash).
- */
-export function useWalletBalance(): number | null {
-  return null;
+// ── step 6: sharing a private car by link ──
+
+export function useOpenShare() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.openShare.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+/** A friend's view of a shared car from its link; kept fresh while the trip is ahead or on the road. */
+export function useShareInvite(code: string) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.requestBoard.shareInvite.queryOptions({ code }),
+    enabled: signedIn && /^[A-Z2-9]{8}$/.test(code),
+    refetchInterval: (q) => {
+      const v = q.state.data as RequestShareInvite | undefined;
+      return v && (v.state === 'matched' || v.state === 'driver_arrived') ? RAJAA_RULES.pollMs : false;
+    },
+  });
+}
+
+export function useJoinShare() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.joinShare.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+export function useLeaveShare() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return useMutation(api.routes.requestBoard.leaveShare.mutationOptions({ onSettled: () => void invalidate() }));
+}
+
+/** Way C: his «صعدت» next to the car, and his «ما صعدت» on the driver's tap for him. */
+export function useShareBoarding() {
+  const api = useApi();
+  const invalidate = useInvalidateRoutes();
+  return {
+    board: useMutation(api.routes.requestBoard.shareBoard.mutationOptions({ onSettled: () => void invalidate() })),
+    notBoarded: useMutation(api.routes.requestBoard.shareNotBoarded.mutationOptions({ onSettled: () => void invalidate() })),
+  };
+}
+
+/** Shared cars he joined, still ahead or on the road (the board shows them at the top). */
+export function useSharedWithMe() {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.routes.requestBoard.sharedWithMe.queryOptions(), enabled: signedIn });
 }
 
 // ── home card ──

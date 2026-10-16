@@ -47,7 +47,7 @@ export const HOME_CITY = 'aziziyah';
 export const PRIMARY_CORRIDOR = 'aziziyah_baghdad';
 export const DEFAULT_DIRECTION: IntercityDirection = 'to_aziziyah';
 
-/** Board order of garages on each side (spec §2: النهضة in Baghdad; البوابة ١، البوابة ٢، السوق in Aziziyah). */
+/** Board order of garages on each side (spec §2: النهضة in Baghdad; البوابة 1، البوابة 2، السوق in Aziziyah). */
 export const GARAGE_ORDER = ['mp_garage_nahdha', 'mp_garage_bab1', 'mp_garage_bab2', 'mp_garage_souq', 'mp_garage_kut'] as const;
 
 export interface LatLngLike {
@@ -104,6 +104,11 @@ export function suggestDirection(
 
 const BOOKABLE: ReadonlySet<DepartureCard['state']> = new Set(['scheduled', 'boarding']);
 
+/** A car the rider can still book: scheduled or boarding, and not past its hard latest time. */
+export function isBookable(d: DepartureCard, now: Date): boolean {
+  return BOOKABLE.has(d.state) && d.latestDepartureAt.getTime() > now.getTime();
+}
+
 export interface GarageGroup<G extends GarageLike = GarageLike> {
   garage: G;
   departures: DepartureCard[];
@@ -131,7 +136,7 @@ export function groupBoard<G extends GarageLike>(
   now: Date,
 ): GarageGroup<G>[] {
   const side = garages.filter((g) => g.cityId === originCityId).sort((a, b) => garageRank(a.id) - garageRank(b.id) || a.nameAr.localeCompare(b.nameAr));
-  const live = departures.filter((d) => BOOKABLE.has(d.state) && d.latestDepartureAt.getTime() > now.getTime());
+  const live = departures.filter((d) => isBookable(d, now));
   return side.map((garage) => ({ garage, departures: live.filter((d) => d.garageId === garage.id).sort(compareDepartures) }));
 }
 
@@ -223,6 +228,28 @@ export function carAvailable(seats: readonly BoardSeat[], familyOnly: boolean, t
   return (!familyOnly || travellingAs === 'aila') && seats.length > 0 && seats.every((s) => s.state === 'free');
 }
 
+/**
+ * The order the app tries seats in when it picks one for the rider (idea c4): the window seats of
+ * the first passenger row first, the right one before the left (the kerb side, where you get in),
+ * then the next row, the middles last. The front is never picked for him: it costs more.
+ */
+const PICK_ORDER: Record<IntercitySeatLayout, IntercitySeatId[]> = {
+  4: ['back_right', 'back_left', 'back_middle'],
+  6: ['middle_right', 'middle_left', 'rear_right', 'rear_left', 'rear_middle'],
+  7: ['middle_right', 'middle_left', 'rear_right', 'rear_left', 'middle_middle', 'rear_middle'],
+};
+
+/** The free seat the app picks first (c4), or null when no plain seat is open to this rider. */
+export function bestSeat(layout: IntercitySeatLayout, seats: readonly BoardSeat[]): IntercitySeatId | null {
+  const byId = new Map(seats.map((s) => [s.id, s]));
+  return (
+    PICK_ORDER[layout].find((id) => {
+      const s = byId.get(id);
+      return !!s && s.state === 'free' && !s.blocked && s.premiumIqd === 0;
+    }) ?? null
+  );
+}
+
 /** Drop picks that stopped being selectable after a board refresh or a travelling-as change. */
 export function pruneSelection(selection: readonly IntercitySeatId[], seats: readonly BoardSeat[]): IntercitySeatId[] {
   const byId = new Map(seats.map((s) => [s.id, s]));
@@ -238,16 +265,19 @@ export interface SeatQuote {
   baseIqd: number;
   frontIqd: number;
   pickupIqd: number;
+  /** Step 4: an agreed door drop. */
+  dropoffIqd: number;
   totalIqd: number;
 }
 
-/** What the hold will cost: seats × price, + front premium if the front is in it, + pickup fee. */
-export function quoteSelection(seatIds: readonly IntercitySeatId[], dep: Pick<DepartureCard, 'seatPriceIqd' | 'frontPremiumIqd'>, pickupFeeIqd = 0): SeatQuote {
+/** What the hold will cost: seats × price, + front premium if the front is in it, + pickup fee, + an agreed door drop. */
+export function quoteSelection(seatIds: readonly IntercitySeatId[], dep: Pick<DepartureCard, 'seatPriceIqd' | 'frontPremiumIqd'>, pickupFeeIqd = 0, dropoffFeeIqd = 0): SeatQuote {
   const seats = seatIds.length;
   const baseIqd = seats * dep.seatPriceIqd;
   const frontIqd = seatIds.includes('front') ? dep.frontPremiumIqd : 0;
   const pickupIqd = seats > 0 ? pickupFeeIqd : 0;
-  return { seats, seatPriceIqd: dep.seatPriceIqd, baseIqd, frontIqd, pickupIqd, totalIqd: baseIqd + frontIqd + pickupIqd };
+  const dropoffIqd = seats > 0 ? dropoffFeeIqd : 0;
+  return { seats, seatPriceIqd: dep.seatPriceIqd, baseIqd, frontIqd, pickupIqd, dropoffIqd, totalIqd: baseIqd + frontIqd + pickupIqd + dropoffIqd };
 }
 
 /**
@@ -487,3 +517,12 @@ export function requestHourAvailable(day: RequestDay, hour: number, now: Date, u
 export function publicPlaceName(nameAr: string): string {
   return nameAr.replace(/\s*\(\s*مسودة\s*\)\s*/g, ' ').trim();
 }
+
+/**
+ * Who travels, as the server's seat rules read it. Ali (2026-10-07) dropped the «رجال / نساء / عائلة»
+ * question («don't ask what doesn't matter»), so every rider books as a family group: the
+ * no-stranger-of-the-other-sex middle-seat rule no longer closes seats for app riders, family-only
+ * cars take everyone, and «العوائل ترتاحله» counts every rating. Reverting this one commit brings the
+ * question back.
+ */
+export const RIDER_TRAVELLING_AS: TravellingAs = 'aila';

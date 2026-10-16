@@ -28,6 +28,9 @@ them now"). Don't start anything listed there unless Ali asks; update the file w
 It holds the real WhatsApp support number, SOS on-duty/escalation, calls (Ali: no outside masked-call
 provider, "we carry them"), the parents' WhatsApp messages for خطوط, the brand symbol, accounts and
 store setup, and the gaps that need real phones.
+**Started 2026-10-07** (Ali approved the launch plan, decision D-22 in `/mnt/project-files/audit/plan.md`
+§5.0): the items the launch plan's G0 rows need are now being worked, through the companion plan
+`docs/launch/can-deliver-plan.md`. Anything there that is Ali's own action or a money rule still waits for him.
 SOS calls Iraq's national emergency number 911 (Ali, 2026-10-06; `SAFETY_RULES.policeNumber`).
 Shift-guarantee shifts: 06:00–15:00 and 15:00–02:00 (Ali, 2026-10-06); still off; amount for 9–11 h
 shifts, couriers only and a minimum online time are open.

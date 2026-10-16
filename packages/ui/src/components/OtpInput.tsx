@@ -17,7 +17,12 @@ export interface OtpInputProps {
 
 /** What the hidden field keeps of a typed, pasted or autofilled code: Western digits only, capped. */
 export function otpValue(raw: string, length = 6): string {
-  return westernDigits(raw).replace(/\D/g, '').slice(0, length);
+  const digits = westernDigits(raw);
+  // CORE-21: a pasted message («رمز دخولك لدرايفر: 482913. لا تعطيه لأحد») — the code is its run of
+  // exactly `length` digits, wherever it sits; otherwise every digit typed, in order.
+  const code = new RegExp(`(?:^|\\D)(\\d{${length}})(?!\\d)`).exec(digits)?.[1];
+  if (code && /\D/.test(digits.trim())) return code;
+  return digits.replace(/\D/g, '').slice(0, length);
 }
 
 /**
@@ -38,7 +43,8 @@ export const OtpInput = forwardRef<TextInput, OtpInputProps>(function OtpInput(
       <View style={{ flexDirection: 'row', direction: 'ltr', gap: theme.space[2], justifyContent: 'center' }}>
         {cells.map((d, i) => {
           const isActive = focused && i === active && !disabled;
-          const borderColor = error ? theme.colors.danger : isActive ? theme.colors.accent : d ? theme.colors.borderStrong : theme.colors.border;
+          // The cell being typed shows the ink focus ring (VIS-04: orange was 2:1); every cell keeps a 3:1 edge.
+          const borderColor = error ? theme.colors.danger : isActive ? theme.colors.focusRing : theme.colors.borderStrong;
           return (
             <View
               key={i}
@@ -73,7 +79,8 @@ export const OtpInput = forwardRef<TextInput, OtpInputProps>(function OtpInput(
         keyboardType="number-pad"
         textContentType="oneTimeCode"
         autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
-        maxLength={length}
+        // Room for a whole pasted message (CORE-21): a native cap of 6 would cut it before the code.
+        maxLength={64}
         accessibilityLabel={accessibilityLabel}
         caretHidden
         style={[

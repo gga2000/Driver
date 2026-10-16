@@ -15,6 +15,8 @@
 //   POST /demo/board/courier?metres=900          a ready order whose courier drives in from `metres` away
 //                                               (a fix every 2 s, ≈ 30 km/h) and arrives at the counter:
 //                                               the courier radar, the arriving chime and the pickup code
+import { avatarPng } from '../../../../scripts/dev/demo-avatar.mjs';
+
 export default async function register(ctx) {
   const { orders, orgs, trips, dispatch, identity, ledger, vehicles } = ctx.services;
   const { khalid } = ctx.stores;
@@ -26,6 +28,16 @@ export default async function register(ctx) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const place = async (lines, patch = {}) => {
+    try {
+      return await placeAs(lines, patch);
+    } catch (err) {
+      // Decisions §4: a brand-new account's first cash orders are capped; a big demo basket (the grill
+      // kilo) is paid from the wallet instead, as a real new customer would be asked to.
+      if (patch.paymentMethod === undefined && err?.code === 'new_customer_cash_cap') return placeAs(lines, { ...patch, paymentMethod: 'wallet' });
+      throw err;
+    }
+  };
+  const placeAs = async (lines, patch) => {
     const who = customer();
     // A prepaid (wallet) order needs a wallet that covers it (orders.place refuses wallet_insufficient):
     // the demo customer topped up at an agent first.
@@ -60,6 +72,21 @@ export default async function register(ctx) {
     return [group, cash, prepaid];
   }
 
+  // Driver photos (Ali, 2026-10-06): every other demo courier has an approved main photo (a drawn
+  // portrait), so the board's courier map (N16) shows a face; the rest show the initial (the fallback).
+  const { DriverAccountService } = await ctx.load('modules/driver-account/index.js');
+  const { BLOB_STORE } = await ctx.load('modules/places/index.js');
+  async function giveMainPhoto(personId, seed) {
+    const bytes = avatarPng(seed);
+    const store = ctx.app.get(BLOB_STORE);
+    const ticket = await store.createUpload({ ownerId: personId, contentType: 'image/png', sizeBytes: bytes.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await store.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+    const account = ctx.app.get(DriverAccountService);
+    const sent = await account.setMainPhoto({ personId, sessionId: 'demo' }, { uploadId: ticket.uploadId });
+    await account.reviewDocument({ personId: 'demo-field-ops', sessionId: 'demo' }, { documentId: sent.latest.documentId, decision: 'approve' });
+  }
+
   // ── couriers (named, verified, with a plate) ──
   const NAMES = ['حيدر كاظم', 'عباس فاضل', 'كرار عادل', 'مرتضى سالم'];
   let courierSeq = 0;
@@ -71,6 +98,7 @@ export default async function register(ctx) {
     const id = (await identity.verifyOtp({ phone, code })).personId;
     await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'courier' });
     await identity.setName({ personId: id, sessionId: 'demo' }, NAMES[(courierSeq - 1) % NAMES.length]);
+    if (courierSeq % 2 === 1) await giveMainPhoto(id, `merchant-courier:${courierSeq}`);
     vehicles.register?.(id, { vehicleClass: 'bike', plate: `واسط ${45670 + courierSeq}` });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
     return id;
@@ -89,7 +117,12 @@ export default async function register(ctx) {
     await dispatch.respond({ personId: courierId, sessionId: 'demo' }, { offerId, accept: true });
     return trip.id;
   }
-  const accept = (orderId, prepMinutes) => orders.merchantAccept('demo-staff', { orderId, prepMinutes });
+  // Real people press the buttons, so the owner's «مين سوّى شنو» has names: مصطفى and علي take turns.
+  const { multi, ali } = ctx.people;
+  let turn = 0;
+  const accept = (orderId, prepMinutes) => orders.merchantAccept((turn++ % 2 ? ali : multi).id, { orderId, prepMinutes });
+  // Clearing the new column between shots is the demo's doing, not a kitchen tap.
+  const RESET = 'system:demo';
 
   // ── preparing ──
   const p1 = await place([await ctx.line(khalid, 'grill_mix_kilo', 1, { note: 'نص مستوي ونص عادي' }), await ctx.line(khalid, 'torshi', 1)]);
@@ -100,13 +133,18 @@ export default async function register(ctx) {
 
   const p2 = await place([await ctx.line(khalid, 'gus_wrap', 2), await ctx.line(khalid, 'lamb_tikka_plate', 1)], { paymentMethod: 'wallet' });
   await accept(p2.id, 15);
+  await orders.merchantExtendPrep(ali.id, { orderId: p2.id });
+
+  // One order مصطفى turned down in the rush (the owner sees who and why).
+  const turnedDown = await place([await ctx.line(khalid, 'kebab_plate', 1, { choose: ['نفر'] }), await ctx.line(khalid, 'pepsi', 2), await ctx.line(khalid, 'salad', 1)]);
+  await orders.merchantReject(multi.id, { orderId: turnedDown.id, reason: 'too_busy' });
 
   // ── ready ──
   const r1 = await place([await ctx.line(khalid, 'tikka_plate', 1, { choose: ['نفرين'] }), await ctx.line(khalid, 'water', 2)]);
   await accept(r1.id, 10);
   const c2 = await newCourier(kitchen);
   const t2 = await assign(r1.id, c2);
-  await orders.markReady('demo-staff', { orderId: r1.id });
+  await orders.markReady(ali.id, { orderId: r1.id });
   await trips.reportPosition(c2, { tripId: t2, pin: kitchen, at: new Date(), bearing: 90, speedKmh: 0 });
   const pickup = (await trips.get(t2)).stops.find((s) => s.type === 'pickup');
   await trips.arrive(t2, pickup.id, c2, { pin: kitchen });
@@ -115,7 +153,7 @@ export default async function register(ctx) {
   await accept(r2.id, 10);
   const c3 = await newCourier({ lat: 32.915, lng: 45.061 });
   const t3 = await assign(r2.id, c3);
-  await orders.markReady('demo-staff', { orderId: r2.id });
+  await orders.markReady(multi.id, { orderId: r2.id });
   await trips.reportPosition(c3, { tripId: t3, pin: { lat: 32.915, lng: 45.061 }, at: new Date(), bearing: 200, speedKmh: 18 });
 
   await placeNew();
@@ -166,7 +204,7 @@ export default async function register(ctx) {
   ctx.route('/demo/board/courier', async (_req, _res, url) => driveIn(Math.max(30, Number(url.searchParams.get('metres') ?? 900))));
   ctx.route('/demo/board/fresh', async () => {
     const live = await orders.listActive({ merchantOrgId: khalid.orgId });
-    for (const o of live) if (o.state === 'placed') await orders.merchantReject('demo-staff', { orderId: o.id, reason: 'demo_reset' }).catch(() => undefined);
+    for (const o of live) if (o.state === 'placed') await orders.merchantReject(RESET, { orderId: o.id, reason: 'demo_reset' }).catch(() => undefined);
     const fresh = await placeNew();
     return { orderIds: fresh.map((o) => o.id) };
   });
@@ -196,7 +234,7 @@ export default async function register(ctx) {
     const count = Math.min(14, Math.max(3, Number(url.searchParams.get('count') ?? 10)));
     for (const t of rushTimers.splice(0)) globalThis.clearTimeout(t);
     const live = await orders.listActive({ merchantOrgId: khalid.orgId });
-    for (const o of live) if (o.state === 'placed') await orders.merchantReject('demo-staff', { orderId: o.id, reason: 'demo_reset' }).catch(() => undefined);
+    for (const o of live) if (o.state === 'placed') await orders.merchantReject(RESET, { orderId: o.id, reason: 'demo_reset' }).catch(() => undefined);
     const baskets = [
       async () => [await ctx.line(khalid, 'kebab_plate', 1, { choose: ['نفر'] }), await ctx.line(khalid, 'pepsi', 2), await ctx.line(khalid, 'salad', 1)],
       async () => [await ctx.line(khalid, 'tikka_wrap', 3, { choose: ['صمون حجري'] }), await ctx.line(khalid, 'pepsi', 3)],

@@ -14,6 +14,17 @@ export interface DbConnectionOptions {
   caCert?: string;
   /** Pooled connections this process may hold (node-postgres default 10). */
   maxConnections?: number;
+  /**
+   * Longest a single statement may run on these connections, in ms (`statement_timeout`, sent when
+   * the connection opens). Unset or 0: the server's own limit. Supabase's transaction pooler (port
+   * 6543) may drop connection-level settings, so the API also sets it per transaction (`SET LOCAL`).
+   */
+  statementTimeoutMs?: number;
+  /**
+   * Longest an interactive transaction (`$transaction(async (tx) => …)`) may stay open, in ms.
+   * Unset: Prisma's 5 s. Background work raises it together with its statement limit.
+   */
+  transactionTimeoutMs?: number;
 }
 
 const SSL_URL_PARAMS = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'uselibpqcompat'];
@@ -32,6 +43,7 @@ export function dbOptionsFromEnv(env: Record<string, string | undefined> = proce
 export function pgPoolConfig(connectionString: string, opts: DbConnectionOptions = {}): PoolConfig {
   const config: PoolConfig = { connectionString };
   if (opts.maxConnections) config.max = opts.maxConnections;
+  if (opts.statementTimeoutMs) config.statement_timeout = opts.statementTimeoutMs;
   if (opts.caCert) {
     const url = new URL(connectionString);
     for (const p of SSL_URL_PARAMS) url.searchParams.delete(p);

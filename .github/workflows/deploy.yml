@@ -1,6 +1,9 @@
 # Driver (درايفر) — production deploy (docs/deploy/runbook.md).
 #
 # Runs on a version tag (git tag v1.2.3 && git push --tags) or by hand (Actions → Deploy → Run workflow).
+# A tag always deploys production. By hand you pick the GitHub environment: `production` or `staging`
+# (docs/deploy/staging.md). Each environment holds its own secrets and variables below, so staging has
+# its own database, Fly apps and Pages projects and can never touch production's.
 # Order: migrate the database (DIRECT_URL) → deploy the API to Fly → smoke it → deploy the Console and
 # the web apps. Every part checks its own secrets first and SKIPS (green, with a notice) when they are
 # not configured yet, so this workflow is safe to merge before any account exists.
@@ -22,6 +25,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
+      environment:
+        description: Where to deploy (each GitHub environment has its own secrets and variables)
+        type: choice
+        options: [production, staging]
+        default: production
       target:
         description: What to deploy
         type: choice
@@ -33,7 +41,7 @@ on:
         default: false
 
 concurrency:
-  group: deploy-production
+  group: deploy-${{ inputs.environment || 'production' }}
   cancel-in-progress: false
 
 permissions:
@@ -51,6 +59,7 @@ jobs:
   plan:
     name: plan (which parts are configured)
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
     outputs:
       db: ${{ steps.p.outputs.db }}
       api: ${{ steps.p.outputs.api }}
@@ -58,6 +67,27 @@ jobs:
       console: ${{ steps.p.outputs.console }}
       migrate: ${{ steps.p.outputs.migrate }}
     steps:
+      # GitHub falls back to repository-level secrets and variables when an environment lacks one, so a
+      # half-configured staging could deploy with production's database. Staging must name itself.
+      - name: Staging never reaches production
+        if: ${{ (inputs.environment || 'production') == 'staging' }}
+        env:
+          DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+          DATABASE_REF: ${{ vars.DATABASE_REF }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          FLY_API_APP: ${{ vars.FLY_API_APP }}
+          FLY_CONSOLE_APP: ${{ vars.FLY_CONSOLE_APP }}
+          API_URL: ${{ vars.API_PUBLIC_URL }}
+        run: |
+          fail() { echo "::error title=Staging guard::$1 (docs/deploy/staging.md)"; exit 1; }
+          [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+          [[ "$FLY_API_APP" == *-staging ]] || fail "FLY_API_APP must be set on the staging environment and end in -staging"
+          [ -z "$FLY_CONSOLE_APP" ] || [[ "$FLY_CONSOLE_APP" == *-staging ]] || fail "FLY_CONSOLE_APP must end in -staging"
+          [ -z "$API_URL" ] || [[ "$API_URL" == *staging* ]] || fail "API_PUBLIC_URL must be the staging API"
+          if [ -n "$DIRECT_URL" ]; then
+            [ -n "$DATABASE_REF" ] || fail "set DATABASE_REF (the staging Supabase project ref) on the staging environment"
+            [[ "$DIRECT_URL" == *"$DATABASE_REF"* ]] || fail "DIRECT_URL is not the staging database (set it on the staging environment)"
+          fi
       - id: p
         env:
           TARGET: ${{ inputs.target || 'all' }}
@@ -78,7 +108,7 @@ jobs:
             echo "db=$HAS_DB"; echo "migrate=$migrate"; echo "api=$api"; echo "web=$web"; echo "console=$console"
           } >> "$GITHUB_OUTPUT"
           {
-            echo "### Deploy plan (target: $TARGET)"
+            echo "### Deploy plan (${{ inputs.environment || 'production' }}, target: $TARGET)"
             echo "| part | runs | why not |"
             echo "| --- | --- | --- |"
             echo "| migrate database | $migrate | $([ "$HAS_DB" = true ] || echo 'secret DIRECT_URL not set')$([ "$SKIP_MIGRATE" = true ] && echo 'skip_migrate chosen') |"
@@ -93,7 +123,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.migrate == 'true'
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 15
     env:
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
@@ -120,7 +150,7 @@ jobs:
     needs: [plan, migrate]
     if: ${{ !cancelled() && needs.plan.outputs.api == 'true' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -133,20 +163,30 @@ jobs:
           flyctl deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --app "$APP" \
             --remote-only --image-label "${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}" \
             --env APP_RELEASE="${GITHUB_REF_NAME}@${GITHUB_SHA::7}"
-      - name: Smoke (health.ping → db ok, redis ok)
+      - name: Smoke (health.live answers, health.ready → db ok)
         run: |
-          url="https://${APP}.fly.dev/trpc/health.ping"
-          for _ in $(seq 1 30); do body=$(curl -fsS "$url" 2>/dev/null) && break; sleep 2; done
-          echo "$body" | jq .
-          echo "$body" | jq -e '.result.data.json | .db == "ok" and .redis == "ok"' > /dev/null || {
-            echo "::error title=API smoke::$url must report db: ok and redis: ok — roll back with docs/deploy/runbook.md"; exit 1; }
+          # health.live is what Fly routes on: the process is up and its database answers. Redis down is a
+          # warning, not a failed deploy: the API serves without it (queued work waits), and failing here
+          # would only block the fix for it.
+          base="https://${APP}.fly.dev/trpc"
+          for _ in $(seq 1 30); do curl -fsS -o /dev/null "$base/health.live" 2>/dev/null && break; sleep 2; done
+          curl -fsS "$base/health.live" | jq . || {
+            echo "::error title=API smoke::$base/health.live did not answer 200 — roll back with docs/deploy/runbook.md"; exit 1; }
+          body=$(curl -sS "$base/health.ready"); echo "$body" | jq .
+          echo "$body" | jq -e '.result.data.json.db == "ok"' > /dev/null || {
+            echo "::error title=API smoke::health.ready must report db: ok — roll back with docs/deploy/runbook.md"; exit 1; }
+          echo "$body" | jq -e '.result.data.json.redis == "ok"' > /dev/null ||
+            echo "::warning title=API smoke::health.ready reports redis not ok — the API serves, queued work waits; check the Redis app"
+          # The installed apps still probe health.ping; it must keep answering.
+          curl -fsS -o /dev/null "$base/health.ping" || {
+            echo "::error title=API smoke::$base/health.ping did not answer"; exit 1; }
 
   console:
     name: deploy Console (Fly)
     needs: [plan, api]
     if: ${{ !cancelled() && needs.plan.outputs.console == 'true' && needs.api.result != 'failure' }}
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -156,14 +196,27 @@ jobs:
       - run: |
           flyctl deploy . --config deploy/fly/console.toml --dockerfile apps/console/Dockerfile \
             --app "${{ vars.FLY_CONSOLE_APP }}" --remote-only \
-            --build-arg NEXT_PUBLIC_API_URL="${{ vars.API_PUBLIC_URL }}"
+            --build-arg NEXT_PUBLIC_API_URL="${{ vars.API_PUBLIC_URL }}" \
+            --build-arg NEXT_PUBLIC_SENTRY_DSN="${{ vars.SENTRY_DSN_CONSOLE || vars.SENTRY_DSN }}" \
+            --build-arg NEXT_PUBLIC_MAP_TILES_URL="$MAP_TILES_URL" \
+            --build-arg NEXT_PUBLIC_MAP_GLYPHS_URL="$MAP_GLYPHS_URL" \
+            --build-arg NEXT_PUBLIC_UPLOADS_ORIGIN="$UPLOADS_ORIGIN"
+        # The Golden hour map published by the Map tiles workflow on this environment's Supabase project
+        # (docs/deploy/map.md). No DATABASE_REF → empty → the original map.
+        # UPLOADS_ORIGIN: the one host the Console may PUT photos to (connect-src, docs/deploy/console.md):
+        # the UPLOADS_ORIGIN variable when uploads live elsewhere, else this project's Supabase Storage
+        # S3 host (docs/deploy/supabase.md step 5). Neither → empty → the *.storage.supabase.co fallback.
+        env:
+          UPLOADS_ORIGIN: ${{ vars.UPLOADS_ORIGIN || (vars.DATABASE_REF && format('https://{0}.storage.supabase.co', vars.DATABASE_REF)) || '' }}
+          MAP_TILES_URL: ${{ vars.DATABASE_REF && format('https://{0}.supabase.co/storage/v1/object/public/map/wasit.pmtiles', vars.DATABASE_REF) || '' }}
+          MAP_GLYPHS_URL: ${{ vars.DATABASE_REF && format('https://{0}.supabase.co/storage/v1/object/public/map/fonts/{{fontstack}}/{{range}}.pbf', vars.DATABASE_REF) || '' }}
 
   web:
     name: deploy web (${{ matrix.app }})
     needs: [plan, api]
     if: ${{ !cancelled() && needs.plan.outputs.web == 'true' && needs.api.result != 'failure' }}
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment || 'production' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -171,14 +224,21 @@ jobs:
         include:
           - app: customer
             project_var: CF_PAGES_CUSTOMER
+            sentry_var: SENTRY_DSN_CUSTOMER
           - app: partner
             project_var: CF_PAGES_PARTNER
+            sentry_var: SENTRY_DSN_PARTNER
           - app: merchant
             project_var: CF_PAGES_MERCHANT
+            sentry_var: SENTRY_DSN_MERCHANT
     env:
       PROJECT: ${{ vars[matrix.project_var] }}
       EXPO_PUBLIC_API_URL: ${{ vars.API_PUBLIC_URL }}
       EXPO_PUBLIC_SHARE_BASE_URL: ${{ vars.SHARE_BASE_URL }}
+      # Crash reports (docs/deploy/hosting.md "Logs and errors"); unset = none are sent.
+      EXPO_PUBLIC_SENTRY_DSN: ${{ vars[matrix.sentry_var] || vars.SENTRY_DSN }}
+      # Partner/merchant staff safety alerts link to the Console (docs/deploy/mobile.md); unset = no link.
+      EXPO_PUBLIC_CONSOLE_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
     steps:
       - name: Skip when no Pages project is named for this app
         if: env.PROJECT == ''

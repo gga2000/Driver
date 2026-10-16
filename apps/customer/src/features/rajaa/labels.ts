@@ -14,6 +14,31 @@ export function cityName(t: TFn, cityId: string): string {
   return t('rajaa.city_aziziyah');
 }
 
+/**
+ * Copy that depends on the way (Baghdad/Kut bug fixes f1, f3, n1, n2, Ali 2026-10-07): «الرجعة» and
+ * «أريد أرجع» only on the way back to Aziziyah; going out it is «سفرة» and «نبّهني». Each such key has
+ * an `_out` twin for trips leaving Aziziyah.
+ */
+export type WayKey =
+  | 'rajaa.kind'
+  | 'rajaa.board_empty_body'
+  | 'rajaa.demand_banner'
+  | 'rajaa.demand_banner_one'
+  | 'rajaa.demand_intro'
+  | 'rajaa.window_q'
+  | 'rajaa.home_summary_none'
+  | 'demand.post_title'
+  | 'habits.occ_wait_hint';
+export function wayKey(base: WayKey, direction: IntercityDirection): MessageKey {
+  if (direction === 'from_aziziyah') return `${base}_out` as MessageKey;
+  return (base === 'rajaa.kind' ? 'rajaa.kind_back' : base) as MessageKey;
+}
+
+/** The board's title: «العزيزية ← بغداد» going out, «الرجعة من بغداد» on the way back. */
+export function boardTitle(t: TFn, corridorCityId: string, direction: IntercityDirection): string {
+  return direction === 'from_aziziyah' ? routeLabel(t, corridorCityId, direction) : t('rajaa.board_title_back', { city: cityName(t, corridorCityId) });
+}
+
 /** "بغداد ← العزيزية". */
 export function routeLabel(t: TFn, corridorCityId: string, direction: IntercityDirection): string {
   const e = endpoints(corridorCityId, direction);

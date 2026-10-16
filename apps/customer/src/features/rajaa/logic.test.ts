@@ -3,6 +3,7 @@ import type { BoardSeat, BookingView, DemandBucket, DepartureCard, IntercitySeat
 import { createT } from '@driver/i18n';
 import {
   activeBooking,
+  bestSeat,
   blockedReason,
   boardSummary,
   bookingHref,
@@ -54,8 +55,8 @@ const tAr = createT('ar-IQ');
 
 const GARAGES = [
   { id: 'mp_garage_souq', cityId: 'aziziyah', nameAr: 'كراج السوق', lat: 32.9062, lng: 45.0612 },
-  { id: 'mp_garage_bab2', cityId: 'aziziyah', nameAr: 'كراج البوابة ٢', lat: 32.9088, lng: 45.0648 },
-  { id: 'mp_garage_bab1', cityId: 'aziziyah', nameAr: 'كراج البوابة ١', lat: 32.9032, lng: 45.0578 },
+  { id: 'mp_garage_bab2', cityId: 'aziziyah', nameAr: 'كراج البوابة 2', lat: 32.9088, lng: 45.0648 },
+  { id: 'mp_garage_bab1', cityId: 'aziziyah', nameAr: 'كراج البوابة 1', lat: 32.9032, lng: 45.0578 },
   { id: 'mp_garage_nahdha', cityId: 'baghdad', nameAr: 'كراج النهضة', lat: 33.3344, lng: 44.4165 },
   { id: 'mp_garage_kut', cityId: 'kut', nameAr: 'كراج الكوت', lat: 32.5126, lng: 45.8189 },
 ];
@@ -79,7 +80,7 @@ function dep(over: Partial<DepartureCard> & { id: string }): DepartureCard {
     fromCityId: 'baghdad',
     toCityId: 'aziziyah',
     driverId: 'drv_1',
-    vehicle: { kind: 'saloon', layout: 4, plate: '12345 بغداد', model: null, color: null },
+    vehicle: { kind: 'saloon', layout: 4, plate: '12345 بغداد', modelKey: null, model: null, color: null, noSmoking: false, bigBags: false, ac: false },
     departAt: at(60),
     latestDepartureAt: at(105),
     state: 'scheduled',
@@ -106,13 +107,19 @@ function booking(over: Partial<BookingView> & { id: string }): BookingView {
     seatPriceIqd: 10_000,
     frontPremiumIqd: 0,
     pickupFeeIqd: 0,
+    dropoffFeeIqd: 0,
+    returnDiscountIqd: 0,
+    returnPairBookingId: null,
+    returnOfferPercent: null,
+    lapChildren: 0,
+    dropoff: null,
     totalIqd: 10_000,
     payment: 'cash',
     prepaid: false,
     prepayRail: 'cash_reservation',
     heldUntil: null,
     pin: '1234',
-    pickup: { kind: 'garage', meetingPointId: null, nameAr: null, lat: 0, lng: 0, note: null, feeIqd: 0, status: 'accepted', detourMin: null },
+    pickup: { kind: 'garage', meetingPointId: null, nameAr: null, lat: 0, lng: 0, note: null, feeIqd: 0, status: 'accepted', detourMin: null, agreementId: null },
     largeBags: false,
     movedToBookingId: null,
     movedFromBookingId: null,
@@ -126,7 +133,8 @@ function booking(over: Partial<BookingView> & { id: string }): BookingView {
       departAt: at(60),
       latestDepartureAt: at(105),
       state: 'scheduled',
-      vehicle: { kind: 'saloon', layout: 4, plate: 'x', model: null, color: null },
+      departedAt: null,
+      vehicle: { kind: 'saloon', layout: 4, plate: 'x', modelKey: null, model: null, color: null, noSmoking: false, bigBags: false, ac: false },
       driverId: 'drv_1',
     },
     createdAt: NOON,
@@ -208,6 +216,13 @@ describe('seats', () => {
     expect(m.find((x) => x.id === 'back_middle')).toEqual({ id: 'back_middle', state: 'free', blocked: true });
     expect(blockedReason(s, 'back_middle')).toBe('adjacency');
   });
+  it('picks the kerb-side window seat first, never the front or a blocked one (c4)', () => {
+    expect(bestSeat(4, seats(4))).toBe('back_right');
+    expect(bestSeat(4, seats(4, { back_right: { state: 'taken' } }))).toBe('back_left');
+    expect(bestSeat(4, s)).toBeNull(); // only the blocked middle is free
+    expect(bestSeat(4, seats(4, { back_left: { state: 'taken' }, back_middle: { state: 'taken' }, back_right: { state: 'taken' } }))).toBeNull(); // front only
+    expect(bestSeat(7, seats(7, { middle_right: { state: 'held' }, middle_left: { state: 'taken' } }))).toBe('rear_right');
+  });
   it('drops picks that stopped being selectable', () => {
     expect(pruneSelection(['back_middle', 'front'], s)).toEqual([]);
     expect(pruneSelection(['back_right'], seats(4))).toEqual(['back_right']);
@@ -232,9 +247,12 @@ describe('seats', () => {
       baseIqd: 20_000,
       frontIqd: 2_000,
       pickupIqd: 1_000,
+      dropoffIqd: 0,
       totalIqd: 23_000,
     });
     expect(quoteSelection([], { seatPriceIqd: 10_000, frontPremiumIqd: 2_000 }, 1_000).totalIqd).toBe(0);
+    // Step 4: an agreed door drop adds to the total like the pickup.
+    expect(quoteSelection(['back_left'], { seatPriceIqd: 5_000, frontPremiumIqd: 1_000 }, 2_000, 3_000)).toMatchObject({ dropoffIqd: 3_000, totalIqd: 10_000 });
   });
   it('prices the door pickup like the server (1,000 + 500 per km past 2 km, none past 10 km)', () => {
     const g = { lat: 32.9032, lng: 45.0578 };

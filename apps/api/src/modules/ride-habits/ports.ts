@@ -1,5 +1,6 @@
 import type {
   Actor,
+  BookedRideState,
   BookingView,
   ComplimentKey,
   DeliveryPoint,
@@ -62,6 +63,21 @@ export interface HabitsRidesPort {
    * of `around` — so «نفس مشوار البارحة؟» stays quiet.
    */
   rideOn(personId: string, around: Date): Promise<boolean>;
+  /**
+   * Review #28: a ride booked for later as dispatch holds it — who confirmed it, until when drivers are
+   * asked, when the search starts. Null when dispatch has no such booking. Absent in older fakes.
+   */
+  bookedRide?(orderId: string): Promise<BookedRidePlan | null>;
+}
+
+/** A booked ride's pre-assignment (review #28), from dispatch. */
+export interface BookedRidePlan {
+  state: BookedRideState;
+  /** The confirmed driver (state `confirmed`). */
+  driverId: string | null;
+  /** Drivers are asked until then (state `looking`). */
+  confirmBy: Date | null;
+  searchAt: Date;
 }
 
 /** What ride habits read and do on الرجعة (the routes module). */
@@ -82,8 +98,9 @@ export interface HabitsRajaaPort {
 
 /** People: first names and approved photos (logged vault reads), saved places. */
 export interface HabitsPeoplePort {
-  firstNames(ids: readonly string[], accessorId: string): Promise<Record<string, string | null>>;
-  photoUrls(ids: readonly string[], accessorId: string): Promise<Record<string, string>>;
+  /** `purpose`: the vault-read purpose logged (a favourite's by default). */
+  firstNames(ids: readonly string[], accessorId: string, purpose?: string): Promise<Record<string, string | null>>;
+  photoUrls(ids: readonly string[], accessorId: string, purpose?: string): Promise<Record<string, string>>;
   places(personId: string): Promise<SavedPlaceView[]>;
 }
 
@@ -154,3 +171,5 @@ export const HABITS_SEARCH = Symbol('HABITS_SEARCH');
 export const DRIVER_CARD_PURPOSE = 'courier_card';
 /** The vault-read purpose of the rider's «ما أريده مرة ثانية» list. */
 export const AVOIDED_READ_PURPOSE = 'avoided_driver';
+/** Review #28: the driver who confirmed a rider's booked ride, read for that rider. */
+export const BOOKED_DRIVER_READ_PURPOSE = 'booked_ride_driver';

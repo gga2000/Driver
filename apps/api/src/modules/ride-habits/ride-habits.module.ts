@@ -2,7 +2,7 @@ import { Inject, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs
 import { DRIVER_PROFILE_RULES, publicCourierRating, ROAD_FACTOR, TOWN_SPEED_KMH, type IntercityDirection, type LatLng, type Order, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
-import { DispatchModule, DispatchService } from '../dispatch/index.js';
+import { DispatchModule, DispatchService, riderState } from '../dispatch/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrderComplimentsService, OrdersModule, OrdersService, serverFees } from '../orders/index.js';
@@ -90,7 +90,7 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
     },
     {
       provide: HABITS_RIDES,
-      useFactory: (orders: OrdersService, trips: TripsService, pricing: PricingService, tracking: TrackingService, eta: EtaService, clock: Clock): HabitsRidesPort => {
+      useFactory: (orders: OrdersService, trips: TripsService, pricing: PricingService, tracking: TrackingService, eta: EtaService, clock: Clock, dispatch: DispatchService): HabitsRidesPort => {
         // Joy l2's public rating, the same scores the live driver card shows.
         const scores = tripsOrdersRatings(trips, orders, () => clock.now());
         return {
@@ -145,9 +145,16 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
               o.type === 'ride' &&
               (o.state === 'matched' || (o.state === 'placed' && (!o.scheduledFor || Math.abs(o.scheduledFor.getTime() - around.getTime()) <= RIDE_ON_BOOKED_MIN * MIN))),
           ),
+        bookedRide: async (orderId) => {
+          const trip = await trips.activeForOrder(orderId);
+          const info = trip ? await dispatch.bookedRide(trip.id) : null;
+          if (!info) return null;
+          const state = riderState(info.job);
+          return { state, driverId: state === 'confirmed' ? (info.job?.driverId ?? null) : null, confirmBy: info.job ? new Date(info.job.confirmBy) : null, searchAt: info.searchAt };
+        },
         };
       },
-      inject: [OrdersService, TripsService, PricingService, TrackingService, EtaService, CLOCK],
+      inject: [OrdersService, TripsService, PricingService, TrackingService, EtaService, CLOCK, DispatchService],
     },
     {
       provide: HABITS_RAJAA,
@@ -169,9 +176,9 @@ function routeAr(corridorId: string, direction: IntercityDirection): string {
     {
       provide: HABITS_PEOPLE,
       useFactory: (identity: IdentityService, blobs: BlobStore, places: SavedPlacesService): HabitsPeoplePort => ({
-        firstNames: (ids, accessor) => identity.firstNamesFor(ids, accessor, FAVOURITE_READ_PURPOSE),
-        photoUrls: async (ids, accessor) => {
-          const refs = await identity.mainPhotoRefs(ids, accessor, FAVOURITE_READ_PURPOSE);
+        firstNames: (ids, accessor, purpose) => identity.firstNamesFor(ids, accessor, purpose ?? FAVOURITE_READ_PURPOSE),
+        photoUrls: async (ids, accessor, purpose) => {
+          const refs = await identity.mainPhotoRefs(ids, accessor, purpose ?? FAVOURITE_READ_PURPOSE);
           return Object.fromEntries(Object.entries(refs).map(([id, ref]) => [id, blobs.readUrl(ref)]));
         },
         places: (personId) => places.mine(personId),

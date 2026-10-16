@@ -4,8 +4,9 @@ The Console (`apps/console`) is a Next.js app whose pages all run in the browser
 actions all go from the staff member's browser straight to the API. The Next server only serves the
 pages. So it needs no secrets, no database access and almost no server.
 
-**Host: Fly, app `driver-console`, Frankfurt, machine sleeps when unused** (`deploy/fly/console.toml`):
-about $0–1/month, wakes in ~2 s. Same account and same deploy workflow as the API.
+**Host: Fly, app `driver-console`, Frankfurt, one machine always on** (`deploy/fly/console.toml`):
+about $2/month, so a dispatcher at night never waits for a ~2 s cold start. Same account and same
+deploy workflow as the API.
 
 Why not Vercel: it is the most convenient host for Next.js, but its free Hobby plan is for
 non-commercial use only and Pro is $20/month per member — a lot for a staff tool with five users. If
@@ -18,8 +19,18 @@ you prefer it anyway, it works unchanged: import the repo, root directory `apps/
 `NEXT_OUTPUT=standalone`, which makes `next.config.ts` emit a self-contained server
 (`outputFileTracingRoot` = the monorepo root), and ships only that server and its static files
 (~90 MB). `NEXT_PUBLIC_API_URL` is a **build argument**: it is baked into the browser bundle, so change
-it by rebuilding. CI's normal `next build` is unaffected (no `NEXT_OUTPUT`). Checked on 2026-10-04: the
+it by rebuilding. `NEXT_PUBLIC_SENTRY_DSN` (optional build argument, from the GitHub variable
+`SENTRY_DSN`, or `SENTRY_DSN_CONSOLE` to override it) turns on crash reports ([hosting.md](hosting.md) "Logs and errors"). CI's normal
+`next build` is unaffected (no `NEXT_OUTPUT`). Checked on 2026-10-04: the
 standalone build serves `/login` and `/orders/<id>` with the headers below.
+
+`NEXT_PUBLIC_UPLOADS_ORIGIN` (optional): the exact origin photo uploads go to straight from the
+browser, the Supabase Storage host of `S3_ENDPOINT` without its path ([supabase.md](supabase.md)
+step 5), e.g. `https://abcdefghijkl.storage.supabase.co`. The Console's Content-Security-Policy lets
+the page send only to the API, the map hosts, the crash reports and this origin; while it is unset a
+deployed Console allows `https://*.storage.supabase.co` instead, so uploads keep working. It reaches
+the build like the map variables (a build argument), so the Dockerfile and the Deploy workflow need it
+passed before the exact origin takes effect.
 
 Every response carries `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` and
 `X-Robots-Tag: noindex` (staff tool: never framed, never indexed).

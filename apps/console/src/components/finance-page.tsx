@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { CourierCashRow, FinanceDeskView, HandoverRow, MerchantPayableRow, SettlementExportInput } from '@driver/contracts';
+import { COMMISSION_TIER_ROLES, type CourierCashRow, type FinanceDeskView, type HandoverRow, type MerchantPayableRow, type SettlementExportInput } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
 import { useMemo, useState } from 'react';
 import { arabicDay, CASH_LEVEL_CLS, cashLevel, downloadCsv, merchantWords, netWords, owedWords } from '@/lib/control-room';
@@ -13,7 +13,9 @@ import { hasAny, useMyRoles } from '@/lib/me';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { PersonName } from './named';
+import { CommissionDueCard } from './commission-card';
 import { CollectionRound } from './finance-round';
+import { AdjustCard, PayDialog, useCanPayOut } from './money-out';
 import {
   Button,
   Card,
@@ -121,18 +123,20 @@ function ExportMenu() {
 }
 
 export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
+  const canPay = useCanPayOut();
+  const { roles } = useMyRoles();
   const overCap = desk.couriers.filter((c) => c.overCap);
   return (
     <div className="space-y-5">
       <LedgerCheck desk={desk} />
 
-      <StatStrip className="md:[grid-template-columns:repeat(4,minmax(0,1fr))]">
+      <StatStrip money className="md:[grid-template-columns:repeat(4,minmax(0,1fr))]">
         <Stat label={t('console.fin_cash_field')} value={formatMoney(desk.totals.cashInFieldIqd)} hint={t('console.fin_couriers_n', { n: desk.couriers.length })} />
         <Stat
           label={t('console.fin_over_cap')}
           value={t('console.fin_over_cap_value', { n: desk.totals.couriersOverCap })}
           tone={desk.totals.couriersOverCap ? 'bad' : 'default'}
-          hint={overCap.length ? overCap.map((c) => c.name ?? '—').slice(0, 3).join('، ') : t('console.fin_over_cap_none')}
+          hint={overCap.length ? overCap.map((c) => c.name ?? '—').slice(0, 3).join(t('console.list_sep')) : t('console.fin_over_cap_none')}
         />
         <Stat label={t('console.fin_merchants_payable')} value={formatMoney(desk.totals.merchantsPayableIqd)} hint={t('console.fin_merchants_n', { n: desk.merchants.filter((m) => m.payableIqd !== 0).length })} />
         <Stat label={t('console.fin_collected_today')} value={formatMoney(desk.totals.collectedTodayIqd)} hint={t('console.fin_handovers_n', { n: desk.handovers.length })} />
@@ -143,10 +147,12 @@ export function FinanceDesk({ desk }: { desk: FinanceDeskView }) {
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <CouriersTable rows={desk.couriers} />
         <div className="space-y-5">
+          <CommissionDueCard rows={desk.commissionDue} canSet={hasAny(roles, COMMISSION_TIER_ROLES)} />
           <MerchantsCard rows={desk.merchants} />
           <HandoversCard rows={desk.handovers} />
         </div>
       </div>
+      {canPay ? <AdjustCard /> : null}
       <p className="text-xs text-muted">{t('console.fin_updated', { time: formatDayClock(desk.at) })}</p>
     </div>
   );
@@ -272,13 +278,16 @@ function CouriersTable({ rows }: { rows: CourierCashRow[] }) {
 // ───────────────────────── merchants and hand-overs ─────────────────────────
 
 function MerchantsCard({ rows }: { rows: MerchantPayableRow[] }) {
+  const canPay = useCanPayOut();
+  const [paying, setPaying] = useState<MerchantPayableRow | null>(null);
   const sorted = useMemo(() => [...rows].sort((a, b) => Number(b.overExposure) - Number(a.overExposure) || Math.abs(b.payableIqd) - Math.abs(a.payableIqd)), [rows]);
   return (
     <Card title={t('console.fin_merchants')} hint={t('console.fin_merchants_hint')}>
       {sorted.length === 0 ? (
         <p className="text-sm text-muted">{t('console.fin_no_merchants')}</p>
       ) : (
-        <ul className="-my-1 max-h-[20rem] divide-y divide-line overflow-y-auto">
+        // Scrolls on its own, so it takes focus: keyboard users can scroll it with the arrows.
+        <ul tabIndex={0} aria-label={t('console.fin_merchants')} className="-my-1 max-h-[20rem] divide-y divide-line overflow-y-auto rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">
           {sorted.map((m) => (
             <li key={m.merchantId} className="flex items-center justify-between gap-3 py-2">
               <span className="min-w-0">
@@ -292,11 +301,19 @@ function MerchantsCard({ rows }: { rows: MerchantPayableRow[] }) {
                 </span>
                 <span className="block text-xs text-muted">{settleModeLabel(m.mode)}</span>
               </span>
-              <span className={cx('shrink-0 text-sm', m.payableIqd === 0 ? 'text-muted' : m.payableIqd < 0 ? 'text-ok' : 'text-text')}>{merchantWords(m.payableIqd)}</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className={cx('text-sm', m.payableIqd === 0 ? 'text-muted' : m.payableIqd < 0 ? 'text-ok' : 'text-text')}>{merchantWords(m.payableIqd)}</span>
+                {canPay && m.payableIqd > 0 ? (
+                  <Button size="sm" variant="secondary" needsNet onClick={() => setPaying(m)} data-testid="pay-merchant">
+                    {t('console.pay_merchant_button')}
+                  </Button>
+                ) : null}
+              </span>
             </li>
           ))}
         </ul>
       )}
+      <PayDialog target={paying ? { kind: 'merchant', id: paying.merchantId, name: paying.name, maxIqd: paying.payableIqd } : null} onClose={() => setPaying(null)} />
     </Card>
   );
 }
@@ -307,7 +324,7 @@ function HandoversCard({ rows }: { rows: HandoverRow[] }) {
       {rows.length === 0 ? (
         <p className="text-sm text-muted">{t('console.fin_handovers_empty')}</p>
       ) : (
-        <ul className="-my-1 max-h-[22rem] divide-y divide-line overflow-y-auto">
+        <ul tabIndex={0} aria-label={t('console.fin_handovers')} className="-my-1 max-h-[22rem] divide-y divide-line overflow-y-auto rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus">
           {rows.map((h, i) => (
             <li key={`${h.reference}-${i}`} className="flex items-baseline justify-between gap-3 py-2 text-sm">
               <span className="min-w-0">

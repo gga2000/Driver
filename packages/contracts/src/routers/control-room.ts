@@ -5,6 +5,8 @@ import {
   ApprovalsView,
   AuditEntry,
   AuditInput,
+  AuditPage,
+  AuditPageInput,
   BannerInput,
   ClearBannerInput,
   ClearQuietDaysInput,
@@ -19,8 +21,12 @@ import {
   LaunchMetricsView,
   MetricsInput,
   PublicBanner,
+  PublicScreens,
   PublicSeason,
   QuietDaysView,
+  ScreenSwitchView,
+  LaunchSwitchView,
+  ScreensInput,
   SeasonInput,
   SeasonView,
   SetIftarTimeInput,
@@ -28,12 +34,24 @@ import {
   SetBannerInput,
   SetKillSwitchInput,
   SetQuietDaysInput,
+  SetScreenSwitchInput,
+  SetLaunchSwitchInput,
   SetZoneCapacityInput,
   SettlementExport,
   SettlementExportInput,
+  AdjustInput,
+  AdjustResult,
+  PayDriverInput,
+  PayMerchantInput,
+  PayoutResult,
   SystemBannerView,
   ZoneCapacityView,
+  COMMISSION_TIER_ROLES,
+  MerchantCommissionInput,
+  MerchantCommissionView,
+  SetCommissionTierInput,
 } from '../control-room-io.js';
+import { DriverError } from '../errors.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
 import { CONSOLE_READ_ROLES } from './console.js';
 
@@ -45,8 +63,14 @@ export const BANNER_ROLES: readonly RoleKind[] = ['admin'];
 export const APPROVAL_ROLES: readonly RoleKind[] = ['admin', 'support', 'field_ops'];
 /** The nightly cash desk: finance, plus the dispatcher and field ops who run the 23:00 round. */
 export const FINANCE_DESK_ROLES: readonly RoleKind[] = ['finance', 'admin', 'dispatcher', 'field_ops'];
+/** Who shows a new customer screen to staff or to everyone (a product call). Any CONTROL_ROLES may switch one off. */
+export const SCREEN_ON_ROLES: readonly RoleKind[] = ['admin'];
+/** Staff for screen switches: anyone who can open the Console. */
+const SCREEN_STAFF_ROLES: readonly RoleKind[] = CONSOLE_READ_ROLES;
 /** Settlement exports leave the system: finance and admin only. */
 export const FINANCE_EXPORT_ROLES: readonly RoleKind[] = ['finance', 'admin'];
+/** Money out (paying a restaurant or a driver, a ledger correction): finance only. Every one is audited. */
+export const FINANCE_MONEY_OUT_ROLES: readonly RoleKind[] = ['finance'];
 
 /** `ops.controls.*` — kill switches per vertical / zone / restaurant / corridor and the zone throttle. */
 export const opsControlsRouter = router({
@@ -66,6 +90,45 @@ export const opsControlsRouter = router({
     .input(AuditInput)
     .output(z.array(AuditEntry))
     .query(({ ctx, input }) => ctx.controls.audit(input)),
+  /** v10: the audit page, 50 rows at a time, with a chip filter and the matching count. */
+  auditPage: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(AuditPageInput)
+    .output(AuditPage)
+    .query(({ ctx, input }) => ctx.controls.auditPage(input)),
+  /** W6: the redesigned customer screens and who sees each (off, staff, everyone). */
+  screens: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(ControlsInput)
+    .output(z.array(ScreenSwitchView))
+    .query(({ ctx, input }) => ctx.controls.screenSwitches(input.cityId)),
+  /** A dispatcher on shift can always switch a new screen off; showing it to anyone is an admin's call. */
+  setScreen: protectedProcedure(CONTROL_ROLES)
+    .input(SetScreenSwitchInput)
+    .output(ScreenSwitchView)
+    .mutation(async ({ ctx, input }) => {
+      if (input.audience !== 'off') {
+        let allowed = false;
+        for (const kind of SCREEN_ON_ROLES) if (await ctx.identity.hasRole(ctx.actor.personId, kind)) allowed = true;
+        if (!allowed) throw new DriverError('forbidden');
+      }
+      return ctx.controls.setScreen(ctx.actor, input);
+    }),
+  /** Services that open on their own inside a launched vertical (food carts), and whether each is open. */
+  launches: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(ControlsInput)
+    .output(z.array(LaunchSwitchView))
+    .query(({ ctx, input }) => ctx.controls.launchSwitches(input.cityId)),
+  /** Any controller may close a service; opening it to customers is an admin's call (Ali 2026-10-12). */
+  setLaunch: protectedProcedure(CONTROL_ROLES)
+    .input(SetLaunchSwitchInput)
+    .output(LaunchSwitchView)
+    .mutation(async ({ ctx, input }) => {
+      if (input.open) {
+        let allowed = false;
+        for (const kind of SCREEN_ON_ROLES) if (await ctx.identity.hasRole(ctx.actor.personId, kind)) allowed = true;
+        if (!allowed) throw new DriverError('forbidden');
+      }
+      return ctx.controls.setLaunch(ctx.actor, input);
+    }),
 });
 
 /** `system.banner` (public, every open app polls it) and the admin side. Spread into `system`. */
@@ -85,6 +148,29 @@ export const bannerProcedures = {
     .input(ClearBannerInput)
     .output(SystemBannerView)
     .mutation(({ ctx, input }) => ctx.controls.clearBanner(ctx.actor, input)),
+};
+
+/**
+ * `system.screens` (public, read once when an app starts): which redesigned screens this caller
+ * sees. Signed out = only screens on for everyone. Spread into `system`.
+ */
+export const screenProcedures = {
+  screens: publicProcedure
+    .input(ScreensInput)
+    .output(PublicScreens)
+    .query(({ ctx, input }) => {
+      const auth = ctx.auth;
+      const isStaff = async (): Promise<boolean> => {
+        if (!auth) return false;
+        if (ctx.identity.activeRoles) {
+          const held = await ctx.identity.activeRoles(auth.sub);
+          return SCREEN_STAFF_ROLES.some((k) => held.includes(k));
+        }
+        for (const kind of SCREEN_STAFF_ROLES) if (await ctx.identity.hasRole(auth.sub, kind)) return true;
+        return false;
+      };
+      return ctx.controls.screens(input, isStaff);
+    }),
 };
 
 /** `system.season` (public: what an open app may do today) and the quiet days ops set. Spread into `system`. */
@@ -144,6 +230,31 @@ export const financeRouter = router({
     .input(SettlementExportInput)
     .output(SettlementExport)
     .mutation(({ ctx, input }) => ctx.controlRoom.exportSettlement(ctx.actor, input)),
+  /** The company pays a restaurant (never more than it is owed). */
+  payMerchant: protectedProcedure(FINANCE_MONEY_OUT_ROLES)
+    .input(PayMerchantInput)
+    .output(PayoutResult)
+    .mutation(({ ctx, input }) => ctx.controlRoom.payMerchant(ctx.actor, input)),
+  /** The company pays a driver what it owes him (never more). */
+  payDriver: protectedProcedure(FINANCE_MONEY_OUT_ROLES)
+    .input(PayDriverInput)
+    .output(PayoutResult)
+    .mutation(({ ctx, input }) => ctx.controlRoom.payDriver(ctx.actor, input)),
+  /** A ledger correction; above 25,000 it waits for a second finance person's OK. */
+  adjust: protectedProcedure(FINANCE_MONEY_OUT_ROLES)
+    .input(AdjustInput)
+    .output(AdjustResult)
+    .mutation(({ ctx, input }) => ctx.controlRoom.adjust(ctx.actor, input)),
+  /** A restaurant's commission tier and rate, and whether its starter period needs a decision. */
+  commission: protectedProcedure(COMMISSION_TIER_ROLES)
+    .input(MerchantCommissionInput)
+    .output(MerchantCommissionView)
+    .query(({ ctx, input }) => ctx.controlRoom.commission(ctx.actor, input)),
+  /** Puts a restaurant on a tier (Console store page / finance desk); written to the audit log. */
+  setCommissionTier: protectedProcedure(COMMISSION_TIER_ROLES)
+    .input(SetCommissionTierInput)
+    .output(MerchantCommissionView)
+    .mutation(({ ctx, input }) => ctx.controlRoom.setCommissionTier(ctx.actor, input)),
 });
 
 /** `metrics.wall` — the week-one launch metrics (playbook §6). */

@@ -1,6 +1,6 @@
-import { Injectable, Logger, Module, type INestApplication } from '@nestjs/common';
+import { Inject, Injectable, Logger, Module, type INestApplication } from '@nestjs/common';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
-import { isDriverError, type AppContext, type ErrorCode, type SessionClaims } from '@driver/contracts';
+import { REQUEST_LIMITS, isDriverError, type AppContext, type ErrorCode, type SessionClaims } from '@driver/contracts';
 import { appRouter } from '@driver/contracts/router';
 import { ConfigModule, ConfigService } from '../modules/config/index.js';
 import { ConsoleModule, ConsoleReadService } from '../modules/console/index.js';
@@ -9,9 +9,11 @@ import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { DriverAccountModule, DriverAccountService } from '../modules/driver-account/index.js';
 import { KhatModule, KhatService } from '../modules/khat/index.js';
 import { FleetModule, FleetService } from '../modules/fleet/index.js';
-import { OpsModule, OpsPickupSpotsService, OpsService } from '../modules/ops/index.js';
+import { OpsDishPhotosService, OpsModule, OpsPickupSpotsService, OpsService } from '../modules/ops/index.js';
 import { MerchantAdminModule, MerchantAdminService } from '../modules/merchant-admin/index.js';
 import { MenuPhotosModule, MenuPhotosService } from '../modules/menu-photos/index.js';
+import { ShoppingModule, ShoppingService } from '../modules/shopping/index.js';
+import { FoodCartsModule, FoodCartsService } from '../modules/food-carts/index.js';
 import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
 import { PartnerModule, PartnerService } from '../modules/partner/index.js';
 import { CustomerWalletService, LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
@@ -20,28 +22,45 @@ import { PlacesModule, PlacesRpc } from '../modules/places/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
 import { ShareLinksService, TrackingModule, TrackingService } from '../modules/tracking/index.js';
-import { ChatModule, ChatService } from '../modules/chat/index.js';
+import { ChatModule, ChatService, TripChatService } from '../modules/chat/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
-import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
+import { MerchantModule, MerchantService, MerchantSetupService } from '../modules/merchant/index.js';
 import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
 import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { ControlsModule, ControlsService } from '../modules/controls/index.js';
 import { ZoneChecksService, ZonesModule, ZonesService } from '../modules/zones/index.js';
-import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
+import { ClosuresModule, ClosuresService } from '../modules/closures/index.js';
+import { AccountCloseService, ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { SafetyModule, SafetyService } from '../modules/safety/index.js';
 import { InsightsModule, InsightsService } from '../modules/insights/index.js';
 import { ReferralsModule, ReferralsService } from '../modules/referrals/index.js';
 import { RideHabitsModule, RideHabitsService } from '../modules/ride-habits/index.js';
+import { ParcelsModule, ParcelsService } from '../modules/parcels/index.js';
 import { PhoneBookingModule, PhoneBookingService } from '../modules/phone-booking/index.js';
+import { InboxModule, InboxService } from '../modules/inbox/index.js';
+import { OnCallModule, OnCallService } from '../modules/on-call/index.js';
 import { GarageTaxiModule, GarageTaxiService } from '../modules/garage-taxi/index.js';
 import { PrismaService } from '../shared/db/prisma.service.js';
 import { BullMqQueueFactory } from '../shared/queue.js';
+import { requestIdMiddleware } from '../shared/request-context.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../shared/window-counter.js';
+import { RequestLimits, ipModeFromEnv } from './request-limits.js';
 
 export const API_VERSION = '0.1.0';
 export const TRPC_PATH = '/trpc';
+
+/** The longest `retryAfterSec` among a response's errors (a batch may carry several), or null. */
+export function retryAfterOf(errors: readonly { cause?: unknown }[]): number | null {
+  let wait: number | null = null;
+  for (const e of errors) {
+    const sec = isDriverError(e.cause) ? e.cause.envelope.retryAfterSec : undefined;
+    if (sec !== undefined && (wait === null || sec > wait)) wait = sec;
+  }
+  return wait;
+}
 
 /** Builds the tRPC context from Nest providers; the router itself lives in @driver/contracts. */
 @Injectable()
@@ -57,8 +76,11 @@ export class TrpcService {
     private readonly fleet: FleetService,
     private readonly ops: OpsService,
     private readonly pickupSpots: OpsPickupSpotsService,
+    private readonly dishPhotos: OpsDishPhotosService,
     private readonly merchantAdmin: MerchantAdminService,
     private readonly menuPhotos: MenuPhotosService,
+    private readonly shopping: ShoppingService,
+    private readonly foodCarts: FoodCartsService,
     private readonly ledger: LedgerFacade,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
@@ -74,23 +96,36 @@ export class TrpcService {
     private readonly households: HouseholdsRpc,
     private readonly partner: PartnerService,
     private readonly merchant: MerchantService,
+    private readonly merchantSetup: MerchantSetupService,
     private readonly topups: TopUpService,
     private readonly chat: ChatService,
+    private readonly tripChat: TripChatService,
     private readonly shareLinks: ShareLinksService,
     private readonly live: LiveService,
     private readonly notify: NotifyService,
     private readonly controls: ControlsService,
     private readonly controlRoom: ControlRoomService,
+    private readonly accountClose: AccountCloseService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
+    private readonly closures: ClosuresService,
     private readonly zoneChecks: ZoneChecksService,
     private readonly safety: SafetyService,
     private readonly insights: InsightsService,
     private readonly referrals: ReferralsService,
     private readonly rideHabits: RideHabitsService,
+    private readonly parcels: ParcelsService,
     private readonly phoneBookings: PhoneBookingService,
+    private readonly onCall: OnCallService,
+    private readonly inbox: InboxService,
     private readonly garageTaxi: GarageTaxiService,
-  ) {}
+    @Inject(WINDOW_COUNTER) counter: WindowCounter,
+  ) {
+    this.limits = new RequestLimits(counter, ipModeFromEnv());
+  }
+
+  /** SCALE-20: per-person and per-address limits on every call (`request-limits.ts`). */
+  private readonly limits: RequestLimits;
 
   /**
    * Parses `Authorization: Bearer <jwt>`; a bad token yields `auth: null` plus the reason. `ip` is the
@@ -120,7 +155,8 @@ export class TrpcService {
       }
     }
     return {
-      pricing: { quote: (req) => this.pricing.quote(req) },
+      // Perf z3: the same caller re-asking for the same trip gets its kept quote back (no new rows).
+      pricing: { quote: (req) => this.pricing.keepQuote(req, auth ? `p:${auth.sub}` : ip ? `ip:${ip}` : null) },
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
@@ -129,8 +165,11 @@ export class TrpcService {
       fleet: this.fleet,
       ops: this.ops,
       pickupSpots: this.pickupSpots,
+      dishPhotos: this.dishPhotos,
       merchantAdmin: this.merchantAdmin,
       menuPhotos: this.menuPhotos,
+      shopping: this.shopping,
+      foodCarts: this.foodCarts,
       orders: this.orders,
       trips: this.trips,
       dispatch: this.dispatch,
@@ -146,7 +185,9 @@ export class TrpcService {
       households: this.households,
       partner: this.partner,
       merchant: this.merchant,
+      merchantSetup: this.merchantSetup,
       chat: this.chat,
+      tripChat: this.tripChat,
       trackingShare: this.shareLinks,
       live: this.live,
       liveAuth,
@@ -154,17 +195,23 @@ export class TrpcService {
       notify: this.notify,
       controls: this.controls,
       controlRoom: this.controlRoom,
+      accountClose: this.accountClose,
       support: this.support,
       zones: this.zones,
+      closures: this.closures,
       zoneChecks: this.zoneChecks,
       safety: this.safety,
       referrals: this.referrals,
       rideHabits: this.rideHabits,
+      parcels: this.parcels,
       phoneBookings: this.phoneBookings,
+      onCall: this.onCall,
+      inbox: this.inbox,
       garageTaxi: this.garageTaxi,
       auth,
       authError,
       client: { ip: ip ?? null },
+      limits: this.limits,
       env: { nodeEnv: process.env['NODE_ENV'] ?? 'development' },
       now: () => new Date(),
       version: API_VERSION,
@@ -174,9 +221,20 @@ export class TrpcService {
   mount(app: INestApplication): void {
     app.use(
       TRPC_PATH,
+      // `x-request-id` in (or a fresh one), echoed back, and on every log line of the call (incl. onError below).
+      requestIdMiddleware,
       createExpressMiddleware({
         router: appRouter,
+        // SEC-03: one request carries at most this many calls (the apps' links split at half of it).
+        maxBatchSize: REQUEST_LIMITS.maxBatchSize,
+        // A query whose input is too long for a URL (a big basket with notes) may come as POST (FOOD-18).
+        allowMethodOverride: true,
         createContext: ({ req, info }) => this.context(req.headers.authorization, req.ip ?? req.socket.remoteAddress ?? null, info.connectionParams),
+        // A refused call (rate limit, resend cool-down) says when to try again in the standard header too.
+        responseMeta: ({ errors }) => {
+          const wait = retryAfterOf(errors);
+          return wait === null ? {} : { headers: { 'retry-after': String(wait) } };
+        },
         // Clients get the Arabic envelope; the stack stays in the server log.
         onError: ({ error, path }) => {
           if (error.code === 'INTERNAL_SERVER_ERROR') this.logger.error(`${path ?? '?'}: ${error.message}`, (error.cause as Error | undefined)?.stack ?? error.stack);
@@ -186,5 +244,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, PhoneBookingModule, GarageTaxiModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, ShoppingModule, FoodCartsModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, ClosuresModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, ParcelsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

@@ -1,6 +1,7 @@
 import { CityPricingConfig } from './city-config.js';
 import { PriceRequest, Quote } from './pricing.js';
-import { CityConfigInput, HealthPing } from './router-io.js';
+import { TRPCError } from '@trpc/server';
+import { CityConfigInput, HealthLive, HealthPing, HealthReady, liveDbGate } from './router-io.js';
 import { dispatchRouter } from './routers/dispatch.js';
 import { identityRouter } from './routers/identity.js';
 import { driverAccountRouter } from './routers/driver-account.js';
@@ -21,17 +22,26 @@ import { chatRouter } from './routers/chat.js';
 import { trackingRouter } from './routers/tracking.js';
 import { liveRouter } from './routers/live.js';
 import { notifyRouter } from './routers/notify.js';
-import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter, seasonProcedures } from './routers/control-room.js';
+import { approvalsRouter, bannerProcedures, financeRouter, metricsRouter, screenProcedures, seasonProcedures } from './routers/control-room.js';
 import { supportRouter } from './routers/support.js';
 import { safetyRouter } from './routers/safety.js';
 import { referralRouter } from './routers/referral.js';
 import { rideHabitsRouter } from './routers/ride-habits.js';
+import { parcelsRouter } from './routers/parcels.js';
+import { shoppingRouter } from './routers/shopping.js';
+import { foodCartsRouter } from './routers/food-carts.js';
 import { phoneBookingsRouter } from './routers/phone-booking.js';
+import { inboxRouter } from './routers/inbox.js';
+import { onCallRouter } from './routers/on-call.js';
 import { garageTaxiRouter } from './routers/garage-taxi.js';
+import { closuresRouter } from './routers/closures.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
-export { protectedProcedure, publicProcedure, router, t, toTrpcError } from './trpc.js';
+export { gateProcedures, observeProcedures, protectedProcedure, publicProcedure, router, t, toTrpcError, type ProcedureCall } from './trpc.js';
+
+/** One per process: `health.live` rides out short database blips (`LIVE_DB_GRACE_MS`). */
+const liveGate = liveDbGate();
 
 /**
  * The router lives here so every client shares one `AppRouter` type without
@@ -42,6 +52,15 @@ export const appRouter = router({
     ping: publicProcedure.output(HealthPing).query(async ({ ctx }) => {
       const [db, redis] = await Promise.all([ctx.health.db(), ctx.health.redis()]);
       return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now: ctx.now(), db, redis };
+    }),
+    live: publicProcedure.output(HealthLive).query(async ({ ctx }) => {
+      const now = ctx.now();
+      if (!liveGate.alive(await ctx.health.db(), now)) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'database unavailable' });
+      return { ok: true as const, service: 'driver-api' as const, version: ctx.version, now };
+    }),
+    ready: publicProcedure.output(HealthReady).query(async ({ ctx }) => {
+      const [db, redis] = await Promise.all([ctx.health.db(), ctx.health.redis()]);
+      return { ok: db === 'ok' && redis === 'ok', service: 'driver-api' as const, version: ctx.version, now: ctx.now(), db, redis };
     }),
   }),
   pricing: router({
@@ -73,11 +92,12 @@ export const appRouter = router({
   drivers: driversRouter,
   merchants: merchantsRouter,
   // Launch control room: `system.banner` (public) and its admin side join the system router.
-  system: t.mergeRouters(systemRouter, router({ ...bannerProcedures, ...seasonProcedures })),
+  system: t.mergeRouters(systemRouter, router({ ...bannerProcedures, ...seasonProcedures, ...screenProcedures })),
   places: placesRouter,
   wallet: walletRouter,
   household: householdRouter,
   partner: partnerRouter,
+  closures: closuresRouter,
   merchant: merchantRouter,
   chat: chatRouter,
   tracking: trackingRouter,
@@ -91,8 +111,16 @@ export const appRouter = router({
   referral: referralRouter,
   // Joy J7d: favourite drivers, regular trips, dinner timed to the ride home.
   rideHabits: rideHabitsRouter,
+  // Parcels طرود (2026-10-12): send, the parcel's page, and her door page from the text link.
+  parcels: parcelsRouter,
+  // The shopping side «السوق» (2026-10-11): stalls, bakeries, «صمون كل يوم», shop mode.
+  shopping: shoppingRouter,
+  // Food carts «عربانات» (2026-10-11): the list, a cart's page, walk-over tickets and cart mode.
+  foodCarts: foodCartsRouter,
   // Taxi/tuktuk step 4 (v4): Console › حجز بالتلفون — a ride booked for a caller without the app.
   phoneBookings: phoneBookingsRouter,
+  onCall: onCallRouter,
+  inbox: inboxRouter,
   // Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (to the car, late notice, waiting at the garage).
   garageTaxi: garageTaxiRouter,
   finance: financeRouter,

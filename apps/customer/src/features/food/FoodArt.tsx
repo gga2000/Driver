@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { Image, View, type StyleProp, type ViewStyle } from 'react-native';
-import { DishDrawing, SKETCH, useLiteMode, usePhotoFallback } from '@driver/ui';
+import { View, type ImageStyle, type StyleProp, type ViewStyle } from 'react-native';
+import { PhotoImage, SKETCH, useLiteMode, useNearView, usePhotoFallback } from '@driver/ui';
+import { DishDrawing } from '@driver/ui/dishes';
 import Svg, { Circle, Ellipse, G } from 'react-native-svg';
 import { apiPhoto } from '@/lib/photo';
 import { ART_LOOKS, type Motif } from './food-art';
@@ -37,20 +38,29 @@ export interface FoodArtProps {
    * the dish centred on its paper, a few dots), or a square dish thumbnail.
    */
   variant?: 'hero' | 'wide' | 'thumb';
+  /**
+   * A thumbnail on a coloured plate (Date & Saffron dish cards, food-type circles, restaurant rows):
+   * the plate's colour instead of the paper, and no arch window behind the dish.
+   */
+  stage?: string;
   style?: StyleProp<ViewStyle>;
 }
 
-export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, variant = 'thumb', style }: FoodArtProps) {
+export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, variant = 'thumb', stage, style }: FoodArtProps) {
   // Low-data mode (maps program q2): the drawn dish instead of downloading the photo.
   const lite = useLiteMode();
   // A merchant's own upload comes as a signed link relative to the API origin (dev storage); once it
   // expires (a cart kept from yesterday) and fails to load, the drawn dish shows instead.
   const photo = usePhotoFallback(apiPhoto(photoUrl));
-  if (photo.uri && !lite) return <Image source={{ uri: photo.uri }} onError={photo.onError} style={[{ width: '100%', height: '100%' }, style as object]} resizeMode="cover" accessibilityIgnoresInvertColors />;
+  // Speed w2: on the web a painted dish far below the screen waits (its paper shows) until it's near.
+  const { ref, near } = useNearView();
+  // Cached on the phone (expo-image via PhotoImageProvider): a menu seen yesterday doesn't download again.
+  if (photo.uri && !lite) return <PhotoImage uri={photo.uri} onError={photo.onError} style={[{ width: '100%', height: '100%' }, style as StyleProp<ImageStyle>]} />;
   const hero = variant === 'hero';
   if (variant === 'wide') {
     return (
-      <View style={[{ width: '100%', height: '100%', backgroundColor: SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+      <View ref={ref} style={[{ width: '100%', height: '100%', backgroundColor: SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+        {near ? (
         <Svg width="100%" height="100%" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice">
           <Circle cx={270} cy={20} r={90} fill={SKETCH.juice} opacity={0.12} />
           {Array.from({ length: 12 }, (_, i) => (
@@ -60,11 +70,13 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
             <DishDrawing kind={motif} look={look} line={HERO_LINE} tilt={tiltOf(look)} />
           </G>
         </Svg>
+        ) : null}
       </View>
     );
   }
   return (
-    <View style={[{ width: '100%', height: '100%', backgroundColor: SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+    <View ref={ref} style={[{ width: '100%', height: '100%', backgroundColor: !hero && stage ? stage : SKETCH.paper, overflow: 'hidden' }, style]} accessible={false} aria-hidden importantForAccessibility="no-hide-descendants">
+      {near ? (
       <Svg width="100%" height="100%" viewBox={hero ? '0 0 400 220' : '0 0 200 200'} preserveAspectRatio="xMidYMid slice">
         {hero ? (
           <G>
@@ -79,10 +91,11 @@ export const FoodArt = memo(function FoodArt({ motif, look = 0, photoUrl, varian
           </G>
         ) : (
           <G transform="translate(8 6) scale(0.92)">
-            <DishDrawing kind={motif} look={look} line={THUMB_LINE} tilt={tiltOf(look)} />
+            <DishDrawing kind={motif} look={look} line={THUMB_LINE} tilt={tiltOf(look)} window={!stage} />
           </G>
         )}
       </Svg>
+      ) : null}
     </View>
   );
 });

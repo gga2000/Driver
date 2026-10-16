@@ -60,6 +60,26 @@ describe('placing a gift (orders.place)', () => {
     expect(plain.gift).toBeNull();
   });
 
+  it('keeps the recipient’s name in the vault, never on the public participant row (SEC-14)', async () => {
+    const h = ordersHarness();
+    const o = await h.orders.place('c1', h.foodInput({ participants: recipient, gift: { hidePrices: false } }));
+    const r = o.participants.find((p) => p.role === 'recipient')!;
+    // Public side: no name (the repository row and the plain view).
+    expect((await h.repo.find(o.id))!.participants.find((p) => p.role === 'recipient')!.label).toBeNull();
+    expect((await h.orders.get(o.id)).participants.find((p) => p.role === 'recipient')!.label).toBeNull();
+    // Vault: the name, given by the orderer, under the recipient participant.
+    expect(h.riderIdentity.given.get(r.id)).toMatchObject({ givenById: 'c1', name: 'أمي' });
+    // The orderer's own read fills it (a logged vault read), and so does a courier's explicit read.
+    const [mine] = await h.orders.withRiders([await h.orders.get(o.id)], 'c1');
+    expect(mine!.participants.find((p) => p.role === 'recipient')!.label).toBe('أمي');
+    const [carried] = await h.orders.withRecipients([await h.orders.get(o.id)], 'd1', 'partner_recipient');
+    expect(carried!.participants.find((p) => p.role === 'recipient')!.label).toBe('أمي');
+    expect(h.riderIdentity.reads).toEqual(expect.arrayContaining([{ ids: [r.id], accessorId: 'c1', purpose: 'order_recipient_name' }, { ids: [r.id], accessorId: 'd1', purpose: 'partner_recipient' }]));
+    // Someone else's read through withRiders (not his order) gets no name.
+    const [stranger] = await h.orders.withRiders([await h.orders.get(o.id)], 'c2');
+    expect(stranger!.participants.find((p) => p.role === 'recipient')!.label).toBeNull();
+  });
+
   it('refuses a gift with nobody to receive it, and hidden prices on cash', async () => {
     const h = ordersHarness();
     expect(await code(h.orders.place('c1', h.foodInput({ gift: { hidePrices: false } })))).toBe('gift_needs_recipient');

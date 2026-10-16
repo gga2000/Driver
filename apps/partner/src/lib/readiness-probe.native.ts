@@ -6,7 +6,7 @@
  */
 import * as Battery from 'expo-battery';
 import * as Location from 'expo-location';
-import { AppState, Linking } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import type { BatteryState, GpsState, PushState } from '@/features/work/readiness';
 import { pushDevice } from './push';
 
@@ -53,6 +53,16 @@ export async function watchBattery(cb: (b: BatteryState) => void): Promise<(() =
     };
   } catch {
     return null;
+  }
+}
+
+/** Android battery optimisation for Driver, or low-power mode: offers and his position can come late. */
+export async function batterySaverOn(): Promise<boolean> {
+  try {
+    if (Platform.OS === 'android' && (await Battery.isBatteryOptimizationEnabledAsync())) return true;
+    return await Battery.isLowPowerModeEnabledAsync();
+  } catch {
+    return false;
   }
 }
 

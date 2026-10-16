@@ -51,7 +51,9 @@ export default async function register(demo) {
     await trips.arrive(r.tripId, r.pickup.id, p.personId, { pin: PICKUP.pin });
     if (step === 'at_pickup') return demo.json(res, 200, { step, orderId: r.orderId, tripId: r.tripId, startCode: r.startCode });
     // lost_item: the whole ride, then the rider asks about something he left in the car.
-    await trips.completeStop(r.tripId, r.pickup.id, p.personId);
+    // After dark the server gives every ride a trip code; the rider reads it out at the door.
+    const code = (await orders.startCodeOf(r.orderId)) ?? undefined;
+    await trips.completeStop(r.tripId, r.pickup.id, p.personId, code ? { startCode: code } : {});
     await dispatch.presence.heartbeat(p.personId, DROPOFF.pin).catch(() => undefined);
     await trips.arrive(r.tripId, r.drop.id, p.personId, { pin: DROPOFF.pin });
     const order = await orders.get(r.orderId);

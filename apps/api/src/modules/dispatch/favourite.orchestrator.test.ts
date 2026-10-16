@@ -101,7 +101,7 @@ describe('favourite first (joy l9)', () => {
 });
 
 describe('dispatch:ride-request', () => {
-  it('passes the booked time (search 15 min before) and the favourite from order.placed', async () => {
+  it('passes the booked time (search 30 min before), the order and the favourite from order.placed', async () => {
     const h = dispatchHarness();
     await fleet(h);
     const subs = new DispatchSubscribers(h.orchestrator, h.trips, h.zones);
@@ -120,6 +120,6 @@ describe('dispatch:ride-request', () => {
     });
     const tripId = 'trip-o1';
     const r = await h.service.getRequest(tripId);
-    expect(r).toMatchObject({ status: 'scheduled', startAt: at.getTime() - 15 * 60_000, preferDriverIds: ['fav'] });
+    expect(r).toMatchObject({ status: 'scheduled', startAt: at.getTime() - 30 * 60_000, scheduledFor: at.getTime(), preferDriverIds: ['fav'] });
   });
 });

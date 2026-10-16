@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { orderTicketNumber, type SafetyCallTarget, type SafetyIncidentCase, type SafetyIncidentSummary, type SafetyOutcome, type SafetyPerson } from '@driver/contracts';
+import { orderTicketNumber, type LadderStep, type SafetyCallTarget, type SafetyIncidentCase, type SafetyIncidentSummary, type SafetyOutcome, type SafetyPerson } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatClock, formatDayClock, safeDecode } from '@/lib/format';
@@ -12,6 +12,7 @@ import { queryRetry } from '@/lib/live';
 import { ageText, categoryText, contactText, contactTone, coordsText, entryText, entryTime, mapsUrl, personName, roleText, stateText, stateTone, trailPath } from '@/lib/safety';
 import { SAFETY_POLL_MS, useSafetyAlerts } from '@/lib/safety-live';
 import { withBdi } from './bdi';
+import { SafetyReportsSection, SafetyReportView } from './reports';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import {
@@ -51,8 +52,10 @@ import {
 export function SafetyDesk() {
   const trpc = useTRPC();
   const router = useRouter();
-  const params = useParams<{ id?: string }>();
+  const params = useParams<{ id?: string; ticketId?: string }>();
   const id = params?.id ? safeDecode(params.id) : null;
+  const reportId = params?.ticketId ? safeDecode(params.ticketId) : null;
+  const detail = Boolean(id || reportId);
   const signedIn = useSignedIn();
   const [scope, setScope] = useState<'open' | 'all'>('open');
   const alerts = useSafetyAlerts();
@@ -66,10 +69,10 @@ export function SafetyDesk() {
   // Open the oldest open alert when the desk opens on /safety (desktop).
   const opened = useRef(false);
   useEffect(() => {
-    if (opened.current || id || !rows[0] || typeof window === 'undefined' || window.innerWidth < 1024) return;
+    if (opened.current || id || reportId || !rows[0] || typeof window === 'undefined' || window.innerWidth < 1024) return;
     opened.current = true;
     router.replace(`/safety/${encodeURIComponent(rows[0].id)}`);
-  }, [rows, id, router]);
+  }, [rows, id, reportId, router]);
 
   const select = (next: string) => router.push(`/safety/${encodeURIComponent(next)}`);
   const move = (d: 1 | -1) => {
@@ -97,7 +100,7 @@ export function SafetyDesk() {
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
-      <div className={id ? 'hidden min-h-0 md:block' : 'min-h-0'}>
+      <div className={detail ? 'hidden min-h-0 md:block' : 'min-h-0'}>
         <section aria-label={t('console.safety.title')} className="flex h-full min-h-0 flex-col border-e border-line bg-surface">
           <div className="space-y-3 border-b border-line px-4 pb-3 pt-4">
             <div className="flex items-center justify-between gap-2">
@@ -118,7 +121,18 @@ export function SafetyDesk() {
               ]}
             />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto" role="listbox" aria-label={t('console.safety.title')}>
+          <div
+            className="min-h-0 flex-1 overflow-y-auto"
+            // The SOS presses are a listbox of their own; the safety reports below are links.
+            role="region"
+            aria-label={t('console.safety.title')}
+          >
+            {scope === 'open' ? (
+              <h2 className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-dense font-semibold text-muted">
+                <span>{t('console.safety.sec_sos')}</span>
+                <span className="num">{rows.length}</span>
+              </h2>
+            ) : null}
             {source.error && !source.data ? (
               <div className="p-4">
                 <QueryError error={source.error} onRetry={() => void source.refetch()} />
@@ -130,18 +144,32 @@ export function SafetyDesk() {
                 ))}
               </div>
             ) : rows.length === 0 ? (
-              <div className="p-6">
-                <EmptyState bare icon={<IconCheck size={20} />} title={t('console.safety.empty')} hint={t('console.safety.empty_hint')} />
-              </div>
+              scope === 'open' ? (
+                <p className="flex items-center gap-2 border-b border-line px-4 py-3 text-dense text-muted">
+                  <span aria-hidden className="h-2 w-2 rounded-pill bg-ok-solid" />
+                  {t('console.safety.sos_none')}
+                </p>
+              ) : (
+                <div className="p-6">
+                  <EmptyState bare icon={<IconCheck size={20} />} title={t('console.safety.empty')} hint={t('console.safety.empty_hint')} />
+                </div>
+              )
             ) : (
-              rows.map((r) => <AlertRow key={r.id} row={r} selected={r.id === id} onSelect={() => select(r.id)} />)
+              <div role="listbox" aria-label={t('console.safety.sec_sos')}>
+                {rows.map((r) => (
+                  <AlertRow key={r.id} row={r} selected={r.id === id} onSelect={() => select(r.id)} />
+                ))}
+              </div>
             )}
+            {scope === 'open' ? <SafetyReportsSection selectedId={reportId} /> : null}
           </div>
         </section>
       </div>
 
-      <div className={id ? 'min-h-0 min-w-0 overflow-y-auto bg-canvas' : 'hidden min-h-0 bg-canvas md:block'}>
-        {!id ? (
+      <div className={detail ? 'min-h-0 min-w-0 overflow-y-auto bg-canvas' : 'hidden min-h-0 bg-canvas md:block'}>
+        {reportId ? (
+          <SafetyReportView ticketId={reportId} />
+        ) : !id ? (
           <div className="flex h-full items-center justify-center p-8">
             <EmptyState bare icon={<IconSiren size={20} />} title={t('console.safety.pick')} hint={t('console.safety.empty_hint')} />
           </div>
@@ -314,6 +342,8 @@ function IncidentView({ data, onResolve }: { data: SafetyIncidentCase; onResolve
         <NotesCard data={data} />
       </div>
 
+      <LadderCard id={data.id} live={live} />
+
       <section className="rounded-lg border border-line bg-surface p-5 shadow-card" data-testid="sos-timeline">
         <h3 className="mb-4 text-[15px] font-semibold">{t('console.safety.timeline')}</h3>
         <Timeline
@@ -330,6 +360,55 @@ function IncidentView({ data, onResolve }: { data: SafetyIncidentCase; onResolve
     </article>
   );
 }
+
+/** Who the alert has reached so far (`onCall.ladder`, E1 CON-02): the desk again, then the people on call. */
+function LadderCard({ id, live }: { id: string; live: boolean }) {
+  const trpc = useTRPC();
+  const ladder = useQuery(trpc.onCall.ladder.queryOptions({ alertId: id }, { retry: queryRetry, refetchInterval: live ? SAFETY_POLL_MS : false }));
+  const l = ladder.data;
+  if (!l || l.steps.length === 0) return null;
+  return (
+    <section className={cx('rounded-lg border bg-surface p-5 shadow-card', l.unanswered ? 'border-bad/45' : 'border-line')} data-testid="sos-ladder">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[15px] font-semibold">{t('console.safety.ladder_title')}</h3>
+        {l.unanswered ? (
+          <Chip tone="bad" dot>
+            {t('console.safety.ladder_unanswered')}
+          </Chip>
+        ) : null}
+      </div>
+      <ol className="space-y-1.5">
+        {foldRings(l.steps).map((s, i) => (
+          <li key={i} className="flex items-baseline gap-3 text-dense">
+            <span className="num w-[132px] shrink-0 whitespace-nowrap text-muted">{s.times > 1 ? `${formatClock(s.at)} – ${formatClock(s.last)}` : formatClock(s.at)}</span>
+            <span className={s.step === 'ring' ? 'text-muted' : 'font-medium text-text'}>{t(LADDER_KEY[s.step], { n: s.count })}</span>
+            {s.times > 1 ? <span className="num text-muted">{`× ${s.times}`}</span> : null}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** Back-to-back rings to the same number of people read as one line (`2:45 – 2:50 … × 11`); a ladder step breaks the run. */
+function foldRings(steps: readonly LadderStep[]): Array<LadderStep & { last: Date; times: number }> {
+  const out: Array<LadderStep & { last: Date; times: number }> = [];
+  for (const s of steps) {
+    const prev = out.at(-1);
+    if (prev && s.step === 'ring' && prev.step === 'ring' && prev.count === s.count) {
+      prev.last = s.at;
+      prev.times += 1;
+    } else out.push({ ...s, last: s.at, times: 1 });
+  }
+  return out;
+}
+
+const LADDER_KEY = {
+  ring: 'console.safety.ladder_ring',
+  on_call_1: 'console.safety.ladder_on_call_1',
+  on_call_2: 'console.safety.ladder_on_call_2',
+  admins: 'console.safety.ladder_admins',
+} as const;
 
 function PositionCard({ data, now }: { data: SafetyIncidentCase; now: number }) {
   const toast = useToast();

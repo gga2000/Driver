@@ -15,6 +15,13 @@ export function useFavourites() {
   return useQuery({ ...api.rideHabits.favourites.queryOptions(), enabled: signedIn, staleTime: 60_000 });
 }
 
+/** Review #28: whether a driver confirmed his booked ride (re-read every minute while it waits). */
+export function useBookedRideStatus(orderId: string | null) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.rideHabits.bookedRide.queryOptions({ orderId: orderId ?? '' }), enabled: signedIn && Boolean(orderId), staleTime: 30_000, refetchInterval: 60_000 });
+}
+
 export function useRecentGoodDriver() {
   const api = useApi();
   const signedIn = useSignedIn();

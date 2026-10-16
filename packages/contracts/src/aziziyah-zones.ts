@@ -27,10 +27,10 @@ export const AZIZIYAH_CENTRE = { lat: 32.905, lng: 45.06 } as const;
 export const AZIZIYAH_ZONES: readonly AziziyahZoneSeed[] = [
   // ── centre (≤ ~0.7 km)
   { id: 'centre', extId: '5854', name_ar: 'العزيزية (مركز)', name_en: 'Aziziyah centre', tier: 'centre', group: 'centre', lat: 32.905, lng: 45.06, radiusM: 450 },
-  { id: 'street_30', extId: '5060', name_ar: 'شارع ٣٠', name_en: 'Street 30', tier: 'centre', group: 'centre', lat: 32.9095, lng: 45.0635, radiusM: 350 },
+  { id: 'street_30', extId: '5060', name_ar: 'شارع 30', name_en: 'Street 30', tier: 'centre', group: 'centre', lat: 32.9095, lng: 45.0635, radiusM: 350 },
   { id: 'nakheel_street', extId: '5090', name_ar: 'شارع نخيل', name_en: 'Nakheel Street', tier: 'centre', group: 'centre', lat: 32.9018, lng: 45.0558, radiusM: 350 },
   // ── near (~0.8–1.4 km)
-  { id: 'mahdood_1', extId: '5066', name_ar: 'داخل محدود اولى', name_en: 'Mahdood 1', tier: 'near', group: 'محدود', lat: 32.9125, lng: 45.0545, radiusM: 400 },
+  { id: 'mahdood_1', extId: '5066', name_ar: 'داخل محدود أولى', name_en: 'Mahdood 1', tier: 'near', group: 'محدود', lat: 32.9125, lng: 45.0545, radiusM: 400 },
   { id: 'mahdood_2', extId: '5067', name_ar: 'داخل محدود ثانية', name_en: 'Mahdood 2', tier: 'near', group: 'محدود', lat: 32.9165, lng: 45.0585, radiusM: 400 },
   { id: 'area_150', extId: '5059', name_ar: 'منطقة 150', name_en: 'Area 150', tier: 'near', group: 'centre-east', lat: 32.9075, lng: 45.0715, radiusM: 400 },
   { id: 'hashimi', extId: '4874', name_ar: 'الهاشمي', name_en: 'Al-Hashimi', tier: 'near', group: 'near', lat: 32.896, lng: 45.0675, radiusM: 400 },

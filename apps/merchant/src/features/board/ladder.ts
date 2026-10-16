@@ -1,27 +1,38 @@
+import type { BoardOrder } from '@driver/contracts';
+
 /**
  * The new-order alarm ladder (UI/UX audit M-02, signature S-M1), free of React and audio so the
- * timing is unit-tested. A kitchen needs escalation, not a metronome:
+ * timing is unit-tested. A kitchen needs escalation, not a metronome — three even steps across the
+ * 90-s window (counter redesign a2):
  *
- *   more than 30 s left   calm     chime every 4 s
- *   30 – 11 s left        urgent   chime every 2 s, ring and card border turn danger, louder
- *   10 s or less          final    continuous tone + "باقي 10 ثواني على #3912" banner, full volume
+ *   first 30 s  (90 – 61 s left)   calm     a soft chime every 4 s
+ *   next 30 s   (60 – 31 s left)   urgent   louder, every 2 s, the screen edge flashes (a8)
+ *   last 30 s   (30 s or less)     final    a steady bell + "باقي 24 ثانية على #3912", full volume
  *
  * "سكّت 30 ثانية" snoozes the orders ringing at that moment for 30 s — never for good: a snoozed order
- * rings again at 20 s left whatever happens, and a newer order rings straight away.
+ * rings again once the last 30 s start whatever happens, and a newer order rings straight away.
  */
 
 export type AlarmStage = 'calm' | 'urgent' | 'final';
 
 /** Time left (ms) at which each stage starts. */
-export const LADDER = { urgentAtMs: 30_000, finalAtMs: 10_000 } as const;
+export const LADDER = { urgentAtMs: 60_000, finalAtMs: 30_000 } as const;
 /** Chime spacing per stage; `final` is a continuous loop (the engine's urgent tone), checked each second. */
 export const STAGE_REPEAT_MS: Record<AlarmStage, number> = { calm: 4_000, urgent: 2_000, final: 1_000 };
 /** Playback volume per stage (0–1). */
 export const STAGE_VOLUME: Record<AlarmStage, number> = { calm: 0.75, urgent: 0.9, final: 1 };
 /** "سكّت 30 ثانية". */
 export const SNOOZE_MS = 30_000;
-/** A snoozed order rings again once this little time is left, snooze or not. */
-export const SNOOZE_FLOOR_MS = 20_000;
+/** A snoozed order rings again once this little time is left, snooze or not: the steady bell is never snoozed. */
+export const SNOOZE_FLOOR_MS = LADDER.finalAtMs;
+/**
+ * MER-07: an order this far past its answer time was already turned down by the server (the tablet was
+ * offline when it happened): it stops ringing and its card says «فات الوقت» until the board catches up.
+ */
+export const EXPIRED_GRACE_MS = 5_000;
+export function answerTimeOver(acceptByMs: number | null, now: number): boolean {
+  return acceptByMs !== null && acceptByMs - now < -EXPIRED_GRACE_MS;
+}
 
 const RANK: Record<AlarmStage, number> = { calm: 0, urgent: 1, final: 2 };
 
@@ -37,6 +48,18 @@ export interface RingCandidate {
   id: string;
   number: string;
   acceptByMs: number | null;
+  /** Offered while the store was already closed (a pre-order for opening time): rings anyway. */
+  offeredWhileClosed?: boolean;
+}
+
+/**
+ * New orders that should ring: offered to the kitchen (a 90-s window) and not a partial accept, which
+ * waits for the customer. An order with no window yet (a pre-order not offered) can't be accepted.
+ */
+export function ringCandidates(orders: readonly BoardOrder[]): RingCandidate[] {
+  return orders
+    .filter((o) => o.column === 'new' && o.partial === null && o.acceptBy !== null)
+    .map((o) => ({ id: o.id, number: o.number, acceptByMs: o.acceptBy ? o.acceptBy.getTime() : null, offeredWhileClosed: o.offeredWhileClosed === true }));
 }
 
 export interface AlarmPlan {
@@ -53,7 +76,9 @@ export interface AlarmPlan {
   /**
    * Orders still waiting while the store is closed (m6a): shown on the board, quietly, never rung.
    * Closing is the owner saying the day is over; the board must not keep ringing behind the
-   * end-of-day card. The kitchen can still accept or reject them until the 90-s window ends.
+   * end-of-day card. The kitchen can still accept or reject them until the 90-s window ends. Only
+   * orders offered before the store closed: one offered while it was closed (a pre-order for opening
+   * time, sent prep + lead before it) rings as usual.
    */
   closed: string[];
 }
@@ -70,8 +95,9 @@ export function alarmQuiet(status: { closed: unknown; schedule?: { inHours: bool
 
 /**
  * What should ring now. `snoozedUntil` maps an order to the end of its snooze; `handling` holds
- * orders whose accept/reject sheet is open (the cook is on it: quiet until the sheet closes).
- * `storeClosed`: nothing rings; waiting orders are listed under `closed` instead (m6a).
+ * orders whose accept/reject sheet is open (the cook is on it: quiet until the sheet closes, except in
+ * the last 30 s, MER-09: a sheet left open must not let the order run out in silence).
+ * `storeClosed`: orders offered before the close don't ring; they are listed under `closed` (m6a).
  */
 export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: ReadonlyMap<string, number>, handling: ReadonlySet<string>, now: number, storeClosed = false): AlarmPlan {
   const ringing: string[] = [];
@@ -81,10 +107,11 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
   let mostUrgent: AlarmPlan['mostUrgent'] = null;
   let snoozeEndsAt: number | null = null;
   for (const c of candidates) {
-    if (handling.has(c.id)) continue;
+    if (answerTimeOver(c.acceptByMs, now)) continue;
     const msLeft = c.acceptByMs === null ? null : c.acceptByMs - now;
+    if (handling.has(c.id) && (msLeft === null || msLeft > SNOOZE_FLOOR_MS)) continue;
     if (mostUrgent === null || (msLeft !== null && (mostUrgent.msLeft === null || msLeft < mostUrgent.msLeft))) mostUrgent = { id: c.id, number: c.number, msLeft };
-    if (storeClosed) {
+    if (storeClosed && !c.offeredWhileClosed) {
       closed.push(c.id);
       continue;
     }
@@ -92,7 +119,7 @@ export function alarmPlan(candidates: readonly RingCandidate[], snoozedUntil: Re
     const floorReached = msLeft !== null && msLeft <= SNOOZE_FLOOR_MS;
     if (until !== undefined && until > now && !floorReached) {
       snoozed.push(c.id);
-      // The snooze ends at its 30 s or at the 20-s floor, whichever comes first.
+      // The snooze ends at its 30 s or at the 30-s floor, whichever comes first.
       const ends = msLeft === null ? until : Math.min(until, now + msLeft - SNOOZE_FLOOR_MS);
       snoozeEndsAt = snoozeEndsAt === null ? ends : Math.min(snoozeEndsAt, ends);
       continue;

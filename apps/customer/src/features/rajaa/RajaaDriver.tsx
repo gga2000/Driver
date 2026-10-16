@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 import type { DepartureCard, RajaaDriverCard } from '@driver/contracts';
-import { DriverChip } from '@driver/ui';
+import { DriverChip, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
+import { DriverRecord, DriverRecordLine } from './DriverRecord';
 import { vehicleDesc } from './labels';
 import { apiPhoto } from '@/lib/photo';
 
@@ -10,7 +11,8 @@ import { apiPhoto } from '@/lib/photo';
  * The driver of a الرجعة car (audit C-19), the same on the board, the seat sheet and the boarding
  * pass, the request board's offers and the claimed seat (R-01, R-02): his first name (never an ID
  * code), "متحقق اليوم" after a selfie check-in today, the car and its plate in a chip. Without his
- * card yet it says "السايق" and still shows the car and plate.
+ * card yet it says "السايق" and still shows the car and plate. With `record` (seat sheet, boarding
+ * pass: x16) his record and «ملفه» follow under the chip.
  */
 export function RajaaDriver({
   dep,
@@ -18,12 +20,16 @@ export function RajaaDriver({
   size = 'md',
   eyebrow,
   trailing,
+  record,
   style,
   testID,
 }: {
   /** The car: a departure's, or (request board) the offering driver's latest one; null when unknown. */
   dep: { vehicle: DepartureCard['vehicle'] | null };
-  card: Pick<RajaaDriverCard, 'firstName' | 'verifiedTodayAt' | 'photoUrl'> | null | undefined;
+  /** `stats` is null for a request-board driver who has not run a seat departure yet. */
+  card: (Pick<RajaaDriverCard, 'firstName' | 'verifiedTodayAt' | 'photoUrl'> & { stats?: RajaaDriverCard['stats'] | null }) | null | undefined;
+  /** Show his record and «ملفه» for this departure (needs the card's stats); `line` keeps it to one line (the pass, t1). */
+  record?: { departureId: string; line?: boolean };
   size?: 'md' | 'lg';
   eyebrow?: boolean;
   /** Beside the card (the request board: nothing; kept for rows that need an action). */
@@ -32,10 +38,12 @@ export function RajaaDriver({
   testID?: string;
 }) {
   const t = useT();
-  return (
+  const theme = useTheme();
+  const name = card?.firstName ?? t('rajaa.driver_unnamed');
+  const chip = (
     <DriverChip
       testID={testID}
-      name={card?.firstName ?? t('rajaa.driver_unnamed')}
+      name={name}
       unnamed={!card?.firstName}
       photoUrl={apiPhoto(card?.photoUrl)}
       vehicle={dep.vehicle ? vehicleDesc(t, dep.vehicle) : null}
@@ -45,7 +53,18 @@ export function RajaaDriver({
       {...(eyebrow ? { eyebrow: t('rajaa.your_driver') } : {})}
       size={size}
       trailing={trailing}
-      style={style}
+      style={record && card?.stats ? undefined : style}
     />
+  );
+  if (!record || !card?.stats) return chip;
+  return (
+    <View style={[{ gap: record.line ? theme.space[2] : theme.space[4] }, style]}>
+      {chip}
+      {record.line ? (
+        <DriverRecordLine stats={card.stats} departureId={record.departureId} driverName={name} {...(testID ? { testID: `${testID}-record` } : {})} />
+      ) : (
+        <DriverRecord stats={card.stats} departureId={record.departureId} driverName={name} {...(testID ? { testID: `${testID}-record` } : {})} />
+      )}
+    </View>
   );
 }

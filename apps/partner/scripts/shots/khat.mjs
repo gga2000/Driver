@@ -14,7 +14,9 @@ export default async function run(s) {
   await p.shot('run-full', { full: true, settle: 400 });
 
   // مريم gets in at الشكري: the run is under way, the offers fold into one quiet line.
-  const tap = p.page.locator('[data-testid^="khat-tap-"]').first();
+  // k2/k3: the next child big on top, «بالسيارة» with «غياب اليوم» beside it.
+  await p.wait('khat-next');
+  const tap = p.byTestId('khat-next-tap');
   await tap.click();
   await p.page.locator('[data-testid^="khat-settled-"]').first().waitFor({ timeout: 10_000 }).catch(() => undefined);
   await p.page.waitForTimeout(1200);
@@ -28,7 +30,7 @@ export default async function run(s) {
   await p.shot('call', { settle: 300 });
 
   // فاطمة is absent today: the reason sheet.
-  const absent = p.page.locator('[data-testid^="khat-absent-"]').first();
+  const absent = p.page.locator('[data-testid="khat-next-absent"], [data-testid^="khat-absent-"]').first();
   await absent.scrollIntoViewIfNeeded();
   await absent.click();
   await p.wait('khat-absence-panel');
@@ -41,7 +43,7 @@ export default async function run(s) {
   // The rest of the run through the buttons (tap in at زاكور, tap out at the school): the sweep.
   for (let i = 0; i < 12; i++) {
     if (await p.byTestId('khat-sweep').isVisible().catch(() => false)) break;
-    const next = p.page.locator('[data-testid^="khat-tap-"]').first();
+    const next = p.page.locator('[data-testid="khat-next-tap"], [data-testid^="khat-tap-"]').first();
     if (!(await next.isVisible().catch(() => false))) {
       await p.page.waitForTimeout(800);
       continue;

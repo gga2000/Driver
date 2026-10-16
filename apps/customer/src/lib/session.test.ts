@@ -128,4 +128,65 @@ describe('session store', () => {
     expect(await store.getAccessToken()).toBeNull();
     expect(await store.refresh()).toBe(false);
   });
+
+  it('a refresh that never answers frees every waiting request after the wait, and gives up later (CORE-01)', async () => {
+    vi.useFakeTimers();
+    try {
+      let now = T0;
+      const store = createSessionStore({ storage: createMemoryStorage(), now: () => now, refreshWaitMs: 10_000, refreshGiveUpMs: 65_000 });
+      await store.hydrate();
+      await store.signIn(pair(1));
+      const refresher = vi.fn(() => new Promise<TokenPairLike>(() => {}));
+      store.setRefresher(refresher);
+      now += 15 * 60_000; // the access token is now about to expire
+      const a = store.getAccessToken();
+      const b = store.getAccessToken();
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Both callers go on with the old token (the server's 401 path decides), the session stays.
+      expect(await a).toBe('access-1');
+      expect(await b).toBe('access-1');
+      expect(store.getSnapshot().status).toBe('signedIn');
+      // Until the refresh gives up, nobody sends the old refresh token a second time.
+      const c = store.getAccessToken();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await c).toBe('access-1');
+      expect(refresher).toHaveBeenCalledTimes(1);
+      // After it gave up, the next request tries a fresh refresh.
+      await vi.advanceTimersByTimeAsync(45_000);
+      refresher.mockResolvedValueOnce(pair(2, now));
+      expect(await store.getAccessToken()).toBe('access-2');
+      expect(refresher).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a slow refresh still lands after the wait: the new pair is stored, the retired token never sent again', async () => {
+    vi.useFakeTimers();
+    try {
+      let now = T0;
+      const storage = createMemoryStorage();
+      const store = createSessionStore({ storage, now: () => now, refreshWaitMs: 10_000 });
+      await store.hydrate();
+      await store.signIn(pair(1));
+      let answer: (p: TokenPairLike) => void = () => {};
+      const refresher = vi.fn((_token: string) => new Promise<TokenPairLike>((resolve) => (answer = resolve)));
+      store.setRefresher(refresher);
+      now += 15 * 60_000;
+      const first = store.getAccessToken();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await first).toBe('access-1');
+      // The server rotated; its answer arrives 25 s in.
+      await vi.advanceTimersByTimeAsync(15_000);
+      answer(pair(2, now));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.getSnapshot().session?.refreshToken).toBe(pair(2).refreshToken);
+      expect(JSON.parse(storage.dump()[SESSION_KEY]!).accessToken).toBe('access-2');
+      expect(await store.getAccessToken()).toBe('access-2');
+      expect(refresher).toHaveBeenCalledTimes(1);
+      expect(refresher.mock.calls[0]![0]).toBe(pair(1).refreshToken);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

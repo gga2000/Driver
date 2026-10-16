@@ -3,23 +3,31 @@ import { I18nManager, Platform, View, type TextStyle } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import {
   brandFace,
+  decor,
   elevation,
   fontFace,
   fontFamily,
   fontScale,
   haptic as hapticTokens,
+  textScale as textScaleTokens,
+  type TextScale,
   hitTarget,
   identity,
+  liveStages,
   motion,
   radius,
   scheme,
+  services,
   space,
   state,
   themes,
   type,
   type BrandFace,
   type FontWeight,
+  type HomeDecor,
   type IdentityColor,
+  type LiveStagePalette,
+  type ServicePalette,
   type ThemeColors,
   type ThemeName,
 } from '@driver/design-tokens';
@@ -44,6 +52,12 @@ export interface Theme {
   colors: ThemeColors;
   /** Monogram colours (`Avatar` without a tone): non-semantic in istikan. */
   identity: readonly IdentityColor[];
+  /** Each home service's own colour (Date & Saffron): food, taxi, tuktuk, trips, الرجعة. */
+  services: ServicePalette;
+  /** Home decoration: the dot halo, the hour's sky wash, dish plates, the paper grain. */
+  decor: HomeDecor;
+  /** The home live-order card's look at each stage (sent, accepted, cooking, ready, on the way). */
+  liveStages: LiveStagePalette;
   /** What a secondary or ghost `Button` buzzes: nothing in istikan (joy S2-18). */
   secondaryButtonHaptic: HapticKind | null;
   space: typeof space;
@@ -55,6 +69,8 @@ export interface Theme {
   hitTarget: number;
   /** Large-text caps for compact controls (`fontScale.compact`). */
   fontScale: typeof fontScale;
+  /** The app's text size factor (`textScale`, 1 = normal), on top of the phone's text size. */
+  textScale: number;
   direction: Direction;
   isRTL: boolean;
   fonts: FontMode;
@@ -90,17 +106,32 @@ export function faceStyle(face: BrandFace, mode: FontMode): Pick<TextStyle, 'fon
   return fontStyle(700, mode);
 }
 
+/** The light / dark avatar tones (accent, info, success, warning, in `identity`'s hash order) from a palette. */
+function semanticIdentity(c: ThemeColors): readonly IdentityColor[] {
+  return [
+    { fill: c.accentTint, on: c.accentText },
+    { fill: c.infoTint, on: c.infoText },
+    { fill: c.successTint, on: c.successText },
+    { fill: c.warningTint, on: c.warningText },
+  ];
+}
+
 export function createTheme(
   name: ThemeName = 'light',
-  opts: { direction?: Direction; fonts?: FontMode; reduceMotion?: boolean; haptic?: HapticHandler } = {},
+  opts: { direction?: Direction; fonts?: FontMode; reduceMotion?: boolean; haptic?: HapticHandler; colors?: ThemeColors; textScale?: TextScale } = {},
 ): Theme {
   const direction = opts.direction ?? 'rtl';
   const fonts = opts.fonts ?? 'plex';
   return {
     name,
     scheme: scheme[name],
-    colors: themes[name],
-    identity: identity[name],
+    colors: opts.colors ?? themes[name],
+    // An app palette (the Partner's sun / ember) recolours the four semantic avatar tones too, so a
+    // monogram never falls back to the base palette's blue info tint.
+    identity: opts.colors && (name === 'light' || name === 'dark') ? semanticIdentity(opts.colors) : identity[name],
+    services: services[name],
+    decor: decor[name],
+    liveStages: liveStages[name],
     secondaryButtonHaptic: hapticTokens.secondaryButton[name],
     space,
     radius,
@@ -110,6 +141,7 @@ export function createTheme(
     state,
     hitTarget,
     fontScale,
+    textScale: textScaleTokens[opts.textScale ?? 'normal'],
     direction,
     isRTL: direction === 'rtl',
     fonts,
@@ -131,6 +163,13 @@ export interface ThemeProviderProps {
   haptics?: HapticHandler;
   /** Force reduced motion; otherwise follows the OS setting. */
   reduceMotion?: boolean;
+  /**
+   * An app's own complete role palette over `theme`'s structure (the Partner app's «الدشبول» sun and
+   * ember, `partnerThemes`). `theme` still decides everything else (scheme, haptics, monograms).
+   */
+  colors?: ThemeColors;
+  /** The app's own text size setting («حجم الخط»): `normal` (default), `large` or `largest`. */
+  textScale?: TextScale;
   children: ReactNode;
 }
 
@@ -161,12 +200,12 @@ function useWebFocusRing(color: string) {
   }, [color]);
 }
 
-export function ThemeProvider({ theme = 'light', direction, fonts, haptics, reduceMotion, children }: ThemeProviderProps) {
+export function ThemeProvider({ theme = 'light', direction, fonts, haptics, reduceMotion, colors, textScale, children }: ThemeProviderProps) {
   const osReduceMotion = useReducedMotion();
   const dir: Direction = direction ?? (Platform.OS === 'web' || I18nManager.isRTL ? 'rtl' : 'ltr');
   const value = useMemo(
-    () => createTheme(theme, { direction: dir, fonts, haptic: haptics, reduceMotion: reduceMotion ?? osReduceMotion }),
-    [theme, dir, fonts, haptics, reduceMotion, osReduceMotion],
+    () => createTheme(theme, { direction: dir, fonts, haptic: haptics, reduceMotion: reduceMotion ?? osReduceMotion, colors, textScale }),
+    [theme, dir, fonts, haptics, reduceMotion, osReduceMotion, colors, textScale],
   );
   useWebFocusRing(value.colors.focusRing);
   return (

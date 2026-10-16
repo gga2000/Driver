@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { CATALOG_PUBLIC_RATE, PriceRequest, isDriverError, type AppContext, type DealBadge, type MenuItem, type RestaurantCard } from '@driver/contracts';
 import { appRouter, t } from '@driver/contracts/router';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
+import { DEMO_SHOPS } from '@driver/contracts/demo-shops';
 import { FakeClock } from '../../shared/clock.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { InMemoryQueue } from '../../shared/queue.js';
 import { ConfigService } from '../config/index.js';
@@ -16,7 +18,7 @@ import { OrgsService } from '../orgs/index.js';
 import { PricingService } from '../pricing/index.js';
 import { InMemoryTripsRepository, RecordingTripEvents, ScriptedOfferCheck, TripsService, type TripTimerJob } from '../trips/index.js';
 import { InMemoryCatalogRepository } from './catalog.repository.js';
-import { CatalogRpc } from './catalog.rpc.js';
+import { CARD_CONCURRENCY, CatalogRpc, TOWN_SNAPSHOT_MS, type StorefrontMerchants } from './catalog.rpc.js';
 import { CatalogService } from './catalog.service.js';
 import { seedStorefronts } from './seed.js';
 import { DevBlobStore, type BlobStore } from '../places/index.js';
@@ -27,15 +29,21 @@ const SAT_EVENING = '2026-10-03T15:12:00Z';
 const ZAKUR = { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } };
 const CENTRE_HOME = { zoneKey: 'centre' };
 
+/** Uses up all but the last of a guest IP's reads in the window, without running 1,200 real reads. */
+async function fillGuestWindow(w: Awaited<ReturnType<typeof world>>, ip: string) {
+  for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp - 1; i++) await w.guests.hit(`catalog:guest:${ip}`, CATALOG_PUBLIC_RATE.windowMs, CATALOG_PUBLIC_RATE.perIp);
+}
+
 async function world(at = SAT_EVENING) {
   const clock = new FakeClock(at);
   const orgs = new OrgsService(undefined, clock);
   const catalog = new CatalogService(new InMemoryCatalogRepository());
   const pricing = new PricingService(new ConfigService());
-  const rpc = new CatalogRpc(catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs)), pricing, clock);
+  const guests = new InMemoryWindowCounter(clock);
+  const rpc = new CatalogRpc(catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs)), pricing, clock, guests);
   const seeded = await seedStorefronts(orgs, catalog);
   const byKey = (key: string) => seeded.find((s) => s.seed.key === key)!;
-  return { clock, orgs, catalog, pricing, rpc, seeded, byKey };
+  return { clock, orgs, catalog, pricing, rpc, seeded, byKey, guests };
 }
 
 function caller(rpc: CatalogRpc, personId: string | null = 'c1') {
@@ -136,7 +144,8 @@ describe('catalog.restaurants (customer read, M3)', () => {
   it('limits guests per client IP (rate_limited with retryAfterSec); signed-in readers are not limited', async () => {
     const w = await world();
     const guest = { actor: null, ip: '10.0.0.7' };
-    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.search(guest, { cityId: 'aziziyah', query: 'كباب' });
+    await fillGuestWindow(w, guest.ip);
+    await w.rpc.search(guest, { cityId: 'aziziyah', query: 'كباب' }); // the last allowed read
     const err = await w.rpc.restaurants(guest, { cityId: 'aziziyah', filters: {} }).then(
       () => null,
       (e: unknown) => e,
@@ -149,6 +158,30 @@ describe('catalog.restaurants (customer read, M3)', () => {
     // The window slides: a minute later the guest reads again.
     w.clock.advance(CATALOG_PUBLIC_RATE.windowMs + 1);
     await expect(w.rpc.restaurants(guest, { cityId: 'aziziyah', filters: {} })).resolves.toHaveLength(4);
+  });
+});
+
+describe('«مميّز» (featured tier, Ali 2026-10-12)', () => {
+  it('marks a featured kitchen and puts it first when open; a search keeps its own order', async () => {
+    const w = await world();
+    const kareem = w.byKey('haj_kareem').orgId;
+    const before = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    expect(before[0]?.id).not.toBe(kareem);
+    await w.orgs.setMerchantSettings(kareem, { commissionTier: 'featured' });
+    const cards = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    expect(cards[0]).toMatchObject({ id: kareem, open: true, featured: true });
+    expect(cards[0]!.pickup).not.toBeNull();
+    for (const c of cards.slice(1)) expect(c.featured, c.name).toBeUndefined();
+    const found = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR, filters: { query: 'كباب' } });
+    expect(found[0]?.id).not.toBe(kareem);
+  });
+
+  it('never moves a closed featured kitchen up', async () => {
+    const w = await world();
+    const musafir = w.byKey('musafir').orgId;
+    await w.orgs.setMerchantSettings(musafir, { commissionTier: 'featured' });
+    const cards = await caller(w.rpc).restaurants({ cityId: 'aziziyah', dropoff: ZAKUR });
+    expect(cards.at(-1)).toMatchObject({ id: musafir, open: false, featured: true });
   });
 });
 
@@ -407,7 +440,8 @@ describe('catalog.today (welcome screen live proof, audit d-6)', () => {
   it('is rate-limited for guests like the rest of the public catalog', async () => {
     const w = await world();
     const guest = { actor: null, ip: '10.0.0.9' };
-    for (let i = 0; i < CATALOG_PUBLIC_RATE.perIp; i++) await w.rpc.today(guest, { cityId: 'aziziyah' });
+    await fillGuestWindow(w, guest.ip);
+    await w.rpc.today(guest, { cityId: 'aziziyah' }); // the last allowed read
     const err = await w.rpc.today(guest, { cityId: 'aziziyah' }).catch((e: unknown) => e);
     expect(isDriverError(err) && err.code).toBe('rate_limited');
   });
@@ -481,6 +515,233 @@ describe('catalog.picks (joy h1 daypart band, h4 meal words)', () => {
   it('is empty when nothing open matches', async () => {
     const w = await world();
     expect(await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['بيتزا'], limit: 3 })).toEqual([]);
+  });
+
+  it('says which dishes a card can add in one tap: none of their option groups asks for a choice', async () => {
+    const w = await world();
+    const khalid = w.byKey('khalid');
+    const picks = await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب', 'كبد'], limit: 12 });
+    // «كباب بالكيلو» asks half a kilo or a kilo; «وجبة كبد» has nothing to choose.
+    expect(picks.find((d) => d.id === khalid.itemIds.get('kebab_kilo'))).toMatchObject({ quickAdd: false });
+    expect(picks.find((d) => d.id === khalid.itemIds.get('liver_plate'))).toMatchObject({ quickAdd: true });
+    const found = await w.rpc.search(ACTOR, { cityId: 'aziziyah', query: 'كباب بالكيلو' });
+    expect(found.dishes.find((d) => d.id === khalid.itemIds.get('kebab_kilo'))).toMatchObject({ quickAdd: false });
+  });
+});
+
+describe('catalog.cravings (food doors: «شنو بخاطرك؟», d5/k9/s6/j2)', () => {
+  async function shopsWorld() {
+    const w = await world();
+    await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
+    return w;
+  }
+
+  it('answers each kind with the open shops that have it, one dish per shop, and drops kinds nobody has', async () => {
+    const w = await shopsWorld();
+    const out = await caller(w.rpc, null).cravings({
+      cityId: 'aziziyah',
+      kinds: [
+        { key: 'kunafa', words: ['كنافة'] },
+        { key: 'pizza', words: ['بيتزا'] },
+        { key: 'icecream', words: ['آيس كريم', 'كون', 'كوب آيس'] },
+      ],
+    });
+    expect(out.map((k) => k.key)).toEqual(['kunafa', 'icecream']);
+    const kunafa = out[0]!;
+    // Two kunafas at الزهراء, one dish for the shop: the plain name before «بالقيمر», then the cheaper.
+    expect(kunafa.dishes).toHaveLength(1);
+    expect(kunafa.dishes[0]).toMatchObject({ name: 'كنافة نابلسية', restaurantName: 'حلويات الزهراء', restaurantOpen: true });
+    // Both ice cream shops have it.
+    expect(new Set(out[1]!.dishes.map((d) => d.restaurantName))).toEqual(new Set(['حلويات الزهراء', 'آيس كريم الفرات']));
+  });
+
+  it('gives a sweet sold by weight its kilo price; a dish sold by the piece has none', async () => {
+    const w = await shopsWorld();
+    const [baklava, cake] = await w.rpc.cravings(ACTOR, {
+      cityId: 'aziziyah',
+      kinds: [
+        { key: 'baklava', words: ['بقلاوة'] },
+        { key: 'cake', words: ['كيك'] },
+      ],
+    });
+    // Quarter 5,000 + the kilo option 15,000.
+    expect(baklava?.dishes[0]).toMatchObject({ name: 'بقلاوة', priceIqd: 5000, kiloIqd: 20000 });
+    expect(cake?.dishes[0]?.kiloIqd).toBeNull();
+  });
+
+  it('k7: an ice-cream-only shop drops out past 3 km by road; a sweets shop that also sells ice cream stays', async () => {
+    const w = await shopsWorld();
+    const kinds = [{ key: 'icecream', words: ['آيس كريم', 'كون', 'كوب آيس'] }];
+    const shopsAt = async (dropoff: { zoneKey: string; pin: { lat: number; lng: number } }) => ({
+      list: (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff, filters: {} })).map((c) => c.name),
+      cravings: new Set((await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds, dropoff }))[0]?.dishes.map((d) => d.restaurantName)),
+    });
+    // الفرات is in the centre: about 0.6 km away it delivers; زاكور is about 3.3 km by road.
+    const near = await shopsAt({ zoneKey: 'centre', pin: { lat: 32.91, lng: 45.06 } });
+    expect(near.list).toContain('آيس كريم الفرات');
+    expect(near.cravings).toEqual(new Set(['حلويات الزهراء', 'آيس كريم الفرات']));
+    const far = await shopsAt(ZAKUR);
+    expect(far.list).not.toContain('آيس كريم الفرات');
+    expect(far.list).toContain('حلويات الزهراء');
+    expect(far.cravings).toEqual(new Set(['حلويات الزهراء']));
+  });
+
+  it('leaves closed shops out', async () => {
+    const w = await world('2026-10-03T05:00:00Z'); // 8:00 Baghdad: الفرات opens at 12
+    await seedStorefronts(w.orgs, w.catalog, DEMO_SHOPS);
+    const out = await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds: [{ key: 'cone', words: ['كون'] }] });
+    expect(out).toEqual([]);
+  });
+});
+
+describe('cards built side by side (perf t4)', () => {
+  it("answers exactly what one-by-one building answers, in the storefronts' order, however slowly each kitchen replies", async () => {
+    const clock = new FakeClock(SAT_EVENING);
+    const orgs = new OrgsService(undefined, clock);
+    const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
+    const pricing = new PricingService(new ConfigService());
+    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs, () => clock.now()));
+    await seedStorefronts(orgs, catalog);
+    await seedStorefronts(orgs, catalog, DEMO_SHOPS);
+    const fronts = await catalog.storefronts('aziziyah');
+    expect(fronts.length).toBeGreaterThan(CARD_CONCURRENCY);
+    // Every kitchen posts a pot at the same instant: equal times keep the storefronts' order, so the
+    // answer shows whether cards that finished out of order were put back in place.
+    for (const f of fronts) {
+      const dish = (await catalog.menu(f.orgId)).find((i) => i.available);
+      if (dish) await catalog.postPot(f.orgId, { itemId: dish.id, note: null, until: null }, 'owner');
+    }
+    // The first kitchens in the list answer last: built in parallel, they finish in reverse.
+    const delayOf = new Map(fronts.map((f, i) => [f.orgId, (fronts.length - i) * 3]));
+    let running = 0;
+    let peak = 0;
+    const slow: StorefrontMerchants = {
+      timeZone: plain.timeZone,
+      async profile(orgId, cityId, at) {
+        running += 1;
+        peak = Math.max(peak, running);
+        await new Promise((r) => setTimeout(r, delayOf.get(orgId) ?? 0));
+        running -= 1;
+        return plain.profile(orgId, cityId, at);
+      },
+    };
+    const oneByOne = new CatalogRpc(catalog, plain, pricing, clock);
+    const parallel = new CatalogRpc(catalog, slow, pricing, clock);
+    const read = async (rpc: CatalogRpc) => ({
+      restaurants: await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} }),
+      picks: await rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب', 'كنافة', 'تكة'], limit: 6, dropoff: ZAKUR }),
+      search: await rpc.search(ACTOR, { cityId: 'aziziyah', query: 'كباب', dropoff: ZAKUR }),
+      pots: await rpc.pots(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR }),
+    });
+    const one = await read(oneByOne);
+    const both = await read(parallel);
+    expect(both).toEqual(one);
+    // Open kitchens' pots first, each group in the storefronts' own order.
+    const order = new Map(fronts.map((f, i) => [f.orgId, i]));
+    const open = one.pots.filter((p) => p.restaurantOpen).map((p) => order.get(p.merchantOrgId)!);
+    expect(open.length).toBeGreaterThanOrEqual(CARD_CONCURRENCY);
+    expect(open).toEqual([...open].sort((a, b) => a - b));
+    // Bounded: several kitchens at once, never more than the limit.
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(CARD_CONCURRENCY);
+  });
+});
+
+describe('one town read shared by the lists (speed x1)', () => {
+  /** The seeded town, with every merchant profile read counted. */
+  async function counted() {
+    const clock = new FakeClock(SAT_EVENING);
+    const orgs = new OrgsService(undefined, clock);
+    const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
+    const plain = new OrdersStorefrontMerchants(new OrgsMerchantDirectory(orgs, () => clock.now()));
+    const seeded = await seedStorefronts(orgs, catalog);
+    let reads = 0;
+    const merchants: StorefrontMerchants = {
+      timeZone: plain.timeZone,
+      changeStamp: () => plain.changeStamp(),
+      profile: (orgId, cityId, at) => {
+        reads += 1;
+        return plain.profile(orgId, cityId, at);
+      },
+    };
+    const rpc = new CatalogRpc(catalog, merchants, new PricingService(new ConfigService()), clock);
+    const list = () => rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} });
+    const byKey = (key: string) => seeded.find((x) => x.seed.key === key)!;
+    return { clock, orgs, catalog, rpc, list, byKey, reads: () => reads };
+  }
+
+  it('reads each kitchen once for the home list, picks, cravings, search, pots and today together', async () => {
+    const w = await counted();
+    const first = await w.list();
+    const kitchens = w.reads();
+    expect(kitchens).toBe(first.length);
+    await w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب'], limit: 6, dropoff: ZAKUR });
+    await w.rpc.cravings(ACTOR, { cityId: 'aziziyah', kinds: [{ key: 'grill', words: ['كباب'] }], dropoff: ZAKUR });
+    await w.rpc.search(ACTOR, { cityId: 'aziziyah', query: 'كباب', dropoff: ZAKUR });
+    await w.rpc.pots(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR });
+    await w.rpc.today(ACTOR, { cityId: 'aziziyah' });
+    expect(await w.list()).toEqual(first);
+    expect(w.reads()).toBe(kitchens);
+    // Lists asked for at the same moment share one build.
+    w.clock.advance(TOWN_SNAPSHOT_MS);
+    await Promise.all([w.list(), w.list(), w.rpc.picks(ACTOR, { cityId: 'aziziyah', words: ['كباب'], limit: 6, dropoff: ZAKUR })]);
+    expect(w.reads()).toBe(2 * kitchens);
+  });
+
+  it('a kitchen closed by hand, or busy, shows at once; the menu page always reads live', async () => {
+    const w = await counted();
+    const kareem = w.byKey('haj_kareem');
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: true, busy: false });
+    await w.orgs.setMerchantSettings(kareem.orgId, { closed: { reason: 'sold_out', note: null, at: w.clock.now() } });
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: false, closedReason: 'paused' });
+    await w.orgs.setMerchantSettings(kareem.orgId, { closed: null, busyUntil: new Date(w.clock.now().getTime() + 20 * 60_000) });
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: true, busy: true });
+    const before = w.reads();
+    await w.rpc.menu(ACTOR, { merchantId: kareem.orgId, dropoff: ZAKUR });
+    expect(w.reads()).toBe(before + 1);
+  });
+
+  it('a quick pause ending inside the snapshot reopens the kitchen on the minute', async () => {
+    const w = await counted();
+    const kareem = w.byKey('haj_kareem');
+    const until = new Date(w.clock.now().getTime() + 20_000);
+    await w.orgs.setMerchantSettings(kareem.orgId, { closed: { reason: 'sold_out', note: null, at: w.clock.now(), until } });
+    w.clock.advance(3_000);
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: false });
+    w.clock.advance(10_000);
+    const reads = w.reads();
+    await w.list();
+    expect(w.reads()).toBe(reads);
+    w.clock.advance(8_000);
+    expect((await w.list()).find((c) => c.id === kareem.orgId)).toMatchObject({ open: true });
+  });
+
+  it('a menu edit (price, sold out today) shows at once in picks and search', async () => {
+    const w = await counted();
+    const kareem = w.byKey('haj_kareem');
+    const dish = (await w.catalog.menu(kareem.orgId)).find((i) => i.available && i.nameAr.includes('كباب'))!;
+    const find = async () => (await w.rpc.search(ACTOR, { cityId: 'aziziyah', query: dish.nameAr, dropoff: ZAKUR })).dishes.find((d) => d.id === dish.id);
+    expect(await find()).toMatchObject({ priceIqd: dish.priceIqd, available: true });
+    await w.catalog.updatePrice(kareem.orgId, dish.id, dish.priceIqd + 250, 'owner');
+    expect(await find()).toMatchObject({ priceIqd: dish.priceIqd + 250 });
+    await w.catalog.soldOutToday(kareem.orgId, dish.id);
+    expect(await find()).toMatchObject({ available: false });
+  });
+
+  it('hours, ride times and fees are still worked out on every read', async () => {
+    const w = await counted();
+    const musafir = w.byKey('musafir');
+    // Sunday 04:59:50 Baghdad: المسافر opens at 5:00.
+    w.clock.set('2026-10-04T01:59:50Z');
+    expect((await w.list()).find((c) => c.id === musafir.orgId)?.open).toBe(false);
+    const reads = w.reads();
+    w.clock.advance(20_000);
+    expect((await w.list()).find((c) => c.id === musafir.orgId)?.open).toBe(true);
+    const far = { zoneKey: 'zakur', pin: { lat: 32.86, lng: 45.1 } };
+    const farther = (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: far, filters: {} })).find((c) => c.id === musafir.orgId)!;
+    const zakur = (await w.list()).find((c) => c.id === musafir.orgId)!;
+    expect(farther.etaMinMinutes!).toBeGreaterThan(zakur.etaMinMinutes!);
+    expect(w.reads()).toBe(reads);
   });
 });
 
@@ -591,5 +852,31 @@ describe('merchant-uploaded dish photos reach customers as working links', () =>
     const w = await photoWorld({ signer: false });
     const dish = (await caller(w.rpc, null).menu({ merchantId: w.khalid.orgId })).categories.flatMap((x) => x.items).find((i) => i.id === w.itemId);
     expect(dish?.photoUrl).toBeNull();
+  });
+});
+
+describe('kill switches on the cards (REL-16)', () => {
+  it('a kitchen a switch stopped looks closed, with the switch words, for that door only', async () => {
+    const w = await world();
+    const kareemId = (await w.rpc.restaurants(ACTOR, { cityId: 'aziziyah', filters: { query: 'كريم' } }))[0]!.id;
+    const asked: unknown[] = [];
+    const switches = {
+      stopped: async (input: { cityId: string; merchantOrgId: string; kitchenZone: string | null; dropoffZone: string | null }) => {
+        asked.push(input);
+        return input.merchantOrgId === kareemId && input.dropoffZone === 'zakur' ? 'مشويات الحاج كريم موقفة هسه' : null;
+      },
+    };
+    const rpc = new CatalogRpc(w.catalog, new OrdersStorefrontMerchants(new OrgsMerchantDirectory(w.orgs)), w.pricing, w.clock, undefined, undefined, null, null, switches);
+    const cards = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: ZAKUR, filters: {} });
+    const kareem = cards.find((c) => c.id === kareemId)!;
+    expect(kareem).toMatchObject({ open: false, closedReason: 'paused', stoppedNote: 'مشويات الحاج كريم موقفة هسه', opensInMin: null });
+    expect(asked).toContainEqual({ cityId: 'aziziyah', merchantOrgId: kareemId, kitchenZone: 'centre', dropoffZone: 'zakur' });
+    for (const c of cards.filter((x) => x.id !== kareemId && x.name !== 'مطعم المسافر')) {
+      expect(c.open, c.name).toBe(true);
+      expect(c).not.toHaveProperty('stoppedNote');
+    }
+    // Another door the switch does not cover sees it open.
+    const elsewhere = await rpc.restaurants(ACTOR, { cityId: 'aziziyah', dropoff: CENTRE_HOME, filters: {} });
+    expect(elsewhere.find((c) => c.id === kareemId)?.open).toBe(true);
   });
 });

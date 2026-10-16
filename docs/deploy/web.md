@@ -23,6 +23,12 @@ node scripts/deploy/prepare-web.mjs apps/customer/dist-web --api-url https://dri
   rebuilding (the deploy workflow does it every time).
 - `EXPO_PUBLIC_SHARE_BASE_URL` is the public address of the customer web app: share links created in
   the phone app point there.
+- `EXPO_PUBLIC_SENTRY_DSN` (optional) turns on crash reports for that app; the deploy workflow takes it
+  from the GitHub variable `SENTRY_DSN` (overridden per app by `SENTRY_DSN_CUSTOMER` / `_PARTNER` / `_MERCHANT`) ([hosting.md](hosting.md)
+  "Logs and errors").
+- `EXPO_PUBLIC_CONSOLE_URL` (optional, partner and merchant) is the Console address a staff safety
+  alert opens; the deploy workflow takes it from the GitHub variable `CONSOLE_PUBLIC_URL`. Unset = no
+  link (the screen says to open the Console on a computer). Set it only to an address the company owns.
 - `prepare-web.mjs` refuses a bundle that does not contain the API URL (or points at localhost), refuses
   a `404.html` (it would break the SPA fallback), and writes `_headers`:
   - `/_expo/static/*`, `/assets/*`: cached for a year (file names contain a hash, so a new build never

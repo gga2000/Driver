@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CityId, DeliveryPoint, Iqd } from './common.js';
 import { DealBadge } from './deals.js';
+import { HomeDishView, HomeKitchenBadge, type HomeSlots, type HomeSlotsInput } from './home-kitchens.js';
 import { MenuPot, MenuStory, type FollowDishInput, type MyDishFollows, type PotsTodayInput, type TodayPot } from './habits-io.js';
 import type { Actor } from './identity-io.js';
 import type { Quote } from './pricing.js';
@@ -65,12 +66,19 @@ export const RestaurantCard = z.object({
   open: z.boolean(),
   /** Why it is closed: outside opening hours, or a scheduled pause (Friday prayer). */
   closedReason: z.enum(['hours', 'paused']).nullable(),
+  /**
+   * REL-16: when a launch kill switch (the service, this kitchen, or a zone) has stopped it, the words
+   * to show (the same ones checkout refuses with); `open` is false and `closedReason` 'paused'.
+   */
+  stoppedNote: z.string().optional(),
   /** Next local opening time, 12-hour "7:00", when closed. */
   opensAt: z.string().nullable(),
   /** f12: minutes until it opens (closed by hours or a pause window); null when open or unknown. */
   opensInMin: z.number().int().min(0).nullable().optional(),
   /** Busy mode: prep takes longer. */
   busy: z.boolean(),
+  /** «مميّز»: on the featured commission tier; marked in the lists, one sits first (`featuredFirst`). */
+  featured: z.boolean().optional(),
   /**
    * Weekly opening hours on the city's clock ("HH:MM", `end` before `start` runs past midnight); empty
    * = always open. Joy o11: a closed kitchen offers pre-order slots for today or tomorrow inside them
@@ -84,6 +92,8 @@ export const RestaurantCard = z.object({
   pauses: z.array(z.object({ dow: z.number().int().min(0).max(6), start: z.string(), end: z.string() })).optional(),
   /** Live merchant deals (badges); the server applies at most one at checkout (`orders.quote`). Always sent by the API. */
   deals: z.array(DealBadge).optional(),
+  /** أكل بيت: set on a home kitchen (her letter and how many dishes are ready or by reservation); absent on a restaurant. */
+  home: HomeKitchenBadge.nullable().optional(),
 });
 export type RestaurantCard = z.infer<typeof RestaurantCard>;
 
@@ -159,6 +169,12 @@ export const MenuItem = z.object({
   serves: Serves.nullable().optional(),
   /** The kitchen's labels for the dish (joy o8). */
   labels: z.array(DishLabel).optional(),
+  /** «جهّز محلك»: the photo is Driver's library photo of the dish; the app writes «صورة توضيحية» on it. */
+  photoIllustrative: z.boolean().optional(),
+  /** «شنو بالصحن؟»: what is on the plate, in the kitchen's words; absent when not said. */
+  portion: z.string().max(60).optional(),
+  /** أكل بيت: a home kitchen's dish, ready today (plates left) or by reservation (next free time); absent elsewhere. */
+  home: HomeDishView.nullable().optional(),
 });
 export type MenuItem = z.infer<typeof MenuItem>;
 
@@ -191,6 +207,16 @@ export const RestaurantMenu = z.object({
 export type RestaurantMenu = z.infer<typeof RestaurantMenu>;
 
 /**
+ * أكل بيت (`catalog.homeKitchens`): the city's home kitchens, kept out of every restaurant list.
+ * `open` is the city's launch switch (`homeKitchens.launched`); while it is off the list is empty and
+ * the app shows no entry.
+ */
+export const HomeKitchensInput = z.object({ cityId: CityId, dropoff: DeliveryPoint.optional() });
+export type HomeKitchensInput = z.input<typeof HomeKitchensInput>;
+export const HomeKitchens = z.object({ open: z.boolean(), kitchens: z.array(RestaurantCard) });
+export type HomeKitchens = z.infer<typeof HomeKitchens>;
+
+/**
  * Customer search (`catalog.search`): restaurants and dishes for one typed query, Arabic-folded
  * (`foldArabic`: ة/ه, أ/ا/إ, ى/ي, گ/ك, leading "ال", Eastern digits). Public like the rest of the
  * catalog read; closed kitchens are included and marked, so they stay reachable.
@@ -210,11 +236,15 @@ export const CatalogSearchDish = z.object({
   photoUrl: z.string().nullable(),
   /** Orderable now (sold out or outside its schedule = false). */
   available: z.boolean(),
+  /** No option group asks for a choice: a card can add it in one tap (home's band +), else it opens the dish. */
+  quickAdd: z.boolean(),
   restaurantId: z.string(),
   restaurantName: z.string(),
   restaurantOpen: z.boolean(),
   /** The kitchen's next opening (12-hour "7:00") when it is closed. */
   restaurantOpensAt: z.string().nullable(),
+  /** Sold by weight (s1): the price of one kilo («الكيلو 15,000», `kiloPriceOf`); absent otherwise. */
+  kiloIqd: Iqd.nullable().optional(),
 });
 export type CatalogSearchDish = z.infer<typeof CatalogSearchDish>;
 
@@ -243,6 +273,30 @@ export const CatalogPicksInput = z.object({
   limit: z.number().int().min(1).max(12).default(3),
 });
 export type CatalogPicksInput = z.input<typeof CatalogPicksInput>;
+
+/**
+ * `catalog.cravings` (food doors, ideas d5, k9, s6, j2): «شنو بخاطرك؟» inside a door — for each kind of
+ * thing (كنافة، لاتيه، رمان…) the open shops that have it right now, each with its best-matching
+ * orderable dish (a dish counts when its name starts with one of the kind's words, like `picks`). One
+ * dish per shop, best match then cheapest first. Kinds nobody has right now are left out, so a picture
+ * never leads to an empty page.
+ */
+export const CatalogCravingsInput = z.object({
+  cityId: CityId,
+  kinds: z
+    .array(z.object({ key: z.string().trim().min(1).max(30), words: z.array(z.string().trim().min(1).max(30)).min(1).max(8) }))
+    .min(1)
+    .max(12),
+  dropoff: DeliveryPoint.optional(),
+});
+export type CatalogCravingsInput = z.input<typeof CatalogCravingsInput>;
+
+export const CatalogCraving = z.object({
+  key: z.string(),
+  /** One dish per open shop that has it. */
+  dishes: z.array(CatalogSearchDish),
+});
+export type CatalogCraving = z.infer<typeof CatalogCraving>;
 
 /**
  * `search.unmet` (joy h4, discovery D-13): a search that found nothing, sent when the customer says
@@ -284,8 +338,11 @@ export const UNMET_SEARCH_ROLES = ['admin', 'dispatcher', 'support', 'field_ops'
 /**
  * Public catalog reads (guest browsing, Ali 2026-10-04): no account needed, limited per client IP.
  * Nothing in a card or a menu is personal.
+ * 1,200/min, not 120: Iraqi carriers put many phones behind one carrier-NAT address, and one guest
+ * browsing makes ~10–20 reads a minute, so 120 would refuse a few dozen real guests sharing an address
+ * on launch day. 1,200 still stops a single scraper; refusals are logged so ops can see if it bites.
  */
-export const CATALOG_PUBLIC_RATE = { windowMs: 60_000, perIp: 120 } as const;
+export const CATALOG_PUBLIC_RATE = { windowMs: 60_000, perIp: 1_200 } as const;
 
 /** Who is reading: a signed-in person, or a guest seen only by the client IP (rate limits). */
 export type CatalogReader = { actor: Actor | null; ip?: string | null };
@@ -351,12 +408,17 @@ export interface CustomerCatalogPort {
   search(reader: Actor | CatalogReader, input: z.infer<typeof CatalogSearchInput>): Promise<CatalogSearchResult>;
   today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday>;
   picks(reader: Actor | CatalogReader, input: z.infer<typeof CatalogPicksInput>): Promise<CatalogSearchDish[]>;
+  cravings(reader: Actor | CatalogReader, input: z.infer<typeof CatalogCravingsInput>): Promise<CatalogCraving[]>;
   /** Joy h2: today's pots in the city (open kitchens first); `followed` for a signed-in reader. */
   pots(reader: Actor | CatalogReader, input: z.infer<typeof PotsTodayInput>): Promise<TodayPot[]>;
   dishFollows(actor: Actor): Promise<MyDishFollows>;
   followDish(actor: Actor, input: FollowDishInput): Promise<MyDishFollows>;
   unmet(reader: Actor | CatalogReader, input: z.infer<typeof SearchUnmetInput>): Promise<{ ok: true }>;
   unmetSearches(actor: Actor, input: z.infer<typeof UnmetSearchesInput>): Promise<UnmetSearchRow[]>;
+  /** أكل بيت: the city's home kitchens (open ones first) and whether home cooking is open in the city. */
+  homeKitchens(reader: Actor | CatalogReader, input: z.infer<typeof HomeKitchensInput>): Promise<HomeKitchens>;
+  /** أكل بيت: a reserve dish's bookable week, with the plates still free at each time. */
+  homeSlots(reader: Actor | CatalogReader, input: HomeSlotsInput): Promise<HomeSlots>;
 }
 
 /**

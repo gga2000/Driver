@@ -1,4 +1,4 @@
-import type { IntercityDirection } from '@driver/contracts';
+import { RIDE_SEAT_HOLD, type IntercityDirection } from '@driver/contracts';
 
 /**
  * الرجعة network and rules (customer spec §2, domain §2, decisions §8–§9, review C). Data, not
@@ -8,12 +8,11 @@ import type { IntercityDirection } from '@driver/contracts';
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────┐
  * │ PLACEHOLDERS — Ali must replace before launch (each is also marked `placeholder`/`draft`):  │
- * │  • Baghdad seat 10,000 and Kut seat 5,000 (real fares from the garages).                    │
  * │  • Travel times (120 / 60 min), on-the-way meeting-point fees (1,000 / 2,000).              │
- * │  • Door-pickup pricing (1,000 base + 500 per km after 2 km) and the detour speed.           │
+ * │  • The detour speed (door pickup 1,000 + 500 per km after 2 km: Ali kept it, 2026-10-07).   │
  * │  • The Kut garage, the three Baghdad-road meeting points and the three checkpoints: names   │
  * │    and pins are plausible drafts until field ops verify them on the ground.                 │
- * │  • Driver cancel fee 2,000 per rider (doubles after 18:00) and the rider free-cancel rule.  │
+ * │  • The rider free-cancel rule (driver cancel fee 2,000, 4,000 after 18:00: Ali kept it).   │
  * └──────────────────────────────────────────────────────────────────────────────────────────┘
  */
 
@@ -72,8 +71,8 @@ export const GARAGES: GarageConfig[] = [
     cityId: 'aziziyah',
     nameAr: 'كراج البوابة 1',
     nameEn: 'Gate 1 garage',
-    lat: 32.9032,
-    lng: 45.0578,
+    lat: 32.91575,
+    lng: 45.0405,
     geofenceM: 150,
     draft: false,
   },
@@ -82,8 +81,8 @@ export const GARAGES: GarageConfig[] = [
     cityId: 'aziziyah',
     nameAr: 'كراج البوابة 2',
     nameEn: 'Gate 2 garage',
-    lat: 32.9088,
-    lng: 45.0648,
+    lat: 32.9155,
+    lng: 45.0641,
     geofenceM: 150,
     draft: false,
   },
@@ -92,8 +91,8 @@ export const GARAGES: GarageConfig[] = [
     cityId: 'aziziyah',
     nameAr: 'كراج السوق',
     nameEn: 'Souq garage',
-    lat: 32.9062,
-    lng: 45.0612,
+    lat: 32.9021,
+    lng: 45.0666,
     geofenceM: 150,
     draft: false,
   },
@@ -127,9 +126,9 @@ export const CORRIDORS: CorridorConfig[] = [
     nameEn: 'Aziziyah ⇄ Baghdad',
     primary: true,
     cityId: 'baghdad',
-    seatPriceIqd: 10_000, // PLACEHOLDER — Ali gives the real Baghdad seat fare
-    frontPremiumIqd: 2_000,
-    placeholderPrice: true,
+    seatPriceIqd: 5_000, // Ali 2026-10-07: 5,000 each way (garage → Baghdad and Baghdad → garage)
+    frontPremiumIqd: 1_000, // Ali 2026-10-07
+    placeholderPrice: false,
     travelMin: 120, // PLACEHOLDER estimate
     meetingPoints: [
       // DRAFT pins and fees (seeded as INTERCITY_DRAFT_POINTS)
@@ -198,9 +197,9 @@ export const CORRIDORS: CorridorConfig[] = [
     nameEn: 'Aziziyah ⇄ Kut',
     primary: false,
     cityId: 'kut',
-    seatPriceIqd: 5_000, // PLACEHOLDER — Ali gives the real Kut seat fare
-    frontPremiumIqd: 2_000,
-    placeholderPrice: true,
+    seatPriceIqd: 5_000, // Ali 2026-10-07: 5,000 each way
+    frontPremiumIqd: 1_000, // Ali 2026-10-07
+    placeholderPrice: false,
     travelMin: 60, // PLACEHOLDER estimate
     meetingPoints: [],
     checkpoints: [],
@@ -226,6 +225,12 @@ export interface IntercityRules {
   maxAnnounceAheadHours: number;
   /** Cash reservations: grace before the driver may leave without the rider (no meter). */
   cashGraceMin: number;
+  /**
+   * x3 (RIDE_SEAT_HOLD): a rider whose taxi from us runs late for the car keeps his seat until that taxi
+   * is due, capped at the late meter's cap after the announced time. Off until Ali confirms the
+   * no-show rule (2026-10-07); absent = off.
+   */
+  seatHoldForLateTaxi?: boolean;
   /** Cash reservation rights lost after this many no-shows (claimed-demand lapses count). */
   cashNoShowsToRevoke: number;
   /** Review C-35: trusted rider after this many completed seats. */
@@ -234,7 +239,7 @@ export interface IntercityRules {
   moveWindowMin: number;
   /** Driver cancel inside this many minutes before departure costs a fee (domain §2: 2 h). */
   driverCancelFeeWindowMin: number;
-  /** Fee per affected rider, paid to them as credit (review C-46: 2,000 per rider). */
+  /** Fee per affected rider, paid to them as credit (review C-46: 2,000 per rider; also the M-11 no-show fee). */
   driverCancelFeePerRiderIqd: number;
   /** Fee doubles for departures at or after this local hour (review C-46: 18:00). */
   cancelFeeDoublesFromHour: number;
@@ -268,6 +273,8 @@ export interface IntercityRules {
     riderNoShowWaitMin: number;
     driverNoShowAfterMin: number;
     arrivalGeofenceM: number;
+    /** Way C (Ali 2026-10-09): a friend's «صعدت» works within this of where the driver pressed «وصلت». */
+    shareBoardNearM: number;
   };
 }
 
@@ -279,11 +286,12 @@ export const INTERCITY_RULES: IntercityRules = {
   maxLatestDepartureMin: 120,
   maxAnnounceAheadHours: 48,
   cashGraceMin: 3,
+  seatHoldForLateTaxi: RIDE_SEAT_HOLD,
   cashNoShowsToRevoke: 2,
   trustedAfterSeats: 3,
   moveWindowMin: 120,
   driverCancelFeeWindowMin: 120,
-  driverCancelFeePerRiderIqd: 2_000, // PLACEHOLDER (review C-46 figure)
+  driverCancelFeePerRiderIqd: 2_000, // review C-46; Ali confirmed it for garage no-shows (M-11, 2026-10-09)
   cancelFeeDoublesFromHour: 18,
   utcOffsetMin: 180,
   door: {
@@ -308,6 +316,7 @@ export const INTERCITY_RULES: IntercityRules = {
     riderNoShowWaitMin: 10,
     driverNoShowAfterMin: 20,
     arrivalGeofenceM: 300,
+    shareBoardNearM: 300,
   },
 };
 

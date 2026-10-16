@@ -1,4 +1,5 @@
 import { orderTicketNumber, type TicketSummary } from '@driver/contracts';
+import { t } from '@driver/i18n';
 import { normalize } from './command';
 
 /**
@@ -117,9 +118,9 @@ export function compactDuration(ms: number): string {
   const totalMin = Math.max(0, Math.floor(Math.abs(ms) / 60_000));
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  if (h === 0) return `${m} د`;
-  if (h >= 10 || m === 0) return `${h} س`;
-  return `${h} س ${m} د`;
+  if (h === 0) return t('console.dur_m', { m });
+  if (h >= 10 || m === 0) return t('console.dur_h', { h });
+  return t('console.dur_hm', { h, m });
 }
 
 /** How much of the same-day window is left (0–1), for the SLA fuse. Resolved → 1 (met) or 0. */

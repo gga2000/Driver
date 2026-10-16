@@ -1,6 +1,6 @@
-import { tenderOptions, type BoardCard, type LatLng, type Trip } from '@driver/contracts';
+import { jobOrder, tenderOptions, type Actor, type BoardCard, type LatLng, type Trip } from '@driver/contracts';
 import { haversineMeters } from '../../trips/index.js';
-import type { ActionKind, DriverAction, DriverRun, DriverTrip, ReplayRecord, SimContext } from '../context.js';
+import type { ActionKind, DriverAction, DriverRun, DriverTrip, OrderRun, ReplayRecord, SimContext } from '../context.js';
 import { CITY } from '../context.js';
 import { servedVerticals } from '../../dispatch/index.js';
 import { VEHICLE_SPEED_KMH, simDriverRoles } from '../world.js';
@@ -132,8 +132,13 @@ export async function driverOffers(ctx: SimContext, d: DriverRun, offers: Readon
     // The desk picked him because he was free; if he has taken another job since, he tells it no
     // (a manual offer skips dispatch's batching rules, so accepting would be an unplanned batch).
     const accept = p.decision === 'accept' && !(ctx.deskOffers.has(p.offerId) && d.trips.size > 0);
+    // What his offer card shows: the batch rate when he already holds another job (Partner `currentOffer`).
+    const held = accept ? await ctx.call('driver.jobs', () => ctx.s.trips.forDriver(d.personId)) : null;
     const res = await ctx.call('driver.respond', () => ctx.s.dispatch.respond(actorOf(d), { offerId: p.offerId, accept }));
-    if (res?.outcome === 'assigned') await takeTrip(ctx, d, res.tripId);
+    if (res?.outcome === 'assigned') {
+      ctx.acceptedOffers.push({ tripId: res.tripId, driverId: d.personId, batched: (held ?? []).some((t) => t.id !== res.tripId) });
+      await takeTrip(ctx, d, res.tripId);
+    }
   }
 }
 
@@ -192,7 +197,10 @@ function nextTarget(ctx: SimContext, d: DriverRun): Target | null {
   // batching rules planned: the batch leaves the last kitchen together); then drop-offs, nearest first.
   const arrived = open.find((o) => o.trip.local.get(o.stop.id) === 'arrived' || o.stop.state === 'arrived');
   if (arrived) return arrived;
-  const pickups = open.filter((o) => o.stop.type !== 'dropoff');
+  // A shopper never goes buying a «دوّرلي» list with hot food in his bag: the food goes to its doors first.
+  const shopLater = (o: Target) => o.trip.vertical === 'errand' && o.stop.type !== 'dropoff' && d.bag.size > 0;
+  const workable = open.some((o) => !shopLater(o)) ? open.filter((o) => !shopLater(o)) : open;
+  const pickups = workable.filter((o) => o.stop.type !== 'dropoff');
   // Standing at a kitchen where another of his bags is already ready: he takes it now rather than
   // driving off and coming back for it.
   const readyHere = (o: Target) => {
@@ -201,8 +209,16 @@ function nextTarget(ctx: SimContext, d: DriverRun): Target | null {
   };
   const here = pickups.find(readyHere);
   if (here) return here;
-  if (pickups.length > 0) return pickups.reduce((first, o) => (o.trip.acceptedT < first.trip.acceptedT || (o.trip.acceptedT === first.trip.acceptedT && o.stop.seq < first.stop.seq) ? o : first));
-  return open.reduce((best, o) => (haversineMeters(d.pos, o.at) < haversineMeters(d.pos, best.at) ? o : best));
+  if (pickups.length > 0) {
+    // The jobs in the order the server says he works them (`jobOrder`, the route batching checked).
+    const order = jobOrder([...d.trips.values()].map((t) => t.view)).map((t) => t.id);
+    return pickups.reduce((first, o) => {
+      const a = order.indexOf(o.trip.tripId);
+      const b = order.indexOf(first.trip.tripId);
+      return a < b || (a === b && o.stop.seq < first.stop.seq) ? o : first;
+    });
+  }
+  return workable.reduce((best, o) => (haversineMeters(d.pos, o.at) < haversineMeters(d.pos, best.at) ? o : best));
 }
 
 function moveToward(d: DriverRun, to: LatLng, dtSec: number): number {
@@ -243,6 +259,17 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
       if (ctx.t >= arrivedT + (run?.plan.boardingSec ?? 0) * 1000) await act(ctx, d, trip, 'complete', stop);
       return;
     }
+    // طرود: the sender hands the parcel over at the door.
+    if (trip.vertical === 'parcel') {
+      await act(ctx, d, trip, 'complete', stop);
+      return;
+    }
+    // «دوّرلي»: he buys the list, records the receipt, then leaves the shops (the server waits for the receipt).
+    if (trip.vertical === 'errand') {
+      if (!d.online || !run || !stop.orderId) return;
+      if (await errandReceipt(ctx, d, run, stop.orderId, arrivedT)) await act(ctx, d, trip, 'complete', stop);
+      return;
+    }
     // Food: the bag is handed over when the kitchen is really done; never picked up while the phone is offline.
     if (!d.online || !run || run.readyT === null || ctx.t < run.readyT) return;
     const ok = await act(ctx, d, trip, 'complete', stop);
@@ -250,7 +277,11 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
       const order = await ctx.call('driver.order', () => ctx.s.orders.get(stop.orderId!));
       const promised = order?.promisedReadyAt?.getTime() ?? ctx.t;
       const actual = order?.readyAt?.getTime() ?? ctx.t;
-      d.bag.set(stop.orderId, { readyAtMs: Math.max(promised, actual), lateMs: Math.max(0, actual - promised), batched: trip.batched || d.trips.size > 1, pickedUpT: ctx.t, offline: false, departed: false });
+      const lateMs = Math.max(0, actual - promised);
+      // A late kitchen holds him from the later of his arrival and its promise until the bag is handed over.
+      const heldFromMs = Math.max(arrivedT, promised);
+      const heldMs = lateMs > 0 ? Math.min(lateMs, Math.max(0, ctx.t - heldFromMs)) : 0;
+      d.bag.set(stop.orderId, { readyAtMs: Math.max(promised, actual), lateMs, heldMs, heldFromMs, batched: trip.batched || d.trips.size > 1, pickedUpT: ctx.t, offline: false, departed: false });
     }
     return;
   }
@@ -266,9 +297,56 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
       return;
     }
   }
+  // طرود «رفضت تستلم»: the receiver refuses; the courier marks it at the door and brings it back to the
+  // sender, who pays both trips at the hand-back (the receiver is never charged).
+  if (trip.vertical === 'parcel' && run?.plan.parcelRefused && stop.orderId) {
+    const order = await ctx.call('driver.order', () => ctx.s.orders.get(stop.orderId!));
+    if (order && order.returnFareIqd == null) {
+      if (!d.online) return;
+      await ctx.call('driver.parcel_refused', () => ctx.s.orders.returnParcel(d.personId, stop.orderId!));
+      await refreshTrip(ctx, d, trip.tripId);
+      return;
+    }
+  }
   const cash = run && run.plan.payment === 'cash' ? await cashToCollect(ctx, stop.orderId!) : undefined;
   const ok = await act(ctx, d, trip, 'complete', stop, cash?.cashIqd, cash?.changeToWalletIqd);
   if (ok && stop.orderId) d.bag.delete(stop.orderId);
+}
+
+/** The smallest JPEG header the upload store's sniffer accepts: the receipt photo's bytes in the sim. */
+const RECEIPT_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+
+/**
+ * «دوّرلي» at the shops: once he has bought the list (`shopMin` after he arrived), the receipt goes in
+ * — his photo through the upload store, then `orders.recordErrandReceipt`. When the photo will not
+ * send (planned, or the store refuses it) he reads the amount out and ops record it for him
+ * (`orders.ops.recordErrandReceipt`). True once the server has the receipt.
+ */
+async function errandReceipt(ctx: SimContext, d: DriverRun, run: OrderRun, orderId: string, arrivedT: number): Promise<boolean> {
+  const e = run.plan.errand;
+  if (!e || ctx.errandReceipts.has(orderId)) return true;
+  run.shoppedT ??= arrivedT + e.shopMin * 60_000;
+  if (ctx.t < run.shoppedT) return false;
+  const photo = e.photoFails ? null : await ctx.call('driver.receipt_photo', () => uploadReceiptPhoto(ctx, d.personId));
+  if (photo) {
+    const r = await ctx.call('driver.errand_receipt', () => ctx.s.orders.recordErrandReceipt(d.personId, { orderId, totalIqd: e.receiptIqd, photoUploadId: photo }));
+    if (!r) return false;
+    ctx.errandReceipts.set(orderId, { orderId, courierId: d.personId, receiptIqd: r.receiptIqd, byStaff: false });
+    return true;
+  }
+  const ops = { personId: ctx.dispatcherId, sessionId: 'sim-dispatcher' } as unknown as Actor;
+  const r = await ctx.call('ops.errand_receipt', () => ctx.s.ordersStaff.errandReceipt(ops, { orderId, totalIqd: e.receiptIqd, reason: 'صورة الوصل ما دتنرسل من السوق، المتسوّق قرا المبلغ', photoUploadId: null }));
+  if (!r) return false;
+  ctx.errandReceipts.set(orderId, { orderId, courierId: d.personId, receiptIqd: e.receiptIqd, byStaff: true });
+  return true;
+}
+
+/** The Partner app's photo upload: a ticket, then the bytes PUT to its signed URL. */
+async function uploadReceiptPhoto(ctx: SimContext, ownerId: string): Promise<string> {
+  const ticket = await ctx.s.uploads.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: RECEIPT_JPEG.length });
+  const url = new URL(ticket.uploadUrl, 'http://sim.local');
+  await ctx.s.uploads.receive({ id: ticket.uploadId, exp: url.searchParams.get('exp') ?? undefined, sig: url.searchParams.get('sig') ?? undefined, contentType: 'image/jpeg', bytes: RECEIPT_JPEG });
+  return ticket.uploadId;
 }
 
 /**
@@ -279,12 +357,14 @@ export async function driverWork(ctx: SimContext, d: DriverRun, dtSec: number): 
 async function cashToCollect(ctx: SimContext, orderId: string): Promise<{ cashIqd: number; changeToWalletIqd?: number } | undefined> {
   const order = await ctx.call('driver.order', () => ctx.s.orders.get(orderId));
   if (!order) return undefined;
+  // M-3: the owed fees the order collects ride on the cash.
+  const due = order.totalIqd + (order.debtCollectIqd ?? 0);
   if (stableBucket(orderId, DRIVER_BEHAVIOUR.noChangeEvery) === 0) {
-    const note = order.statedTenderIqd ?? tenderOptions(order.totalIqd)[1];
-    const extra = note !== undefined ? note - order.totalIqd : 0;
+    const note = order.statedTenderIqd ?? tenderOptions(due)[1];
+    const extra = note !== undefined ? note - due : 0;
     if (extra > 0 && extra <= 25_000 && extra % 250 === 0) return { cashIqd: note!, changeToWalletIqd: extra };
   }
-  return { cashIqd: order.totalIqd };
+  return { cashIqd: due };
 }
 
 /** A fixed bucket 0…n−1 for an id (FNV-1a), independent of every random stream. */
@@ -302,15 +382,21 @@ function stableBucket(id: string, n: number): number {
 
 /**
  * The batch leaves the last kitchen: how long each hot item waited since it was ready (the later of
- * promised and actual). Lateness of a kitchen picked up after it is the kitchen's, not the batching
- * plan's, and is taken off (and reported).
+ * promised and actual). Batching plans against promised ready times, so what late kitchens cost an
+ * item is the kitchens', not the plan's, and is taken off (and reported): the lateness of a kitchen
+ * picked up after it, and the time a late kitchen picked up before it held the courier once the
+ * item was ready (he reached its counter that much later).
  */
-function recordDepartures(ctx: SimContext, d: DriverRun): void {
+export function recordDepartures(ctx: Pick<SimContext, 't' | 'hotWaits'>, d: Pick<DriverRun, 'personId' | 'bag'>): void {
   const bag = [...d.bag.entries()].filter(([, b]) => !b.departed);
   for (const [orderId, b] of bag) {
     b.departed = true;
     if (!b.batched) continue;
-    const lateMs = Math.max(0, ...bag.filter(([, x]) => x.pickedUpT > b.pickedUpT).map(([, x]) => x.lateMs));
+    const laterMs = Math.max(0, ...bag.filter(([, x]) => x.pickedUpT > b.pickedUpT).map(([, x]) => x.lateMs));
+    const earlierHeldMs = bag
+      .filter(([id, x]) => id !== orderId && x.pickedUpT <= b.pickedUpT && x.heldMs > 0)
+      .reduce((n, [, x]) => n + Math.min(x.heldMs, Math.max(0, x.pickedUpT - Math.max(x.heldFromMs, b.readyAtMs))), 0);
+    const lateMs = laterMs + earlierHeldMs;
     const round = (ms: number) => Math.round(ms / 6000) / 10;
     ctx.hotWaits.push({
       orderId,
@@ -425,7 +511,17 @@ export async function driverSettle(ctx: SimContext, d: DriverRun, opts: { force?
   const status = await ctx.call('driver.cap', () => ctx.s.caps.status(d.personId));
   if (!status) return;
   if (!opts.force && status.owedIqd < status.capIqd * DRIVER_BEHAVIOUR.settleAtShareOfCap) return;
-  const route = (await ctx.call('driver.return_route', () => ctx.s.merchantCash.returnRoute(d.personId))) ?? [];
+  let route = (await ctx.call('driver.return_route', () => ctx.s.merchantCash.returnRoute(d.personId))) ?? [];
+  // Every other time, he meets field ops / an agent before the restaurants and hands in only the
+  // company's own part: the restaurants' cash stays with him and his return route must still show it.
+  if (!opts.merchantsOnly && d.seq % 2 === 0) {
+    const companyPart = status.owedIqd - route.reduce((n, r) => n + r.amountIqd, 0);
+    if (route.length > 0 && companyPart > 0) {
+      d.seq += 1;
+      await ctx.call('driver.agent', () => ctx.s.merchantCash.recordDriverSettlement({ driverId: d.personId, amountIqd: companyPart, channel: 'agent', reference: `AG-${d.def.key}-${d.seq}` }));
+      route = (await ctx.call('driver.return_route', () => ctx.s.merchantCash.returnRoute(d.personId))) ?? [];
+    }
+  }
   for (const stop of route) {
     d.seq += 1;
     const done = await ctx.call('driver.handover', () =>
@@ -438,5 +534,11 @@ export async function driverSettle(ctx: SimContext, d: DriverRun, opts: { force?
   if (after && after.owedIqd > 0) {
     d.seq += 1;
     await ctx.call('driver.agent', () => ctx.s.merchantCash.recordDriverSettlement({ driverId: d.personId, amountIqd: after.owedIqd, channel: 'agent', reference: `AG-${d.def.key}-${d.seq}` }));
+  }
+  // G-86: once the company owes him more than the payout line, finance pays him (ZainCash).
+  const owedToHim = await ctx.call('driver.cap', () => ctx.s.caps.status(d.personId));
+  if (owedToHim && owedToHim.payoutDueIqd > 0) {
+    d.seq += 1;
+    await ctx.call('finance.pay_driver', () => ctx.s.merchantCash.recordDriverPayout({ driverId: d.personId, amountIqd: owedToHim.payoutDueIqd, channel: 'zaincash', reference: `PO-${d.def.key}-${d.seq}` }));
   }
 }

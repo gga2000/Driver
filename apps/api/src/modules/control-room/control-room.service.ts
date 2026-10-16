@@ -12,11 +12,21 @@ import type {
   MetricsInput,
   SettlementExport,
   SettlementExportInput,
+  AdjustInput,
+  AdjustResult,
+  PayDriverInput,
+  PayMerchantInput,
+  PayoutResult,
+  MerchantCommissionInput,
+  MerchantCommissionView,
+  SetCommissionTierInput,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { ApprovalsService } from './approvals.service.js';
+import { CommissionTierService } from './commission.service.js';
 import { FinanceDeskService } from './finance.service.js';
 import { LaunchMetricsService } from './metrics.service.js';
+import { MoneyOutService } from './money-out.service.js';
 
 /** `ctx.controlRoom`: the approvals queue, the nightly cash desk and the metrics wall. */
 @Injectable()
@@ -25,6 +35,8 @@ export class ControlRoomService implements ControlRoomPort {
     private readonly approvalsQueue: ApprovalsService,
     private readonly financeDesk: FinanceDeskService,
     private readonly launchMetrics: LaunchMetricsService,
+    private readonly moneyOut: MoneyOutService,
+    private readonly commissionTiers: CommissionTierService,
   ) {}
 
   approvals(actor: Actor, input: z.output<typeof ApprovalsInput>): Promise<ApprovalsView> {
@@ -41,6 +53,26 @@ export class ControlRoomService implements ControlRoomPort {
 
   exportSettlement(actor: Actor, input: z.output<typeof SettlementExportInput>): Promise<SettlementExport> {
     return this.financeDesk.exportCsv(actor, input);
+  }
+
+  payMerchant(actor: Actor, input: z.output<typeof PayMerchantInput>): Promise<PayoutResult> {
+    return this.moneyOut.payMerchant(actor, input);
+  }
+
+  payDriver(actor: Actor, input: z.output<typeof PayDriverInput>): Promise<PayoutResult> {
+    return this.moneyOut.payDriver(actor, input);
+  }
+
+  adjust(actor: Actor, input: z.output<typeof AdjustInput>): Promise<AdjustResult> {
+    return this.moneyOut.adjust(actor, input);
+  }
+
+  commission(_actor: Actor, input: z.output<typeof MerchantCommissionInput>): Promise<MerchantCommissionView> {
+    return this.commissionTiers.view(input.merchantOrgId);
+  }
+
+  setCommissionTier(actor: Actor, input: z.output<typeof SetCommissionTierInput>): Promise<MerchantCommissionView> {
+    return this.commissionTiers.set(actor, input);
   }
 
   metrics(input: z.output<typeof MetricsInput>): Promise<LaunchMetricsView> {

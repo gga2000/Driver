@@ -5,6 +5,7 @@ import {
   rideSearchStartsAt,
   RIDE_HABIT_RULES,
   shiftDate,
+  type BookedRideStatus,
   type FavouriteDriverView,
   type FavouriteKind,
   type Order,
@@ -110,6 +111,23 @@ export function settleChoice(now: Date, c: ScheduleChoice): ScheduleChoice {
  */
 export function isBookedRide(o: Pick<Order, 'type' | 'state' | 'scheduledFor'>, now: Date): boolean {
   return o.type === 'ride' && o.state === 'placed' && o.scheduledFor !== null && rideSearchStartsAt(o.scheduledFor).getTime() > now.getTime();
+}
+
+/**
+ * Review #28: what the booked ride says about its driver. `confirmed`: «سايقك محجوز: حسين» with his face;
+ * `looking`: «ندوّرلك سايق، نأكدلك قبل الساعة 10 بالليل»; `later`: no driver confirmed, the search starts
+ * at `searchAt`. Before the server answers, the order's own time gives the `later` line.
+ */
+export type BookedLine =
+  | { kind: 'confirmed'; name: string | null; photoUrl: string | null }
+  | { kind: 'looking'; until: Date }
+  | { kind: 'later'; searchAt: Date };
+
+export function bookedLine(status: BookedRideStatus | null | undefined, order: Pick<Order, 'scheduledFor'>): BookedLine | null {
+  if (status?.state === 'confirmed' && status.driver) return { kind: 'confirmed', name: status.driver.firstName, photoUrl: status.driver.photoUrl };
+  if (status?.state === 'looking' && status.confirmBy) return { kind: 'looking', until: status.confirmBy };
+  const searchAt = status?.searchAt ?? (order.scheduledFor ? rideSearchStartsAt(order.scheduledFor) : null);
+  return searchAt ? { kind: 'later', searchAt } : null;
 }
 
 /** When dispatch starts looking for a driver for that booking. */

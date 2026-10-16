@@ -10,7 +10,11 @@ import {
   pointsForRideTake,
   postCancellation,
   postDepartureCancelled,
+  postDriverCancelled,
+  postErrand,
+  postFoodCartWalkupCommission,
   postLateMeter,
+  postMerchantLateReject,
   postOrderClosed,
   postPoints,
   postReferral,
@@ -22,8 +26,9 @@ import {
   roundCustomerTotal,
   takeOf,
   type PostingGroup,
+  LATE_TAXI_MEMO,
 } from './postings.js';
-import { workedExample } from './test-harness.js';
+import { ledgerHarness, workedExample } from './test-harness.js';
 
 const at = new Date('2026-10-03T12:00:00Z');
 
@@ -57,6 +62,15 @@ describe('order closed — money §2 worked example', () => {
   it('commission base is the item subtotal after merchant-funded discounts, never service fee or delivery (G-87)', () => {
     const p = postOrderClosed(workedExample({ itemsSubtotalIqd: 10000, commissionTier: 'base', deliveryFeeIqd: 1500 }), rules);
     expect(p.money.lines.find((l) => l.type === 'commission_accrued')?.amount).toBe(1200);
+  });
+
+  it('starter (Ali 2026-10-11): a 20,000 food order takes 1,000 (5 %); featured takes 3,000 (15 %)', () => {
+    const commission = (tier: OrderMoneyPayload['commissionTier']) => postOrderClosed(workedExample({ itemsSubtotalIqd: 20000, commissionTier: tier }), rules).money.lines.find((l) => l.type === 'commission_accrued');
+    expect(commission('starter')).toMatchObject({ amount: 1000, memo: 'commission:starter' });
+    expect(commission('featured')).toMatchObject({ amount: 3000, memo: 'commission:featured' });
+    const n = nets(postOrderClosed(workedExample({ itemsSubtotalIqd: 20000, commissionTier: 'starter' }), rules).money);
+    expect(n['merchant_cash:m1']).toBe(19000);
+    expect(n['platform']).toBe(1000 + 500);
   });
 
   it('batched second order: courier earns 70 % of its fee, the customer pays it in full', () => {
@@ -103,6 +117,25 @@ describe('order closed — money §2 worked example', () => {
     expect(extra.money.lines.find((l) => l.type === 'cash_rounding_credit')?.amount).toBe(500);
   });
 
+  it('M-3: owed fees collected with the cash settle back onto his wallet, price first when the cash is short', () => {
+    const paid = postOrderClosed(workedExample({ debtCollectIqd: 1000 }), rules);
+    validateGroup(paid.money);
+    const n = nets(paid.money);
+    expect(n['cash:k1']).toBe(-17500); // the courier holds the price and the fees
+    expect(n['customer:c1']).toBe(1000); // the 1,000 he owed is paid off
+    expect(paid.totalIqd).toBe(16500);
+    expect(paid.money.lines.find((l) => l.type === 'debt_settled')).toMatchObject({ amount: 1000, fromAccount: 'cash:k1', toAccount: 'customer:c1', memo: 'owed_fees' });
+    // He handed over only the price: nothing is settled, the fees stay owed.
+    const priceOnly = postOrderClosed(workedExample({ debtCollectIqd: 1000, cashCollectedIqd: 16500 }), rules);
+    validateGroup(priceOnly.money);
+    expect(priceOnly.money.lines.some((l) => l.type === 'debt_settled')).toBe(false);
+    expect(nets(priceOnly.money)['customer:c1']).toBe(0);
+    // Half of them: half settled.
+    const half = postOrderClosed(workedExample({ debtCollectIqd: 1000, cashCollectedIqd: 17000 }), rules);
+    expect(half.money.lines.find((l) => l.type === 'debt_settled')?.amount).toBe(500);
+    expect(() => postOrderClosed(workedExample({ debtCollectIqd: 1000, payment: 'wallet' }), rules)).toThrow(/owed fees/);
+  });
+
   it('points redeem against the delivery fee first, then the service fee (J-D10); the platform funds them', () => {
     const p = postOrderClosed(workedExample({ pointsRedeemed: 60 }), rules);
     validateGroup(p.money);
@@ -133,6 +166,36 @@ describe('order closed — money §2 worked example', () => {
     const n = nets(postOrderClosed(workedExample({ platformPromo: { promotionId: 'free3', amountIqd: 1000 } }), rules).money);
     expect(n['promo:free3']).toBe(-1000);
     expect(n['cash:k1']).toBe(-15500);
+  });
+});
+
+describe('errand — batched second (money §2, Ali 2026-10-12)', () => {
+  const errand = (over: Partial<Parameters<typeof postErrand>[0]> = {}) =>
+    postErrand({ orderId: 'e1', tripId: 't1', occurredAt: at, customerId: 'c1', payment: 'wallet', shopperId: 's1', actualCostIqd: 7000, errandFeeIqd: 2000, serviceFeeIqd: 500, ...over }, rules);
+
+  it('a batched second errand with a 2,000 fee pays the shopper 1,400 and books 600 as batched_margin; the receipt goes in full', () => {
+    const p = errand({ batchedSecond: true, tipIqd: 1000 });
+    validateGroup(p.money);
+    const lines = p.money.lines;
+    expect(lines.filter((l) => l.type === 'errand_cost_actual')).toEqual([expect.objectContaining({ amount: 7000, toAccount: 'driver:s1', memo: 'receipt' })]);
+    expect(lines.filter((l) => l.type === 'errand_fee')).toEqual([
+      expect.objectContaining({ amount: 1400, toAccount: 'driver:s1' }),
+      expect.objectContaining({ amount: 600, toAccount: 'platform', memo: 'batched_margin' }),
+    ]);
+    expect(lines.filter((l) => l.type === 'tip')).toEqual([expect.objectContaining({ amount: 1000, toAccount: 'driver:s1' })]);
+    const n = nets(p.money);
+    expect(n['driver:s1']).toBe(7000 + 1400 + 1000);
+    expect(n['platform']).toBe(500 + 600);
+    // The customer pays the same as a single errand.
+    expect(p.totalIqd).toBe(errand({ tipIqd: 1000 }).totalIqd);
+  });
+
+  it('a single errand is unchanged: the whole fee to the shopper, no margin line', () => {
+    const p = errand();
+    validateGroup(p.money);
+    expect(p.money.lines.filter((l) => l.type === 'errand_fee')).toEqual([expect.objectContaining({ amount: 2000, fromAccount: 'customer:c1', toAccount: 'driver:s1' })]);
+    expect(p.money.lines.some((l) => l.memo === 'batched_margin')).toBe(false);
+    expect(nets(p.money)['driver:s1']).toBe(9000);
   });
 });
 
@@ -273,6 +336,19 @@ describe('late meter — 100 % to the wronged party', () => {
     expect(g.lines.every((l) => l.fromAccount !== 'platform' && l.toAccount !== 'platform')).toBe(true);
   });
 
+  it('x3: the blocks that ran while our own late taxi was due are the company\'s; the rider pays only the rest', () => {
+    const late = { departureId: 'dep1', occurredAt: at, minutesLate: 18, late: { kind: 'rider' as const, id: 'r9' }, driverId: 'd2', waitingRiderIds: ['r1'] };
+    const g = postLateMeter({ ...late, taxiLateMinutes: 12 }, rules)!; // 2 blocks: 1 ours (12 min), 1 his
+    validateGroup(g);
+    expect(nets(g)).toEqual({ 'customer:r9': -1500, platform: -1500, 'driver:d2': 2000, 'customer:r1': 1000 });
+    expect(g.lines.filter((l) => l.fromAccount === 'platform').every((l) => l.memo === LATE_TAXI_MEMO)).toBe(true);
+    // Taxi due after he arrived: the whole meter is ours.
+    expect(nets(postLateMeter({ ...late, taxiLateMinutes: 30 }, rules)!)).toEqual({ platform: -3000, 'driver:d2': 2000, 'customer:r1': 1000 });
+    // Switched off: the rider pays it all, as before.
+    const off = { ...rules, lateTaxiPaysMeter: { enabled: false } };
+    expect(nets(postLateMeter({ ...late, taxiLateMinutes: 12 }, off)!)).toEqual({ 'customer:r9': -3000, 'driver:d2': 2000, 'customer:r1': 1000 });
+  });
+
   it('late driver pays each waiting rider from his balance; inside the grace nothing posts', () => {
     const g = postLateMeter({ departureId: 'dep1', occurredAt: at, minutesLate: 9, late: { kind: 'driver', id: 'd2' }, driverId: 'd2', waitingRiderIds: ['r1', 'r2'] }, rules)!;
     expect(nets(g)).toEqual({ 'driver:d2': -2000, 'customer:r1': 1000, 'customer:r2': 1000 });
@@ -291,6 +367,22 @@ describe('cancellations', () => {
     expect(postCancellation(cancelled({ orderId: 'o3', feeIqd: 0, free: true, beneficiaries: [] }))).toBeNull();
   });
 
+  it('RDB-01/02: request-board money is keyed by the request and writes no foreign-key refs', () => {
+    const ride = postRideCompleted({ requestId: 'rq_1', occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'intercity_private', fareIqd: 40000, cashCollectedIqd: 35000 }, rules).money;
+    validateGroup(ride);
+    expect([ride.id, ride.refs]).toEqual(['request:rq_1:money', {}]);
+    const forfeit = postCancellation(cancelled({ orderId: undefined, requestId: 'rq_1', feeIqd: 5000, beneficiaries: [{ kind: 'driver', id: 'd1', amountIqd: 5000 }] }))!;
+    expect([forfeit.id, forfeit.refs, nets(forfeit)]).toEqual(['request:rq_1:cancel', {}, { 'customer:c1': -5000, 'driver:d1': 5000 }]);
+    const noShow = postDepartureCancelled({ requestId: 'rq_1', occurredAt: at, driverId: 'd1', cancelledBy: 'driver', feeIqd: 10000, riderIds: ['c1'] })!;
+    expect([noShow.id, noShow.refs, nets(noShow)]).toEqual(['request:rq_1:driver_no_show', {}, { 'driver:d1': -10000, 'customer:c1': 10000 }]);
+    // Today's emits (the request id in tripId/orderId/departureId, no requestId) still post as before.
+    expect(postRideCompleted({ tripId: 't9', occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'tuktuk', fareIqd: 1000 }, rules).money.id).toBe('trip:t9:money');
+    // Neither id: refused, never a `trip:undefined` group.
+    expect(() => postRideCompleted({ occurredAt: at, customerId: 'c1', payment: 'cash', driverId: 'd1', takeClass: 'tuktuk', fareIqd: 1000 }, rules)).toThrow(/tripId is required/);
+    expect(() => postCancellation(cancelled({ orderId: undefined, feeIqd: 0, free: true, beneficiaries: [] }))).toThrow(/orderId is required/);
+    expect(() => postDepartureCancelled({ occurredAt: at, driverId: 'd1', cancelledBy: 'driver', feeIqd: 0 })).toThrow(/departureId is required/);
+  });
+
   it('a fee whose beneficiaries do not add up is refused (the contract refine)', () => {
     expect(() => postCancellation(cancelled({ feeIqd: 1000, beneficiaries: [{ kind: 'merchant', id: 'm1', amountIqd: 500 }] }))).toThrow(/add up/);
   });
@@ -300,6 +392,35 @@ describe('cancellations', () => {
     validateGroup(g);
     expect(g.lines.map((l) => l.amount)).toEqual([667, 667, 666]);
     expect(postDepartureCancelled({ departureId: 'dep3', occurredAt: at, driverId: 'd2', cancelledBy: 'low_fill', feeIqd: 2000, riderIds: ['a'] })).toBeNull();
+  });
+
+  it('M-15: a driver cancelling after arriving moves 500 from him to the customer, once per trip; no credit posts nothing', () => {
+    const base = { orderId: 'o9', tripId: 't9', occurredAt: at, customerId: 'c1', driverId: 'd1', scoringHit: true };
+    const g = postDriverCancelled({ ...base, customerCreditIqd: 500, creditFundedBy: 'driver' })!;
+    validateGroup(g);
+    expect(g.id).toBe('order:o9:driver_cancel:t9');
+    expect(nets(g)).toEqual({ 'driver:d1': -500, 'customer:c1': 500 });
+    expect(postDriverCancelled({ ...base, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+  });
+
+  it('M-17: a merchant rejecting after accepting moves 500 from his cash account to the customer, once per order', () => {
+    const base = { from: 'preparing' as const, to: 'merchant_rejected' as const, orderId: 'o4', occurredAt: at, customerId: 'c1', merchantOrgId: 'm1', reason: 'خلص', afterAccept: true };
+    const g = postMerchantLateReject({ ...base, customerCreditIqd: 500, creditFundedBy: 'merchant' })!;
+    validateGroup(g);
+    expect(g.id).toBe('order:o4:merchant_late_reject');
+    expect(g.lines.map((l) => [l.type, l.amount, l.memo])).toEqual([['cancellation_fee', 500, 'merchant_late_reject']]);
+    expect(nets(g)).toEqual({ 'merchant_cash:m1': -500, 'customer:c1': 500 });
+    // Redelivery builds the same group id, so the ledger records it once.
+    expect(postMerchantLateReject({ ...base, customerCreditIqd: 500, creditFundedBy: 'merchant' })!.id).toBe(g.id);
+  });
+
+  it('M-17: the switch off, or a reject before accepting, posts nothing', () => {
+    const base = { from: 'merchant_accepted' as const, to: 'merchant_rejected' as const, orderId: 'o4', occurredAt: at, customerId: 'c1', merchantOrgId: 'm1', reason: 'خلص' };
+    expect(postMerchantLateReject({ ...base, afterAccept: true, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+    expect(postMerchantLateReject({ ...base, from: 'placed', afterAccept: false, customerCreditIqd: 0, creditFundedBy: null })).toBeNull();
+    // A credit the producer could not back (no merchant, or before acceptance) fails the contract.
+    expect(() => postMerchantLateReject({ ...base, from: 'placed', afterAccept: false, customerCreditIqd: 500, creditFundedBy: 'merchant' })).toThrow();
+    expect(() => postMerchantLateReject({ ...base, merchantOrgId: undefined, afterAccept: true, customerCreditIqd: 500, creditFundedBy: 'merchant' })).toThrow();
   });
 });
 
@@ -343,6 +464,42 @@ describe('points on platform revenue (decisions §2)', () => {
   it('referral: 200 points per side; the referrer side drops at his monthly cap', () => {
     expect(nets(postReferral({ refereeId: 'b', referrerId: 'a', referrerWithinCap: true, occurredAt: at, rules }))).toEqual({ points_pool: -400, 'points:a': 200, 'points:b': 200 });
     expect(nets(postReferral({ refereeId: 'b', referrerId: 'a', referrerWithinCap: false, occurredAt: at, rules }))).toEqual({ points_pool: -200, 'points:b': 200 });
+  });
+});
+
+describe('food cart walk-over ticket', () => {
+  const at = new Date('2026-10-12T10:00:00Z');
+  // The food-carts module's own figure: the pickup tier on the ticket total, saved on the ticket.
+  const ticket = (over = {}) => ({ walkupId: 'w1', cartId: 'cart1', merchantOrgId: 'm1', occurredAt: at, totalIqd: 10000, commissionIqd: Math.round(10000 * rules.commission.pickup), ...over });
+
+  it('a 10,000 دينار ticket posts the 500 pickup commission merchant → platform, like a cash pickup order', () => {
+    expect(ticket().commissionIqd).toBe(500);
+    const g = postFoodCartWalkupCommission(ticket())!;
+    expect(() => validateGroup(g)).not.toThrow();
+    expect(g.id).toBe('food_cart_walkup:w1:commission');
+    expect(g.kind).toBe('money');
+    expect(g.refs).toEqual({});
+    expect(g.lines).toEqual([{ type: 'commission_accrued', amount: 500, fromAccount: 'merchant_cash:m1', toAccount: 'platform', memo: 'commission:pickup:walkup:w1' }]);
+    // The same accounts, line type and tier as a restaurant's cash pickup order on the same 10,000.
+    const pickup = postOrderClosed(workedExample({ itemsSubtotalIqd: 10000, commissionTier: 'pickup', courierId: undefined, deliveryFeeIqd: 0, tipIqd: 0 }), rules).money;
+    const restaurant = pickup.lines.find((l) => l.type === 'commission_accrued')!;
+    expect({ ...restaurant, memo: undefined }).toEqual({ ...g.lines[0], memo: undefined });
+    expect(g.lines[0]!.memo!.startsWith(`${restaurant.memo}:`)).toBe(true);
+  });
+
+  it('nothing to post without commission; a commission above the total is refused', () => {
+    expect(postFoodCartWalkupCommission(ticket({ commissionIqd: 0 }))).toBeNull();
+    expect(() => postFoodCartWalkupCommission(ticket({ commissionIqd: 10001 }))).toThrow(RangeError);
+  });
+
+  it('replaying the same ticket posts once: the cart owner owes 500, the platform earned 500', async () => {
+    const h = ledgerHarness();
+    await h.posting.foodCartWalkup(ticket());
+    await h.posting.foodCartWalkup(ticket());
+    expect((await h.repo.all()).map((e) => [e.type, e.amount, e.postingGroupId])).toEqual([['commission_accrued', 500, 'food_cart_walkup:w1:commission']]);
+    expect((await h.ledger.balance('merchant_cash:m1')).amount).toBe(-500);
+    expect((await h.ledger.balance('platform')).amount).toBe(500);
+    expect((await h.ledger.checkInvariant()).ok).toBe(true);
   });
 });
 

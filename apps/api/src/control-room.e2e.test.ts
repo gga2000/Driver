@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client';
-import { transformer, type AppRouter, type RoleKind } from '@driver/contracts';
+import { AZIZIYAH_ZONES, transformer, type AppRouter, type RoleKind } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS } from '@driver/contracts/seeds';
 import { createApp } from './bootstrap.js';
 import { CatalogService, seedStorefronts } from './modules/catalog/index.js';
+import { ConfigService } from './modules/config/index.js';
 import { DispatchService } from './modules/dispatch/index.js';
 import { EventsService } from './modules/events/index.js';
 import { IdentityService } from './modules/identity/index.js';
@@ -16,6 +17,10 @@ import { TripsService } from './modules/trips/index.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
 const ZAKUR = { lat: 32.887, lng: 45.0765 };
+const pinIn = (zoneKey: string) => {
+  const z = AZIZIYAH_ZONES.find((x) => x.id === zoneKey);
+  return z ? { lat: z.lat, lng: z.lng } : ZAKUR;
+};
 const SYSTEM = { personId: 'system:e2e', sessionId: 'e2e' };
 type Client = ReturnType<typeof createTRPCClient<AppRouter>>;
 
@@ -72,7 +77,8 @@ describe('launch control room (e2e)', () => {
       merchantOrgId: khalid.orgId,
       lines: [{ catalogItemId: khalid.itemIds.get('liver_plate')!, qty: 1 }],
       paymentMethod: 'cash',
-      dropoff: { zoneKey, pin: ZAKUR },
+      // FOOD-15: the server reads the zone from the pin, so the pin is that zone's own.
+      dropoff: { zoneKey, pin: pinIn(zoneKey) },
       ...extra,
     });
 
@@ -115,13 +121,42 @@ describe('launch control room (e2e)', () => {
       expect(audit[1]!.summary_ar).toContain('الطرود');
     });
 
+    it('screen switches (W6): staff first, then everyone; a dispatcher can only switch one off', async () => {
+      const admin = await person(['admin']);
+      const dispatcher = await person(['dispatcher']);
+      const customer = await person();
+      const none = { basket_v2: false, checkout_v2: false, track_v2: false, orders_v2: false };
+      expect(await anon().system.screens.query({})).toEqual(none);
+      expect(await codeOf(dispatcher.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'all', reason: 'نجرّب' }))).toBe('forbidden');
+      await admin.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'staff', reason: 'نجرّبها بموبايلاتنا' });
+      expect(await dispatcher.client.system.screens.query({})).toEqual({ ...none, track_v2: true });
+      expect(await customer.client.system.screens.query({})).toEqual(none);
+      await admin.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'all', reason: 'زينة' });
+      expect(await anon().system.screens.query({})).toEqual({ ...none, track_v2: true });
+      const off = await dispatcher.client.ops.controls.setScreen.mutate({ key: 'track_v2', audience: 'off', reason: 'مشكلة بالمتابعة' });
+      expect(off).toMatchObject({ key: 'track_v2', audience: 'off', setByName: expect.any(String) });
+      expect(await customer.client.system.screens.query({})).toEqual(none);
+      expect((await dispatcher.client.ops.controls.view.query({})).switches.some((s) => s.key.includes('track_v2'))).toBe(false);
+    });
+
     it('a vertical, restaurant or zone switch refuses orders.place with a friendly Arabic message (the switch’s own when set)', async () => {
       const admin = await person(['admin']);
       const customer = await person();
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: true, reason: 'مطر قوي' });
       const v = await errOf(order(customer.client));
       expect(v).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة هسة. جرّب بعدين' });
+      // REL-16: checkout's own price check says it too, before the customer presses order.
+      const quoteInput = {
+        cityId: 'aziziyah',
+        type: 'food' as const,
+        merchantOrgId: khalid.orgId,
+        lines: [{ catalogItemId: khalid.itemIds.get('liver_plate')!, qty: 1 }],
+        paymentMethod: 'cash' as const,
+        dropoff: { zoneKey: 'zakur', pin: pinIn('zakur') },
+      };
+      expect(await errOf(customer.client.orders.quote.query(quoteInput))).toMatchObject({ code: 'service_paused', message: 'خدمة الأكل موقّفة هسة. جرّب بعدين' });
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'vertical', key: 'food', active: false, reason: 'خلص المطر' });
+      expect((await customer.client.orders.quote.query(quoteInput)).totalIqd).toBeGreaterThan(0);
 
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'restaurant', key: khalid.orgId, active: true, reason: 'عطل بالفرن', message_ar: 'مطعم خالد عنده عطل، يرجع بعد ساعة' });
       expect(await errOf(order(customer.client))).toMatchObject({ code: 'service_paused', message: 'مطعم خالد عنده عطل، يرجع بعد ساعة' });
@@ -174,7 +209,7 @@ describe('launch control room (e2e)', () => {
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'zone', key: 'street_30', active: false, reason: 'خفّت' });
     });
 
-    it('a corridor switch refuses new الرجعة holds', async () => {
+    it('الرجعة is closed until the city launches it; then a corridor switch refuses new holds', async () => {
       const admin = await person(['admin']);
       const driver = await person(['intercity_driver']);
       const rider = await person();
@@ -185,11 +220,20 @@ describe('launch control room (e2e)', () => {
         latestDepartureAt: new Date(Date.now() + 80 * 60_000),
         vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 77001' },
       });
+      // Launch day (food, taxi, tuktuk): no seat hold and no private-car request, with no switch set.
+      const notOpen = { code: 'service_paused', message: 'خدمة الرجعة بعدها ما انفتحت. نبلشها قريب' };
+      expect(await errOf(rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }))).toMatchObject(notOpen);
+      expect(await errOf(rider.client.routes.requestBoard.post.mutate({ from: { label: 'كراج البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الصويرة' }, when: new Date(Date.now() + 120 * 60_000), seats: 3, privateCar: true, travellingAs: 'aila' }))).toMatchObject(notOpen);
+      expect((await anon().system.season.query({ cityId: 'aziziyah' })).launched).toEqual(['food', 'taxi', 'tuktuk', 'parcel']);
+      const config = app.get(ConfigService);
+      const launch = config.launchedVerticals('aziziyah');
+      config.setLaunchedVerticals('aziziyah', [...launch, 'intercity']);
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'corridor', key: 'aziziyah_kut', active: true, reason: 'سيطرة مغلقة' });
       const refused = await errOf(rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }));
       expect(refused).toMatchObject({ code: 'service_paused', message: 'حجز العزيزية ⇄ الكوت موقّف مؤقتاً' });
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'corridor', key: 'aziziyah_kut', active: false, reason: 'انفتحت' });
       expect((await rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' })).state).toBe('held');
+      config.setLaunchedVerticals('aziziyah', launch);
     });
   });
 
@@ -242,7 +286,7 @@ describe('launch control room (e2e)', () => {
         name: 'فلافل أبو علي',
         type: 'restaurant',
         contact: { name: 'أبو علي', phone: '07719888001' },
-        location: { zoneKey: 'hashimi' },
+        location: { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } },
         menuPhotoUploadIds: [await upload(opsA.client)],
         shopPhotoUploadId: await upload(opsA.client),
       });
@@ -377,14 +421,48 @@ describe('launch control room (e2e)', () => {
       expect(credit.map((e) => [e.amount, e.fromAccount])).toEqual([[5000, 'platform']]);
       expect(await codeOf(agent.client.support.refund.mutate({ ticketId: ticket.id, amountIqd: placed.totalIqd - 5000 + 250, method: 'wallet', idempotencyKey: `${key}-b` }))).toBe('refund_exceeds_order');
 
-      // A second, bigger case for the same customer: agent cap, finance's 25,000 single limit, the customer cap.
+      // A second, bigger case for the same customer. Over a limit nothing posts: it waits for a second OK
+      // (agent's daily cap, the 25,000 single limit — admins too — and the customer's monthly cap).
       const t2 = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'whatsapp', subject: 'المندوب ما رجّع الباقي', customerId: customer.personId });
-      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 6000, method: 'wallet', idempotencyKey: `${key}-c` }))).toBe('refund_over_agent_limit');
-      expect(await codeOf(finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 25_250, method: 'wallet', idempotencyKey: `${key}-d` }))).toBe('refund_needs_escalation');
+      const asked = await agent.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 6000, method: 'wallet', idempotencyKey: `${key}-c` });
+      expect(asked.ticket.refundedIqd).toBe(0);
+      expect(asked.pendingApproval).toMatchObject({ amountIqd: 6000 });
+      await agent.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 6000, method: 'wallet', idempotencyKey: `${key}-c` });
+      await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 25_250, method: 'wallet', idempotencyKey: `${key}-d` });
       await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 20_000, method: 'points', idempotencyKey: `${key}-e` });
-      expect(await codeOf(finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 500, method: 'wallet', idempotencyKey: `${key}-f` }))).toBe('refund_customer_cap');
+      await finance.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 500, method: 'wallet', idempotencyKey: `${key}-f` });
+      await admin.client.support.refund.mutate({ ticketId: t2.id, amountIqd: 30_000, method: 'wallet', idempotencyKey: `${key}-g` });
+      const queue = (await agent.client.support.refundApprovals.list.query({})).filter((r) => r.ticketId === t2.id);
+      expect(queue.map((r) => [r.amountIqd, r.limit, r.requestedBy.id])).toEqual([
+        [6000, 'agent_daily', agent.personId],
+        [25_250, 'per_refund', finance.personId],
+        [500, 'customer_month', finance.personId],
+        [30_000, 'per_refund', admin.personId],
+      ]);
+      const [small, big, capped, adminBig] = queue as [(typeof queue)[number], (typeof queue)[number], (typeof queue)[number], (typeof queue)[number]];
+      // Only finance or admin decide, never on their own request; the asker may take it back.
+      expect(await codeOf(agent.client.support.refundApprovals.approve.mutate({ id: small.id }))).toBe('forbidden');
+      expect(await codeOf(finance.client.support.refundApprovals.approve.mutate({ id: big.id }))).toBe('approval_own_item');
+      expect(await codeOf(admin.client.support.refundApprovals.cancel.mutate({ id: small.id }))).toBe('forbidden');
+      expect(await agent.client.support.refundApprovals.cancel.mutate({ id: small.id })).toMatchObject({ state: 'cancelled', decidedBy: { id: agent.personId } });
+      expect(await admin.client.support.refundApprovals.decline.mutate({ id: big.id, note: 'كثير، نعطي نقاط' })).toMatchObject({ state: 'declined', declineNote: 'كثير، نعطي نقاط' });
+      expect(await admin.client.support.refundApprovals.approve.mutate({ id: capped.id })).toMatchObject({ state: 'approved', decidedBy: { id: admin.personId } });
+      expect(await finance.client.support.refundApprovals.approve.mutate({ id: adminBig.id })).toMatchObject({ state: 'approved' });
+      expect(await codeOf(finance.client.support.refundApprovals.approve.mutate({ id: adminBig.id }))).toBe('approval_state_conflict');
+      expect((await agent.client.support.refundApprovals.list.query({})).filter((r) => r.ticketId === t2.id)).toEqual([]);
+      const credits = (await app.get(LedgerService).eventsFor(`customer:${customer.personId}`)).filter((e) => e.type === 'credit_issued');
+      expect(credits.map((e) => e.amount)).toEqual([5000, 500, 30_000]);
       const points = (await app.get(LedgerService).eventsFor(`points:${customer.personId}`)).filter((e) => e.memo?.startsWith('support:'));
       expect(points.map((e) => e.amount)).toEqual([2000]);
+      const approvedCase = await agent.client.support.get.query({ ticketId: t2.id });
+      expect(approvedCase.ticket.refundedIqd).toBe(50_500);
+      expect(approvedCase.pendingApproval).toBeNull();
+      // The approved refund is the asker's line on the case, with the approver kept on it.
+      expect(approvedCase.entries.filter((e) => e.kind === 'refund').map((e) => [e.amountIqd, e.actorId, e.meta['approvedBy'] ?? null])).toEqual([
+        [20_000, finance.personId, null],
+        [500, finance.personId, admin.personId],
+        [30_000, admin.personId, finance.personId],
+      ]);
 
       await agent.client.support.attributeFault.mutate({ ticketId: t2.id, faultParty: 'courier', note: 'ما رجّع الباقي' });
       const esc = await agent.client.support.escalate.mutate({ ticketId: t2.id, reason: 'يحتاج قرار علي' });
@@ -392,11 +470,11 @@ describe('launch control room (e2e)', () => {
       const done = await admin.client.support.resolve.mutate({ ticketId: t2.id, resolution: 'تعوّض بالنقاط وانحسبت على المندوب' });
       expect(done.ticket).toMatchObject({ status: 'resolved', slaState: 'met' });
       expect(await codeOf(agent.client.support.reply.mutate({ ticketId: t2.id, text: 'شي ثاني؟' }))).toBe('ticket_closed');
-      expect(done.entries.map((e) => e.kind)).toEqual(['opened', 'refund', 'fault', 'escalate', 'resolve']);
+      expect(done.entries.filter((e) => e.kind !== 'note').map((e) => e.kind)).toEqual(['opened', 'refund', 'refund', 'refund', 'fault', 'escalate', 'resolve']);
 
       // The context panel's customer card: their orders, the credits so far and the other ticket.
       const card = await agent.client.support.customer.query({ ticketId: ticket.id });
-      expect(card).toMatchObject({ customerId: customer.personId, orders: 1, refunded30dIqd: 25_000, disputes30d: 1 });
+      expect(card).toMatchObject({ customerId: customer.personId, orders: 1, refunded30dIqd: 55_500, disputes30d: 1 });
       expect(card!.recentTickets.map((r) => r.id)).toEqual([t2.id]);
       expect(await codeOf(courierP.client.support.customer.query({ ticketId: ticket.id }))).toBe('forbidden');
 
@@ -404,9 +482,52 @@ describe('launch control room (e2e)', () => {
       expect(list.counts.resolvedToday).toBeGreaterThanOrEqual(1);
       expect(list.rows.every((r) => r.status !== 'resolved')).toBe(true);
     });
+
+    it('refunds never go to the staff member giving them or any staff account; on an order only its customer; the courier or kitchen pays only once the fault is on them', async () => {
+      const agent = await person(['support']);
+      const finance = await person(['finance']);
+      const customer = await person();
+      const other = await person();
+      const key = `rs-${Date.now()}`;
+
+      // Herself, or a colleague's account: refused, nothing posts.
+      const self = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', customerId: agent.personId });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: self.id, amountIqd: 5000, method: 'wallet', idempotencyKey: `${key}-a` }))).toBe('staff_own_account');
+      const colleague = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', customerId: finance.personId });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: colleague.id, amountIqd: 5000, method: 'wallet', idempotencyKey: `${key}-b` }))).toBe('staff_own_account');
+      expect(await codeOf(finance.client.support.refund.mutate({ ticketId: colleague.id, amountIqd: 5000, method: 'wallet', idempotencyKey: `${key}-c` }))).toBe('staff_own_account');
+      for (const id of [agent.personId, finance.personId]) expect((await app.get(LedgerService).eventsFor(`customer:${id}`)).filter((e) => e.type === 'credit_issued')).toEqual([]);
+
+      // A ticket on an order belongs to that order's customer.
+      const placed = await order(customer.client, 'zakur');
+      expect(await codeOf(agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', orderId: placed.id, customerId: other.personId }))).toBe('invalid_input');
+
+      // The kitchen pays only once the fault is put on it, with a note; with no order nobody but Driver pays.
+      const onOrder = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'ناقص صنف', orderId: placed.id });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: onOrder.id, amountIqd: 1000, method: 'wallet', faultParty: 'merchant', idempotencyKey: `${key}-d` }))).toBe('refund_fault_not_attributed');
+      await agent.client.support.attributeFault.mutate({ ticketId: onOrder.id, faultParty: 'merchant', note: 'نسوا الصنف' });
+      expect((await agent.client.support.refund.mutate({ ticketId: onOrder.id, amountIqd: 1000, method: 'wallet', faultParty: 'merchant', idempotencyKey: `${key}-d` })).ticket.refundedIqd).toBe(1000);
+      const noOrder = await agent.client.support.open.mutate({ kind: 'complaint', channel: 'phone', subject: 'تعويض', customerId: other.personId });
+      await agent.client.support.attributeFault.mutate({ ticketId: noOrder.id, faultParty: 'courier', note: 'ما رجّع الباقي' });
+      expect(await codeOf(agent.client.support.refund.mutate({ ticketId: noOrder.id, amountIqd: 1000, method: 'wallet', faultParty: 'courier', idempotencyKey: `${key}-e` }))).toBe('refund_fault_not_attributed');
+    });
   });
 
   describe('cash desk and the wall', () => {
+    it('BENCH-13: «سياقته خطرة» opens a safety case at the top of the queue, not an ordinary dispute', async () => {
+      const agent = await person(['support']);
+      const customer = await person();
+      const placed = await order(customer.client, 'zakur');
+      await app.get(EventsService).emit(
+        undefined,
+        { type: 'order.disputed', actorId: customer.personId, occurredAt: new Date(), orderId: placed.id, payload: { kind: 'unsafe_driving', note: null, openedBy: 'customer' } },
+        { name: 'order', id: placed.id },
+      );
+      const ticket = (await agent.client.support.list.query({})).rows.find((r) => r.orderId === placed.id)!;
+      expect(ticket).toMatchObject({ kind: 'incident', subject: 'سياقة خطرة' });
+      expect(ticket.urgencyReasons).toContain('سلامة');
+    });
+
     it('finance reads the desk and exports CSV (audited); the wall shows the six week-one metrics', async () => {
       const finance = await person(['finance']);
       const dispatcher = await person(['dispatcher']);

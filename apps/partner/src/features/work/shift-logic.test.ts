@@ -22,6 +22,7 @@ function summary(over: Partial<ShiftSummary> = {}): ShiftSummary {
     nudge: null,
     guarantee: [],
     compliments: [],
+    minKm: null,
     ...over,
   };
 }
@@ -54,5 +55,14 @@ describe('end of shift words (S-4)', () => {
     expect(m.stats.map((x) => x.label)).toEqual(['الطلبات', 'وقت الشغل', 'أحسن ساعة']);
     expect(shareCardModel(summary({ perHourIqd: null }), t).perHour).toBeNull();
     expect(shareFileName({ to: new Date('2026-10-05T22:30:00Z') })).toBe('driver-day-2026-10-06.png');
+    expect(m.quote).toBeNull();
+  });
+
+  it('«يومك» (e7): the km as «أكثر من», in place of time online on the picture, and the most-said word', () => {
+    const s = summary({ minKm: 23, compliments: [{ key: 'fast', count: 3 }, { key: 'polite', count: 1 }] });
+    expect(shiftStats(s, t).find((x) => x.key === 'km')).toMatchObject({ label: 'قطعت', value: 'أكثر من 23 كم' });
+    const m = shareCardModel(s, t);
+    expect(m.stats.map((x) => x.label)).toEqual(['الطلبات', 'قطعت', 'أحسن ساعة']);
+    expect(m.quote).toBe('الزبائن قالوا عني: «سريع»');
   });
 });

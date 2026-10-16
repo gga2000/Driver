@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+  <defs>
+    <linearGradient id="update-body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6B2E14"/>
+      <stop offset="1" stop-color="#2A170C"/>
+    </linearGradient>
+    <linearGradient id="update-screen" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#FFF8EF"/>
+      <stop offset="1" stop-color="#FFE6C2"/>
+    </linearGradient>
+    <linearGradient id="update-badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC155"/>
+      <stop offset="1" stop-color="#F38A1B"/>
+    </linearGradient>
+    <linearGradient id="update-bag" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB547"/>
+      <stop offset="1" stop-color="#F38A1B"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="120" cy="212" rx="70" ry="9" fill="#6B2E14" opacity=".16"/>
+  <!-- phone, tilted a little -->
+  <g transform="rotate(-8 120 120)">
+    <rect x="72" y="28" width="96" height="178" rx="20" fill="url(#update-body)"/>
+    <rect x="79" y="38" width="82" height="158" rx="13" fill="url(#update-screen)"/>
+    <rect x="106" y="32" width="28" height="4" rx="2" fill="#2A170C" opacity=".6"/>
+    <!-- app rows on the screen -->
+    <rect x="88" y="52" width="40" height="7" rx="3.5" fill="#6B2E14" opacity=".55"/>
+    <rect x="88" y="66" width="64" height="30" rx="8" fill="url(#update-bag)"/>
+    <rect x="94" y="74" width="26" height="5" rx="2.5" fill="#2A170C" opacity=".45"/>
+    <rect x="88" y="102" width="30" height="24" rx="7" fill="#FFFFFF"/>
+    <rect x="122" y="102" width="30" height="24" rx="7" fill="#FFFFFF"/>
+    <rect x="88" y="132" width="64" height="6" rx="3" fill="#F1E3D0"/>
+    <rect x="88" y="144" width="46" height="6" rx="3" fill="#F1E3D0"/>
+    <rect x="88" y="166" width="64" height="16" rx="8" fill="#F38A1B"/>
+    <path d="M86 46 L104 46" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" opacity=".5"/>
+    <rect x="73" y="30" width="5" height="60" rx="2.5" fill="#FFFFFF" opacity=".18"/>
+  </g>
+  <!-- the fresh badge: an arrow going up -->
+  <circle cx="172" cy="58" r="30" fill="url(#update-badge)"/>
+  <circle cx="172" cy="58" r="30" fill="none" stroke="#FFF8EF" stroke-width="5"/>
+  <path d="M172 72 V46 M161 56 L172 45 L183 56" stroke="#2A170C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <ellipse cx="162" cy="44" rx="8" ry="4" fill="#FFFFFF" opacity=".45" transform="rotate(-30 162 44)"/>
+  <!-- sparkles -->
+  <path d="M46 70 l4 10 10 4 -10 4 -4 10 -4 -10 -10 -4 10 -4z" fill="#FFC155"/>
+  <path d="M206 128 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3z" fill="#FFB547"/>
+  <circle cx="54" cy="150" r="5" fill="#F38A1B" opacity=".7"/>
+  <circle cx="200" cy="176" r="4" fill="#6B2E14" opacity=".35"/>
+</svg>

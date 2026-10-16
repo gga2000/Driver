@@ -2,7 +2,8 @@ import { router } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import type { AdminMenuItem } from '@driver/contracts';
-import { Button, EmptyState, SearchField, Skeleton, Stepper, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
+import { Button, EmptyState, SearchField, Skeleton, Stepper, Text, TextField, useTheme, withAlpha } from '@driver/ui';
+import { useCounterToast } from '@/lib/toast';
 import { Page } from '@/components/Page';
 import { Glyph, type GlyphName } from '@/features/menu/Glyph';
 import { filterMenu } from '@/features/menu/logic';
@@ -64,7 +65,7 @@ export function ProposeDeal() {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
-  const toast = useToast();
+  const toast = useCounterToast();
   const { wide } = useLayout();
   const { store, canSeeMoney: owner } = useCurrentStore();
   const storeId = store?.orgId ?? null;

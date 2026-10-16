@@ -33,6 +33,19 @@ export function deepLinkPath(link: unknown, scheme = 'driver'): string | null {
   return `/${rest}`.replace(/\/+$/, '') || '/';
 }
 
+/**
+ * Where a tapped push goes and how, or null: not one of our links, or that very screen is already the
+ * one open (CORE-17: a second copy is never stacked on it; it refreshes itself). The same screen with
+ * other details in the link (a chat's kind) is swapped in place, never stacked.
+ */
+export function pushRoute(link: unknown, currentPath: string | null): { path: string; how: 'push' | 'replace' } | null {
+  const path = deepLinkPath(link);
+  if (!path) return null;
+  const [screen, query] = path.split('?');
+  if (screen !== currentPath) return { path, how: 'push' };
+  return query ? { path, how: 'replace' } : null;
+}
+
 /** A tiny signal: the pre-prompt or settings changed the permission, so registration runs again. */
 type Listener = () => void;
 const listeners = new Set<Listener>();

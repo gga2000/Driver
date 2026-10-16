@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DriverError, type Actor } from '@driver/contracts';
+import type { AuditLogService } from '../controls/index.js';
 import { FakeClock } from '../../shared/clock.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { Accounts } from '../ledger/accounts.js';
@@ -23,13 +24,15 @@ const code = async (p: Promise<unknown>) => {
   }
 };
 
-function harness() {
+function harness(outcomes?: { agentCashAccounts: boolean }) {
   const clock = new FakeClock('2026-10-04T09:00:00Z'); // Sunday 12:00 Baghdad
   const ev = createInMemoryEvents({ clock });
   const ledgerRepo = new InMemoryLedgerRepository();
   const ledger = new LedgerService(ledgerRepo, ev.uow);
   const repo = new InMemoryTopUpsRepository();
   const carrying = new Set<string>(); // `${courierId}|${customerId}`
+  const staff = new Set<string>(['ops_1', 'ops_2']);
+  const audits: Array<{ action: string; actorId: string; subjectId: string; detail?: Record<string, unknown> }> = [];
   const svc = new TopUpService(
     repo,
     ledger,
@@ -37,10 +40,12 @@ function harness() {
     ev.uow,
     clock,
     { carriesOrderOf: async (k, c) => carrying.has(`${k}|${c}`) },
-    { cards: async (ids) => Object.fromEntries(ids.map((id) => [id, { name: 'علي أحمد', phoneMasked: '0770 ••• 4567' }])) },
+    { cards: async (ids) => Object.fromEntries(ids.map((id) => [id, { name: 'علي أحمد', phoneMasked: '0770 ••• 4567' }])), isStaff: async (id) => staff.has(id) },
+    outcomes,
+    { record: async (r: (typeof audits)[number]) => (audits.push(r), r) } as unknown as AuditLogService,
   );
   const balance = async (id = 'c1') => (await ledger.balance(Accounts.customer(id))).amount;
-  return { clock, ev, ledger, repo, svc, carrying, balance };
+  return { clock, ev, ledger, repo, svc, carrying, balance, audits };
 }
 
 describe('wallet top-up with cash — request', () => {
@@ -72,6 +77,20 @@ describe('wallet top-up with cash — request', () => {
     // The next local day starts fresh (Baghdad midnight is 21:00 UTC).
     h.clock.set(new Date('2026-10-04T21:00:00Z'));
     expect(await code(h.svc.request(customer, { amountIqd: 5000 }))).toBe('ok');
+  });
+});
+
+describe('THIN-13: parallel requests', () => {
+  it('taps at the same moment leave one live code and never pass the daily limit', async () => {
+    const h = harness();
+    const amounts = [50_000, 60_000, 70_000, 80_000, 90_000];
+    await Promise.all(amounts.map((amountIqd) => code(h.svc.request(customer, { amountIqd }))));
+    const today = await h.repo.ofCustomer('c1', new Date(0));
+    expect(today.filter((r) => r.state === 'pending')).toHaveLength(1);
+    // Each later request replaced the one before, so only the live code counts toward the 200,000.
+    const status = await h.svc.status(customer, {});
+    expect(status?.state).toBe('pending');
+    expect(200_000 - (status?.dailyRemainingIqd ?? 0)).toBe(status?.amountIqd);
   });
 });
 
@@ -125,7 +144,52 @@ describe('wallet top-up with cash — confirmation', () => {
     expect(await code(h.svc.lookup(courier, { code: r.code }, 'courier'))).toBe('topup_courier_not_assigned');
     expect(await code(h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier'))).toBe('topup_courier_not_assigned');
     h.carrying.add('k1|c1');
-    expect(await h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier')).toMatchObject({ channel: 'courier', walletBalanceIqd: 15_000 });
+    const done = await h.svc.confirm(courier, { code: r.code, amountIqd: 15_000 }, 'courier');
+    expect(done).toMatchObject({ channel: 'courier' });
+    expect(done).not.toHaveProperty('walletBalanceIqd');
+    expect(await h.balance()).toBe(15_000);
     expect((await h.ledger.balance(Accounts.cash('k1'))).amount).toBe(-15_000);
+  });
+});
+
+describe('wallet top-up with cash — staff accounts', () => {
+  it('field ops cannot confirm a top-up on his own wallet or on another staff wallet; nothing is credited', async () => {
+    const h = harness();
+    const own = await h.svc.request(agent, { amountIqd: 100_000 });
+    expect(await code(h.svc.confirm(agent, { code: own.code, amountIqd: 100_000 }, 'ops_agent'))).toBe('staff_own_account');
+    const colleague: Actor = { personId: 'ops_2', sessionId: 's4' };
+    expect(await code(h.svc.confirm(colleague, { code: own.code, amountIqd: 100_000 }, 'ops_agent'))).toBe('staff_own_account');
+    expect(await h.balance('ops_1')).toBe(0);
+    expect((await h.repo.get(own.topUpId))?.state).toBe('pending');
+    // A courier never confirms his own either.
+    const mine = await h.svc.request(courier, { amountIqd: 10_000 });
+    h.carrying.add('k1|k1');
+    expect(await code(h.svc.confirm(courier, { code: mine.code, amountIqd: 10_000 }, 'courier'))).toBe('staff_own_account');
+    expect(h.audits).toEqual([]);
+  });
+
+  it('every field ops confirmation writes a console audit row; a courier confirmation does not (it is not a Console action)', async () => {
+    const h = harness();
+    const r = await h.svc.request(customer, { amountIqd: 25_000 });
+    await h.svc.confirm(agent, { code: r.code, amountIqd: 25_000 }, 'ops_agent');
+    expect(h.audits).toEqual([expect.objectContaining({ action: 'wallet.topup_confirm', actorId: 'ops_1', subjectId: r.topUpId, detail: expect.objectContaining({ customerId: 'c1', amountIqd: 25_000 }) })]);
+    const c = await h.svc.request({ personId: 'c2', sessionId: 's5' }, { amountIqd: 10_000 });
+    h.carrying.add('k1|c2');
+    await h.svc.confirm(courier, { code: c.code, amountIqd: 10_000 }, 'courier');
+    expect(h.audits).toHaveLength(1);
+  });
+});
+
+describe('THIN-12 / M-13: agent cash accounts (switch off by default)', () => {
+  it('off: an agent top-up is booked to the bank; on: it sits on the agent own cash account', async () => {
+    for (const on of [false, true]) {
+      const h = harness({ agentCashAccounts: on });
+      const r = await h.svc.request(customer, { amountIqd: 30_000 });
+      await h.svc.confirm(agent, { code: r.code, amountIqd: 30_000 }, 'ops_agent');
+      expect(await h.balance()).toBe(30_000);
+      expect((await h.ledger.balance(Accounts.bank)).amount).toBe(on ? 0 : -30_000);
+      expect((await h.ledger.balance(Accounts.cash(agent.personId))).amount).toBe(on ? -30_000 : 0);
+      expect((await h.ledger.checkInvariant()).ok).toBe(true);
+    }
   });
 });

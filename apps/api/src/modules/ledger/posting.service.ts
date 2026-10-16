@@ -6,6 +6,8 @@ import {
   SeatMoneyPayload,
   SubscriptionChargePayload,
   type DepartureCancelledPayload,
+  type DriverCancelledPayload,
+  type FoodCartWalkupCollectedPayload,
   type DomainEventInput,
   type LateMeterPayload,
   type MoneyRules,
@@ -20,8 +22,11 @@ import {
   pointsForRideTake,
   postCancellation,
   postDepartureCancelled,
+  postDriverCancelled,
   postErrand,
+  postFoodCartWalkupCommission,
   postLateMeter,
+  postMerchantLateReject,
   postOrderClosed,
   postPoints,
   postReferral,
@@ -125,9 +130,8 @@ export class PostingService {
     const r = RideMoneyPayload.parse(input);
     const posted = postRideCompleted(r, this.rules);
     const points = postPoints({
-      groupId: `trip:${r.tripId}:points`,
+      ...(r.requestId !== undefined ? { groupId: `request:${r.requestId}:points`, refs: {} } : { groupId: `trip:${r.tripId}:points`, refs: { tripId: r.tripId } }),
       occurredAt: r.occurredAt,
-      refs: { tripId: r.tripId },
       points: pointsForRideTake(posted.takeIqd, this.rules),
       ordererId: r.customerId,
       recipients: [],
@@ -166,6 +170,21 @@ export class PostingService {
     return this.record([postCancellation(input)]);
   }
 
+  /** M-15: the customer's credit when a ride's driver cancelled after reaching the pickup. */
+  async driverCancelled(input: DriverCancelledPayload): Promise<RecordAllResult> {
+    return this.record([postDriverCancelled(input)]);
+  }
+
+  /** M-17: the customer's credit when the merchant rejected after accepting (off until Ali says yes). */
+  async merchantLateReject(input: DomainEventInput<'order.rejected'>): Promise<RecordAllResult> {
+    return this.record([postMerchantLateReject(input)]);
+  }
+
+  /** A cart walk-over ticket collected: the pickup commission the cart owner owes on it, once per ticket. */
+  async foodCartWalkup(input: FoodCartWalkupCollectedPayload): Promise<RecordAllResult> {
+    return this.record([postFoodCartWalkupCommission(input)]);
+  }
+
   async departureCancelled(input: DepartureCancelledPayload): Promise<RecordAllResult> {
     return this.record([postDepartureCancelled(input)]);
   }
@@ -175,8 +194,9 @@ export class PostingService {
    * referrer's side counts against his monthly cap. Idempotent (`referral:<referee>`).
    */
   async referral(refereeId: string, referrerId: string | undefined, at: Date): Promise<RecordAllResult | null> {
-    if (!referrerId || referrerId === refereeId) return null;
     const r = this.rules.referral;
+    // THIN-18 / M-5: the invite amounts are not approved yet, so nothing pays while the switch is off.
+    if (!r.enabled || !referrerId || referrerId === refereeId) return null;
     if (await this.ledger.hasGroup(`referral:${refereeId}`)) return null;
     const qualifying = await this.ledger.cashOrders(refereeId, r.minOrderIqd);
     if (qualifying.length < r.unlockOnQualifyingOrder) return null;

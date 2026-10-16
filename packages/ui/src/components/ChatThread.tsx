@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import { PhotoImage } from './PhotoImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CHAT_TEXT_MAX, quickReplyText, voiceAllowedIn, type CallSession, type QuickReplyKey, type ChatMessage, type ChatThreadKind, type ChatThreadView, type LatLng } from '@driver/contracts';
 import type { Locale, MessageKey } from '@driver/i18n';
@@ -14,6 +15,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { Avatar } from './Avatar';
 import { Chip } from './Chip';
 import { EmptyState } from './EmptyState';
+import { CallSoonIcon } from './CallSoon';
 import { IconButton } from './IconButton';
 import { PermissionPrompt } from './PermissionPrompt';
 import { Skeleton } from './Skeleton';
@@ -93,6 +95,8 @@ export interface ChatThreadProps {
   /** Masked call (see `useMaskedCall`). */
   call: () => void;
   calling: boolean;
+  /** Calls aren't live yet (G0-10): the header's call button shows greyed with «قريباً»; `call` explains. */
+  callSoon?: boolean;
   onBack: () => void;
   /** The API error's copy in this locale, or `fallback`. */
   errorMessage: (err: unknown, fallback: string) => string;
@@ -107,8 +111,23 @@ export interface ChatThreadProps {
   liveStatus?: { text: string; onPress?: () => void } | null;
   /** Joy l7: the server's quick replies reordered for the moment (at the door «طالع هسة» first). */
   orderReplies?: (keys: readonly QuickReplyKey[]) => QuickReplyKey[];
+  /**
+   * Partner redesign b11: lay the quick replies out in wrapping rows instead of one sideways scroll, so
+   * none is cut at the screen's edge (pair it with a short `orderReplies` list). Default: the scroll.
+   */
+  wrapQuickReplies?: boolean;
   /** Hold-to-record voice notes; omit to leave them out (the kitchen). Shown only where `voiceAllowedIn(kind)`. */
   voice?: ChatVoice;
+  /** The header's second line in place of «الزبون · طلب …» (a Baghdad/Kut trip: «الطلعة باچر 7:00 · ما حجزت بعد»). */
+  subtitle?: string;
+  /** Pinned under the header (step 4c: the «اللي اتفقنا عليه» strip). */
+  pinned?: ReactNode;
+  /** A `card` message (step 4c: an agreed-price card); without it, cards are left out. */
+  renderCard?: (m: ChatMessage) => ReactNode;
+  /** Before the camera in the composer (step 4c: the driver's «اقترح سعر»). */
+  composerStart?: ReactNode;
+  /** The empty thread's words, in place of the order chat's. */
+  empty?: { title: string; body: string };
 }
 
 type RecordPhase = 'idle' | 'starting' | 'recording';
@@ -131,6 +150,7 @@ export function ChatThread({
   refresh,
   call,
   calling,
+  callSoon = false,
   onBack,
   errorMessage,
   errorCode,
@@ -139,11 +159,18 @@ export function ChatThread({
   currentLocation,
   liveStatus,
   orderReplies,
+  wrapQuickReplies = false,
   voice: voiceProp,
+  subtitle,
+  pinned,
+  renderCard,
+  composerStart,
+  empty,
 }: ChatThreadProps) {
   const theme = useTheme();
   const toast = useToast();
   const v = thread.data;
+  const replies = v ? (orderReplies ? orderReplies(v.quickReplies) : v.quickReplies) : [];
   const ride = v?.ride ?? false;
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingMessage[]>([]);
@@ -411,8 +438,8 @@ export function ChatThread({
                       </Text>
                     </Pressable>
                   ) : (
-                    <Text variant="caption" color="textMuted" numberOfLines={1}>
-                      {supportChat ? orderLabel : t('chat.subtitle', { role: counterpartLabel, order: orderLabel })}
+                    <Text variant="caption" color="textMuted" numberOfLines={1} testID="chat-subtitle">
+                      {subtitle ?? (supportChat ? orderLabel : t('chat.subtitle', { role: counterpartLabel, order: orderLabel }))}
                     </Text>
                   )}
                 </>
@@ -420,9 +447,20 @@ export function ChatThread({
                 <Skeleton width={140} height={20} />
               )}
             </View>
-            {v?.canCall ? <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" /> : null}
+            {v?.canCall ? (
+              callSoon ? (
+                <CallSoonIcon locale={locale} onPress={call} testID="chat-call" />
+              ) : (
+                <IconButton icon="phone" variant="tonal" accessibilityLabel={t('chat.call')} onPress={call} disabled={calling} testID="chat-call" />
+              )
+            ) : null}
           </View>
         </View>
+        {pinned ? (
+          <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface }}>
+            <View style={{ width: '100%', maxWidth: COLUMN, alignSelf: 'center', paddingHorizontal: theme.space[4], paddingVertical: theme.space[2] }}>{pinned}</View>
+          </View>
+        ) : null}
 
         {/* Messages */}
         <ScrollView
@@ -445,8 +483,8 @@ export function ChatThread({
             <View style={{ flex: 1, justifyContent: 'center' }} testID={supportChat ? 'chat-support-empty' : undefined}>
               <EmptyState
                 icon="chat"
-                title={t(supportChat ? 'chat.support_empty_title' : 'chat.empty_title')}
-                body={open ? t(supportChat ? 'chat.support_empty_body' : 'chat.empty_body') : undefined}
+                title={empty?.title ?? t(supportChat ? 'chat.support_empty_title' : 'chat.empty_title')}
+                body={open ? (empty?.body ?? t(supportChat ? 'chat.support_empty_body' : 'chat.empty_body')) : undefined}
               />
             </View>
           ) : (
@@ -458,6 +496,7 @@ export function ChatThread({
                 photoUri={photoUri}
                 audioUri={(url) => (voiceProp ? voiceProp.audioUri(url) : url)}
                 voiceNote={voiceNote}
+                renderCard={renderCard}
                 onRetry={(p) => {
                   if (p.voice && !p.body) void sendVoice(p.voice.clip, p.clientId);
                   else if (p.body) void send(p.body, { text: p.text, localPhotoUri: p.localPhotoUri, voice: p.voice }, p.clientId);
@@ -481,12 +520,20 @@ export function ChatThread({
               <Banner icon="clock" text={t('chat.not_open')} testID="chat-not-open" />
             ) : (
               <>
-                {v.quickReplies.length > 0 ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="chat-quick-replies">
-                    {(orderReplies ? orderReplies(v.quickReplies) : v.quickReplies).map((k) => (
-                      <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
-                    ))}
-                  </ScrollView>
+                {replies.length > 0 ? (
+                  wrapQuickReplies ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }} testID="chat-quick-replies">
+                      {replies.map((k) => (
+                        <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
+                      ))}
+                    </View>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} testID="chat-quick-replies">
+                      {replies.map((k) => (
+                        <Chip key={k} label={quickReplyText(k, locale)} role="button" onPress={() => void send({ quickReplyKey: k }, { text: quickReplyText(k, locale) })} testID={`qr-${k}`} />
+                      ))}
+                    </ScrollView>
+                  )
                 ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[2] }}>
                   {rec.phase === 'recording' ? (
@@ -500,6 +547,7 @@ export function ChatThread({
                     />
                   ) : (
                     <>
+                      {composerStart}
                       <IconButton icon="camera" variant="plain" accessibilityLabel={t('chat.attach_photo')} onPress={() => void sendPhoto()} disabled={attaching} testID="chat-photo" />
                       {currentLocation ? (
                         <IconButton icon="map-pin" variant="plain" accessibilityLabel={t('chat.attach_location')} onPress={() => void sendLocation()} disabled={attaching} testID="chat-location" />
@@ -588,6 +636,7 @@ function Row({
   photoUri,
   audioUri,
   voiceNote,
+  renderCard,
   onRetry,
 }: {
   row: ChatRow;
@@ -596,6 +645,7 @@ function Row({
   audioUri: (url: string) => string;
   /** The player of a voice note (`uri` null: the file went with the closed chat). */
   voiceNote: (id: string, uri: string | null, durationSec: number) => ReactNode;
+  renderCard?: ((m: ChatMessage) => ReactNode) | undefined;
   onRetry: (p: PendingMessage) => void;
 }) {
   const theme = useTheme();
@@ -638,6 +688,16 @@ function Row({
         </Text>
       </View>
     );
+  }
+  // An agreed-price card (step 4c): the app draws it on the side of whoever sent it.
+  if (m.kind === 'card') {
+    const card = renderCard?.(m);
+    return card ? (
+      <View testID={`chat-msg-${m.seq}`} style={{ alignSelf: m.mine ? 'flex-end' : 'flex-start', width: '86%', maxWidth: 380 }}>
+        {card}
+        <Meta mine={m.mine} time={m.createdAt} state={null} t={t} />
+      </View>
+    ) : null;
   }
   const senderLabel = !m.mine && m.senderRole === 'support' ? t('chat.role.support') : null;
   return (
@@ -719,7 +779,7 @@ function Bubble({
       {kind === 'voice' ? (
         voice
       ) : kind === 'photo' && shown.uri ? (
-        <Image source={{ uri: shown.uri }} onError={shown.onError} accessibilityLabel={t('chat.photo_label')} style={{ width: 220, height: 220, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }} resizeMode="cover" />
+        <PhotoImage uri={shown.uri} onError={shown.onError} accessibilityLabel={t('chat.photo_label')} style={{ width: 220, height: 220, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }} />
       ) : kind === 'location' && location ? (
         <Pressable onPress={() => void Linking.openURL(pinUrl(location)).catch(() => undefined)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingVertical: 2 }}>
           <View style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(theme.colors.accent, 0.18) }}>

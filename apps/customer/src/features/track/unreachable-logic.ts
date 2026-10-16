@@ -14,9 +14,13 @@ export function metresFromDoor(courier: LatLng | null, door: LatLng | null): num
   return Math.round(distanceM(courier, door) / 5) * 5;
 }
 
-/** «حيدر واقف هنا · 40 متر من بابك», or «حيدر واقف عند بابك» when he is right there or unknown. */
-export function standingLine(t: TFn, name: string | null, metres: number | null): string {
+/**
+ * «حيدر واقف هنا · 40 متر من بابك», or «حيدر واقف عند بابك» when he is right there or unknown. An
+ * order placed «بالشارع» (HUNT-02) is met on the street near the pin: «حيدر ينطرك بالشارع قريب من الدبوس».
+ */
+export function standingLine(t: TFn, name: string | null, metres: number | null, street = false): string {
   const who = name ?? t('track.courier_fallback');
+  if (street) return t('unreachable.standing_street', { name: who });
   return metres !== null && metres >= AT_DOOR_M ? t('unreachable.standing_far', { name: who, metres }) : t('unreachable.standing_door', { name: who });
 }
 

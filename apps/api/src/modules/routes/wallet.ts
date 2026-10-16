@@ -1,5 +1,6 @@
 import type { LedgerEvent } from '@driver/contracts';
-import { Accounts, type LedgerService } from '../ledger/index.js';
+import type { Tx } from '@driver/db';
+import { Accounts, type LedgerService, type WalletHolds } from '../ledger/index.js';
 import type { RoutesPointsReader } from './tokens.js';
 
 /**
@@ -10,21 +11,34 @@ import type { RoutesPointsReader } from './tokens.js';
  */
 export interface WalletPort {
   balance(customerId: string): Promise<number>;
+  /** SEC-07: what the rest of the platform holds against the same wallet (open wallet orders). */
+  heldElsewhere(customerId: string, tx?: Tx): Promise<number>;
 }
 
 export const ROUTES_WALLET = Symbol('ROUTES_WALLET');
 
 export class LedgerWallet implements WalletPort {
-  constructor(private readonly ledger: Pick<LedgerService, 'balance'>) {}
+  constructor(
+    private readonly ledger: Pick<LedgerService, 'balance'>,
+    private readonly holds?: Pick<WalletHolds, 'heldExcept'>,
+  ) {}
 
   async balance(customerId: string): Promise<number> {
     return (await this.ledger.balance(Accounts.customer(customerId))).amount;
   }
+
+  async heldElsewhere(customerId: string, tx?: Tx): Promise<number> {
+    return this.holds ? this.holds.heldExcept(ROUTES_WALLET_HOLDS, customerId, tx) : 0;
+  }
 }
+
+/** The routes module's name in the wallet-holds registry (prepaid seats and request deposits). */
+export const ROUTES_WALLET_HOLDS = 'routes';
 
 /** Test double: balances set by hand. */
 export class FakeWallet implements WalletPort {
   readonly balances = new Map<string, number>();
+  readonly elsewhere = new Map<string, number>();
 
   set(customerId: string, amount: number): this {
     this.balances.set(customerId, amount);
@@ -33,6 +47,10 @@ export class FakeWallet implements WalletPort {
 
   async balance(customerId: string): Promise<number> {
     return this.balances.get(customerId) ?? 0;
+  }
+
+  async heldElsewhere(customerId: string): Promise<number> {
+    return this.elsewhere.get(customerId) ?? 0;
   }
 }
 

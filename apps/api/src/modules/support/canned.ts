@@ -21,6 +21,15 @@ const CANNED: ReadonlyArray<{ key: string; action: Action; amountIqd: number | n
   { key: 'escalate_money', action: 'escalate', amountIqd: null },
   { key: 'after_hours', action: 'none', amountIqd: null },
   { key: 'resolve_thanks', action: 'resolve', amountIqd: null },
+  // Launch replies approved by Ali on 2026-10-07 (G0-11): none of them gives money by itself.
+  { key: 'no_courier', action: 'none', amountIqd: null },
+  { key: 'kitchen_refused', action: 'none', amountIqd: null },
+  { key: 'calls_soon', action: 'none', amountIqd: null },
+  { key: 'wallet_balance', action: 'none', amountIqd: null },
+  { key: 'change_to_wallet', action: 'none', amountIqd: null },
+  { key: 'sos_followup', action: 'none', amountIqd: null },
+  { key: 'refund_refused', action: 'resolve', amountIqd: null },
+  { key: 'ask_order_number', action: 'none', amountIqd: null },
 ];
 
 export const CANNED_RESPONSES: readonly CannedResponse[] = CANNED.map((c) => ({
@@ -46,10 +55,12 @@ export const DISPUTE_SUBJECT_AR: Record<DisputeKind, string> = {
   wrong_item: 'غرض غلط بالطلب',
   not_delivered: 'الطلب ما وصل',
   ride_fare: 'خلاف على أجرة المشوار',
+  driver_behaviour: 'شكوى على تصرف السايق',
+  unsafe_driving: 'سياقة خطرة',
   other: 'مشكلة بالطلب',
 };
 
-export const KIND_AR: Record<TicketKind, string> = { dispute: 'نزاع', complaint: 'شكوى', incident: 'حادثة', question: 'استفسار' };
+export const KIND_AR: Record<TicketKind, string> = { dispute: 'نزاع', complaint: 'شكوى', incident: 'حادثة', question: 'استفسار', deletion: 'حذف حساب' };
 export const STATUS_AR: Record<TicketStatus, string> = { open: 'مفتوحة', waiting: 'بانتظار الزبون', escalated: 'مصعّدة', resolved: 'محلولة' };
 
 /** Words that rank a ticket up as hostile in tone (support spec §3 queue by urgency). */

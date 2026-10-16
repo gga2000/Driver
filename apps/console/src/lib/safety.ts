@@ -23,7 +23,7 @@ export function shouldRing(rows: readonly SafetyIncidentSummary[], muted: Readon
 /** "40 ث", "3 د", "1 س 5 د". */
 export function ageText(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
-  return s < 60 ? `${s} ث` : compactDuration(ms);
+  return s < 60 ? t('console.dur_s', { s }) : compactDuration(ms);
 }
 
 export function roleText(role: 'driver' | 'customer'): string {
@@ -77,8 +77,11 @@ export function coordsText(p: { lat: number; lng: number }): string {
 export function entryText(e: SafetyEntry, raiserName: string): string {
   const by = e.byName ?? t('console.safety.who_raiser');
   switch (e.kind) {
-    case 'raised':
-      return `${raiserName}: ${t('console.safety.ev_raised')}`;
+    case 'raised': {
+      const line = `${raiserName}: ${t('console.safety.ev_raised')}`;
+      // Past the hourly limit the alert still went out, flagged as possibly repeated (FLOW-08).
+      return e.data['repeated'] ? `${line} · ${t('console.safety.ev_raised_repeated', { count: e.data['repeated'] })}` : line;
+    }
     case 'cancelled':
       return `${raiserName}: ${t('console.safety.ev_cancelled')}`;
     case 'paged':

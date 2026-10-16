@@ -1,4 +1,4 @@
-import { resolvePlural, t as sharedT, type MessageKey } from '@driver/i18n';
+import { agreeMinutes, resolvePlural, t as sharedT, type MessageKey } from '@driver/i18n';
 import ar from '../../locales/ar.json';
 import en from '../../locales/en.json';
 
@@ -25,14 +25,15 @@ const hasLocal = (k: string) => Object.prototype.hasOwnProperty.call(LOCAL['ar-I
 /**
  * Local table first (falls back to Arabic), then the shared one; unknown keys render as themselves.
  * Counted phrases pick their Arabic plural form ("صنفين", "5 أصناف", "11 صنف") from `_one/_two/_few`
- * siblings, exactly like the shared `t()`.
+ * siblings, exactly like the shared `t()`; every "{minutes} دقيقة" takes its Iraqi form (day-one d07:
+ * «دقيقة», «دقيقتين», «7 دقايق», «15 دقيقة») through the shared `agreeMinutes`.
  */
 export function translate(key: TKey, params: Params | undefined, locale: Locale): string {
   const base = LOCAL['ar-IQ'][key];
   if (base !== undefined) {
     const k = resolvePlural(key, base, params, hasLocal);
     const local = LOCAL[locale][k] ?? LOCAL['ar-IQ'][k] ?? base;
-    return interpolate(local, params);
+    return interpolate(agreeMinutes(local, params), params);
   }
   return sharedT(key as MessageKey, params, locale);
 }

@@ -13,7 +13,10 @@ import type {
   VaultAccessLogRecord,
   ChildIdentityRecord,
   ParticipantIdentityRecord,
+  VaultLogOptions,
 } from './identity.repository.js';
+import { vaultLogFailsClosed } from './identity.repository.js';
+import { VaultLogWriteError, accessorOf, recordSwallowedVaultLogFailure } from './vault-log.js';
 
 /**
  * In-memory twin of the Prisma repository for unit tests and for running the API without a
@@ -28,6 +31,8 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   readonly people = new Map<string, PersonRecord>();
   readonly identities = new Map<string, IdentityRecord>(); // by personId
   readonly accessLogs: VaultAccessLogRecord[] = [];
+  /** Test hook: how many of the next access log writes fail (like a failed insert on Postgres). */
+  failLogWrites = 0;
   /** Twin of the vault table of khat children (name by childRef). */
   readonly children: ChildIdentityRecord[] = [];
   readonly participantNames = new Map<string, ParticipantIdentityRecord>();
@@ -129,11 +134,23 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return idn;
   }
 
-  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx) {
+  /**
+   * Same shape as Postgres: a synthetic accessor (`system:*`, `share:<id>`…) is kept with its kind.
+   * `failLogWrites` (tests) makes the next writes fail, to exercise the fail-open / fail-closed rule.
+   */
+  async logVaultAccess(entry: { personId: string; accessorId: string; purpose: string; fieldsRead: string[]; childRef?: string | null; now: Date }, tx?: Tx, opts?: VaultLogOptions) {
+    if (this.failLogWrites > 0) {
+      this.failLogWrites -= 1;
+      const err = new Error('vault log write failed (in-memory test hook)');
+      if (vaultLogFailsClosed(entry.purpose, opts)) throw new VaultLogWriteError(err);
+      recordSwallowedVaultLogFailure(err, entry);
+      return null;
+    }
     const row: VaultAccessLogRecord = {
       id: this.id('val'),
       personId: entry.personId,
       accessorId: entry.accessorId,
+      accessorKind: accessorOf(entry.accessorId).kind,
       purpose: entry.purpose,
       fieldsRead: [...entry.fieldsRead],
       childRef: entry.childRef ?? null,
@@ -144,9 +161,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return row;
   }
 
-  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx) {
-    for (const e of entries) await this.logVaultAccess(e, tx);
-    return entries.length;
+  async logVaultAccessMany(entries: ReadonlyArray<{ personId: string; accessorId: string; purpose: string; fieldsRead: string[]; now: Date }>, tx?: Tx, opts?: VaultLogOptions) {
+    let n = 0;
+    for (const e of entries) if (await this.logVaultAccess(e, tx, opts)) n += 1;
+    return n;
   }
 
   async vaultAccessLogs(personId: string) {
@@ -331,16 +349,22 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return out;
   }
 
+  async rotateSession(id: string, expectRefreshHash: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'deviceId'>>, tx?: Tx) {
+    const s = this.sessions.find((x) => x.id === id);
+    if (!s || s.refreshTokenHash !== expectRefreshHash || s.revokedAt) return null;
+    return this.updateSession(id, patch, tx);
+  }
+
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
-    let n = 0;
+    const ids: string[] = [];
     for (const s of this.sessions) {
       if (s.personId === personId && !s.revokedAt) {
         this.keep(tx, s);
         s.revokedAt = now;
-        n += 1;
+        ids.push(s.id);
       }
     }
-    return n;
+    return ids;
   }
 
   async latestOtp(phoneHash: string, purpose: OtpPurpose) {
@@ -364,12 +388,27 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   }
 
   /** Never journaled: an auto-committed write, like the Prisma twin. */
-  async recordOtpFailure(id: string, input: { now: Date; maxAttempts: number }) {
+  async claimOtpAttempt(id: string, input: { maxAttempts: number }) {
     const o = this.otps.find((x) => x.id === id);
-    if (!o) throw new Error(`otp ${id} not found`);
+    if (!o || o.verifiedAt || o.lockedAt || o.attempts >= input.maxAttempts) return null;
     o.attempts += 1;
-    if (o.attempts >= input.maxAttempts && !o.lockedAt) o.lockedAt = input.now;
+    return { attempts: o.attempts };
+  }
+
+  /** Never journaled, like `claimOtpAttempt`. */
+  async lockOtp(id: string, input: { now: Date; maxAttempts: number }) {
+    const o = this.otps.find((x) => x.id === id);
+    if (!o) return null;
+    if (!o.verifiedAt && !o.lockedAt && o.attempts >= input.maxAttempts) o.lockedAt = input.now;
     return { ...o };
+  }
+
+  async consumeOtp(id: string, now: Date, tx?: Tx) {
+    const o = this.otps.find((x) => x.id === id);
+    if (!o || o.verifiedAt || o.lockedAt) return null;
+    this.keep(tx, o);
+    o.verifiedAt = now;
+    return o;
   }
 
   async createGuardianLink(input: { guardianId: string; wardPersonId: string | null; wardParticipantId: string | null; now: Date }, tx?: Tx) {
@@ -397,5 +436,51 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async guardianLinksOf(guardianId: string) {
     return this.guardianLinks.filter((g) => g.guardianId === guardianId);
+  }
+  async roleKindsEver(personId: string) {
+    return [...new Set(this.roles.filter((r) => r.personId === personId).map((r) => r.kind))];
+  }
+
+  /** Removes the matches from `list`, journaled so a rollback puts them back in place. */
+  private removeWhere<T>(tx: Tx | undefined, list: T[], match: (x: T) => boolean): void {
+    const before = [...list];
+    const kept = list.filter((x) => !match(x));
+    if (kept.length === list.length) return;
+    list.splice(0, list.length, ...kept);
+    this.journal(tx, () => list.splice(0, list.length, ...before));
+  }
+
+  async closeAccount(personId: string, now: Date, tx?: Tx) {
+    const person = this.people.get(personId);
+    if (!person || person.deletedAt) return null;
+    const sessionIds = this.sessions.filter((x) => x.personId === personId).map((x) => x.id);
+    const idn = this.identities.get(personId);
+    if (idn) {
+      this.removeWhere(tx, this.otps, (o) => o.phoneHash === idn.phoneHash);
+      this.identities.delete(personId);
+      const refs = this.vaultRefLists.get(personId);
+      this.vaultRefLists.delete(personId);
+      this.journal(tx, () => {
+        this.identities.set(personId, idn);
+        if (refs) this.vaultRefLists.set(personId, refs);
+      });
+    }
+    this.removeWhere(tx, this.children, (c) => c.guardianId === personId);
+    for (const [id, p] of [...this.participantNames]) {
+      if (p.personId !== personId && p.givenById !== personId) continue;
+      this.participantNames.delete(id);
+      this.journal(tx, () => this.participantNames.set(id, p));
+    }
+    this.removeWhere(tx, this.guardianLinks, (g) => g.guardianId === personId || g.wardPersonId === personId);
+    this.removeWhere(tx, this.sessions, (x) => x.personId === personId);
+    this.removeWhere(tx, this.devices, (d) => d.personId === personId);
+    for (const r of this.roles) {
+      if (r.personId !== personId || r.revokedAt) continue;
+      this.keep(tx, r);
+      r.revokedAt = now;
+    }
+    this.keep(tx, person);
+    person.deletedAt = now;
+    return { sessionIds };
   }
 }

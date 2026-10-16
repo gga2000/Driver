@@ -1,15 +1,20 @@
 import { router } from 'expo-router';
 import { View } from 'react-native';
 import { IconButton, Text, useTheme } from '@driver/ui';
+import { Wordmark } from '@/components/Wordmark';
 import { useT } from '@/lib/i18n';
 
-/** Back button + title block shared by the phone, OTP and setup screens. */
+/**
+ * Back button + title block shared by the phone, OTP and setup screens. With `step` (partner redesign f4,
+ * the dashboard look): the wordmark, the two-step bar and the title at display size.
+ */
 export function AuthHeader({
   title,
   subtitle,
   back = true,
   onBack,
   aside,
+  step,
 }: {
   title: string;
   subtitle?: string;
@@ -17,6 +22,8 @@ export function AuthHeader({
   /** Overrides the default router.back() (in-screen steps). */
   onBack?: () => void;
   aside?: string;
+  /** f4: «خطوة 1 من 2» with the two-step bar (phone, then code). */
+  step?: 1 | 2;
 }) {
   const theme = useTheme();
   const t = useT();
@@ -37,10 +44,24 @@ export function AuthHeader({
           <Text variant="label" color="textMuted" tabular>
             {aside}
           </Text>
+        ) : step ? (
+          <Wordmark size="md" />
         ) : null}
       </View>
+      {step ? (
+        <View testID="auth-step" style={{ gap: theme.space[2] }}>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {[1, 2].map((n) => (
+              <View key={n} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: n <= step ? theme.colors.accent : theme.colors.surfaceSunken }} />
+            ))}
+          </View>
+          <Text variant="caption" weight={600} color="textMuted" tabular>
+            {t('partner.f4_step', { n: step })}
+          </Text>
+        </View>
+      ) : null}
       <View style={{ gap: theme.space[1] }}>
-        <Text variant="heading" accessibilityRole="header">
+        <Text variant={step ? 'display' : 'heading'} accessibilityRole="header" style={step ? { lineHeight: 44 } : undefined}>
           {title}
         </Text>
         {subtitle ? (

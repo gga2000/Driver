@@ -51,6 +51,13 @@ export function formatDayClock(d: Date, timeZone = 'Asia/Baghdad'): string {
   return `${get('day')}/${get('month')} · ${formatClock(d, timeZone)}`;
 }
 
+/** A date in the city zone: `12/10/2026` (day/month/year, Western digits). */
+export function formatDate(d: Date, timeZone = 'Asia/Baghdad'): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('day')}/${get('month')}/${get('year')}`;
+}
+
 /** Shortens long ids for cards and tables: `cmh3x9…a1b2`. Short ids pass through. */
 export function shortId(id: string, head = 6, tail = 4): string {
   return id.length <= head + tail + 1 ? id : `${id.slice(0, head)}…${id.slice(-tail)}`;
@@ -72,7 +79,7 @@ export function formatClock(d: Date, timeZone = 'Asia/Baghdad'): string {
   const hour = get('hour');
   const minute = get('minute');
   const pm = get('dayPeriod').toUpperCase() === 'PM';
-  return `${hour}:${minute} ${pm ? 'م' : 'ص'}`;
+  return `${hour}:${minute} ${t(pm ? 'console.clock_pm' : 'console.clock_am')}`;
 }
 
 /** "أيلول 2026" (Iraqi month names, Western digits) in the city zone. */

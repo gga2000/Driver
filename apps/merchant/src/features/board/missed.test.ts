@@ -45,8 +45,10 @@ describe('missed orders never vanish (M-01)', () => {
 
 describe('"ابدأ الشغل" gate (M-04)', () => {
   it('shows until the shift was started today (Baghdad day), and again the next day', () => {
-    expect(baghdadDay(Date.parse('2026-10-04T20:59:00Z'))).toBe('2026-10-04');
-    expect(baghdadDay(Date.parse('2026-10-04T21:00:00Z'))).toBe('2026-10-05');
+    // MER-15: the day turns at 05:00 Baghdad (02:00Z), not at midnight in the middle of a late service.
+    expect(baghdadDay(Date.parse('2026-10-04T21:00:00Z'))).toBe('2026-10-04'); // 00:00 Baghdad
+    expect(baghdadDay(Date.parse('2026-10-05T01:59:00Z'))).toBe('2026-10-04'); // 04:59
+    expect(baghdadDay(Date.parse('2026-10-05T02:00:00Z'))).toBe('2026-10-05'); // 05:00
     expect(shiftGateNeeded(null, NOW)).toBe(true);
     expect(shiftGateNeeded('2026-10-04', NOW)).toBe(false);
     expect(shiftGateNeeded('2026-10-03', NOW)).toBe(true);

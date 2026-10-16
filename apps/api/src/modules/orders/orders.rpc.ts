@@ -7,6 +7,9 @@ import {
   type ComingOutResult,
   type ListActiveOrdersInput,
   type MerchantRejectInput,
+  type MerchantRemakeInput,
+  type MerchantRemakeResult,
+  type MerchantRemakeRule,
   type OpenDisputeInput,
   type Order,
   type OrderQuote,
@@ -23,11 +26,26 @@ import {
   type TipResult,
   type RoleKind,
   type MerchantAcceptInput,
+  type CashStanding,
+  type ResolveDisputeInput,
+  type StaffActionResult,
+  type StaffCancelOrderInput,
+  type StaffChargeCourierInput,
+  type StaffCloseOrderInput,
+  type StaffCourierLostInput,
+  type StaffErrandReceiptInput,
+  type StaffOpsSwitches,
+  type StaffMarkDeliveredInput,
+  type StuckOrder,
+  type StuckOrdersInput,
 } from '@driver/contracts';
 import type { z } from 'zod';
+import { CONSOLE_ORDER_RECIPIENT_PURPOSE } from '../identity/index.js';
 import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 import { OrderTipsService } from './tips.js';
 import { OrderComplimentsService } from './compliments.js';
+import { OrdersStaffService } from './orders.staff.js';
+import { CASH_LIMITS, type CashLimits } from './cash-limits.js';
 
 /** Live role checks, optionally scoped to an org (merchant staff of *this* restaurant). */
 export interface OrgRoleChecker {
@@ -37,6 +55,8 @@ export interface OrgRoleChecker {
 export const ORDERS_ROLE_CHECKER = Symbol('ORDERS_ROLE_CHECKER');
 
 const OPS: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
+/** FOOD-04: how many of a person's newest orders `orders.mine` returns (a live order is always among them). */
+export const MY_ORDERS_LIMIT = 100;
 const MERCHANT: readonly RoleKind[] = ['merchant_staff', 'merchant_owner'];
 
 /**
@@ -52,7 +72,59 @@ export class OrdersRpc implements OrdersPort {
     @Inject(ORDERS_ROLE_CHECKER) private readonly roles: OrgRoleChecker,
     @Optional() private readonly tips?: OrderTipsService,
     @Optional() private readonly compliments?: OrderComplimentsService,
+    @Optional() private readonly staff?: OrdersStaffService,
+    @Optional() @Inject(CASH_LIMITS) private readonly cashLimits?: CashLimits,
   ) {}
+
+  // ───────── W3 staff way-out (the router admits the roles; docs/api/staff-ops.md) ─────────
+
+  private staffOrThrow(): OrdersStaffService {
+    if (!this.staff) throw new DriverError('internal');
+    return this.staff;
+  }
+
+  /** W3 (M-3/M-4): the caller's own cash standing. */
+  cashStanding(actor: Actor): Promise<CashStanding> {
+    if (!this.cashLimits) throw new DriverError('internal');
+    return this.cashLimits.standing(actor.personId);
+  }
+
+  opsCancel(actor: Actor, input: StaffCancelOrderInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().cancel(actor, input);
+  }
+
+  opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().markDelivered(actor, input);
+  }
+
+  opsErrandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().errandReceipt(actor, input);
+  }
+
+  opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().close(actor, input);
+  }
+
+  /** Which W3 money outcomes are on (read-only; the Console greys out the ones still waiting on Ali). */
+  opsSwitches(_actor: Actor): Promise<StaffOpsSwitches> {
+    return Promise.resolve(this.staffOrThrow().switches());
+  }
+
+  opsCourierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().courierLost(actor, input);
+  }
+
+  opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().chargeCourier(actor, input);
+  }
+
+  opsResolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().resolveDispute(actor, input);
+  }
+
+  opsStuck(_actor: Actor, input: StuckOrdersInput): Promise<StuckOrder[]> {
+    return this.staffOrThrow().stuck(input);
+  }
 
   /** «شنو عجبك بـ حيدر؟»: the orderer only (checked by the compliments service). */
   complimentOptions(actor: Actor, input: { orderId: string }): Promise<ComplimentOffer> {
@@ -87,20 +159,26 @@ export class OrdersRpc implements OrdersPort {
   async get(actor: Actor, input: { orderId: string }): Promise<Order> {
     const agg = await this.orders.aggregate(input.orderId);
     const o = agg.order;
-    const allowed =
-      o.ordererId === actor.personId ||
-      agg.participants.some((p) => p.personId === actor.personId) ||
-      (o.merchantOrgId !== null && (await this.merchantOf(actor, o.merchantOrgId))) ||
-      (await this.trips.activeForOrder(o.id))?.courierId === actor.personId ||
-      (await this.any(actor, OPS));
+    const own = o.ordererId === actor.personId || agg.participants.some((p) => p.personId === actor.personId);
+    // SEC-14: the courier and the desk read the recipient's name (vault, logged); the kitchen does not.
+    // The desk's read is a Console staff read, so it fails closed (STAFF_READ_PURPOSES); the courier's fails open.
+    const carrier = !own && (await this.trips.activeForOrder(o.id))?.courierId === actor.personId;
+    const desk = !own && !carrier && (await this.any(actor, OPS));
+    const allowed = own || carrier || desk || (o.merchantOrgId !== null && (await this.merchantOf(actor, o.merchantOrgId)));
     if (!allowed) throw new DriverError('forbidden');
     // c9/s3: a ride for someone else names its rider for whoever may read the order.
     const [order] = await this.orders.withRiders([await this.orders.get(o.id)], actor.personId);
-    return order!;
+    const purpose = carrier ? 'partner_recipient' : desk ? CONSOLE_ORDER_RECIPIENT_PURPOSE : null;
+    return purpose ? (await this.orders.withRecipients([order!], actor.personId, purpose))[0]! : order!;
   }
 
+  /**
+   * FOOD-04: the newest `MY_ORDERS_LIMIT` only. The app polls this every 15 s while an order is live and
+   * reads it for the live pill, the active ride, the rider picker and saved people, all of which want the
+   * recent orders; the full list (طلباتي) is `tracking.history`.
+   */
   async mine(actor: Actor): Promise<Order[]> {
-    return this.orders.withRiders(await this.orders.listForPerson(actor.personId), actor.personId);
+    return this.orders.withRiders(await this.orders.listForPerson(actor.personId, { limit: MY_ORDERS_LIMIT }), actor.personId);
   }
 
   async listActive(actor: Actor, input: ListActiveOrdersInput): Promise<Order[]> {
@@ -170,6 +248,15 @@ export class OrdersRpc implements OrdersPort {
   async merchantExtendPrep(actor: Actor, input: { orderId: string }): Promise<Order> {
     await this.assertMerchantStaff(actor, input.orderId);
     return this.orders.merchantExtendPrep(actor.personId, input);
+  }
+
+  async merchantRemake(actor: Actor, input: MerchantRemakeInput): Promise<MerchantRemakeResult> {
+    await this.assertMerchantStaff(actor, input.orderId);
+    return this.staffOrThrow().merchantRemake(actor.personId, input);
+  }
+
+  async merchantRemakeRule(_actor: Actor): Promise<MerchantRemakeRule> {
+    return this.staffOrThrow().remakeRule();
   }
 
   async merchantHandOver(actor: Actor, input: { orderId: string }): Promise<Order> {

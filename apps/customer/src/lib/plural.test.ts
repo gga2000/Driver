@@ -9,10 +9,10 @@ describe('Arabic count forms', () => {
 
   it('reads naturally with the locale keys', () => {
     const say = (n: number) => t(countKey('list.count', n), { n });
-    expect(say(1)).toBe('مطعم واحد');
-    expect(say(2)).toBe('مطعمين');
-    expect(say(4)).toBe('4 مطاعم');
-    expect(say(12)).toBe('12 مطعم');
+    expect(say(1)).toBe('محل واحد');
+    expect(say(2)).toBe('محلين');
+    expect(say(4)).toBe('4 محلات');
+    expect(say(12)).toBe('12 محل');
     expect(t(countKey('search.results_count', 6), { n: 6 })).toBe('6 نتائج');
   });
 });
