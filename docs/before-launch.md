@@ -110,30 +110,6 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
 - **Server:** road-time dispatch (learned travel times were built on 2026-10-07); a separate worker process (only needed at
   thousands of orders a day); the Console's sign-in token in a secure cookie.
 
-## 7. Postponed by Ali on 2026-10-07 (still gating launch)
-
-Ali, 2026-10-07: "add it to to do later file". These stay visible because each one still moves the
-launch date if it slips (launch plan §9.1); the dates are in `docs/launch/can-deliver-plan.md`.
-
-**Ali's own tasks**
-
-| What | Why it gates | Latest safe date |
-|---|---|---|
-| Hire a lawyer (terms, privacy, wallet, permits; plan L1–L8, D-3) | Store listing needs the privacy policy and terms | The store forms by D-24 (Fri 13 Nov) |
-| Company registration → D-U-N-S number | The Play organisation account needs both; WhatsApp Business verification needs the company papers | Certificate Wed 21 Oct, D-U-N-S Wed 4 Nov |
-| Google Play accounts: a personal backup (no app in it, D-21) and the organisation account (owns the app ids, D-25) | The closed test runs on the organisation account | Organisation account verified Mon 9 Nov |
-| The 7 test phones (plan 6.2) | Phone tests of push, location and the apps | First phone session Mon 26 Oct |
-| GitHub branch protection on `main` (D-17) | Every gate's checks are enforced by it | Before the build cut, Fri 13 Nov |
-
-**The money questions M-1 … M-15** (launch plan §5.1, decision card §5.0). Each money rule stays
-**switched off** until Ali answers it; the code is built behind its switch. The ones that gate the
-closed test or launch: M-1 dispute outcomes, M-2 free cancel when we fail, M-3 unpaid cancel fees,
-M-4 cash-order caps, M-5 invite rewards (paying today without approval), M-6 wallet balance on
-deletion, M-7 closed-loop wallet, M-8 household wallet hidden, M-10 courier lost the food, M-14 no
-courier on his own order (all by Mon 2 Nov). After launch: M-12, M-13 (D+14). Before seats open:
-M-9, M-11. **M-15 decided by Ali on 2026-10-07: yes**: when the driver cancels, the rider gets 500
-دينار in the wallet, taken from the driver.
-
 ## 6. Small known gaps, fix when convenient
 
 - Seat-PIN alerts have no "handled" button (they disappear after an hour); a PIN from another car isn't matched.
@@ -209,3 +185,27 @@ Fly, never into a chat.
 | Safer releases: only a commit with green checks ships, websites deploy after the API, backup has its own environment, money files need review | PR #225, branch `claude/project-thread-u6yai6-release-safety` | Yes | After Ali's two setup steps: merge `main` in (it has conflicts), re-run checks, fresh label, merge |
 | Nightly database backup | `backup` environment in GitHub | Yes | Needs a storage bucket (Cloudflare R2 or similar) and its secrets in the `backup` environment; then run the first backup and test a restore |
 | Run Staging setup once more, then Deploy staging | Ali | No (test server only) | Gives the test server its link addresses and the authenticator key |
+
+## 10. Postponed by Ali on 2026-10-07 (still gating launch)
+
+Ali, 2026-10-07: "add it to to do later file". These stay visible because each one still moves the
+launch date if it slips (launch plan §9.1); the dates are in `docs/launch/can-deliver-plan.md`.
+
+**Ali's own tasks**
+
+| What | Why it gates | Latest safe date |
+|---|---|---|
+| Hire a lawyer (terms, privacy, wallet, permits; plan L1–L8, D-3) | Store listing needs the privacy policy and terms | The store forms by D-24 (Fri 13 Nov) |
+| Company registration → D-U-N-S number | The Play organisation account needs both; WhatsApp Business verification needs the company papers | Certificate Wed 21 Oct, D-U-N-S Wed 4 Nov |
+| Google Play accounts: a personal backup (no app in it, D-21) and the organisation account (owns the app ids, D-25) | The closed test runs on the organisation account | Organisation account verified Mon 9 Nov |
+| The 7 test phones (plan 6.2) | Phone tests of push, location and the apps | First phone session Mon 26 Oct |
+| GitHub branch protection on `main` (D-17) | Every gate's checks are enforced by it | Before the build cut, Fri 13 Nov |
+
+**The money questions M-1 … M-15** (launch plan §5.1, decision card §5.0). Each money rule stays
+**switched off** until Ali answers it; the code is built behind its switch. The ones that gate the
+closed test or launch: M-1 dispute outcomes, M-2 free cancel when we fail, M-3 unpaid cancel fees,
+M-4 cash-order caps, M-5 invite rewards (paying today without approval), M-6 wallet balance on
+deletion, M-7 closed-loop wallet, M-8 household wallet hidden, M-10 courier lost the food, M-14 no
+courier on his own order (all by Mon 2 Nov). After launch: M-12, M-13 (D+14). Before seats open:
+M-9, M-11. **M-15 decided by Ali on 2026-10-07: yes**: when the driver cancels, the rider gets 500
+دينار in the wallet, taken from the driver.
