@@ -7,13 +7,17 @@ that for three fixed numbers in the test range (`docs/api/staging-test-numbers.m
 
 | Number | Becomes |
 | --- | --- |
-| 0770 000 0150 | owner of the four seeded restaurants (مطعم خالد, مشويات الحاج كريم, مأكولات الشام, مطعم المسافر) |
+| 0770 000 0150 | owner of the four seeded restaurants (مطعم خالد, مشويات الحاج كريم, مأكولات الشام, مطعم المسافر) and of the test food cart فلافل التجربة |
 | 0770 000 0151 | courier + taxi driver, white Hyundai Elantra `TEST-151`: food and taxi offers |
 | 0770 000 0152 | courier + tuktuk driver, Bajaj `TEST-152`: food, errands, parcels and tuktuk offers |
 
 Both driving numbers also get their papers marked approved (ID front and back, photo, licence,
 registration): a courier or driver can't go online without them. They are rows only, with no picture
 behind them.
+
+The production seed has no food carts, so the kit also makes one: فلافل التجربة (`org_test_cart_falafel`,
+three dishes), closed. 0150 opens it where he stands from the restaurant app's cart mode («فتحت هنا»),
+which also sets its pickup point; then it shows to customers under «عربانات».
 
 Any other test number (e.g. 0770 000 0101) is the customer: it needs nothing.
 
@@ -23,7 +27,7 @@ Any other test number (e.g. 0770 000 0101) is the customer: it needs nothing.
 3. Sign out and back in (or wait 30 seconds and reopen the app): the roles are there.
 
 `undo` takes back exactly what the kit gave: the roles, the kit's own papers (a paper uploaded from the
-app stays) and its two vehicles. Running it again is safe. It
+app stays) and its two vehicles, and it closes the test cart. Running it again is safe. It
 refuses to run outside the `staging` environment and never touches a number outside the test range.
 The kit writes straight to the staging database (`scripts/staging/test-kit.mjs`); it is a test tool,
 never a way to make real partners: real couriers, drivers and shops go through the Console.

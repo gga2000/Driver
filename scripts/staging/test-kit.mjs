@@ -8,13 +8,17 @@
 // tester on staging could never be anything but a customer. This kit does it for three fixed numbers in
 // the staging test range (0770 000 0100–0199, never staff, docs/api/staging-test-numbers.md):
 //
-//   0770 000 0150  owner of the four seeded Aziziyah restaurants
+//   0770 000 0150  owner of the four seeded Aziziyah restaurants and of one test food cart (فلافل التجربة)
 //   0770 000 0151  courier + taxi driver, a white Hyundai Elantra (food and taxi offers)
 //   0770 000 0152  courier + tuktuk driver, a Bajaj tuktuk (food, errands, parcels and tuktuk offers)
 //
 // The two driving numbers also get their papers marked approved (ID front and back, photo, licence,
 // registration), which every courier or driver needs to go online. Those rows have no picture behind
 // them: the Console shows them as approved papers with nothing to open.
+//
+// The production seed has no food carts, so the kit also makes one closed test cart with three dishes
+// (org_test_cart_falafel). 0150 opens it where he stands from the restaurant app's cart mode («فتحت هنا»),
+// which sets its pickup point; undo closes it and takes back the role (the cart's rows stay).
 //
 // Each number must have signed in once first (the person row is made at sign-in with the API's phone
 // pepper, which only the API holds); a number that hasn't is listed and skipped. Idempotent: run it again
@@ -31,9 +35,28 @@ const require = createRequire(resolve(root, 'packages/db/package.json'));
 
 const RESTAURANTS = ['org_aziziyah_khalid', 'org_aziziyah_haj_kareem', 'org_aziziyah_sham', 'org_aziziyah_musafir'];
 
+/** The test food cart the kit makes (the production seed has none). Same rows FoodCartsService.register writes. */
+const TEST_CART = {
+  orgId: 'org_test_cart_falafel',
+  name: 'فلافل التجربة',
+  kind: 'falafel',
+  cuisineAr: 'فلافل',
+  prepMin: 4,
+  dishes: [
+    { key: 'laffa', nameAr: 'لفة فلافل', nameEn: 'Falafel wrap', priceIqd: 1000 },
+    { key: 'samoon', nameAr: 'صمونة فلافل', nameEn: 'Falafel samoon', priceIqd: 750 },
+    { key: 'amba', nameAr: 'لفة فلافل بالعمبة', nameEn: 'Falafel wrap with amba', priceIqd: 1250 },
+  ],
+};
+
 /** What the kit grants. Phones in E.164; every one must be in the staging test range. */
 export const KIT = [
-  { phone: '+9647700000150', label: 'restaurant owner', roles: RESTAURANTS.map((orgId) => ({ kind: 'merchant_owner', orgId })), vehicle: null },
+  {
+    phone: '+9647700000150',
+    label: 'restaurant + cart owner',
+    roles: [...RESTAURANTS, TEST_CART.orgId].map((orgId) => ({ kind: 'merchant_owner', orgId })),
+    vehicle: null,
+  },
   {
     phone: '+9647700000151',
     label: 'courier + taxi driver',
@@ -127,6 +150,49 @@ async function takePapers(db, personId) {
   return `papers: ${r.rowCount} retired`;
 }
 
+/** Makes the test cart once (org, settlement, menu with storefront, dishes, food_carts row); later runs leave it as it is. */
+async function ensureTestCart(db) {
+  const c = TEST_CART;
+  const have = await db.query('SELECT 1 FROM public.food_carts WHERE org_id = $1', [c.orgId]);
+  if (have.rows.length > 0) return 'cart: already';
+  await db.query(
+    `INSERT INTO public.orgs (id, type, name, city_id, default_prep_min, commission_tier, closed_at, closed_reason, created_at, updated_at)
+     VALUES ($1, 'restaurant', $2, 'aziziyah', $3, 'starter', now(), 'cart_closed', now(), now()) ON CONFLICT (id) DO NOTHING`,
+    [c.orgId, c.name, c.prepMin],
+  );
+  await db.query(
+    `INSERT INTO public.merchant_settlements (id, org_id, mode, exposure_cap_iqd, created_at, updated_at)
+     VALUES ($1, $2, 'nightly_courier', 300000, now(), now()) ON CONFLICT (org_id) DO NOTHING`,
+    [newId(), c.orgId],
+  );
+  const storefront = { cuisineAr: c.cuisineAr, tags: ['food_cart', c.kind], photoUrl: null, minOrderIqd: 0, prepMin: c.prepMin, hours: [], ratingPlaceholder: null, story: null };
+  await db.query(
+    `INSERT INTO public.catalogs (id, org_id, name_ar, active, storefront, created_at, updated_at)
+     VALUES ($1, $2, 'القائمة الرئيسية', true, $3::jsonb, now(), now()) ON CONFLICT (id) DO NOTHING`,
+    [`${c.orgId}_catalog`, c.orgId, JSON.stringify(storefront)],
+  );
+  for (const [i, d] of c.dishes.entries()) {
+    await db.query(
+      `INSERT INTO public.catalog_items (id, catalog_id, org_id, name_ar, name_en, price_iqd, prep_time_min, sort_order, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now()) ON CONFLICT (id) DO NOTHING`,
+      [`${c.orgId}_${d.key}`, `${c.orgId}_catalog`, c.orgId, d.nameAr, d.nameEn, d.priceIqd, c.prepMin, i],
+    );
+  }
+  await db.query(
+    `INSERT INTO public.food_carts (id, org_id, city_id, kind, facing, created_at, updated_at)
+     VALUES ($1, $2, 'aziziyah', $3, 180, now(), now())`,
+    [newId(), c.orgId, c.kind],
+  );
+  return 'cart: made (closed)';
+}
+
+/** Undo: the test cart closes (its rows stay, so a later give finds it again). */
+async function closeTestCart(db) {
+  await db.query('UPDATE public.food_carts SET closed_at = now(), closes_at = NULL, updated_at = now() WHERE org_id = $1', [TEST_CART.orgId]);
+  await db.query(`UPDATE public.orgs SET closed_at = now(), closed_reason = 'cart_closed', updated_at = now() WHERE id = $1`, [TEST_CART.orgId]);
+  return 'cart: closed';
+}
+
 async function main() {
   const undo = process.argv.includes('--undo');
   if (process.env.KIT_ENVIRONMENT !== 'staging') {
@@ -152,6 +218,15 @@ async function main() {
   try {
     const orgs = await db.query('SELECT id FROM public.orgs WHERE id = ANY($1)', [RESTAURANTS]);
     const haveOrg = new Set(orgs.rows.map((r) => r.id));
+    await db.query('BEGIN');
+    try {
+      lines.push(`| — | test food cart | ${undo ? await closeTestCart(db) : await ensureTestCart(db)} |`);
+      await db.query('COMMIT');
+    } catch (err) {
+      await db.query('ROLLBACK');
+      throw err;
+    }
+    haveOrg.add(TEST_CART.orgId);
     for (const k of KIT) {
       const who = await db.query('SELECT person_id FROM identity_vault.person_identities WHERE phone_e164 = $1', [k.phone]);
       const personId = who.rows[0]?.person_id;

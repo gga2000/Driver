@@ -5,7 +5,7 @@ import { CityId, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import { OrderState } from './order.js';
 import { SharedTrip } from './share-io.js';
-import { EtaBasis } from './tracking.js';
+import { EtaBasis } from './travel.js';
 
 /**
  * The real-time channel (tRPC v11 subscriptions over SSE, `live.*`). It replaces the apps' fast
