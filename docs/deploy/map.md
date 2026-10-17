@@ -25,6 +25,9 @@ use it; Supabase Pro (approved for launch) raises both.
   - variable `DATABASE_REF`, the Supabase project ref (staging already has it);
   - secret `SUPABASE_SECRET_KEY`, from Supabase → Project Settings → API Keys → a **secret** key. Paste it
     only into GitHub, never into chat.
+  - optional secret `OUR_PLACES_JSON`: our own checked places (schools, mosques, bakeries, pharmacies,
+    fuel, clinics) from the names-and-places page, as the file `tools/map-tiles/data/our-places.json`
+    base64-encoded. The list stays out of this public repo; without it the map shows open-data places only.
 - **App builds**: the apps read the URLs at build time.
   - Customer, partner and merchant: `EXPO_PUBLIC_MAP_TILES_URL` and `EXPO_PUBLIC_MAP_GLYPHS_URL`.
   - Console: `NEXT_PUBLIC_MAP_TILES_URL` and `NEXT_PUBLIC_MAP_GLYPHS_URL`. The Console on Fly gets them from the
