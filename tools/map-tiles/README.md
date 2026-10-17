@@ -57,5 +57,7 @@ then point a MapLibre page at `pmtiles://http://127.0.0.1:8765/wasit.pmtiles` an
   `{kind, name, lng, lat}` with `kind` area / mosque / school / health / pharmacy / bakery / fuel, exported from
   the names-and-places page Ali fills in. Areas become painted neighbourhood names; places become signposts and
   replace the Overture places of the same kind. Without the file the build tags Overture's own places.
+  The **Map tiles** workflow gets the same file from the environment secret `OUR_PLACES_JSON` (the file
+  base64-encoded: `base64 -w0 data/our-places.json`), so the list never enters the repo.
 
 Map data © OpenStreetMap contributors and Overture Maps Foundation (ODbL / CDLA); show the attribution.

@@ -12,7 +12,8 @@
 #
 # Needs, in the GitHub environment: variable DATABASE_REF (the Supabase project ref, already set for
 # staging) and secret SUPABASE_SECRET_KEY (Supabase → Project Settings → API Keys → a secret key).
-# The key only ever goes into GitHub; it is never printed.
+# The key only ever goes into GitHub; it is never printed. Optional secret OUR_PLACES_JSON: our own
+# checked places (base64 of data/our-places.json), kept out of the public repo; see the step below.
 name: Map tiles
 
 on:
@@ -71,6 +72,32 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           python3 -m pip install -r tools/map-tiles/requirements.txt
+
+      # Our own places (the list Ali checked on the names-and-places page) are kept out of this public
+      # repo. The environment secret OUR_PLACES_JSON holds that list base64-encoded; without it the map
+      # is built from the open data alone.
+      - name: Our own places (private list)
+        env:
+          OUR_PLACES_JSON: ${{ secrets.OUR_PLACES_JSON }}
+        run: |
+          if [ -z "$OUR_PLACES_JSON" ]; then
+            echo "::notice title=Map tiles::no OUR_PLACES_JSON secret on this environment, so the map uses open-data places only"
+            exit 0
+          fi
+          mkdir -p tools/map-tiles/data
+          base64 -d <<< "$OUR_PLACES_JSON" > tools/map-tiles/data/our-places.json \
+            || { echo "::error title=Map tiles::OUR_PLACES_JSON is not valid base64"; exit 1; }
+          python3 - <<'PY'
+          import json, sys
+          try:
+              places = json.load(open('tools/map-tiles/data/our-places.json'))
+          except ValueError:
+              sys.exit('::error title=Map tiles::OUR_PLACES_JSON is not a JSON list')
+          if not isinstance(places, list):
+              sys.exit('::error title=Map tiles::OUR_PLACES_JSON is not a JSON list')
+          ok = [p for p in places if isinstance(p, dict) and p.get('name') and isinstance(p.get('lng'), (int, float)) and isinstance(p.get('lat'), (int, float))]
+          print(f'our own places: {len(ok)} of {len(places)} usable')
+          PY
 
       - name: Build (Overture → wasit.pmtiles + glyphs)
         run: |
