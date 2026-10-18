@@ -41,13 +41,14 @@ function NativeBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelA
   const driving = useRef(false);
   const labels = useSharedValue(1);
   const [light, setLight] = useState(() => golden.resolveLight(alwaysDay ? { light: 'day' } : {}).light);
-  // The Console's neighbourhoods: edges and one painted name each, as data in the style (#339).
+  // The Console's neighbourhoods: edges and one painted name each, as data in the style (#339). Pin pickers
+  // (`alwaysDay`) keep the edges but no names: one would sit under the pin, and the sheet says «المنطقة: …».
   const { zones, centroids } = useZoneShapes();
   const style = useMemo(() => {
-    const s = nativeGoldenStyle(golden, light, 'customer', { zoneNames: true });
-    const fill = (id: string, data: GeoJSON.FeatureCollection) => (s.sources[id] ? { ...s.sources[id], data } : undefined);
-    return { ...s, sources: { ...s.sources, [golden.GOLDEN_ZONES_SOURCE]: fill(golden.GOLDEN_ZONES_SOURCE, zones), [golden.GOLDEN_ZONE_NAMES_SOURCE]: fill(golden.GOLDEN_ZONE_NAMES_SOURCE, centroids) } } as typeof s;
-  }, [light, zones, centroids]);
+    const s = nativeGoldenStyle(golden, light, 'customer', { zoneNames: !alwaysDay });
+    const fill = (id: string, data: GeoJSON.FeatureCollection) => (s.sources[id] ? { [id]: { ...s.sources[id], data } } : {});
+    return { ...s, sources: { ...s.sources, ...fill(golden.GOLDEN_ZONES_SOURCE, zones), ...fill(golden.GOLDEN_ZONE_NAMES_SOURCE, centroids) } } as typeof s;
+  }, [light, zones, centroids, alwaysDay]);
   const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
   const windows = useHouseWindows(map, light);
   const roadLayers = useMemo(() => style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'roads').map((l) => l.id), [style]);
