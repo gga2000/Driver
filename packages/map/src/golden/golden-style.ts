@@ -425,7 +425,8 @@ function labelLayers(p: GoldenPalette): LayerSpecification[] {
 /**
  * The neighbourhoods Ali draws in the Console (Ali, 2026-10-14: "Console zones"): a faint wash and a fine
  * dotted edge lying on the ground under the houses, gone by the time the camera is down in the streets.
- * Drafts (the AI's first guess) never show: only outlines someone placed or drivers confirmed.
+ * Draft outlines (the AI's first guess) never show: only outlines someone placed or drivers confirmed.
+ * Every neighbourhood keeps its name, though: a draft's sits at its listed centre until someone draws it.
  */
 function zoneLayers(p: GoldenPalette, names: boolean): [LayerSpecification[], LayerSpecification[]] {
   const real = ['!=', ['get', 'placement'], 'draft'] as never;
@@ -447,7 +448,7 @@ function zoneLayers(p: GoldenPalette, names: boolean): [LayerSpecification[], La
   const L: LayerSpecification[] = [];
   if (names) {
     L.push({
-      id: 'golden-zone-names', type: 'symbol', source: GOLDEN_ZONE_NAMES_SOURCE, filter: real, minzoom: 13, maxzoom: 17.6,
+      id: 'golden-zone-names', type: 'symbol', source: GOLDEN_ZONE_NAMES_SOURCE, minzoom: 13, maxzoom: 17.6,
       layout: {
         'text-field': ['get', 'name_ar'] as never, 'text-font': [...GOLDEN_FONTS.bold], 'text-pitch-alignment': 'map', 'text-rotation-alignment': 'map',
         'text-size': ['interpolate', ['exponential', 2], ['zoom'], 13, 12, 14, 15, 15, 20, 16, 30, 17, 46] as never, 'text-allow-overlap': true, 'text-ignore-placement': true,

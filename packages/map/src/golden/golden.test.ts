@@ -58,7 +58,7 @@ describe('buildGoldenStyle', () => {
       }
     }
   });
-  it('draws the Console neighbourhoods on customer and lite only, under the houses, never the AI drafts', () => {
+  it('draws the Console neighbourhoods on customer and lite only, under the houses, never the AI draft outlines', () => {
     for (const mode of MODES) {
       const style = buildGoldenStyle({ ...base, light: 'golden', mode, zoneNames: true });
       const zoneIds = style.layers.filter((l) => 'source' in l && (l.source === GOLDEN_ZONES_SOURCE || l.source === GOLDEN_ZONE_NAMES_SOURCE)).map((l) => l.id);
@@ -66,7 +66,9 @@ describe('buildGoldenStyle', () => {
         expect(style.sources[GOLDEN_ZONES_SOURCE]).toMatchObject({ type: 'geojson' });
         expect(style.sources[GOLDEN_ZONE_NAMES_SOURCE]).toMatchObject({ type: 'geojson' });
         expect(zoneIds).toEqual(['golden-zone-wash', 'golden-zone-edge', 'golden-zone-names']);
-        for (const id of zoneIds) expect(style.layers.find((l) => l.id === id)).toMatchObject({ filter: ['!=', ['get', 'placement'], 'draft'] });
+        for (const id of ['golden-zone-wash', 'golden-zone-edge']) expect(style.layers.find((l) => l.id === id)).toMatchObject({ filter: ['!=', ['get', 'placement'], 'draft'] });
+        // every neighbourhood keeps its name, drawn or not
+        expect(style.layers.find((l) => l.id === 'golden-zone-names')).not.toHaveProperty('filter');
         expect(ids(style).indexOf('golden-zone-edge')).toBeLessThan(ids(style).indexOf('golden-roofs'));
         expect(ids(style).indexOf('golden-zone-names')).toBeGreaterThan(ids(style).indexOf('golden-roofs'));
       } else {
