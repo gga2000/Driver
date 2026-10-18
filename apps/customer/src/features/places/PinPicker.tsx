@@ -57,6 +57,7 @@ export function PinPicker({
   onMoving,
   recentre,
   tone = 'dropoff',
+  zoom = 15.2,
   testID,
 }: {
   initial: LatLng;
@@ -64,11 +65,13 @@ export function PinPicker({
   onMoving: (moving: boolean) => void;
   recentre: { pin: LatLng; seq: number; accuracyM?: number } | null;
   tone?: 'pickup' | 'dropoff';
+  /** The starting zoom (the ride steps open closer, at a door). */
+  zoom?: number;
   testID?: string;
 }) {
   const theme = useTheme();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
-  const start: Camera = { lat: initial.lat, lng: initial.lng, zoom: 15.2 };
+  const start: Camera = { lat: initial.lat, lng: initial.lng, zoom };
   const cam = useMapCamera(start);
   const [drawn, setDrawn] = useState<Camera>(start);
   const [ringM, setRingM] = useState<number | null>(null);
