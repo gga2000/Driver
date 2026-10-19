@@ -2,7 +2,7 @@ import { createHmac, generateKeyPairSync } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { FetchLike, HttpRequest } from '../../shared/messaging/http.js';
-import { HttpSmsProvider, httpSmsConfigFromEnv, OtpiqSmsProvider, otpiqConfigFromEnv, smsPortFromEnv, TwilioSmsProvider, DevSmsProvider, formatNumber } from '../../shared/messaging/sms.js';
+import { HttpSmsProvider, httpSmsConfigFromEnv, OtpiqSmsProvider, otpiqConfigFromEnv, smsPortFromEnv, TwilioSmsProvider, DevSmsProvider, devSmsRedacts, formatNumber } from '../../shared/messaging/sms.js';
 import { DevPushProvider, ExpoPushProvider, FcmPushProvider, pushPortsFromEnv, UnconfiguredPushProvider, type PushMessage } from './providers/push.js';
 import { cloudTemplateBody, DevWhatsAppProvider, parseStatusWebhook, verifyWebhookSignature, WhatsAppCloudProvider, whatsAppPortFromEnv } from './providers/whatsapp.js';
 
@@ -208,6 +208,13 @@ describe('SMS providers', () => {
     expect(smsPortFromEnv({}, { log: false })).toBeInstanceOf(DevSmsProvider);
     expect(smsPortFromEnv({ SMS_PROVIDER: 'twilio' })).toBeInstanceOf(TwilioSmsProvider);
     expect(formatNumber('+9647701234567', 'e164')).toBe('+9647701234567');
+  });
+
+  it('the dev SMS log keeps the code in development and on staging (its admin signs in from it), nowhere else', () => {
+    expect(devSmsRedacts({ NODE_ENV: 'development' })).toBe(false);
+    expect(devSmsRedacts({ NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'staging' })).toBe(false);
+    expect(devSmsRedacts({ NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'production' })).toBe(true);
+    expect(devSmsRedacts({ NODE_ENV: 'production' })).toBe(true);
   });
 
   it('Twilio-compatible: form-encoded POST with Basic auth; invalid numbers are permanent', async () => {
