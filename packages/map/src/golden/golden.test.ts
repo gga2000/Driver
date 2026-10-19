@@ -2,10 +2,12 @@ import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { describe, expect, it } from 'vitest';
 import {
   buildGoldenStyle,
+  driftRiver,
   FURROW_PATTERN,
   GOLDEN_FIRST_LABEL,
   GOLDEN_FONTS,
   GOLDEN_PALETTES,
+  GOLDEN_RIPPLE_LAYERS,
   GOLDEN_SOURCE,
   GOLDEN_ZONE_NAMES_SOURCE,
   GOLDEN_ZONES_SOURCE,
@@ -204,5 +206,26 @@ describe('palm pattern', () => {
     expect([...alphas]).toEqual([255]);
     expect(colours.size).toBeGreaterThan(5);
     expect(Object.keys(goldenImages('night')).slice(0, 2)).toEqual([PALM_PATTERN, FURROW_PATTERN]);
+  });
+});
+
+describe('river ripples', () => {
+  it('draws six rows of light on the river from the town view, none on lite', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
+    expect(ids(style).filter((id) => id.startsWith('golden-glint-'))).toEqual([...GOLDEN_RIPPLE_LAYERS]);
+    expect(style.layers.find((l) => l.id === 'golden-glint-1')).toMatchObject({ minzoom: 12.5 });
+    expect(ids(buildGoldenStyle({ ...base, light: 'golden', mode: 'lite' })).some((id) => id.startsWith('golden-glint-'))).toBe(false);
+  });
+  it('drifts once and comes to rest where the style draws it; still with reduce motion', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
+    const set: Record<string, unknown> = {};
+    const map = { getLayer: (id: string) => style.layers.find((l) => l.id === id), setPaintProperty: (id: string, _n: string, v: unknown) => { set[id] = v; } };
+    const queue: ((t: number) => void)[] = [];
+    driftRiver(map, { ms: 100, frame: (cb) => queue.push(cb), cancel: () => {} });
+    for (let t = 0; queue.length; t += 16) queue.shift()!(t);
+    for (const id of GOLDEN_RIPPLE_LAYERS) expect(set[id]).toEqual((style.layers.find((l) => l.id === id) as { paint: Record<string, unknown> }).paint['line-offset']);
+    const still: Record<string, unknown> = {};
+    driftRiver({ ...map, setPaintProperty: (id, _n, v) => { still[id] = v; } }, { reduceMotion: true });
+    expect(still).toEqual({});
   });
 });
