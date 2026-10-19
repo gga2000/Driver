@@ -40,7 +40,11 @@ export class DevSmsProvider implements SmsPort {
   private readonly logger = new Logger('DevSms');
   private seq = 0;
 
-  /** `redact`: outside development the log keeps only a masked number, never the text or a code. */
+  /**
+   * `redact`: outside development and staging the log keeps only a masked number, never the text or
+   * a code. Staging keeps the full text: it never texts anyone, and its admin signs in with the code
+   * read from the API log (docs/deploy/staging.md).
+   */
   constructor(
     private readonly log: boolean = true,
     private readonly redact: boolean = false,
@@ -299,5 +303,10 @@ export function smsPortFromEnv(env: NodeJS.ProcessEnv = process.env, opts: { fet
   if (name === 'http') return new HttpSmsProvider(httpSmsConfigFromEnv(env), opts.fetchImpl);
   if (name === 'twilio') return new TwilioSmsProvider(twilioSmsConfigFromEnv(env), opts.fetchImpl);
   if (name === 'otpiq') return new OtpiqSmsProvider(otpiqConfigFromEnv(env), opts.fetchImpl);
-  return new DevSmsProvider(opts.log ?? true, !isDevEnvironment(env['NODE_ENV']));
+  return new DevSmsProvider(opts.log ?? true, devSmsRedacts(env));
+}
+
+/** Whether the dev SMS log hides the number and the text: everywhere but development, test and staging. */
+export function devSmsRedacts(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !isDevEnvironment(env['NODE_ENV']) && env['DEPLOY_ENVIRONMENT'] !== 'staging';
 }
