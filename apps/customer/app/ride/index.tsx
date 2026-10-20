@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LatLng } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
 import { Button, Chip, Icon, IconButton, Skeleton, Text, useTheme, useToast, type IconName } from '@driver/ui';
+import { locationWeakToast } from '@/features/account/device';
 import { nearestZone } from '@/features/account/geo';
 import { PinPicker } from '@/features/places/PinPicker';
 import { RideHabitsStrip } from '@/features/ride-habits/Strip';
@@ -168,7 +169,7 @@ export default function RideWhereTo() {
   const pickMyLocation = async () => {
     const r = await here.locate();
     if (r === 'denied') toast.show({ message: t('error.location_denied'), tone: 'danger', icon: 'location-arrow' });
-    else if (r === 'none') toast.show({ message: t('error.location_weak'), tone: 'danger', icon: 'location-arrow' });
+    else if (r === 'none') toast.show({ ...locationWeakToast(t), icon: 'location-arrow' });
     else if (r === 'outside') toast.show({ message: t('ride.my_location_outside'), tone: 'warning', icon: 'map-pin' });
     else if (r.weak) {
       // A rough fix would send the driver to the wrong street: the pin goes there and he checks it.
