@@ -16,6 +16,12 @@ import { PinBubble, PlaceChip, SearchBox, StepDots } from '@/features/ride/MapSt
 import { useNearbyVehicles, useZoneFor } from '@/features/ride/queries';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
+import { FromDot, MeDot, RouteToPin, useLiveRoute, type RouteLook } from '@/features/ride/RouteToPin';
+import { useGrantedPosition } from '@/features/ride/phone-position';
+import type { WalkRoad } from '@/features/ride/walk-stop';
+import type { CameraValues } from '@/features/track/map/types';
+import type { Size } from '@/features/track/geo';
+import type { SharedValue } from 'react-native-reanimated';
 import { HomeWorkSlots, savedIcon, Section, SmartPicks, SpotRow, useMyLocationSpot, ZonesFold } from '@/features/ride/WhereParts';
 import { useLocale, useT } from '@/lib/i18n';
 
@@ -23,6 +29,8 @@ const CENTRE: LatLng = { lat: 32.905, lng: 45.06 };
 /** Close enough to read a door: the steps open here, where the houses show their windows (the pin picker's own default is a wider 15.2). */
 const STEP_ZOOM = 17;
 const PIN_SETTLE_MS = 1_500;
+/** Step 2 opens a little wider, so the line from the pickup has streets to run along. */
+const DROPOFF_ZOOM = 15.6;
 
 /**
  * "منين نجيك؟ / وين رايح؟", map-led (Ali 2026-10-17, the "Mix" concept): the day map fills the screen
@@ -42,7 +50,8 @@ export default function RideWhereTo() {
   const insets = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
   const scale = Math.max(1, fontScale);
-  const params = useLocalSearchParams<{ vertical?: string }>();
+  const params = useLocalSearchParams<{ vertical?: string; look?: string }>();
+  const look: RouteLook = params.look === 'bubble' || params.look === 'ribbon' ? params.look : 'thread';
   const ride = useRideStore();
   const { sources, defaultPickup, landmarksLoading, landmarksFailed, retryLandmarks } = useRideSpots();
   const draft = ride.draft;
@@ -51,13 +60,30 @@ export default function RideWhereTo() {
   const [start] = useState<LatLng>(() => pickup?.pin ?? CENTRE);
   const [pin, setPin] = useState<LatLng>(start);
   const [moving, setMoving] = useState(false);
-  const [recentre, setRecentre] = useState<{ pin: LatLng; seq: number } | null>(null);
+  const [recentre, setRecentre] = useState<{ pin: LatLng; seq: number; zoom?: number } | null>(null);
   const touched = useRef(false);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const [zonesOpen, setZonesOpen] = useState(false);
   const input = useRef<TextInput>(null);
   const here = useMyLocationSpot();
+  const phone = useGrantedPosition();
+  const [me, setMe] = useState<LatLng | null>(null);
+  // No dot when the phone could not say (grantedPosition never throws; isError is only a guard).
+  const meAt = me ?? (phone.isError ? null : phone.data) ?? null;
+  // Every street the map has drawn in this visit: the pickup's streets stay known after the camera left them.
+  const [roads, setRoads] = useState<WalkRoad[]>([]);
+  const seenRoads = useRef(new Set<string>());
+  const addRoads = (rs: WalkRoad[]) => {
+    const fresh = rs.filter((r) => {
+      const a = r.coords[0], b = r.coords[r.coords.length - 1];
+      const k = `${r.coords.length}:${a?.[0].toFixed(6)},${a?.[1].toFixed(6)}:${b?.[0].toFixed(6)},${b?.[1].toFixed(6)}`;
+      if (seenRoads.current.has(k)) return false;
+      seenRoads.current.add(k);
+      return true;
+    });
+    if (fresh.length) setRoads((old) => [...old, ...fresh]);
+  };
   const nearby = useNearbyVehicles(pickup?.pin ?? null, draft.vertical);
   const zone = useZoneFor(pin);
   const z = zone.data;
@@ -116,7 +142,8 @@ export default function RideWhereTo() {
 
   const toDropoff = (from: Spot) => {
     setStep('dropoff');
-    setRecentre({ pin: draft.dropoff && !tooClose(from, draft.dropoff) ? draft.dropoff.pin : from.pin, seq: Date.now() });
+    // A step back from the door: room for the street line from the pickup to the pin.
+    setRecentre({ pin: draft.dropoff && !tooClose(from, draft.dropoff) ? draft.dropoff.pin : from.pin, seq: Date.now(), zoom: DROPOFF_ZOOM });
   };
 
   const closeSearch = () => {
@@ -171,7 +198,9 @@ export default function RideWhereTo() {
     if (r === 'denied') toast.show({ message: t('error.location_denied'), tone: 'danger', icon: 'location-arrow' });
     else if (r === 'none') toast.show({ ...locationWeakToast(t), icon: 'location-arrow' });
     else if (r === 'outside') toast.show({ message: t('ride.my_location_outside'), tone: 'warning', icon: 'map-pin' });
-    else if (r.weak) {
+    if (typeof r !== 'object') return;
+    setMe(r.spot.pin);
+    if (r.weak) {
       // A rough fix would send the driver to the wrong street: the pin goes there and he checks it.
       closeSearch();
       moveTo(r.spot.pin);
@@ -213,9 +242,13 @@ export default function RideWhereTo() {
           }}
           recentre={recentre}
           tone={step}
+          onRoads={addRoads}
+          under={(cam, size) => (
+            <MapUnder cam={cam} size={size} me={meAt} from={step === 'dropoff' && pickup ? pickup.pin : null} roads={roads} look={look} service={draft.vertical === 'tuktuk' ? 'tuktuk' : 'taxi'} moving={moving} />
+          )}
           testID="ride-where-map"
         />
-        <PinBubble label={t(step === 'pickup' ? 'ride.map_pickup_bubble' : 'ride.map_dropoff_bubble')} hidden={moving} />
+        <PinBubble label={t(step === 'pickup' ? 'ride.map_pickup_bubble' : 'ride.map_dropoff_bubble')} hidden={moving || (look === 'bubble' && step === 'dropoff' && !!pickup)} />
         <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + theme.space[3], left: theme.space[4], right: theme.space[4], flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
           <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={back} style={{ backgroundColor: theme.colors.surface }} testID="ride-back" />
           {step === 'pickup' && nearby.data?.nearestMinutes ? (
@@ -417,6 +450,19 @@ export default function RideWhereTo() {
         </Animated.View>
       ) : null}
     </View>
+  );
+}
+
+/** Under the centre pin: where the phone is, and in step 2 the street line from the pickup to the pin. */
+function MapUnder({ cam, size, me, from, roads, look, service, moving }: { cam: CameraValues; size: SharedValue<Size>; me: LatLng | null; from: LatLng | null; roads: WalkRoad[]; look: RouteLook; service: 'taxi' | 'tuktuk'; moving: boolean }) {
+  const t = useT();
+  const route = useLiveRoute(cam, from ? [from.lng, from.lat] : null, roads);
+  return (
+    <>
+      {from ? <RouteToPin cam={cam} size={size} route={route} look={look} service={service} moving={moving} kmLabel={(km) => t('ride.route_km', { km })} mLabel={(m) => t('ride.route_m', { m })} bubbleLabel={t('ride.map_dropoff_bubble')} /> : null}
+      {from ? <FromDot cam={cam} size={size} at={from} /> : null}
+      {me ? <MeDot cam={cam} size={size} at={me} /> : null}
+    </>
   );
 }
 
