@@ -18,6 +18,18 @@ export interface PlacesRepository {
   landmarks(cityId: string): Promise<Place[]>;
   /** Within `radiusKm` of `pin`, nearest first. */
   nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>>;
+  /** The map editor's landmark rows: approved and hidden ones (proposals stay in their own queue). */
+  editableLandmarks(cityId: string): Promise<Place[]>;
+  /** Changes a landmark row's name, other names, icon, pin or state (only what `patch` carries). */
+  editLandmark(id: string, patch: LandmarkPatch, tx?: Tx): Promise<Place | null>;
+}
+
+export interface LandmarkPatch {
+  name?: string;
+  localNames?: string[];
+  category?: Place['landmarkCategory'];
+  pin?: LatLng;
+  state?: 'approved' | 'hidden';
 }
 
 export const PLACES_REPOSITORY = Symbol('PLACES_REPOSITORY');
@@ -49,6 +61,21 @@ export class InMemoryPlacesRepository implements PlacesRepository {
     return [...this.places.values()].filter((p) => p.cityId === cityId && p.landmark && (p.landmarkState ?? 'approved') === 'approved').map((p) => structuredClone(p));
   }
 
+  async editableLandmarks(cityId: string): Promise<Place[]> {
+    return [...this.places.values()].filter((p) => p.cityId === cityId && p.landmark && ['approved', 'hidden'].includes(p.landmarkState ?? 'approved')).map((p) => structuredClone(p));
+  }
+
+  async editLandmark(id: string, patch: LandmarkPatch): Promise<Place | null> {
+    const p = this.places.get(id);
+    if (!p?.landmark) return null;
+    if (patch.name !== undefined) p.name = patch.name;
+    if (patch.localNames !== undefined) p.localNames = [...patch.localNames];
+    if (patch.category !== undefined) p.landmarkCategory = patch.category;
+    if (patch.pin !== undefined) p.pin = { ...patch.pin };
+    if (patch.state !== undefined) p.landmarkState = patch.state;
+    return structuredClone(p);
+  }
+
   async nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>> {
     return [...this.places.values()]
       .filter((p) => p.cityId === cityId)
@@ -75,15 +102,16 @@ interface PlaceRow {
   landmark_state: string | null;
   landmark_category: string | null;
   shares: string[];
+  local_names: string[];
   distance_m?: number;
 }
 
 /** A stored landmark state the contract knows; anything else reads as absent. */
 function landmarkStateOf(raw: string | null): Place['landmarkState'] {
-  return raw === 'proposed' || raw === 'approved' || raw === 'rejected' ? raw : undefined;
+  return raw === 'proposed' || raw === 'approved' || raw === 'rejected' || raw === 'hidden' ? raw : undefined;
 }
 
-const PLACE_COLUMNS = Prisma.sql`"id", "city_id", "owner_id", "name", "note", ST_Y("pin"::geometry) AS lat, ST_X("pin"::geometry) AS lng, "confidence", "landmark", "landmark_state", "landmark_category", "shares"`;
+const PLACE_COLUMNS = Prisma.sql`"id", "city_id", "owner_id", "name", "note", ST_Y("pin"::geometry) AS lat, ST_X("pin"::geometry) AS lng, "confidence", "landmark", "landmark_state", "landmark_category", "shares", "local_names"`;
 
 export class PrismaPlacesRepository implements PlacesRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -112,6 +140,7 @@ export class PrismaPlacesRepository implements PlacesRepository {
         landmark: r.landmark,
         ...(category ? { landmarkCategory: category } : {}),
         ...(state ? { landmarkState: state } : {}),
+        ...(r.local_names.length ? { localNames: [...r.local_names] } : {}),
       };
     });
   }
@@ -120,9 +149,9 @@ export class PrismaPlacesRepository implements PlacesRepository {
     const id = `pl_${randomUUID().replaceAll('-', '')}`;
     await this.prisma.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
-        INSERT INTO "public"."places" ("id", "city_id", "owner_id", "name", "note", "pin", "confidence", "landmark", "landmark_state", "landmark_category", "shares", "updated_at")
+        INSERT INTO "public"."places" ("id", "city_id", "owner_id", "name", "note", "pin", "confidence", "landmark", "landmark_state", "landmark_category", "shares", "local_names", "updated_at")
         VALUES (${id}, ${input.cityId}, ${input.ownerId ?? null}, ${input.name}, ${input.note ?? null}, ${point(input.pin)}, ${input.confidence},
-                ${input.landmark}, ${input.landmark ? (input.landmarkState ?? 'approved') : null}, ${input.landmark ? (input.landmarkCategory ?? null) : null}, ${input.sharedWith}::text[], now())`;
+                ${input.landmark}, ${input.landmark ? (input.landmarkState ?? 'approved') : null}, ${input.landmark ? (input.landmarkCategory ?? null) : null}, ${input.sharedWith}::text[], ${input.localNames ?? []}::text[], now())`;
       if (input.photos.length) await tx.placePhoto.createMany({ data: input.photos.map((p) => ({ placeId: id, url: p.url, caption: p.caption ?? null })) });
     });
     return (await this.get(id))!;
@@ -143,6 +172,27 @@ export class PrismaPlacesRepository implements PlacesRepository {
       SELECT ${PLACE_COLUMNS} FROM "public"."places"
       WHERE "city_id" = ${cityId} AND "landmark" AND "landmark_state" = 'approved' AND "label" IS NULL ORDER BY "name", "id"`;
     return this.withPhotos(rows);
+  }
+
+  async editableLandmarks(cityId: string): Promise<Place[]> {
+    const rows = await this.db.$queryRaw<PlaceRow[]>`
+      SELECT ${PLACE_COLUMNS} FROM "public"."places"
+      WHERE "city_id" = ${cityId} AND "landmark" AND "landmark_state" IN ('approved', 'hidden') AND "label" IS NULL ORDER BY "name", "id"`;
+    return this.withPhotos(rows);
+  }
+
+  async editLandmark(id: string, patch: LandmarkPatch, tx?: Tx): Promise<Place | null> {
+    const db = tx ?? this.db;
+    const sets: Prisma.Sql[] = [Prisma.sql`"updated_at" = now()`];
+    if (patch.name !== undefined) sets.push(Prisma.sql`"name" = ${patch.name}`);
+    if (patch.localNames !== undefined) sets.push(Prisma.sql`"local_names" = ${patch.localNames}::text[]`);
+    if (patch.category !== undefined) sets.push(Prisma.sql`"landmark_category" = ${patch.category ?? null}`);
+    if (patch.pin !== undefined) sets.push(Prisma.sql`"pin" = ${point(patch.pin)}`);
+    if (patch.state !== undefined) sets.push(Prisma.sql`"landmark_state" = ${patch.state}`);
+    const n = await db.$executeRaw`UPDATE "public"."places" SET ${Prisma.join(sets, ', ')} WHERE "id" = ${id} AND "landmark" AND "label" IS NULL`;
+    if (!n) return null;
+    const rows = await db.$queryRaw<PlaceRow[]>`SELECT ${PLACE_COLUMNS} FROM "public"."places" WHERE "id" = ${id}`;
+    return rows.length ? (await this.withPhotos(rows))[0]! : null;
   }
 
   async nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>> {
