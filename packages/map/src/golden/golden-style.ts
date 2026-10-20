@@ -36,40 +36,48 @@ export interface GoldenStyleOptions {
   zoneNames?: boolean;
 }
 
-/** The river's rows of light: [n, offset across the river (−0.5 … 0.5 of its width), dash, strength]. */
-const RIVER_RIPPLES = [
-  [1, -0.34, [0.1, 7], 0.9], [2, -0.18, [0.1, 11], 1], [3, -0.04, [0.1, 9], 0.8],
-  [4, 0.1, [0.1, 13], 0.9], [5, 0.24, [0.1, 10], 0.7], [6, 0.36, [0.1, 15], 0.5],
-] as const;
-const rippleOffset = (off: number) =>
+/** The river's sequins: [n, offset across the river (−0.5 … 0.5 of its width), gap between points, strength]. */
+const RIVER_SEQUINS = Array.from({ length: 9 }, (_, i) => [i + 1, -0.4 + i * 0.1, 6 + ((i * 7) % 11), 0.55 + ((i * 5) % 5) / 10] as const);
+const sequinOffset = (off: number) =>
   ['interpolate', ['exponential', 2], ['zoom'], 12.5, 12 * off, 14, 30 * off, 15, 60 * off, 16, 120 * off, 17, 240 * off, 18, 480 * off] as never;
-const rippleOpacity = (o: number) => ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13.2, o * 0.75, 15, o] as never;
+/** Fades in from the town view, full on the streets, quieter right up close so the water stays calm. */
+const sequinOpacity = (o: number) => ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13.2, o * 0.75, 15, o, 17, o, 18.5, o * 0.55] as never;
 
-/** The ids of the river's rows of light (customer and courier maps; lite has none). */
-export const GOLDEN_RIPPLE_LAYERS: readonly string[] = RIVER_RIPPLES.map(([n]) => `golden-glint-${n}`);
+/** The ids of the river's sequins (customer and courier maps; lite has none). */
+export const GOLDEN_SEQUIN_LAYERS: readonly string[] = RIVER_SEQUINS.map(([n]) => `golden-glint-${n}`);
 
 /**
- * One drift of light across the river when the map opens, then it rests where the style draws it.
- * Nothing moves when `reduceMotion` is on or the layers are missing (lite). Returns a stop function.
+ * One twinkle across the river when the map opens: each row of points brightens in turn, then rests
+ * where the style draws it. Nothing moves when `reduceMotion` is on or the layers are missing (lite).
+ * Returns a stop function that puts every row back at rest.
  */
-export function driftRiver(
+export function twinkleRiver(
   map: { getLayer(id: string): unknown; setPaintProperty(layer: string, name: string, value: unknown): void },
   opts: { reduceMotion?: boolean; ms?: number; frame?: (cb: (t: number) => void) => number; cancel?: (id: number) => void } = {},
 ): () => void {
-  const rows = RIVER_RIPPLES.filter(([n]) => map.getLayer(`golden-glint-${n}`));
+  const rows = RIVER_SEQUINS.filter(([n]) => map.getLayer(`golden-glint-${n}`));
   if (opts.reduceMotion || rows.length === 0) return () => {};
   const g = globalThis as { requestAnimationFrame?: (cb: (t: number) => void) => number; cancelAnimationFrame?: (id: number) => void };
   const frame = opts.frame ?? g.requestAnimationFrame?.bind(g), cancel = opts.cancel ?? g.cancelAnimationFrame?.bind(g) ?? (() => {}), ms = opts.ms ?? 2400;
   if (!frame) return () => {};
+  const rest = new Map(rows.map(([n]) => [n, (map.getLayer(`golden-glint-${n}`) as { paint?: Record<string, unknown> } | undefined)?.paint?.['line-opacity']]));
+  const restOf = (n: number, k: number) => {
+    const r = rest.get(n);
+    return Array.isArray(r) ? r.map((v, i) => (i >= 4 && i % 2 === 0 && typeof v === 'number' ? Math.min(1, v * k) : v)) : r;
+  };
   let start: number | null = null, id = 0;
   const step = (t: number) => {
     start ??= t;
-    const k = Math.min(1, (t - start) / ms), ease = 1 - (1 - k) ** 3;
-    for (const [n, off] of rows) map.setPaintProperty(`golden-glint-${n}`, 'line-offset', rippleOffset(off - 0.08 * (1 - ease)));
+    const k = Math.min(1, (t - start) / ms);
+    rows.forEach(([n], i) => {
+      // Each row's moment comes a little after the last; a soft rise and fall, then rest.
+      const at = (k - (i / rows.length) * 0.6) / 0.4, lift = at > 0 && at < 1 ? Math.sin(Math.PI * at) : 0;
+      map.setPaintProperty(`golden-glint-${n}`, 'line-opacity', restOf(n, 1 + 0.9 * lift));
+    });
     if (k < 1) id = frame(step);
   };
   id = frame(step);
-  return () => { cancel(id); for (const [n, off] of rows) map.setPaintProperty(`golden-glint-${n}`, 'line-offset', rippleOffset(off)); };
+  return () => { cancel(id); for (const [n] of rows) map.setPaintProperty(`golden-glint-${n}`, 'line-opacity', rest.get(n)); };
 }
 
 /** The vector source id; the font stacks live in `fonts.ts` so pieces can import them alone. */
@@ -200,13 +208,14 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     { id: 'golden-canal', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('canal'), layout: ROUND, paint: { 'line-color': p.canal, 'line-width': zoom(10, 0.5, 14, 1, 16, 2.4, 18, 6), 'line-opacity': fade(9, 0.35, 12, 0.7, 14, 1) } },
   );
   if (rich) {
-    // Light on the Tigris: rows of short strokes across the river, from the town view in.
-    for (const [n, off, dash, op] of RIVER_RIPPLES) {
+    // Light on the Tigris: scattered bright points across the river, from the town view in.
+    for (const [n, off, gap, op] of RIVER_SEQUINS) {
       L.push({
         id: `golden-glint-${n}`, type: 'line', ...src, 'source-layer': 'water', filter: kindIn('centre'), minzoom: 12.5, layout: { 'line-cap': 'round' },
         paint: {
-          'line-color': p.glint, 'line-opacity': rippleOpacity(p.glintOpacity * op), 'line-width': zoom(12.5, 1.6, 14, 2.6, 16, 5, 18, 10),
-          'line-offset': rippleOffset(off), 'line-dasharray': [...dash],
+          'line-color': n % 3 === 1 ? p.sparkle : p.glint, 'line-opacity': sequinOpacity(p.glintOpacity * op),
+          'line-width': zoom(12.5, 2, 14, 3.2, 16, 6, 18, 12), 'line-blur': zoom(14, 0.5, 18, 3),
+          'line-offset': sequinOffset(off), 'line-dasharray': [0, gap],
         },
       });
     }

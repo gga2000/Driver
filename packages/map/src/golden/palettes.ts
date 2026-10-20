@@ -16,6 +16,8 @@ export interface GoldenPalette {
   waterEdge: string;
   canal: string;
   glint: string;
+  /** The brightest of the river's sequins (every third row). */
+  sparkle: string;
   glintOpacity: number;
   shadow: string;
   shadowOpacity: number;
@@ -93,7 +95,7 @@ const LANDMARK_DAY: Record<LandmarkPart, string> = {
 
 const DAY: GoldenPalette = {
   land: '#F3E2C2', urban: '#EBD3A8', farm: '#EDE3B9', palm: '#E2DDA8', palmCrown: '#B4B071',
-  water: '#7E7F4E', waterEdge: '#666839', canal: '#9AA06A', glint: '#C9C690', glintOpacity: 0.55,
+  water: '#7E7F4E', waterEdge: '#666839', canal: '#9AA06A', glint: '#FFF4D2', sparkle: '#FFFFFF', glintOpacity: 0.7,
   shadow: '#8A6440', shadowOpacity: 0.3,
   alley: '#FBF1DE', minor: '#FFFBF1', minorCase: '#D9B27A', major: '#FFF6E4', majorCase: '#C9944C',
   highway: '#F8DA9E', highwayCase: '#B67A31', deck: '#FFF8EA', deckCase: '#6B3D1A', lampGlow: null,
@@ -116,7 +118,7 @@ const DAY: GoldenPalette = {
 const GOLDEN: GoldenPalette = {
   ...DAY,
   land: '#F1D9B2', urban: '#E9CFA3', farm: '#EADBA9', palm: '#DDD49A', palmCrown: '#ADA562',
-  water: '#7A7A48', waterEdge: '#626234', glint: '#EBC883', glintOpacity: 0.8,
+  water: '#7A7A48', waterEdge: '#626234', glint: '#FFEAB8', sparkle: '#FFFFFF', glintOpacity: 0.85,
   shadow: '#8A6440', shadowOpacity: 0.5,
   alley: '#F9EBD3', minor: '#FFF8EA', minorCase: '#D2A66C', major: '#FFF2D8', majorCase: '#C28640',
   highway: '#F6CF86', highwayCase: '#AE6E25', deck: '#FFF5E2', deckCase: '#633416',
@@ -143,7 +145,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
   sunset: {
     ...GOLDEN,
     land: '#F0D2AE', urban: '#ECC9A2', roof: '#DDB898', wall: '#B48E70', shadow: '#7E5A44', shadowOpacity: 0.48,
-    glint: '#F2B870', glintOpacity: 0.9,
+    glint: '#FFD9A0', sparkle: '#FFF6E6', glintOpacity: 0.9,
     light: { color: '#FFD9B8', intensity: 0.5 },
     sky: { sky: '#E8A066', horizon: '#F6CF9C', fog: '#F0D2AE' },
     roofTones: ['#E9CDAA', '#DFB78E', '#D5A77E', '#EED8BC', '#D2AA88', '#C2946E'],
@@ -153,7 +155,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
   },
   night: {
     land: '#261D15', urban: '#2B2118', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
-    water: '#2F3320', waterEdge: '#4A5034', canal: '#2F3320', glint: '#D9B26A', glintOpacity: 0.55,
+    water: '#2F3320', waterEdge: '#4A5034', canal: '#2F3320', glint: '#FFD58A', sparkle: '#FFF1CC', glintOpacity: 0.95,
     shadow: '#000000', shadowOpacity: 0,
     alley: '#3A3026', minor: '#45392D', minorCase: '#261D15', major: '#5A4C3E', majorCase: '#261D15',
     highway: '#665443', highwayCase: '#261D15', deck: '#B48A57', deckCase: '#22180F', lampGlow: '#E8A34A',

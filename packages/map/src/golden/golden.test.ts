@@ -2,12 +2,12 @@ import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { describe, expect, it } from 'vitest';
 import {
   buildGoldenStyle,
-  driftRiver,
+  twinkleRiver,
   FURROW_PATTERN,
   GOLDEN_FIRST_LABEL,
   GOLDEN_FONTS,
   GOLDEN_PALETTES,
-  GOLDEN_RIPPLE_LAYERS,
+  GOLDEN_SEQUIN_LAYERS,
   GOLDEN_SOURCE,
   GOLDEN_ZONE_NAMES_SOURCE,
   GOLDEN_ZONES_SOURCE,
@@ -209,23 +209,27 @@ describe('palm pattern', () => {
   });
 });
 
-describe('river ripples', () => {
-  it('draws six rows of light on the river from the town view, none on lite', () => {
+describe('river sequins', () => {
+  it('scatters nine rows of points on the river from the town view, none on lite', () => {
     const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
-    expect(ids(style).filter((id) => id.startsWith('golden-glint-'))).toEqual([...GOLDEN_RIPPLE_LAYERS]);
-    expect(style.layers.find((l) => l.id === 'golden-glint-1')).toMatchObject({ minzoom: 12.5 });
+    expect(ids(style).filter((id) => id.startsWith('golden-glint-'))).toEqual([...GOLDEN_SEQUIN_LAYERS]);
+    expect(GOLDEN_SEQUIN_LAYERS).toHaveLength(9);
+    expect(style.layers.find((l) => l.id === 'golden-glint-1')).toMatchObject({ minzoom: 12.5, paint: { 'line-dasharray': [0, 6] } });
     expect(ids(buildGoldenStyle({ ...base, light: 'golden', mode: 'lite' })).some((id) => id.startsWith('golden-glint-'))).toBe(false);
   });
-  it('drifts once and comes to rest where the style draws it; still with reduce motion', () => {
+  it('twinkles once and comes to rest where the style draws it; still with reduce motion', () => {
     const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
     const set: Record<string, unknown> = {};
-    const map = { getLayer: (id: string) => style.layers.find((l) => l.id === id), setPaintProperty: (id: string, _n: string, v: unknown) => { set[id] = v; } };
+    let brighter = false;
+    const paintOf = (id: string) => (style.layers.find((l) => l.id === id) as { paint: Record<string, unknown> }).paint['line-opacity'];
+    const map = { getLayer: (id: string) => style.layers.find((l) => l.id === id), setPaintProperty: (id: string, _n: string, v: unknown) => { if (JSON.stringify(v) !== JSON.stringify(paintOf(id))) brighter = true; set[id] = v; } };
     const queue: ((t: number) => void)[] = [];
-    driftRiver(map, { ms: 100, frame: (cb) => queue.push(cb), cancel: () => {} });
+    twinkleRiver(map, { ms: 100, frame: (cb) => queue.push(cb), cancel: () => {} });
     for (let t = 0; queue.length; t += 16) queue.shift()!(t);
-    for (const id of GOLDEN_RIPPLE_LAYERS) expect(set[id]).toEqual((style.layers.find((l) => l.id === id) as { paint: Record<string, unknown> }).paint['line-offset']);
+    expect(brighter).toBe(true);
+    for (const id of GOLDEN_SEQUIN_LAYERS) expect(set[id]).toEqual(paintOf(id));
     const still: Record<string, unknown> = {};
-    driftRiver({ ...map, setPaintProperty: (id, _n, v) => { still[id] = v; } }, { reduceMotion: true });
+    twinkleRiver({ ...map, setPaintProperty: (id, _n, v) => { still[id] = v; } }, { reduceMotion: true });
     expect(still).toEqual({});
   });
 });
