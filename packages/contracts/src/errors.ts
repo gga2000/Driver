@@ -109,6 +109,7 @@ export const ERROR_TABLE = {
   zone_at_capacity: { retryHint: 'later', status: 'CONFLICT' },
   control_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  zone_tier_edge_fixed: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_key_taken: { retryHint: 'never', status: 'CONFLICT' },
   zone_shape_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_overlap: { retryHint: 'never', status: 'CONFLICT' },

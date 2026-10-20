@@ -9,7 +9,7 @@ import { AZIZIYAH_BOUNDS, AZIZIYAH_MAX_BOUNDS, MAP_COLORS, MAP_COLORS_LIGHT, SOU
 import { GOLDEN_FIRST_LABEL } from '@driver/map/golden';
 import { useEffect, useRef, useState } from 'react';
 import { openConsoleMapStyle, watchGoldenMap } from '@/lib/map-runtime';
-import { midpoints, type EditorAction, type EditorState } from '@/lib/zone-editor';
+import { midpoints, snapCorner, type EditorAction, type EditorState } from '@/lib/zone-editor';
 
 const SRC_OTHERS = 'zone-edit-others';
 const SRC_CURRENT = 'zone-edit-current';
@@ -74,6 +74,19 @@ export default function ZonesMapCanvas(props: ZonesMapCanvasProps) {
   cb.current = props;
   const handles = useRef<{ corners: maplibregl.Marker[]; mids: maplibregl.Marker[]; centre: maplibregl.Marker | null }>({ corners: [], mids: [], centre: null });
   const labels = useRef<maplibregl.Marker[]>([]);
+  /** Held Alt (⌥) lets a corner go anywhere, without snapping to the area next door. */
+  const altDown = useRef(false);
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      altDown.current = e.altKey;
+    };
+    window.addEventListener('keydown', on);
+    window.addEventListener('keyup', on);
+    return () => {
+      window.removeEventListener('keydown', on);
+      window.removeEventListener('keyup', on);
+    };
+  }, []);
 
   useEffect(() => {
     const el = container.current;
@@ -182,8 +195,21 @@ export default function ZonesMapCanvas(props: ZonesMapCanvasProps) {
       const m = new maplibregl.Marker({ element: el, draggable: true }).setLngLat([p.lng, p.lat]).addTo(map);
       m.on('dragstart', () => cb.current.dispatch({ type: 'begin' }));
       m.on('drag', () => {
-        const at = m.getLngLat();
-        cb.current.dispatch({ type: 'moveVertex', index: i, to: { lat: at.lat, lng: at.lng } });
+        const ll = m.getLngLat();
+        // Borders meet (Ali, 2026-10-20): a corner near a drawn neighbour lands on its corner or edge. Alt drags free.
+        const neighbours = altDown.current ? [] : cb.current.zones.filter((z) => z.key !== cb.current.editor.key && z.placement !== 'draft').map((z) => z.ring);
+        const { at, snapped } = snapCorner({ lat: ll.lat, lng: ll.lng }, neighbours, (q) => map.project([q.lng, q.lat]), (q) => {
+          const u = map.unproject([q.x, q.y]);
+          return { lat: u.lat, lng: u.lng };
+        });
+        el.classList.toggle('ring-4', snapped !== null);
+        el.classList.toggle('ring-accent/40', snapped !== null);
+        cb.current.dispatch({ type: 'moveVertex', index: i, to: at });
+      });
+      m.on('dragend', () => {
+        el.classList.remove('ring-4', 'ring-accent/40');
+        const p = cb.current.editor.ring[i];
+        if (p) m.setLngLat([p.lng, p.lat]);
       });
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();

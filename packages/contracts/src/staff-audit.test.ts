@@ -48,6 +48,7 @@ const AUDITED = [
   'ops.zones.create',
   'ops.zones.rename',
   'ops.zones.remove',
+  'ops.zones.setTier',
   'ops.closures.close',
   'ops.closures.open',
   'ops.closures.confirm',

@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
-import { ClearZoneCheckFlagInput, CreateZoneInput, PlaceZoneInput, RemoveZoneInput, RenameZoneInput, ZONE_EDIT_ROLES, ZONE_READ_ROLES, ZonePlacementView, ZonesInput } from '../zones-io.js';
+import { ClearZoneCheckFlagInput, CreateZoneInput, PlaceZoneInput, RemoveZoneInput, RenameZoneInput, SetZoneTierInput, ZONE_EDIT_ROLES, ZoneTierFare, ZONE_READ_ROLES, ZonePlacementView, ZonesInput } from '../zones-io.js';
 
-/** `ops.zones.*` — the zone outlines (maps program SP3). Saving an outline does not move any fee. */
+/** `ops.zones.*` — the zone outlines (maps program SP3). Saving an outline does not move any fee; `setTier` does. */
 export const opsZonesRouter = router({
   list: protectedProcedure(ZONE_READ_ROLES)
     .input(ZonesInput)
@@ -23,6 +23,11 @@ export const opsZonesRouter = router({
     .mutation(({ ctx, input }) => ctx.zones.rename!(ctx.actor, input)),
   remove: protectedProcedure(ZONE_EDIT_ROLES).input(RemoveZoneInput).output(z.void())
     .mutation(({ ctx, input }) => ctx.zones.remove!(ctx.actor, input)),
+  /** Moves an area to another group; its fees follow the group (delivery, taxi, tuktuk). */
+  setTier: protectedProcedure(ZONE_EDIT_ROLES).input(SetZoneTierInput).output(ZonePlacementView)
+    .mutation(({ ctx, input }) => ctx.zones.setTier!(ctx.actor, input)),
+  tierFares: protectedProcedure(ZONE_READ_ROLES).input(ZonesInput).output(z.array(ZoneTierFare))
+    .query(({ ctx, input }) => ctx.zones.tierFares!(input.cityId)),
   /** «تم الفحص»: the people who draw outlines are the ones who judge a driver's "لا" about one. */
   clearCheckFlag: protectedProcedure(ZONE_EDIT_ROLES).input(ClearZoneCheckFlagInput).output(ZonePlacementView)
     .mutation(({ ctx, input }) => ctx.zones.clearCheckFlag(ctx.actor, input)),
