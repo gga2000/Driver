@@ -6,7 +6,7 @@ import { color as palette, services } from '@driver/design-tokens';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { project, type Camera, type LngLat as LatLngPoint, type Size } from '@/features/track/geo';
 import type { CameraValues } from '@/features/track/map/types';
-import { buildStreetGraph, distanceWords, streetRoute, type LngLat } from './street-route';
+import { buildStreetGraph, distanceWords, streetRoute, type LngLat, type StreetGraph } from './street-route';
 import type { WalkRoad } from './walk-stop';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -64,10 +64,65 @@ function visiblePieces(pts: readonly LngLat[], cam: Camera, size: Size, box: Box
   return segs;
 }
 
-/** Clear of the top bar, the side buttons and the sheet. */
-function labelBox(size: Size): Box {
+/** Where the tag may sit: clear of the top bar, the side buttons and the sheet. */
+export interface TagInsets {
+  top: number;
+  bottom: number;
+  side: number;
+}
+
+const PIN_STEP_INSETS: TagInsets = { top: 96, bottom: 120, side: 56 };
+
+function labelBox(size: Size, inset: TagInsets): Box {
   'worklet';
-  return { x0: 56, y0: 96, x1: size.w - 56, y1: size.h - 120 };
+  return { x0: inset.side, y0: inset.top, x1: size.w - inset.side, y1: size.h - inset.bottom };
+}
+
+/** Streets kept across settles, so the router knows them after the camera left them. */
+const MAX_ROADS = 1_500;
+
+/**
+ * Every street the map has drawn in this visit (BaseMap's `onRoads`), oldest dropped first past
+ * MAX_ROADS so a long visit around town keeps the router small.
+ */
+export function useKeptRoads(): [WalkRoad[], (rs: WalkRoad[]) => void] {
+  const [roads, setRoads] = useState<WalkRoad[]>([]);
+  const seenRoads = useRef(new Map<string, WalkRoad>());
+  const addRoads = (rs: WalkRoad[]) => {
+    const seen = seenRoads.current;
+    let fresh = 0;
+    for (const r of rs) {
+      const a = r.coords[0], b = r.coords[r.coords.length - 1];
+      const k = `${r.coords.length}:${a?.[0].toFixed(6)},${a?.[1].toFixed(6)}:${b?.[0].toFixed(6)},${b?.[1].toFixed(6)}`;
+      if (seen.has(k)) continue;
+      seen.set(k, r);
+      fresh++;
+    }
+    if (!fresh) return;
+    for (const k of seen.keys()) {
+      if (seen.size <= MAX_ROADS) break;
+      seen.delete(k);
+    }
+    setRoads([...seen.values()]);
+  };
+  return [roads, addRoads];
+}
+
+/** The way from one point to another: along the streets when the drawn streets join them, else the straight hint. */
+function routeBetween(graph: StreetGraph | null, from: LngLat, to: LngLat): LiveRoute {
+  const r = graph ? streetRoute(graph, from, to) : null;
+  if (r) return { path: r.path, ends: [[r.from, r.path[0]!], [r.path[r.path.length - 1]!, r.to]], metres: r.metres, onStreets: true };
+  return { path: [from, to], ends: [], metres: Math.hypot((to[0] - from[0]) * 93_400, (to[1] - from[1]) * 110_540) * 1.3, onStreets: false };
+}
+
+/** The same line between two fixed points (the choose screen: pickup and destination both set). */
+export function useFixedRoute(from: LngLat | null, to: LngLat | null, roads: readonly WalkRoad[]): LiveRoute | null {
+  const graph = useMemo(() => (roads.length ? buildStreetGraph(roads) : null), [roads]);
+  const [fx, fy, tx, ty] = [from?.[0], from?.[1], to?.[0], to?.[1]];
+  return useMemo(
+    () => (fx === undefined || fy === undefined || tx === undefined || ty === undefined ? null : routeBetween(graph, [fx, fy], [tx, ty])),
+    [graph, fx, fy, tx, ty],
+  );
 }
 
 /**
@@ -81,10 +136,7 @@ export function useLiveRoute(cam: CameraValues, from: LngLat | null, roads: read
   const last = useRef(0);
   const work = (lng: number, lat: number) => {
     if (!from) return setRoute(null);
-    const to: LngLat = [lng, lat];
-    const r = graph ? streetRoute(graph, from, to) : null;
-    if (r) setRoute({ path: r.path, ends: [[r.from, r.path[0]!], [r.path[r.path.length - 1]!, r.to]], metres: r.metres, onStreets: true });
-    else setRoute({ path: [from, to], ends: [], metres: Math.hypot((to[0] - from[0]) * 93_400, (to[1] - from[1]) * 110_540) * 1.3, onStreets: false });
+    setRoute(routeBetween(graph, from, [lng, lat]));
   };
   const workRef = useRef(work);
   workRef.current = work;
@@ -113,6 +165,9 @@ export function RouteToPin({
   service,
   kmLabel,
   mLabel,
+  insets = PIN_STEP_INSETS,
+  shortTagBy,
+  showTag = true,
 }: {
   cam: CameraValues;
   size: SharedValue<Size>;
@@ -120,6 +175,11 @@ export function RouteToPin({
   service: 'taxi' | 'tuktuk';
   kmLabel: (km: string) => string;
   mLabel: (m: string) => string;
+  insets?: TagInsets;
+  /** A map with both ends fixed (the choose screen): a short line's tag sits beside this point, not the centre pin. */
+  shortTagBy?: LatLngPoint;
+  /** Off while something else has the reader's eye (the choose screen's walk to the stop). */
+  showTag?: boolean;
 }) {
   const ink = inkFor(service);
   const pts = useSharedValue<LngLat[]>([]);
@@ -141,11 +201,16 @@ export function RouteToPin({
   const distance = words ? (words.unit === 'km' ? kmLabel(words.value) : mLabel(words.value)) : '';
   // The distance sits halfway along the part of the line on screen (clear of the top bar and the sheet).
   const chipStyle = useAnimatedStyle(() => {
-    const segs = visiblePieces(pts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value, labelBox(size.value));
+    const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
+    const segs = visiblePieces(pts.value, c, size.value, labelBox(size.value, insets));
     let total = 0;
     for (const [ax, ay, bx, by] of segs) total += Math.hypot(bx - ax, by - ay);
     // Too little of the line on screen (a short trip, or the pin over the pickup): the tag waits beside the pin head.
-    if (total < 60) return { opacity: 1, transform: [{ translateX: size.value.w / 2 + 62 }, { translateY: size.value.h / 2 - 70 }] };
+    if (total < 60) {
+      if (!shortTagBy) return { opacity: 1, transform: [{ translateX: size.value.w / 2 + 62 }, { translateY: size.value.h / 2 - 70 }] };
+      const q = project(shortTagBy.lat, shortTagBy.lng, c, size.value);
+      return { opacity: 1, transform: [{ translateX: q.x + 62 }, { translateY: q.y - 56 }] };
+    }
     let left = total / 2;
     for (const [ax, ay, bx, by] of segs) {
       const len = Math.hypot(bx - ax, by - ay);
@@ -156,7 +221,7 @@ export function RouteToPin({
       left -= len;
     }
     return { opacity: 0 };
-  });
+  }, [insets.top, insets.bottom, insets.side, shortTagBy?.lat, shortTagBy?.lng]);
 
   if (!route) return null;
   const straight = !route.onStreets;
@@ -180,15 +245,17 @@ export function RouteToPin({
           </>
         )}
       </Svg>
-      <Animated.View style={[{ position: 'absolute', left: 0, top: 0 }, chipStyle]}>
-        <View style={{ transform: [{ translateX: -40 }, { translateY: -15 }], width: 80, alignItems: 'center' }}>
-          <View testID="ride-route-distance" style={{ height: 30, paddingHorizontal: 11, borderRadius: 15, backgroundColor: palette.neutral[900], borderWidth: 2, borderColor: ink.line, justifyContent: 'center', shadowColor: palette.neutral[1000], shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
-            <Text variant="caption" weight={700} tabular numberOfLines={1} style={{ color: palette.neutral[50] }}>
-              {distance}
-            </Text>
+      {showTag ? (
+        <Animated.View style={[{ position: 'absolute', left: 0, top: 0 }, chipStyle]}>
+          <View style={{ transform: [{ translateX: -40 }, { translateY: -15 }], width: 80, alignItems: 'center' }}>
+            <View testID="ride-route-distance" style={{ height: 30, paddingHorizontal: 11, borderRadius: 15, backgroundColor: palette.neutral[900], borderWidth: 2, borderColor: ink.line, justifyContent: 'center', shadowColor: palette.neutral[1000], shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
+              <Text variant="caption" weight={700} tabular numberOfLines={1} style={{ color: palette.neutral[50] }}>
+                {distance}
+              </Text>
+            </View>
           </View>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
