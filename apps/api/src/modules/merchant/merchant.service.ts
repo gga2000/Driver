@@ -160,7 +160,10 @@ export const MERCHANT_PHOTOS = Symbol('MERCHANT_PHOTOS');
 
 const OWNER: RoleKind = 'merchant_owner';
 const STAFF: RoleKind = 'merchant_staff';
-/** Driver's team acting for the owner from the Console (`ops*`): field ops and admin; support reads only. */
+/**
+ * Driver's team acting for the owner from the Console (`ops*`): field ops and admin; support reads only.
+ * The roles are checked city-wide (one town today); once field ops are city-scoped, check the store's cityId too.
+ */
 const STORE_EDITORS: readonly RoleKind[] = ['field_ops', 'admin'];
 const STORE_READERS: readonly RoleKind[] = [...STORE_EDITORS, 'support'];
 type ActedBy = 'merchant' | 'console';

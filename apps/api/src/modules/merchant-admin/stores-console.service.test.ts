@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError, type Actor } from '@driver/contracts';
+import { DriverError, type Actor, type AppContext, type RoleKind } from '@driver/contracts';
+import { appRouter, t } from '@driver/contracts/router';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
@@ -154,6 +155,21 @@ describe('ops.stores: a shop open to customers keeps its prices the owner\'s', (
     const h = await setup();
     await expect(h.menus.menuGet(h.ops, { merchantOrgId: h.fresh })).rejects.toMatchObject({ code: 'forbidden' });
     await expect(h.menus.menuUpsertItem(h.ops, { merchantOrgId: h.fresh, nameAr: 'كباب', priceIqd: 7000 })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});
+
+describe('ops.stores through the router', () => {
+  it('a Console call reaches this service, so the audit row is written', async () => {
+    const h = await setup();
+    const ctx = {
+      auth: { sub: h.ops.personId, sid: h.ops.sessionId, iss: 'driver-api', iat: 0, exp: 0 },
+      authError: null,
+      identity: { hasRole: async (personId: string, kind: RoleKind) => h.id.service.hasRole(personId, kind) },
+      stores: h.svc,
+    } as unknown as AppContext;
+    const call = t.createCallerFactory(appRouter)(ctx);
+    await call.ops.stores.upsertItem({ merchantOrgId: h.fresh, nameAr: 'كباب', priceIqd: 7000 });
+    expect((await h.svc.history(h.ops, { merchantOrgId: h.fresh })).map((r) => r.action)).toEqual([STORE_AUDIT.itemSaved]);
   });
 });
 
