@@ -43,15 +43,15 @@ describe('policy selection by (city, vertical)', () => {
 });
 
 describe('smart_broadcast waves', () => {
-  it('builds 3 / 5 / all waves with 15 / 15 / 30 second windows', () => {
+  it('builds 3 / 5 / all waves with 25 / 25 / 30 second windows for rides', () => {
     const plan = service.plan(job(), drivers(12));
     expect(plan.kind).toBe('broadcast');
     if (plan.kind !== 'broadcast') return;
     expect(plan.waves.map((w) => w.driverIds.length)).toEqual([3, 5, 4]);
-    expect(plan.waves.map((w) => w.seconds)).toEqual([15, 15, 30]);
+    expect(plan.waves.map((w) => w.seconds)).toEqual([25, 25, 30]);
     expect(plan.waves[0]?.driverIds).toEqual(['d01', 'd02', 'd03']);
     expect(plan.waves[1]?.driverIds).toEqual(['d04', 'd05', 'd06', 'd07', 'd08']);
-    expect(plan.acceptTimeoutSec).toBe(15);
+    expect(plan.acceptTimeoutSec).toBe(25);
     // No driver appears twice.
     const all = plan.waves.flatMap((w) => w.driverIds);
     expect(new Set(all).size).toBe(all.length);

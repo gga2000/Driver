@@ -4163,3 +4163,61 @@ model FoodCartWalkup {
   @@map("food_cart_walkups")
   @@schema("public")
 }
+
+/// Console › محرر الخريطة (Ali, 2026-10-20): every change the team makes to a restaurant's or a
+/// landmark's pin, name, other names, icon or visibility, with what it was before, so it can be undone.
+model MapEdit {
+  id         String    @id @default(cuid())
+  cityId     String    @map("city_id")
+  /// landmark | restaurant (CHECK in the migration).
+  targetKind String    @map("target_kind")
+  targetId   String    @map("target_id")
+  /// add | edit | move | hide | show | merge (CHECK in the migration).
+  action     String
+  summaryAr  String    @map("summary_ar")
+  /// The fields as they were, and as they became: {name?, localNames?, category?, pin?, state?}.
+  before     Json
+  after      Json
+  /// A merge: the landmark that was hidden into this one.
+  mergedId   String?   @map("merged_id")
+  actorId    String    @map("actor_id")
+  undoneAt   DateTime? @map("undone_at")
+  undoneById String?   @map("undone_by_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, createdAt])
+  @@index([targetKind, targetId, createdAt])
+  @@map("map_edits")
+  @@schema("public")
+}
+
+/// A fix sent from an app (a place moved, a new place, a wrong name, a place that closed), waiting in
+/// the Console inbox until the team accepts or rejects it. Pins, a short note and person ids only.
+model MapReport {
+  id          String    @id @default(cuid())
+  cityId      String    @map("city_id")
+  /// driver | merchant | ops (CHECK in the migration): which inbox tab it lands in.
+  source      String
+  /// moved | new_place | wrong_name | closed (CHECK in the migration).
+  kind        String
+  /// landmark | restaurant; NULL for a new place.
+  targetKind  String?   @map("target_kind")
+  targetId    String?   @map("target_id")
+  /// Where it really is: {lat, lng}; NULL when the report is about the name or a closure.
+  pin         Json?
+  nameAr      String?   @map("name_ar")
+  note        String?
+  reporterId  String    @map("reporter_id")
+  /// open | accepted | rejected (CHECK in the migration).
+  state       String    @default("open")
+  decidedAt   DateTime? @map("decided_at")
+  decidedById String?   @map("decided_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, state, createdAt])
+  @@index([reporterId, state])
+  @@map("map_reports")
+  @@schema("public")
+}

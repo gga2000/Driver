@@ -45,7 +45,7 @@ export interface PracticeState {
 
 export const PRACTICE_RESTAURANT = 'مطعم البروفة';
 /** The same ring as a real order: 15 s food, 20 s rides. */
-const RING_SEC: Record<PracticeKind, number> = { food: 15, taxi: 20, tuktuk: 20 };
+const RING_SEC: Record<PracticeKind, number> = { food: 15, taxi: 25, tuktuk: 25 };
 
 const KITCHEN = { lat: 32.9095, lng: 45.0635 };
 const DOOR = { lat: 32.896, lng: 45.0675 };
