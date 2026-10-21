@@ -105,7 +105,7 @@ export class StoresConsoleService implements StoresOpsPort {
 
   async menu(actor: Actor, input: MerchantScope): Promise<AdminMenu> {
     await this.store(input.merchantOrgId);
-    return this.menus.menuGet(actor, input, 'console');
+    return this.menus.opsMenuGet(actor, input);
   }
 
   /** One write and its audit row in one unit of work (the menu service's own run joins it). */
@@ -125,7 +125,7 @@ export class StoresConsoleService implements StoresOpsPort {
       STORE_AUDIT.itemSaved,
       (org, item) => (input.itemId ? `عدّل «${item.nameAr}» بـ${org.name}` : `زاد «${item.nameAr}» لـ${org.name}`),
       (item) => ({ itemId: item.id, created: !input.itemId, priceIqd: item.priceIqd }),
-      () => this.menus.menuUpsertItem(actor, input, 'console'),
+      () => this.menus.opsUpsertItem(actor, input),
     );
   }
 
@@ -136,7 +136,7 @@ export class StoresConsoleService implements StoresOpsPort {
       STORE_AUDIT.itemsAdded,
       (org) => `زاد ${input.items.length} أكلات لـ${org.name}${input.categoryAr ? ` بقسم «${input.categoryAr}»` : ''}`,
       () => ({ count: input.items.length, categoryAr: input.categoryAr ?? null }),
-      () => this.menus.consoleAddItems(actor, input),
+      () => this.menus.opsAddItems(actor, input),
     );
   }
 
@@ -147,12 +147,12 @@ export class StoresConsoleService implements StoresOpsPort {
       STORE_AUDIT.sectionSaved,
       (org) => (input.renameFrom ? `غيّر اسم قسم «${input.renameFrom}» لـ«${input.nameAr}» بـ${org.name}` : `رتّب قسم «${input.nameAr}» بـ${org.name}`),
       () => ({ nameAr: input.nameAr, renameFrom: input.renameFrom ?? null }),
-      () => this.menus.menuUpsertCategory(actor, input, 'console'),
+      () => this.menus.opsUpsertCategory(actor, input),
     );
   }
 
   reorderCategories(actor: Actor, input: ReorderCategoriesInput): Promise<AdminMenu> {
-    return this.audited(actor, input.merchantOrgId, STORE_AUDIT.sectionsReordered, (org) => `رتّب أقسام المنيو بـ${org.name}`, () => ({ order: [...input.order] }), () => this.menus.menuReorderCategories(actor, input, 'console'));
+    return this.audited(actor, input.merchantOrgId, STORE_AUDIT.sectionsReordered, (org) => `رتّب أقسام المنيو بـ${org.name}`, () => ({ order: [...input.order] }), () => this.menus.opsReorderCategories(actor, input));
   }
 
   setModifiers(actor: Actor, input: Parameters<MerchantAdminService['menuSetModifiers']>[1]): Promise<AdminMenuItem> {
@@ -162,7 +162,7 @@ export class StoresConsoleService implements StoresOpsPort {
       STORE_AUDIT.optionsSaved,
       (org, item) => `عدّل أحجام وإضافات «${item.nameAr}» بـ${org.name}`,
       (item) => ({ itemId: item.id, groups: input.groups.length }),
-      () => this.menus.menuSetModifiers(actor, input, 'console'),
+      () => this.menus.opsSetModifiers(actor, input),
     );
   }
 
@@ -173,12 +173,12 @@ export class StoresConsoleService implements StoresOpsPort {
       STORE_AUDIT.availability,
       (org, item) => (input.available ? `رجّع «${item.nameAr}» متوفّر بـ${org.name}` : `سوّى «${item.nameAr}» مو متوفّر بـ${org.name}`),
       (item) => ({ itemId: item.id, available: input.available }),
-      () => this.menus.menuSetAvailability(actor, input, 'console'),
+      () => this.menus.opsSetAvailability(actor, input),
     );
   }
 
   soldOutToday(actor: Actor, input: { merchantOrgId: string; itemId: string }): Promise<AdminMenuItem> {
-    return this.audited(actor, input.merchantOrgId, STORE_AUDIT.soldOutToday, (org, item) => `سوّى «${item.nameAr}» خلص اليوم بـ${org.name}`, (item) => ({ itemId: item.id }), () => this.menus.menuSoldOutToday(actor, input, 'console'));
+    return this.audited(actor, input.merchantOrgId, STORE_AUDIT.soldOutToday, (org, item) => `سوّى «${item.nameAr}» خلص اليوم بـ${org.name}`, (item) => ({ itemId: item.id }), () => this.menus.opsSoldOutToday(actor, input));
   }
 
   libraryPhoto(actor: Actor, input: LibraryPhotoInput): Promise<AdminMenuItem> {
@@ -188,7 +188,7 @@ export class StoresConsoleService implements StoresOpsPort {
       STORE_AUDIT.libraryPhoto,
       (org, item) => `حط صورة من مكتبتنا لـ«${item.nameAr}» بـ${org.name}`,
       (item) => ({ itemId: item.id, photo: input.photo }),
-      () => this.menus.consoleLibraryPhoto(actor, input),
+      () => this.menus.opsLibraryPhoto(actor, input),
     );
   }
 }

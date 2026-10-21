@@ -30,12 +30,13 @@ async function setup(start = '2026-10-21T09:00:00Z') {
     return (await id.login(phone)).actor;
   }
   const ops = await person('07700000010');
+  await id.service.grantRole({ personId: 'system' }, { personId: ops.personId, kind: 'field_ops' });
   // A shop field ops opened this morning: still in «جهّز محلك», hidden from customers.
   const fresh = await orgs.create({ type: 'restaurant', name: 'مشويات الحاج كريم', cityId: 'aziziyah', ownerId: 'owner_karim' });
   await orgs.setMerchantSettings(fresh.id, { setup: newSetupState(clock.now()) });
   // A shop from before setup: open to customers.
   const open = await orgs.create({ type: 'restaurant', name: 'مأكولات الشام', cityId: 'aziziyah', ownerId: 'owner_sham' });
-  return { id, clock, ev, catalog, orgs, menus, audits, svc, ops, fresh: fresh.id, open: open.id };
+  return { id, clock, ev, catalog, orgs, menus, audits, svc, ops, person, fresh: fresh.id, open: open.id };
 }
 
 describe('ops.stores: the team sets a new shop up', () => {
@@ -109,6 +110,29 @@ describe('ops.stores: a shop open to customers keeps its prices the owner\'s', (
     expect((await h.svc.menu(h.ops, S)).categories[0]!.items[0]!.priceIqd).toBe(3000);
     // Refused changes leave no audit row.
     expect((await h.svc.history(h.ops, S)).map((r) => r.action)).toEqual([STORE_AUDIT.sectionSaved, STORE_AUDIT.availability, STORE_AUDIT.soldOutToday, STORE_AUDIT.optionsSaved, STORE_AUDIT.itemSaved]);
+  });
+
+  it('the ops path is field ops and admin only: support, the shop\'s owner and staff are refused, with no audit row', async () => {
+    const h = await setup();
+    const S = { merchantOrgId: h.fresh };
+    const admin = await h.person('07700000011');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: admin.personId, kind: 'admin' });
+    const support = await h.person('07700000012');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: support.personId, kind: 'support' });
+    const owner = await h.person('07700000013');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: owner.personId, kind: 'merchant_owner', orgId: h.fresh });
+    const staff = await h.person('07700000014');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: staff.personId, kind: 'merchant_staff', orgId: h.fresh });
+
+    expect((await h.svc.upsertItem(admin, { ...S, nameAr: 'كباب', priceIqd: 7000 })).nameAr).toBe('كباب');
+    for (const who of [support, owner, staff]) {
+      await expect(h.svc.upsertItem(who, { ...S, nameAr: 'فلافل', priceIqd: 1000 })).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(h.svc.addItems(who, { ...S, items: [{ nameAr: 'فلافل', priceIqd: 1000 }] })).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(h.menus.opsMenuGet(who, S)).rejects.toMatchObject({ code: 'forbidden' });
+    }
+    // The owner keeps his own path.
+    expect((await h.menus.menuUpsertItem(owner, { ...S, nameAr: 'تمن', priceIqd: 1500 })).nameAr).toBe('تمن');
+    expect((await h.svc.history(h.ops, S)).map((r) => r.actorId)).toEqual([admin.personId]);
   });
 
   it('the merchant\'s own access is unchanged: a stranger still cannot read or write the menu', async () => {
