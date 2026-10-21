@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { ClosureAwareRouter } from './closure-aware.router.js';
+import { RouteClosures } from './closures.js';
 import { EtaService } from './eta.service.js';
 import { OSRM_DEFAULT_TIMEOUT_MS, OsrmRouter } from './osrm.router.js';
 import { ResilientRouter } from './resilient.router.js';
@@ -14,9 +16,13 @@ export function routerFromEnv(clock: Clock, env: NodeJS.ProcessEnv = process.env
   return new ResilientRouter(new OsrmRouter(url, Number.isFinite(timeout) && timeout > 0 ? timeout : OSRM_DEFAULT_TIMEOUT_MS), new StraightLineRouter(), clock);
 }
 
-/** Road routing and the one ETA service (maps program SP4b). */
+/** Road routing and the one ETA service (maps program SP4b); every route goes around today's closed streets (N20). */
 @Module({
-  providers: [{ provide: ROUTER, useFactory: (clock: Clock) => routerFromEnv(clock), inject: [CLOCK] }, EtaService],
-  exports: [EtaService, ROUTER],
+  providers: [
+    RouteClosures,
+    { provide: ROUTER, useFactory: (clock: Clock, closures: RouteClosures) => new ClosureAwareRouter(routerFromEnv(clock), closures, clock), inject: [CLOCK, RouteClosures] },
+    EtaService,
+  ],
+  exports: [EtaService, ROUTER, RouteClosures],
 })
 export class RoutingModule {}

@@ -45,6 +45,7 @@ import { foodFact } from '@/features/home/service-facts';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
 import { KitchenNote, KitchenRows, KitchenRowsSkeleton, NoteMark } from '@/features/home/KitchenRows';
 import { MapBox, mapBoxNight } from '@/features/home/MapBox';
+import { PromiseDoors } from '@/features/home/PromiseDoors';
 import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
 import { lastReorderable } from '@/features/orders/history';
@@ -323,6 +324,9 @@ export default function Home() {
         {list?.some((r) => !!r.deal) ? (
           <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list.filter((r) => !!r.deal)} showDeal seeAll="deals" loading={false} error={false} onRetry={retry} />
         ) : null}
+
+        {/* «وعدنا هم» (look D): the doors of the services that came after, while each is open. */}
+        <PromiseDoors />
 
         {/* The ending (concept C): «جاي قريب» as one quiet line, then «بالعافية». */}
         <QuietEnd onSoon={onService} bye={open.length > 0} />

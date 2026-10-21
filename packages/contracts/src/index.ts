@@ -53,6 +53,9 @@ export * from './carry-over.js';
 export * from './search.js';
 export * from './zone-geometry.js';
 export * from './zones-io.js';
+export * from './closed-street.js';
+// Console and ops closure schemas: `@driver/contracts/closures`; the apps only need the types.
+export type * from './closures-io.js';
 export * from './safety-io.js';
 export * from './tracking.js';
 export * from './account-io.js';
@@ -81,6 +84,7 @@ export * from './notify-io.js';
 export * from './control-room-io.js';
 export * from './support-io.js';
 export * from './account-close-io.js';
+export * from './parcels-io.js';
 export * from './errors.js';
 export * from './request-limits.js';
 export { transformer } from './transformer.js';
@@ -115,5 +119,8 @@ export {
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';
 export * from './food-doors.js';
+export * from './home-kitchens.js';
+// Schemas live with the routers that parse them; apps only need the types (the customer bundle skips them).
+export type * from './home-kitchen-admin-io.js';
 export * from './featured.js';
 export * from './weights.js';

@@ -6,10 +6,13 @@ import { LatePromiseBasis } from './ledger-rules.js';
 import { Order } from './order.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass, type TripState as TripStateT } from './trip.js';
 import { VehicleColour, VehicleFeature } from './vehicle-features.js';
+import { AvoidedStreet } from './closed-street.js';
+import type { OrderHistoryRow } from './order-history.js';
+import { EtaBasis, haversineM, ROAD_FACTOR } from './travel.js';
 
-/** How an ETA was worked out: on real roads (OSRM) or by the straight-line estimate (`travelMinutes`). */
-export const EtaBasis = z.enum(['road', 'estimated']);
-export type EtaBasis = z.infer<typeof EtaBasis>;
+export { EtaBasis, haversineM, ROAD_FACTOR } from './travel.js';
+export { OrderHistoryItem, OrderHistoryRow } from './order-history.js';
+
 
 /**
  * Customer-side reads of the live order/ride screen (customer app spec §4). Narrow on purpose: the
@@ -166,35 +169,6 @@ export const OrderTracking = z.object({
 });
 export type OrderTracking = z.infer<typeof OrderTracking>;
 
-// ───────────────────────── order history (طلباتي) ─────────────────────────
-
-/** One dish on a history row: the name as the menu has it (or the line's free text) and how many. */
-export const OrderHistoryItem = z.object({
-  /** The order line it comes from (reorder matches it back to `order.lines`). */
-  lineId: z.string(),
-  catalogItemId: z.string().nullable(),
-  name: z.string(),
-  qty: z.number().int().min(1),
-});
-export type OrderHistoryItem = z.infer<typeof OrderHistoryItem>;
-
-/**
- * `orders.history` row (audit C-15): the customer's own order with what the list needs to be
- * recognisable at a glance — the restaurant's name and the dishes — without one read per order.
- */
-export const OrderHistoryRow = z.object({
-  order: Order,
-  /** Restaurant / shop name; null for rides, الرجعة seats and orders without a merchant. */
-  merchantName: z.string().nullable(),
-  /** The live lines (removed ones left out), in order, names resolved. */
-  items: z.array(OrderHistoryItem),
-  /** Rides, errands, parcels: the zone the trip went to (`aziziyah-zones` key); null otherwise. */
-  dropoffZoneKey: z.string().nullable(),
-  /** Rides: taxi or tuktuk, from the ride's trip, so the row wears that service's colour (o8); null otherwise. */
-  rideVertical: z.enum(['taxi', 'tuktuk']).nullable().optional(),
-});
-export type OrderHistoryRow = z.infer<typeof OrderHistoryRow>;
-
 /**
  * «أول مرة» (joy g8): the person's very first delivered food order and first finished tuktuk ride,
  * decided by the server from all their orders (not the history page), so the moment can belong to one
@@ -244,7 +218,6 @@ export function positionVisible(tripState: TripStateT): boolean {
 
 /** Town speeds (simulator and dispatch ETA): bike 25, tuktuk 30, car 35 km/h; road ≈ 1.4 × straight line. */
 export const TOWN_SPEED_KMH: Readonly<Record<VehicleClass, number>> = { bike: 25, tuktuk: 30, car: 35, suv: 35, van: 30, intercity: 80 };
-export const ROAD_FACTOR = 1.4;
 
 /**
  * Routed durations come from OSRM's car profile; other vehicles take this multiple of it in town
@@ -314,14 +287,6 @@ export const ETA_LEARNING_VERTICALS: readonly Vertical[] = ['food', 'grocery', '
 /** A batched courier's other drop before mine costs about this much (dispatch spec §3: ≤ 4 min). */
 export const MIN_PER_EARLIER_DROP = 4;
 
-export function haversineM(a: LatLng, b: LatLng): number {
-  const R = 6_371_000;
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const dLat = rad(b.lat - a.lat);
-  const dLng = rad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
 
 /** Minutes to ride from a to b in town (road factor applied), at least one. */
 export function travelMinutes(a: LatLng, b: LatLng, vehicle: VehicleClass = 'bike'): number {
@@ -340,7 +305,7 @@ export function travelMinutes(a: LatLng, b: LatLng, vehicle: VehicleClass = 'bik
 /**
  * N6 «ليش متأخر»: why a late delivery is late, and where. `traffic`: the part of the road ahead whose
  * learned minutes run slowest; `kitchen`: the food is not out on time, at the kitchen on the route;
- * `closed`: a street closed today (kept for the closed-streets work, not sent yet).
+ * `closed`: a street closed today that the route goes around (N20).
  */
 export const SlowStretchReason = z.enum(['traffic', 'kitchen', 'closed']);
 export type SlowStretchReason = z.infer<typeof SlowStretchReason>;
@@ -369,6 +334,8 @@ export const OrderRoute = z.object({
    * and something on the route explains it; null otherwise.
    */
   slowStretch: SlowStretch.nullable().optional(),
+  /** N20: streets closed today that this route goes around (draw them; say why it bends). Absent or empty = none. */
+  closures: z.array(AvoidedStreet).optional(),
 });
 export type OrderRoute = z.infer<typeof OrderRoute>;
 

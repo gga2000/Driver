@@ -16,6 +16,7 @@ import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { StatsPort } from './stats-io.js';
 import type { PartnerPort } from './partner-io.js';
+import type { ParcelsPort } from './parcels-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
@@ -38,6 +39,7 @@ import type { OnCallServicePort } from './on-call-io.js';
 import type { InboxServicePort } from './inbox-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
+import type { ClosuresPort } from './closures-io.js';
 import type { SupportPort } from './support-io.js';
 import type { AccountClosePort } from './account-close-io.js';
 import type { SafetyPort } from './safety-io.js';
@@ -128,6 +130,8 @@ export interface AppContext {
   accountClose: AccountClosePort;
   /** Zone outlines drawn in the Console (`modules/zones`). */
   zones: ZonesPort;
+  /** N20 «شارع مسدود»: streets closed for today (`modules/closures`). */
+  closures: ClosuresPort;
   /** Drivers confirm zones at the end of a delivery (`modules/zones`, maps program SP3). */
   zoneChecks: ZoneChecksPort;
   /** SOS: the person's alert, the Console's incident desk (`modules/safety`). */
@@ -136,6 +140,8 @@ export interface AppContext {
   referrals: ReferralsPort;
   /** Joy J7d: favourite drivers, regular trips, dinner timed to the ride home (`modules/ride-habits`). */
   rideHabits: RideHabitsPort;
+  /** Parcels طرود: quote, send, the parcel's page, her door page (`modules/parcels`). */
+  parcels: ParcelsPort;
   /** The shopping side «السوق»: stalls, bakeries, daily bread, shop mode (`modules/shopping`). */
   shopping: ShoppingPort;
   /** Food carts «عربانات»: list, follow, walk-over tickets, cart mode (`modules/food-carts`). */

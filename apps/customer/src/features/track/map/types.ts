@@ -24,7 +24,7 @@ export interface BaseMapProps {
   /** Bands covered by the screen's own bars (top bar, sheet), px: landmarks are not drawn half-hidden under them. */
   coveredTop?: number;
   coveredBottom?: number;
-  /** Always the day map, whatever the hour (pin pickers: Ali 10-09, setting a spot is easier in daylight). */
+  /** Always the day map, whatever the hour (pin pickers: Ali 10-09, setting a spot is easier in daylight); no area names. */
   alwaysDay?: boolean;
   /** The streets on screen each time the map settles (our map only; the taxi pickup's walk to a safe stop, N10). */
   onRoads?: (roads: Road[]) => void;

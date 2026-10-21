@@ -54,9 +54,14 @@ export interface PlannedOrder {
   key: string;
   /** Minutes after the day opens. */
   atMin: number;
-  kind: 'food' | 'ride' | 'errand';
+  kind: 'food' | 'ride' | 'parcel' | 'errand';
   customer: number;
   payment: 'cash' | 'wallet';
+  /**
+   * طرود (2026-10-12): a parcel from the customer's home to `dropoffPin`. The receiver refuses it at the
+   * door («رفضت تستلم») when true: the courier brings it back and the sender pays both trips.
+   */
+  parcelRefused?: boolean;
   /** Food: restaurant index and lines. */
   restaurant: number | null;
   lines: PlannedLine[];
@@ -85,6 +90,10 @@ export interface ScenarioOptions {
   rideShare?: number;
   /** Share of the rides not cancelled that are booked ahead; default 0.1. */
   bookedShare?: number;
+  /** Share of the cash rides placed now that become parcels instead (طرود); default 0.04. */
+  parcelShare?: number;
+  /** Share of the parcels the receiver refuses at the door; default 0.35. */
+  parcelRefusedShare?: number;
   /**
    * «دوّرلي» errands on top of the mix, as a share of `orders` (default 0.03, at least one when
    * above 0; 0 when the city has not opened errands). Planned from their own stream, so the rest of
@@ -96,7 +105,7 @@ export interface ScenarioOptions {
 /** What people send a shopper for in Aziziyah, with a fair guess of the price (dinars, per unit). */
 const ERRAND_ITEMS: ReadonlyArray<{ freeText: string; estimateIqd: number; maxQty: number }> = [
   { freeText: 'صمون', estimateIqd: 250, maxQty: 20 },
-  { freeText: 'بنادول', estimateIqd: 1_500, maxQty: 3 },
+  { freeText: 'معجون أسنان', estimateIqd: 1_500, maxQty: 3 },
   { freeText: 'حليب نيدو', estimateIqd: 9_000, maxQty: 2 },
   { freeText: 'طماطة كيلو', estimateIqd: 1_000, maxQty: 3 },
   { freeText: 'بيض طبقة', estimateIqd: 5_500, maxQty: 2 },
@@ -104,7 +113,7 @@ const ERRAND_ITEMS: ReadonlyArray<{ freeText: string; estimateIqd: number; maxQt
   { freeText: 'رصيد آسيا', estimateIqd: 5_000, maxQty: 2 },
   { freeText: 'شاي محمود', estimateIqd: 3_500, maxQty: 2 },
   { freeText: 'ركي', estimateIqd: 3_000, maxQty: 1 },
-  { freeText: 'دوه كحة', estimateIqd: 4_000, maxQty: 1 },
+  { freeText: 'شاحن موبايل', estimateIqd: 4_000, maxQty: 1 },
 ];
 
 /** «دوّرلي» runs from their own stream (`scenario:errands`): when, who, which shops, the list and the receipt. */
@@ -283,6 +292,23 @@ export function buildScenario(world: World, opts: ScenarioOptions): PlannedOrder
     const ahead = later.int(BOOK_AHEAD_MIN.from / 5, BOOK_AHEAD_MIN.to / 5) * 5;
     if (p.atMin + ahead + 5 <= DAY_MINUTES - 20) p.bookAheadMin = ahead;
   }
+
+  // طرود (2026-10-12): from their own stream, so the rest of the plan is the same as before. A cash ride
+  // placed now becomes the customer's parcel to the same place; some receivers refuse it at the door.
+  const parcels = createRand(world.seed).fork('scenario:parcel');
+  const parcelShare = opts.parcelShare ?? 0.04;
+  const refusedShare = opts.parcelRefusedShare ?? 0.35;
+  for (const p of planned) {
+    if (p.kind !== 'ride' || p.cancel || p.bookAheadMin !== null || p.payment !== 'cash' || !parcels.chance(parcelShare)) continue;
+    p.kind = 'parcel';
+    p.rideVertical = null;
+    p.unreachableSec = 0;
+    p.parcelRefused = parcels.chance(refusedShare);
+  }
+  // A short day still has a refusal to check (and to break on purpose): the last parcel is refused when
+  // none was. No random draw, so the rest of the plan stays the same.
+  const parcelPlans = planned.filter((p) => p.kind === 'parcel');
+  if (refusedShare > 0 && parcelPlans.length > 0 && !parcelPlans.some((p) => p.parcelRefused)) parcelPlans[parcelPlans.length - 1]!.parcelRefused = true;
 
   // Kitchen behaviour (plan Step 7): exactly 3 % of food orders rejected, 2 % partially accepted
   // (those need two lines or more).

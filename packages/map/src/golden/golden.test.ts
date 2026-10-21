@@ -7,6 +7,8 @@ import {
   GOLDEN_FONTS,
   GOLDEN_PALETTES,
   GOLDEN_SOURCE,
+  GOLDEN_ZONE_NAMES_SOURCE,
+  GOLDEN_ZONES_SOURCE,
   LANDMARK_PARTS,
   LANDMARK_RISE,
   goldenImages,
@@ -56,6 +58,26 @@ describe('buildGoldenStyle', () => {
       }
     }
   });
+  it('draws the Console neighbourhoods on customer and lite only, under the houses, never the AI drafts', () => {
+    for (const mode of MODES) {
+      const style = buildGoldenStyle({ ...base, light: 'golden', mode, zoneNames: true });
+      const zoneIds = style.layers.filter((l) => 'source' in l && (l.source === GOLDEN_ZONES_SOURCE || l.source === GOLDEN_ZONE_NAMES_SOURCE)).map((l) => l.id);
+      if (mode === 'customer' || mode === 'lite') {
+        expect(style.sources[GOLDEN_ZONES_SOURCE]).toMatchObject({ type: 'geojson' });
+        expect(style.sources[GOLDEN_ZONE_NAMES_SOURCE]).toMatchObject({ type: 'geojson' });
+        expect(zoneIds).toEqual(['golden-zone-wash', 'golden-zone-edge', 'golden-zone-names']);
+        for (const id of zoneIds) expect(style.layers.find((l) => l.id === id)).toMatchObject({ filter: ['!=', ['get', 'placement'], 'draft'] });
+        expect(ids(style).indexOf('golden-zone-edge')).toBeLessThan(ids(style).indexOf('golden-roofs'));
+        expect(ids(style).indexOf('golden-zone-names')).toBeGreaterThan(ids(style).indexOf('golden-roofs'));
+      } else {
+        // courier and Console lay their own zone layers on this source
+        expect(style.sources[GOLDEN_ZONES_SOURCE]).toBeUndefined();
+        expect(zoneIds).toEqual([]);
+      }
+    }
+    // names stay off until the app stops drawing its own
+    expect(ids(buildGoldenStyle({ ...base, light: 'day', mode: 'customer' }))).not.toContain('golden-zone-names');
+  });
   it('reads only the layers the tiles carry and only the fonts glyphs.py writes', () => {
     const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'courier' });
     const sourceLayers = new Set(style.layers.flatMap((l) => ('source-layer' in l && l['source-layer'] ? [l['source-layer']] : [])));
@@ -86,7 +108,8 @@ describe('buildGoldenStyle', () => {
     const first = ids(style).indexOf(GOLDEN_FIRST_LABEL);
     expect(first).toBeGreaterThan(0);
     expect(style.layers.slice(first).every((l) => l.type === 'symbol')).toBe(true);
-    expect(style.layers.slice(0, first).some((l) => l.type === 'symbol')).toBe(false);
+    // the one exception is paint on the ground: neighbourhood names lie under the houses (and under a route)
+    expect(style.layers.slice(0, first).filter((l) => l.type === 'symbol').map((l) => l.id)).toEqual(['golden-area-names']);
   });
   it('draws less where less is needed: no 3D, shadows or patterns on the Console and cheap phones', () => {
     for (const mode of ['console', 'lite'] as const) {
@@ -180,6 +203,6 @@ describe('palm pattern', () => {
     }
     expect([...alphas]).toEqual([255]);
     expect(colours.size).toBeGreaterThan(5);
-    expect(Object.keys(goldenImages('night'))).toEqual([PALM_PATTERN, FURROW_PATTERN]);
+    expect(Object.keys(goldenImages('night')).slice(0, 2)).toEqual([PALM_PATTERN, FURROW_PATTERN]);
   });
 });

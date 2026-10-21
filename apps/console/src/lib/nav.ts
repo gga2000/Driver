@@ -1,4 +1,5 @@
 import { PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { CLOSURE_EDIT_ROLES } from '@driver/contracts/closures';
 import type { MessageKey } from '@driver/i18n';
 import { INBOX_READ_ROLES, ON_CALL_READ_ROLES, PHONE_BOOKING_ROLES } from '@driver/contracts';
 
@@ -117,6 +118,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { href: '/pricing', key: 'console.nav_pricing', icon: 'pricing', roles: READ, jump: 'p' },
       // b4: prices and the zones they are set by sit together.
       { href: '/zones', key: 'console.nav_zones', icon: 'zones', roles: ZONE_READ_ROLES, jump: 'z' },
+      { href: '/closures', key: 'console.closures_nav', icon: 'map', roles: CLOSURE_EDIT_ROLES, jump: 'x' },
     ],
   },
   {

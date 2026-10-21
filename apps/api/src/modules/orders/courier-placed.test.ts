@@ -34,7 +34,8 @@ const parcel = (patch: Partial<PlaceOrderInput> = {}): PlaceOrderInput => ({ cit
 
 describe('errands and parcels at placement (dispatch starts on order.placed)', () => {
   it('a parcel where the parcel service is not launched is refused with service_paused and never reaches dispatch', async () => {
-    const config = new ConfigService(); // Aziziyah launch day: food, taxi, tuktuk
+    const config = new ConfigService();
+    config.setLaunchedVerticals('aziziyah', ['food', 'taxi', 'tuktuk']); // a city that has not opened parcels
     expect(config.isLaunched('aziziyah', 'parcel')).toBe(false);
     const h = ordersHarness(undefined, { controls: launchControls(config) });
     expect(await code(h.orders.place('c1', parcel()))).toBe('service_paused');
@@ -64,7 +65,7 @@ describe('errands and parcels at placement (dispatch starts on order.placed)', (
     const p = await h.orders.place('c1', parcel());
     expect(h.events.ofType('order.placed').find((e) => e.orderId === p.id)?.payload).toMatchObject({ type: 'parcel', merchantOrgId: null, pickup: SENDER_DOOR, dropoff: { zoneKey: 'zakur', pin: HOME }, scheduledFor: null });
     const shop = { zoneKey: 'street_30' };
-    const e = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: shop, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'دوه من الصيدلية', qty: 1, unitPriceIqd: 7000 }] });
+    const e = await h.orders.place('c1', { cityId: 'aziziyah', type: 'errand', pickup: shop, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'شاحن من محل الموبايلات', qty: 1, unitPriceIqd: 7000 }] });
     expect(h.events.ofType('order.placed').find((x) => x.orderId === e.id)?.payload).toMatchObject({ type: 'errand', pickup: shop, dropoff: { zoneKey: 'zakur' } });
     const f = await h.orders.place('c1', h.foodInput());
     expect(h.events.ofType('order.placed').find((x) => x.orderId === f.id)?.payload).not.toHaveProperty('pickup');
@@ -72,23 +73,24 @@ describe('errands and parcels at placement (dispatch starts on order.placed)', (
 });
 
 /** Ali's real launch list for Aziziyah (city file): what orders.quote and orders.place let through. */
-describe('launch scope at checkout (Aziziyah launch day: food, taxi, tuktuk)', () => {
-  it('food, taxi and tuktuk go through; parcel and grocery are refused with service_paused from quote and place', async () => {
+describe('launch scope at checkout (Aziziyah launch day: food, taxi, tuktuk, parcel)', () => {
+  it('food, taxi, tuktuk and parcels go through; grocery and errands are refused with service_paused from quote and place', async () => {
     const config = new ConfigService();
-    expect(config.launchedVerticals('aziziyah')).toEqual(['food', 'taxi', 'tuktuk']);
+    expect(config.launchedVerticals('aziziyah')).toEqual(['food', 'taxi', 'tuktuk', 'parcel']);
     const h = ordersHarness(undefined, { controls: launchControls(config) });
     const ride = (rideVertical: 'taxi' | 'tuktuk'): PlaceOrderInput => ({ cityId: 'aziziyah', type: 'ride', rideVertical, pickup: { zoneKey: 'centre', pin: KITCHEN }, dropoff: { zoneKey: 'street_30', pin: HOME } });
-    for (const input of [h.foodInput(), ride('taxi'), ride('tuktuk')]) {
+    for (const input of [h.foodInput(), ride('taxi'), ride('tuktuk'), parcel()]) {
       await h.orders.quote('c1', input);
       await h.orders.place('c1', input);
     }
-    expect(h.events.ofType('order.placed')).toHaveLength(3);
+    expect(h.events.ofType('order.placed')).toHaveLength(4);
     const grocery = h.foodInput({ type: 'grocery_catalog' });
-    for (const input of [parcel(), grocery]) {
+    const errand: PlaceOrderInput = { cityId: 'aziziyah', type: 'errand', pickup: SENDER_DOOR, dropoff: { zoneKey: 'zakur' }, lines: [{ freeText: 'خبز', qty: 1, unitPriceIqd: 1000 }] };
+    for (const input of [grocery, errand]) {
       expect(await code(h.orders.quote('c1', input))).toBe('service_paused');
       expect(await code(h.orders.place('c1', input))).toBe('service_paused');
     }
-    expect(h.events.ofType('order.placed')).toHaveLength(3);
+    expect(h.events.ofType('order.placed')).toHaveLength(4);
   });
 });
 

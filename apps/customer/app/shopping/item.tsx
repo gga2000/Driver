@@ -24,6 +24,7 @@ import {
   IF_MISSING,
   itemReady,
   shopPin,
+  wontFetch,
   type ErrandItem,
   type ErrandWhere,
 } from '@/features/shopping/errand';
@@ -97,6 +98,7 @@ export default function ErrandItemScreen() {
   );
 
   const ready = itemReady(item);
+  const refused = wontFetch(item);
   const setWhere = (where: ErrandWhere) => patch({ where });
 
   return (
@@ -107,6 +109,10 @@ export default function ErrandItemScreen() {
         <GreenBar
           label={t(existing ? 'shopping.item_save' : 'shopping.item_add')}
           onPress={() => {
+            if (refused) {
+              toast.show({ message: t(`shopping.wont_fetch_${refused}`), tone: 'warning' });
+              return;
+            }
             if (!ready) {
               toast.show({
                 message: t(
@@ -135,6 +141,7 @@ export default function ErrandItemScreen() {
           value={item.what}
           onChangeText={(what) => patch({ what })}
           placeholder={t('shopping.what_placeholder')}
+          error={refused ? t(`shopping.wont_fetch_${refused}`) : undefined}
           multiline
           maxLength={200}
         />

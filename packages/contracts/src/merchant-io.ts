@@ -46,6 +46,8 @@ export const MerchantStore = z.object({
   type: z.enum(['restaurant', 'grocer']),
   cityId: z.string(),
   role: MerchantStoreRole,
+  /** أكل بيت: a home cook's kitchen (the app adds its home-kitchen screens). Absent = false. */
+  home: z.boolean().optional(),
 });
 export type MerchantStore = z.infer<typeof MerchantStore>;
 

@@ -366,6 +366,8 @@ export const ERROR_TABLE = {
   hold_expired: { i18n: 'intercity.hold_expired', retryHint: 'never', status: 'CONFLICT' },
   wallet_insufficient: { retryHint: 'never', status: 'CONFLICT' },
   errand_cash_only: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // «دوّرلي» (Ali 2026-10-12): the shopper won't fetch medicines, cigarettes or gas cylinders.
+  errand_item_not_allowed: { retryHint: 'never', status: 'BAD_REQUEST' },
   cash_reservation_revoked: { retryHint: 'never', status: 'FORBIDDEN' },
   // Step 4b: a rider who still owes a no-show amount books with the wallet deposit until it is paid.
   cash_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
@@ -427,6 +429,19 @@ export const ERROR_TABLE = {
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
   cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
   prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // أكل بيت: a reservation he never took at the door is owed before he reserves again (Ali, 2026-10-11).
+  home_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
+  commission_tier_home_only: { retryHint: 'never', status: 'FORBIDDEN' },
+  // Parcels طرود (2026-10-12): the parcel, the receiver's door link and its area, the photo.
+  parcel_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
+  parcel_door_closed: { retryHint: 'never', status: 'CONFLICT' },
+  parcel_door_outside_zone: { retryHint: 'never', status: 'BAD_REQUEST' },
+  parcel_photo_unknown: { retryHint: 'never', status: 'BAD_REQUEST' },
+  parcel_not_cancellable: { retryHint: 'never', status: 'CONFLICT' },
+  parcel_receiver_is_you: { retryHint: 'never', status: 'BAD_REQUEST' },
+  parcel_pin_locked: { retryHint: 'support', status: 'FORBIDDEN' },
+  parcel_pin_not_verified: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
+  parcel_refuse_too_far: { retryHint: 'never', status: 'CONFLICT' },
   // CORE-05: this build of the app is older than the minimum the server accepts (`app-version.ts`).
   update_required: { retryHint: 'never', status: 'PRECONDITION_FAILED' },
 } as const satisfies Record<string, ErrorDef>;

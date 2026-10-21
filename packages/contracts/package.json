@@ -19,6 +19,10 @@
       "types": "./dist/shopping-io.d.ts",
       "default": "./dist/shopping-io.js"
     },
+    "./closures": {
+      "types": "./dist/closures-io.d.ts",
+      "default": "./dist/closures-io.js"
+    },
     "./seeds": {
       "types": "./dist/seeds/aziziyah-restaurants.d.ts",
       "default": "./dist/seeds/aziziyah-restaurants.js"
@@ -26,6 +30,10 @@
     "./demo-shops": {
       "types": "./dist/seeds/demo-shops.d.ts",
       "default": "./dist/seeds/demo-shops.js"
+    },
+    "./demo-home-kitchens": {
+      "types": "./dist/seeds/demo-home-kitchens.d.ts",
+      "default": "./dist/seeds/demo-home-kitchens.js"
     },
     "./live-client": {
       "types": "./dist/live-client.d.ts",

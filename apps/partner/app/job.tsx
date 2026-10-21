@@ -54,6 +54,7 @@ import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { playDoneTink } from '@/lib/alert';
 import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
+import { ClosedNote } from '@/features/work/ClosedNote';
 
 /**
  * On a job: one task at a time with a single advancing button (وصلت للمطعم → استلمت → وصلت للزبون →
@@ -470,6 +471,7 @@ function JobView({
           pins={pins}
           route={self ? [self, ...pins.map((p) => p.at)] : pins.map((p) => p.at)}
           road={road.data?.polyline6 ?? null}
+          closures={road.data?.closures ?? []}
           topInset={92}
           bottomInset={64}
           maxZoom={15.4}
@@ -542,6 +544,9 @@ function JobView({
                   ) : null
                 }
               />
+
+              {/* N20: the road goes around a street closed today: one warning line. */}
+              <ClosedNote testID="job-closed" closures={road.data?.closures} />
 
               {ride && stop.type === 'pickup' && stop.state === 'arrived' ? <RiderWait arrivedAt={stop.arrivedAt} /> : null}
               {/* j5: the code the kitchen matches before handing over the food (maps program r4). */}

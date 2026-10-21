@@ -147,6 +147,7 @@ export const NotifyTemplateId = z.enum([
   'ride_nudge',
   'merchant_cash_handover',
   'merchant_activated',
+  'home_kitchen_activated',
   'menu_photos_ready',
   'courier_cash_receipt',
   'driver_pay_reply',
@@ -222,6 +223,11 @@ export const NotifyTemplateId = z.enum([
   'order_dispute_void',
   'order_free_cancel',
   'order_courier_lost',
+  // طرود (parcels): the receiver's text with the door link, the receipt code once the door is set, and
+  // the sender's notice when the door was never set in time.
+  'parcel_door_link',
+  'parcel_pin',
+  'parcel_door_lapsed',
   // Food carts: a followed cart opened; a walk-over ticket is ready, turned down, or called off at closing.
   'food_cart_opened',
   'food_cart_walkup_ready',
@@ -659,6 +665,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'work',
     app: 'merchant',
     push: { title: 'push.merchant_activated.title', body: 'push.merchant_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://setup' },
+    sms: { key: 'sms.merchant_activated' },
+    primary: ['push', 'sms'],
+    quietHours: 'defer',
+  },
+  // أكل بيت: staff approved a cook's kitchen — the same news, but it opens «أكلاتي» and says «ضيف أكلاتك».
+  home_kitchen_activated: {
+    id: 'home_kitchen_activated',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.merchant_activated.title', body: 'push.home_kitchen_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://home-kitchen' },
     sms: { key: 'sms.merchant_activated' },
     primary: ['push', 'sms'],
     quietHours: 'defer',
@@ -1197,6 +1213,37 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.order_courier_lost.title', body: 'push.order_courier_lost.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // طرود: the receiver (a number, often not an account) gets the door link by SMS: the sender's first
+  // name from the vault and our own link only — never the parcel's own words, the sender's number or an
+  // address. Sent by the parcels module (its sweep holds a night link until 08:00, so `send` here);
+  // capped per sender and per receiver there, and counted in the day's SMS budget like every SMS.
+  parcel_door_link: {
+    id: 'parcel_door_link',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'parcel.t_door_sms' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  // طرود: the receipt code the receiver reads out to the courier, sent when the door is set (any hour).
+  parcel_pin: {
+    id: 'parcel_pin',
+    category: 'order_updates',
+    app: 'customer',
+    sms: { key: 'parcel.pin_recipient_body' },
+    primary: ['sms'],
+    quietHours: 'send',
+  },
+  // طرود: the door was never set in time, so the parcel was cancelled with no fee — the sender hears it
+  // in his app and may send it again. No names, gender-free.
+  parcel_door_lapsed: {
+    id: 'parcel_door_lapsed',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'parcel.t_lapsed_title', body: 'parcel.t_lapsed_body', androidChannel: 'orders', deepLink: 'driver://parcel/{parcelId}' },
+    primary: ['push'],
     quietHours: 'send',
   },
 };

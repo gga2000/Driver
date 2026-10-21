@@ -7,6 +7,7 @@ import { DisputeKind, PaymentMethod } from './order.js';
 import { DealType } from './deals.js';
 import { DISH_LABELS, DishLabel } from './catalog-io.js';
 import { DishKind } from './dish-kind.js';
+import type { HomeKitchenDish, HomeKitchenView, SaveHomeDishInput, SetHomeTodayInput } from './home-kitchen-admin-io.js';
 import type { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from './habits-io.js';
 
 /**
@@ -696,6 +697,12 @@ export interface MerchantAdminPort {
   /** Joy h5 «مطاعمنا»: the kitchen's story (staff read; the owner writes and decides if it shows). */
   storyGet(actor: Actor, input: MerchantScope): Promise<KitchenStoryView>;
   storySet(actor: Actor, input: z.output<typeof SetKitchenStoryInput>): Promise<KitchenStoryView>;
+  /** أكل بيت: the cook's dishes, today's plates and coming reservations (owner and staff). */
+  homeGet(actor: Actor, input: MerchantScope): Promise<HomeKitchenView>;
+  /** أكل بيت: a new dish or an edit, with how it sells (owner). */
+  homeSaveDish(actor: Actor, input: SaveHomeDishInput): Promise<HomeKitchenDish>;
+  /** أكل بيت: today's plates of a ready dish (owner and staff). */
+  homeSetToday(actor: Actor, input: SetHomeTodayInput): Promise<HomeKitchenDish>;
   /** «مين سوّى شنو»: the day's kitchen actions with who did each (owner only; staff FORBIDDEN). */
   activityToday(actor: Actor, input: z.output<typeof ActivityTodayInput>): Promise<MerchantActivity>;
   /** One order's kitchen actions with who did each (owner only; staff FORBIDDEN). */

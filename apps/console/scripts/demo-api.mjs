@@ -979,4 +979,38 @@ await get(OrdersStaffService).watchStuck().catch((err) => console.warn('stuck wa
   }
 }
 
+// «شوارع مسدودة» (/closures, N20): one street ops closed (حيدر, works, until midnight) and one courier's
+// report still waiting for ops (dashed on the map, «بلّغ عنه دليفري» at the top of the list). The report is
+// made the real way, by a courier on a live job (his road ahead); with no live job it is written straight
+// to the closures table as his. DEMO_CLOSURES=0 seeds none.
+if (process.env.DEMO_CLOSURES !== '0') {
+  const { ClosuresService, CLOSURES_REPOSITORY } = await load('modules/closures/index.js');
+  const closures = get(ClosuresService);
+  let report = null;
+  for (const trip of (await trips.active('aziziyah')).filter((t) => t.courierId)) {
+    try {
+      const r = await closures.report(actor(trip.courierId), { cityId: 'aziziyah', reason: 'water' });
+      if (!r.confirmed) {
+        report = (await closures.list({ cityId: 'aziziyah' })).find((c) => c.id === r.id) ?? null;
+        break;
+      }
+    } catch {
+      // At the door, or no road ahead yet: try the next courier.
+    }
+  }
+  if (!report) {
+    const at = await closures.snap({ cityId: 'aziziyah', from: { lat: 32.9131, lng: 45.0662 }, to: { lat: 32.9119, lng: 45.0688 } });
+    const now = new Date();
+    report = await get(CLOSURES_REPOSITORY).create({ cityId: 'aziziyah', path: at.path, reason: 'water', nameAr: null, lengthM: at.lengthM, startsAt: now, endsAt: new Date(now.getTime() + 2 * 60 * 60_000), closedById: couriers[0].id, source: 'courier' });
+  }
+  // The street ops closed sits a few hundred metres from the report, so the map shows both at once.
+  const near = report.path[0];
+  try {
+    const street = await closures.snap({ cityId: 'aziziyah', from: { lat: near.lat + 0.0035, lng: near.lng - 0.002 }, to: { lat: near.lat + 0.0022, lng: near.lng + 0.0022 } });
+    await closures.close(actor(haider), { cityId: 'aziziyah', path: street.path, reason: 'works', nameAr: 'شارع المستشفى' });
+  } catch (err) {
+    console.warn('demo closure skipped:', err?.message ?? err);
+  }
+}
+
 console.log(`DEMO ready on ${origin}/trpc · log in as 0770 000 0001 (علي)`);

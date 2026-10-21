@@ -74,7 +74,12 @@ describe('scenario (plan Step 7)', () => {
     const cancelled = plan.filter((o) => o.cancel);
     expect(cancelled).toHaveLength(100);
     expect(plan.filter((o) => !o.cancel && o.kind === 'food')).toHaveLength(1400);
-    expect(plan.filter((o) => !o.cancel && o.kind === 'ride')).toHaveLength(500);
+    // طرود: a few cash rides placed now are parcels instead (some refused at the door).
+    const parcels = plan.filter((o) => o.kind === 'parcel');
+    expect(plan.filter((o) => !o.cancel && o.kind === 'ride').length + parcels.length).toBe(500);
+    expect(parcels.length).toBeGreaterThan(5);
+    expect(parcels.every((o) => !o.cancel && o.payment === 'cash' && o.bookAheadMin === null && o.unreachableSec === 0 && o.rideVertical === null)).toBe(true);
+    expect(parcels.some((o) => o.parcelRefused) && parcels.some((o) => !o.parcelRefused)).toBe(true);
     expect(new Set(cancelled.map((o) => o.cancel!.stage))).toEqual(new Set(['before_merchant', 'after_accept', 'searching', 'driver_en_route']));
     // Kitchens: 3 % of food rejected, 2 % partially accepted (only orders with two lines or more).
     const food = plan.filter((o) => o.kind === 'food' && !o.cancel);

@@ -217,6 +217,14 @@ export interface OrderPostings {
 }
 
 /**
+ * The courier's part of a delivery fee: all of it, or the batch share when his trip rode along another
+ * (money §2). The one place this split lives: order close and the أكل بيت no-show both use it.
+ */
+export function courierDeliveryIqd(o: { deliveryFeeIqd: number; courierDeliveryIqd?: number | undefined; batchedSecond?: boolean | undefined }, rules: Pick<MoneyRules, 'batchedSecondCourierShare'>): number {
+  return Math.min(o.deliveryFeeIqd, o.courierDeliveryIqd ?? (o.batchedSecond ? pct(o.deliveryFeeIqd, rules.batchedSecondCourierShare) : o.deliveryFeeIqd));
+}
+
+/**
  * Worked example (money §2): items 15,000 at 15 %, service fee 500, delivery 1,000 →
  * platform 2,750, courier 1,000, merchant 12,750; the customer pays 16,500.
  */
@@ -236,9 +244,7 @@ export function postOrderClosed(input: OrderMoneyPayload, rules: MoneyRules): Or
   if (itemDeal > o.itemsSubtotalIqd || deliveryDeal > o.deliveryFeeIqd) throw new RangeError(`merchant deal ${deal?.promotionId} is more than what it comes off`);
   const commission = pct(o.itemsSubtotalIqd - itemDeal, rules.commission[o.commissionTier]);
   const serviceFee = o.serviceFeeIqd ?? rules.serviceFeeIqd;
-  const courierDelivery = o.courierId
-    ? Math.min(o.deliveryFeeIqd, o.courierDeliveryIqd ?? (o.batchedSecond ? pct(o.deliveryFeeIqd, rules.batchedSecondCourierShare) : o.deliveryFeeIqd))
-    : 0;
+  const courierDelivery = o.courierId ? courierDeliveryIqd(o, rules) : 0;
   const red = redemption(o.pointsRedeemed, serviceFee, o.deliveryFeeIqd - deliveryDeal, rules);
   const promo = o.platformPromo?.amountIqd ?? 0;
 
