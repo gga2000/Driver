@@ -27,6 +27,7 @@ export const INBOX_KINDS = [
   'pin_alert',
   'approval',
   'late_departure',
+  'over_ceiling',
 ] as const;
 export const InboxKind = z.enum(INBOX_KINDS);
 export type InboxKind = z.infer<typeof InboxKind>;
@@ -40,13 +41,15 @@ export const INBOX_PRIORITY: Record<InboxKind, number> = {
   // Riders standing at a garage with no car, or a car out on the road that never said «وصلت».
   late_departure: 4,
   no_driver: 5,
-  unreachable: 6,
-  stuck: 7,
-  store_silent: 8,
-  late: 9,
-  cash_cap: 10,
-  low_rating: 11,
-  approval: 12,
+  // «دوّرلي»: the shopper stands at the shop with a receipt over the customer's ceiling.
+  over_ceiling: 6,
+  unreachable: 7,
+  stuck: 8,
+  store_silent: 9,
+  late: 10,
+  cash_cap: 11,
+  low_rating: 12,
+  approval: 13,
 };
 
 export const InboxSubjectKind = z.enum([

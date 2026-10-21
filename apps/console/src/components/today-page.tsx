@@ -31,6 +31,7 @@ import { useLinkedFilters } from '@/lib/url-state';
 import { useTRPC } from '@/lib/trpc';
 import { CopyLinkButton } from './copy-link';
 import { HandoverCard, HandoverWriteButton } from './handover';
+import { ErrandReceiptAction } from './errand/receipt-action';
 import { StuckRowActions } from './stuck/row-actions';
 import {
   Button,
@@ -625,6 +626,9 @@ function InboxLine({
       </div>
       {row.kind === 'stuck' && row.subjectKind === 'order' && row.mine && !done ? (
         <StuckRowActions orderId={row.subjectId} />
+      ) : null}
+      {row.kind === 'over_ceiling' && row.subjectKind === 'order' && !done ? (
+        <ErrandReceiptAction orderId={row.subjectId} ceilingIqd={typeof row.facts['ceilingIqd'] === 'number' ? row.facts['ceilingIqd'] : null} />
       ) : null}
       {closing ? (
         <CloseDialog row={row} onClose={() => setClosing(false)} onDone={refresh} />
