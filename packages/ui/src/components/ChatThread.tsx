@@ -13,6 +13,7 @@ import { VOICE_MIN_MS, voiceAtLimit, voiceDurationSec, voiceSlideCancels, voiceS
 import { withAlpha } from '../theme/color';
 import { useTheme } from '../theme/ThemeProvider';
 import { Avatar } from './Avatar';
+import { Button } from './Button';
 import { Chip } from './Chip';
 import { EmptyState } from './EmptyState';
 import { CallSoonIcon } from './CallSoon';
@@ -128,6 +129,11 @@ export interface ChatThreadProps {
   composerStart?: ReactNode;
   /** The empty thread's words, in place of the order chat's. */
   empty?: { title: string; body: string };
+  /**
+   * s7 «انحلّت»: closes a reopened lost-item chat early (`chat.resolveLostItem`); while the thread's
+   * `lostItem` is `open`, a strip under the header offers it, behind one confirm. Omit to leave it out.
+   */
+  resolveLostItem?: () => Promise<unknown>;
 }
 
 type RecordPhase = 'idle' | 'starting' | 'recording';
@@ -166,6 +172,7 @@ export function ChatThread({
   renderCard,
   composerStart,
   empty,
+  resolveLostItem,
 }: ChatThreadProps) {
   const theme = useTheme();
   const toast = useToast();
@@ -456,6 +463,24 @@ export function ChatThread({
             ) : null}
           </View>
         </View>
+        {resolveLostItem && v?.lostItem === 'open' ? (
+          <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.accentTint }}>
+            <View style={{ width: '100%', maxWidth: COLUMN, alignSelf: 'center', paddingHorizontal: theme.space[4], paddingVertical: theme.space[2] }}>
+              <LostItemResolve
+                t={t}
+                onResolve={async () => {
+                  try {
+                    await resolveLostItem();
+                    toast.show({ message: t('chat.lost_item_resolved_toast'), tone: 'success', icon: 'check' });
+                    await refresh();
+                  } catch (err) {
+                    toast.show({ message: errorMessage(err, t('error.network')), tone: 'warning' });
+                  }
+                }}
+              />
+            </View>
+          </View>
+        ) : null}
         {pinned ? (
           <View style={{ borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface }}>
             <View style={{ width: '100%', maxWidth: COLUMN, alignSelf: 'center', paddingHorizontal: theme.space[4], paddingVertical: theme.space[2] }}>{pinned}</View>
@@ -854,4 +879,37 @@ export function useMaskedCall(opts: { request: () => Promise<CallSession>; enabl
     }
   };
   return { call, busy };
+}
+
+/** s7 «انحلّت»: one button, then «نسكّر المحادثة؟» with yes / no, so a stray tap does not close it. */
+function LostItemResolve({ t, onResolve }: { t: ChatThreadProps['t']; onResolve: () => Promise<void> }) {
+  const theme = useTheme();
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!asking) return <Button label={t('chat.lost_item_resolve')} variant="secondary" size="md" icon="check" fullWidth onPress={() => setAsking(true)} testID="chat-lost-item-resolve" />;
+  return (
+    <View style={{ gap: theme.space[2] }}>
+      <Text variant="label" weight={700} style={{ textAlign: 'center' }}>
+        {t('chat.lost_item_resolve_confirm')}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+        <Button label={t('chat.lost_item_resolve_no')} variant="ghost" size="md" style={{ flex: 1 }} disabled={busy} onPress={() => setAsking(false)} testID="chat-lost-item-keep" />
+        <Button
+          label={t('chat.lost_item_resolve_yes')}
+          variant="ink"
+          size="md"
+          style={{ flex: 1 }}
+          loading={busy}
+          onPress={() => {
+            setBusy(true);
+            void onResolve().finally(() => {
+              setBusy(false);
+              setAsking(false);
+            });
+          }}
+          testID="chat-lost-item-confirm"
+        />
+      </View>
+    </View>
+  );
 }

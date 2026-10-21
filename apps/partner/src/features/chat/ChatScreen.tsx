@@ -62,6 +62,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         return { uploadId, localUri: picked.uri };
       }}
       voice={voice}
+      resolveLostItem={kind === 'customer_courier' ? () => actions.resolveLostItem.mutateAsync({ orderId }) : undefined}
       currentLocation={async () => {
         const fix = await currentFix();
         return fix ? { lat: fix.lat, lng: fix.lng } : null;

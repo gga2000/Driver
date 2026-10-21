@@ -383,6 +383,9 @@ function ChatThread({ orderId, kind }: { orderId: string; kind: ChatThreadKind }
         <IconLock size={13} />
         {t('console.sup_chats_hint')}
       </p>
+      {kind === 'customer_courier' && thread.data?.lostItem ? (
+        <LostItemBar orderId={orderId} state={thread.data.lostItem} />
+      ) : null}
       {thread.error ? <QueryError error={thread.error} /> : null}
       {thread.data && thread.data.messages.length === 0 ? (
         <EmptyState bare title={t('console.sup_chat_empty')} />
@@ -429,6 +432,54 @@ function ChatThread({ orderId, kind }: { orderId: string; kind: ChatThreadKind }
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+/**
+ * s7 «انحلّت» on the desk: a reopened lost-item chat between rider and driver can be closed here once
+ * it is sorted (one confirm); the thread gets «الدعم سكّر المحادثة» and the driver's home strip goes.
+ */
+function LostItemBar({ orderId, state }: { orderId: string; state: 'open' | 'resolved' }) {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [asking, setAsking] = useState(false);
+  const resolve = useMutation(
+    trpc.chat.resolveLostItem.mutationOptions({
+      onSuccess: (data) => {
+        qc.setQueryData(trpc.chat.thread.queryKey({ orderId, kind: 'customer_courier' }), data);
+        setAsking(false);
+        toast({ title: t('chat.lost_item_resolved_toast'), tone: 'ok' });
+      },
+    }),
+  );
+  if (state === 'resolved') {
+    return (
+      <p className="mx-auto mb-4 flex max-w-3xl items-center gap-2 rounded-lg bg-surface-3 px-4 py-2 text-sm">
+        <IconCheckCircle size={16} />
+        {t('console.sup_lost_item_resolved')}
+      </p>
+    );
+  }
+  return (
+    <div className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center gap-3 rounded-lg bg-accent-tint px-4 py-3 text-sm">
+      <span className="min-w-0 flex-1">{asking ? t('chat.lost_item_resolve_confirm') : t('console.sup_lost_item_open')}</span>
+      {asking ? (
+        <>
+          <Button variant="ghost" size="sm" disabled={resolve.isPending} onClick={() => setAsking(false)}>
+            {t('chat.lost_item_resolve_no')}
+          </Button>
+          <Button variant="primary" size="sm" loading={resolve.isPending} onClick={() => resolve.mutate({ orderId })}>
+            {t('chat.lost_item_resolve_yes')}
+          </Button>
+        </>
+      ) : (
+        <Button variant="secondary" size="sm" icon={<IconCheckCircle size={16} />} onClick={() => setAsking(true)}>
+          {t('console.sup_lost_item_resolve')}
+        </Button>
+      )}
+      {resolve.error ? <p className="w-full text-bad">{errorText(resolve.error)}</p> : null}
     </div>
   );
 }

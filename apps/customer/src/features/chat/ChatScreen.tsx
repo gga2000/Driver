@@ -63,6 +63,7 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         return { uploadId, localUri: picked.uri };
       }}
       voice={voice}
+      resolveLostItem={withCourier ? () => actions.resolveLostItem.mutateAsync({ orderId }) : undefined}
       liveStatus={liveStatus}
       orderReplies={(keys) => orderQuickReplies(keys, live)}
       // The support team needs words and photos, not his location.

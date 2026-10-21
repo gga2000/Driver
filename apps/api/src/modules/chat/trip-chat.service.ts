@@ -113,6 +113,7 @@ export class TripChatService implements TripChatPort {
       quickReplies: pair.status === 'open' ? quickRepliesFor(role, KIND, true) : [],
       // Calls stay with garage mode's «اتصل» for now (before-launch §3: calls are ours to carry).
       canCall: false,
+      lostItem: null,
       serverNow: this.clock.now(),
       subject: pair.subject,
       partyId: pair.partyId,
