@@ -202,6 +202,15 @@ const smartBroadcast: DispatchConfig = {
  */
 const rides: DispatchConfig = {
   ...smartBroadcast,
+  // Ali 2026-10-21: taxi and tuktuk drivers get 25 s to accept (was 15), so they can pull over and read
+  // the offer; the red card / re-broadcast moves to after all three waves (25 + 25 + 30 = 80 s).
+  waves: [
+    { size: 3, radiusKm: 1.5, seconds: 25 },
+    { size: 5, radiusKm: 3, seconds: 25 },
+    { size: 'all', seconds: 30 },
+  ],
+  acceptTimeoutSec: 25,
+  rebroadcastAfterSec: 80,
   bookedRides: {
     offerFromHour: 18,
     confirmByHour: 22,

@@ -32,18 +32,18 @@ async function standardFleet(h: H) {
   }
 }
 
-describe('smart_broadcast wave timing (spec §3: 3 / 1.5 km / 15 s → 5 / 3 km / 15 s → all / 30 s)', () => {
-  it('sends wave 1 at once, wave 2 at 15 s, wave 3 at 30 s, each inside its radius', async () => {
+describe('smart_broadcast wave timing (rides, Ali 2026-10-21: 3 / 1.5 km / 25 s → 5 / 3 km / 25 s → all / 30 s)', () => {
+  it('sends wave 1 at once, wave 2 at 25 s, wave 3 at 50 s, each inside its radius', async () => {
     const h = dispatchHarness();
     await standardFleet(h);
     await taxi(h);
-    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['a1', 'a2', 'a3'], timeoutSec: 15 }]);
-    await h.advance(14);
+    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['a1', 'a2', 'a3'], timeoutSec: 25 }]);
+    await h.advance(24);
     expect(h.trips.offers).toHaveLength(1);
     await h.advance(1);
-    expect(h.trips.offers[1]).toEqual({ tripId: 't1', driverIds: ['b1', 'b2', 'b3', 'b4', 'b5'], timeoutSec: 15 });
+    expect(h.trips.offers[1]).toEqual({ tripId: 't1', driverIds: ['b1', 'b2', 'b3', 'b4', 'b5'], timeoutSec: 25 });
     expect((await h.offers('t1')).filter((o) => o.wave === 1).map((o) => o.state)).toEqual(['timed_out', 'timed_out', 'timed_out']);
-    await h.advance(15);
+    await h.advance(25);
     expect(h.trips.offers[2]).toEqual({ tripId: 't1', driverIds: ['c1', 'c2'], timeoutSec: 30 });
     expect(h.events.ofType('dispatch.wave_sent').map((e) => e.payload['wave'])).toEqual([1, 2, 3]);
   });
@@ -54,7 +54,7 @@ describe('smart_broadcast wave timing (spec §3: 3 / 1.5 km / 15 s → 5 / 3 km 
     await h.online('out', 1.6);
     await taxi(h);
     expect(h.trips.offers[0]?.driverIds).toEqual(['in']);
-    await h.advance(15);
+    await h.advance(25);
     expect(h.trips.offers[1]?.driverIds).toEqual(['out']);
   });
 
@@ -62,7 +62,7 @@ describe('smart_broadcast wave timing (spec §3: 3 / 1.5 km / 15 s → 5 / 3 km 
     const h = dispatchHarness();
     await h.online('mid', 2);
     await taxi(h);
-    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['mid'], timeoutSec: 15 }]);
+    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['mid'], timeoutSec: 25 }]);
     expect((await h.offers('t1'))[0]?.wave).toBe(2);
   });
 
@@ -72,11 +72,11 @@ describe('smart_broadcast wave timing (spec §3: 3 / 1.5 km / 15 s → 5 / 3 km 
     await taxi(h);
     await h.advance(5);
     const card = (await h.service.board('aziziyah')).cards[0]!;
-    expect(card).toMatchObject({ tripId: 't1', status: 'searching', status_ar: 'دا ندوّر سايق', wave: 1, countdownSec: 10, elapsedSec: 5, red: false, compensationLabel_ar: null });
+    expect(card).toMatchObject({ tripId: 't1', status: 'searching', status_ar: 'دا ندوّر سايق', wave: 1, countdownSec: 20, elapsedSec: 5, red: false, compensationLabel_ar: null });
     expect(card.offers.map((o) => [o.driverId, o.expiresInSec])).toEqual([
-      ['a1', 10],
-      ['a2', 10],
-      ['a3', 10],
+      ['a1', 20],
+      ['a2', 20],
+      ['a3', 20],
     ]);
   });
 
@@ -87,6 +87,68 @@ describe('smart_broadcast wave timing (spec §3: 3 / 1.5 km / 15 s → 5 / 3 km 
     await taxi(h);
     expect(h.trips.offers).toHaveLength(1);
     expect(await h.offers('t1')).toHaveLength(3);
+  });
+});
+
+describe('nobody new to ask: the offer rings again (Ali 2026-10-21)', () => {
+  it('a lone driver keeps the offer from the first ring to the free-cancel mark, with no gap and no +500', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h);
+    let open = 0;
+    for (let t = 0; t < 180; t += 1) {
+      const o = await h.openOffer('t1', 'a1');
+      if (o) open += 1;
+      if (o && !o.seenAt) await seen(h, 't1', 'a1', 3000); // he looks every time and lets it run out
+      await h.advance(1);
+    }
+    expect(open).toBe(180);
+    const offers = await h.offers('t1');
+    // 25 s, again 25 s, then the last stretch to the re-broadcast in one ring (30 s), then the re-broadcast.
+    expect(offers.map((o) => [o.pass, Math.round((o.expiresAt.getTime() - o.sentAt.getTime()) / 1000)])).toEqual([
+      [1, 25],
+      [1, 25],
+      [1, 30],
+      [2, 100],
+    ]);
+    expect(offers.every((o) => o.compensationIqd === 0)).toBe(true);
+    expect(h.events.ofType('dispatch.wave_sent').filter((e) => e.payload['again'] === true)).toHaveLength(2);
+    expect(h.events.last('dispatch.rebroadcast')?.payload['driverIds']).toEqual(['a1']);
+  });
+
+  it('a far lone driver (wave 3 only) who let it run out gets it again at the re-broadcast without the +500', async () => {
+    const h = dispatchHarness();
+    await h.online('far', 4);
+    await taxi(h);
+    await seen(h, 't1', 'far', 3000);
+    await h.advance(80);
+    const second = (await h.offers('t1')).filter((o) => o.pass === 2);
+    expect(second.map((o) => [o.driverId, o.compensationIqd])).toEqual([['far', 0]]);
+    expect(h.events.last('dispatch.rebroadcast')?.payload).toMatchObject({ driverIds: ['far'], compensated: [] });
+  });
+
+  it('«مو هسة» stops it: a driver who declined is not asked again', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h);
+    await respond(h, 't1', 'a1', false);
+    await h.advance(120);
+    expect(await h.offers('t1')).toHaveLength(1);
+    expect(h.events.last('dispatch.rebroadcast')?.payload['driverIds']).toEqual([]);
+  });
+
+  it('with someone else free, a driver who let it run out stays out of the re-broadcast', async () => {
+    const h = await (async () => {
+      const h = dispatchHarness();
+      await h.online('a1', 0.2);
+      await taxi(h);
+      await seen(h, 't1', 'a1', 3000);
+      await h.advance(70);
+      await h.online('n1', 0.4);
+      await h.advance(10);
+      return h;
+    })();
+    expect(h.events.last('dispatch.rebroadcast')?.payload).toMatchObject({ driverIds: ['n1'], excluded: ['a1'] });
   });
 });
 
@@ -126,7 +188,7 @@ describe('first accept wins (SET NX lock)', () => {
     await h.online('a1', 0.2);
     await taxi(h);
     const offer = (await h.offers('t1'))[0]!;
-    await h.advance(15);
+    await h.advance(25);
     await expect(h.service.respond(h.actor('a1'), { offerId: offer.id, accept: true })).rejects.toMatchObject({ code: 'offer_expired' });
   });
 
@@ -154,7 +216,7 @@ describe('"seen" = 3 s in the foreground (edge-case §6)', () => {
   });
 });
 
-describe('re-broadcast at 60 s with +500 compensation (spec §3 + edge-case §6)', () => {
+describe('re-broadcast at 80 s for rides (Ali 2026-10-21; spec §3: 60 s) with +500 compensation (edge-case §6)', () => {
   async function scenario() {
     const h = dispatchHarness();
     await standardFleet(h);
@@ -163,17 +225,17 @@ describe('re-broadcast at 60 s with +500 compensation (spec §3 + edge-case §6)
     await seen(h, 't1', 'a1', 3000); // seen, then ignored → excluded
     await seen(h, 't1', 'a2', 2999); // never really seen → may be re-offered, no compensation
     await respond(h, 't1', 'a3', false); // declined → excluded
-    await h.advance(14); // t = 16, wave 2 open
+    await h.advance(24); // t = 26, wave 2 open
     await seen(h, 't1', 'b1', 5000); // wave 2 ignorer → excluded
-    await h.advance(15); // t = 31, wave 3 open
+    await h.advance(25); // t = 51, wave 3 open
     await seen(h, 't1', 'c1', 3500); // wave 3 ignorer → excluded
-    await h.advance(19); // t = 50
+    await h.advance(19); // t = 70
     await h.online('n1', 0.3); // came online after the waves
-    await h.advance(9); // t = 59
+    await h.advance(9); // t = 79
     return h;
   }
 
-  it('turns the card red at 60 s and re-broadcasts, not before', async () => {
+  it('turns the card red at 80 s and re-broadcasts, not before', async () => {
     const h = await scenario();
     expect((await h.service.getRequest('t1'))?.status).toBe('searching');
     await h.advance(1);
@@ -223,7 +285,7 @@ describe('re-broadcast at 60 s with +500 compensation (spec §3 + edge-case §6)
 
   it('at 180 s the customer may cancel free and the card goes to the dispatcher', async () => {
     const h = await scenario();
-    await h.advance(120); // t = 179
+    await h.advance(100); // t = 179
     expect((await h.service.getRequest('t1'))?.customerMayCancelFree).toBe(false);
     await h.advance(1); // t = 180
     const r = await h.service.getRequest('t1');
@@ -493,7 +555,7 @@ describe('suggest-only and runtime policy overrides', () => {
     // The dispatcher picks one: exactly one offer goes out.
     await h.online('b2', 1.8); // back online after the 200 s
     await h.service.override(h.actor('disp'), { tripId: 't1', driverId: 'b2' });
-    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['b2'], timeoutSec: 15 }]);
+    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['b2'], timeoutSec: 25 }]);
   });
 
   it('suggest-only from the city config behaves the same', async () => {
@@ -518,7 +580,7 @@ describe('suggest-only and runtime policy overrides', () => {
     await h.online('a1', 0.2);
     await h.online('a2', 0.4);
     await taxi(h);
-    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['a1'], timeoutSec: 15 }]);
+    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['a1'], timeoutSec: 25 }]);
 
     await h.service.setPolicy(h.actor('disp'), { cityId: 'aziziyah', vertical: 'taxi', clear: true });
     expect((await fresh.effectiveConfig('aziziyah', 'taxi')).cfg.policy).toBe('smart_broadcast');
@@ -539,8 +601,8 @@ describe('dispatcher override (review J116)', () => {
     expect(forced.warnings).toEqual(['over_cap']);
     expect((await h.offers('t1')).find((o) => o.driverId === 'a1')?.state).toBe('withdrawn');
     expect(h.events.last('dispatch.override')?.payload).toMatchObject({ driverId: 'capped', forced: true, reason: 'settled cash at the office' });
-    // Wave timers died with the override: no wave 2 at 15 s.
-    await h.advance(14);
+    // Wave timers died with the override: no wave 2 at 25 s.
+    await h.advance(24);
     expect(h.trips.offers.at(-1)?.driverIds).toEqual(['capped']);
   });
 
@@ -553,7 +615,7 @@ describe('dispatcher override (review J116)', () => {
     await respond(h, 't1', 'a2', false);
     expect((await h.service.getRequest('t1'))?.status).toBe('needs_dispatcher');
     await h.service.override(h.actor('disp'), { tripId: 't1', driverId: 'a1' });
-    await h.advance(15);
+    await h.advance(25);
     expect(h.events.last('dispatch.needs_dispatcher')?.payload['reason']).toBe('override_timed_out');
   });
 });
@@ -702,7 +764,7 @@ describe('cancel and persistence', () => {
       compensationIqd: 0,
       state: 'sent',
       sentAt: h.clock.now(),
-      expiresAt: new Date(h.clock.now().getTime() + 15_000),
+      expiresAt: new Date(h.clock.now().getTime() + 25_000),
     });
   });
 });
@@ -736,7 +798,7 @@ describe("the driver's own offer card (speed x2)", () => {
     await h.online('a1', 0.2);
     await taxi(h, 't1');
     expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).not.toBeNull();
-    h.clock.advance(16_000);
+    h.clock.advance(26_000);
     expect(await h.orchestrator.openOfferFor('a1', 'aziziyah')).toBeNull();
   });
 });
