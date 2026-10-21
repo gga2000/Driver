@@ -43,10 +43,11 @@ import {
   type SaveHomeDishInput,
   type SetHomeTodayInput,
 } from '@driver/contracts';
+import { LIBRARY_PHOTO_FILE } from '@driver/contracts/store-setup';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey, localPeriod, startOfLocalDay } from '../../shared/local-time.js';
-import { CatalogService, homeDishView, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
+import { CatalogService, foodMediaPath, homeDishView, itemOnSale, itemPhotoUrl, kindOfLabels, withKind, potDay, potSuggestions, UPLOAD_PHOTO_PREFIX, type CatalogItemRecord, type MenuImportJobRecord } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -72,6 +73,28 @@ export const PHOTO_TAKEN_DOWN_EVENT = 'catalog.photo_taken_down';
 /** p4: how long the menu keeps telling the owner why a photo came down (while the dish has none). */
 export const PHOTO_TAKEDOWN_NOTICE_DAYS = 14;
 type PhotoTakenDown = { reason: string; at: Date };
+
+/** Who made a menu edit: the merchant's own app, or Driver's team from the Console (`ops.stores.*`). */
+export type MenuAccess = 'merchant' | 'console';
+/** Console edits carry `by: 'console'` on their event, so the owner's "who did what" can tell them apart. */
+const byConsole = (by: MenuAccess): { by?: 'console' } => (by === 'console' ? { by } : {});
+
+/**
+ * Does a modifier save change any price? Matched by group and option name; a new priced option, or a
+ * removed one, counts as a change. Availability and names alone never do.
+ */
+export function modifierPricesChanged(
+  before: ReadonlyArray<{ nameAr: string; modifiers: ReadonlyArray<{ nameAr: string; priceIqd: number }> }>,
+  after: ReadonlyArray<{ nameAr: string; modifiers: ReadonlyArray<{ nameAr: string; priceIqd: number }> }>,
+): boolean {
+  const key = (g: string, m: string) => `${g.trim()}\u0000${m.trim()}`;
+  const prices = (groups: typeof before) => new Map(groups.flatMap((g) => g.modifiers.filter((m) => m.priceIqd > 0).map((m) => [key(g.nameAr, m.nameAr), m.priceIqd] as const)));
+  const a = prices(before);
+  const b = prices(after);
+  if (a.size !== b.size) return true;
+  for (const [k, v] of b) if (a.get(k) !== v) return true;
+  return false;
+}
 /** Disputes the merchant still sees (domain §9: customers dispute until close, support after). */
 export const DISPUTE_LOOKBACK_DAYS = 30;
 /** The merchant answers a dispute within this; after it the default outcome stands. */
@@ -119,6 +142,32 @@ export class MerchantAdminService implements MerchantAdminPort {
    */
   private async owner(actor: Actor, merchantOrgId: string): Promise<void> {
     if ((await this.roleAt(actor, merchantOrgId)) !== 'merchant_owner') throw new DriverError('forbidden');
+  }
+
+  /**
+   * Menu access: the merchant's own (owner or staff, per `need`), or Driver's team acting for the store
+   * from the Console (`ops.stores.*`: the router gates the role, the ops module writes the audit row).
+   * Only server code passes `'console'`; the merchant router never can. On a store that is already
+   * open to customers the team never sets a price (`store_price_owner_only`): prices stay the owner's.
+   */
+  private async access(actor: Actor, merchantOrgId: string, need: 'owner' | 'any', by: MenuAccess): Promise<void> {
+    if (by === 'console') {
+      await this.orgs.get(merchantOrgId);
+      return;
+    }
+    if (need === 'owner') await this.owner(actor, merchantOrgId);
+    else await this.roleAt(actor, merchantOrgId);
+  }
+
+  /** Open to customers: setup finished, or a store from before «جهّز محلك» (no setup record). */
+  async storeIsLive(merchantOrgId: string): Promise<boolean> {
+    const setup = (await this.orgs.merchantSettings(merchantOrgId)).setup;
+    return !setup || setup.liveAt !== null;
+  }
+
+  private async consolePriceGuard(merchantOrgId: string, by: MenuAccess, changesPrice: () => Promise<boolean>): Promise<void> {
+    if (by !== 'console') return;
+    if ((await this.storeIsLive(merchantOrgId)) && (await changesPrice())) throw new DriverError('store_price_owner_only');
   }
 
   async myMerchants(actor: Actor): Promise<Array<{ merchantOrgId: string; role: MerchantStaffRole }>> {
@@ -200,32 +249,32 @@ export class MerchantAdminService implements MerchantAdminPort {
     return { merchantOrgId, categories: [...named.map(([nameAr, list]) => ({ nameAr, items: list })), ...(unnamed ? [{ nameAr: null, items: unnamed }] : [])] };
   }
 
-  async menuGet(actor: Actor, input: MerchantScope): Promise<AdminMenu> {
-    await this.roleAt(actor, input.merchantOrgId);
+  async menuGet(actor: Actor, input: MerchantScope, by: MenuAccess = 'merchant'): Promise<AdminMenu> {
+    await this.access(actor, input.merchantOrgId, 'any', by);
     return this.menuView(input.merchantOrgId);
   }
 
-  private async itemEvent(actor: Actor, merchantOrgId: string, type: string, payload: Record<string, unknown>, write: (tx: Tx) => Promise<CatalogItemRecord>): Promise<AdminMenuItem> {
+  private async itemEvent(actor: Actor, merchantOrgId: string, type: string, payload: Record<string, unknown>, write: (tx: Tx) => Promise<CatalogItemRecord>, by: MenuAccess = 'merchant'): Promise<AdminMenuItem> {
     const item = await this.uow.run(async (tx) => {
       const i = await write(tx);
-      await this.events.emit(tx, { actorId: actor.personId, type, occurredAt: this.clock.now(), payload: { merchantOrgId, itemId: i.id, ...payload } }, { name: 'org', id: merchantOrgId });
+      await this.events.emit(tx, { actorId: actor.personId, type, occurredAt: this.clock.now(), payload: { merchantOrgId, itemId: i.id, ...payload, ...byConsole(by) } }, { name: 'org', id: merchantOrgId });
       return i;
     });
     return this.itemView(item);
   }
 
-  async menuSetAvailability(actor: Actor, input: { merchantOrgId: string; itemId: string; available: boolean }): Promise<AdminMenuItem> {
-    await this.roleAt(actor, input.merchantOrgId);
-    return this.itemEvent(actor, input.merchantOrgId, input.available ? 'item.restocked' : 'item.sold_out', { until: null }, (tx) => this.catalog.setAvailability(input.merchantOrgId, input.itemId, input.available, tx));
+  async menuSetAvailability(actor: Actor, input: { merchantOrgId: string; itemId: string; available: boolean }, by: MenuAccess = 'merchant'): Promise<AdminMenuItem> {
+    await this.access(actor, input.merchantOrgId, 'any', by);
+    return this.itemEvent(actor, input.merchantOrgId, input.available ? 'item.restocked' : 'item.sold_out', { until: null }, (tx) => this.catalog.setAvailability(input.merchantOrgId, input.itemId, input.available, tx), by);
   }
 
-  async menuSoldOutToday(actor: Actor, input: { merchantOrgId: string; itemId: string }): Promise<AdminMenuItem> {
-    await this.roleAt(actor, input.merchantOrgId);
+  async menuSoldOutToday(actor: Actor, input: { merchantOrgId: string; itemId: string }, by: MenuAccess = 'merchant'): Promise<AdminMenuItem> {
+    await this.access(actor, input.merchantOrgId, 'any', by);
     return this.uow.run(async (tx) => {
       const item = await this.catalog.soldOutToday(input.merchantOrgId, input.itemId, tx);
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: 'item.sold_out', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, itemId: item.id, until: item.soldOutUntil?.toISOString() ?? null } },
+        { actorId: actor.personId, type: 'item.sold_out', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, itemId: item.id, until: item.soldOutUntil?.toISOString() ?? null, ...byConsole(by) } },
         { name: 'org', id: input.merchantOrgId },
       );
       return this.itemView(item);
@@ -257,18 +306,19 @@ export class MerchantAdminService implements MerchantAdminPort {
     return this.historyView(await this.catalog.priceHistory(input.merchantOrgId, input.itemId));
   }
 
-  async menuReplacePhoto(actor: Actor, input: { merchantOrgId: string; itemId: string; uploadId: string }): Promise<AdminMenuItem> {
-    await this.roleAt(actor, input.merchantOrgId);
+  async menuReplacePhoto(actor: Actor, input: { merchantOrgId: string; itemId: string; uploadId: string }, by: MenuAccess = 'merchant'): Promise<AdminMenuItem> {
+    await this.access(actor, input.merchantOrgId, 'any', by);
     await this.assertUpload(actor.personId, input.uploadId);
     // p4 (Ali 2026-10-08): the photo shows to customers at once; `review: 'pending'` puts it on the
     // team's same-day review (the Console queue reads `CatalogService.photoReviewQueue`).
     return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { uploadId: input.uploadId, review: 'pending' }, (tx) =>
       this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, tx, null, true),
-    );
+    by);
   }
 
-  async menuUpsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
-    await this.owner(actor, input.merchantOrgId);
+  async menuUpsertItem(actor: Actor, input: UpsertItemInput, by: MenuAccess = 'merchant'): Promise<AdminMenuItem> {
+    await this.access(actor, input.merchantOrgId, 'owner', by);
+    await this.consolePriceGuard(input.merchantOrgId, by, async () => !input.itemId || (await this.catalog.adminItem(input.merchantOrgId, input.itemId)).priceIqd !== input.priceIqd);
     return this.uow.run(async (tx) => {
       // The customer labels and the ticket kind share one column: a save that names one keeps the other.
       const stored = input.labels !== undefined || input.kind !== undefined
@@ -300,42 +350,78 @@ export class MerchantAdminService implements MerchantAdminPort {
       );
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: created ? 'item.published' : 'item.updated', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, itemId: item.id, priceIqd: item.priceIqd } },
+        { actorId: actor.personId, type: created ? 'item.published' : 'item.updated', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, itemId: item.id, priceIqd: item.priceIqd, ...byConsole(by) } },
         { name: 'org', id: input.merchantOrgId },
       );
       return this.itemView(item);
     });
   }
 
-  async menuUpsertCategory(actor: Actor, input: UpsertCategoryInput): Promise<AdminMenu> {
-    await this.owner(actor, input.merchantOrgId);
+  async menuUpsertCategory(actor: Actor, input: UpsertCategoryInput, by: MenuAccess = 'merchant'): Promise<AdminMenu> {
+    await this.access(actor, input.merchantOrgId, 'owner', by);
     await this.uow.run(async (tx) => {
       const touched = await this.catalog.upsertCategory(input.merchantOrgId, input, tx);
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: 'menu.category_updated', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, nameAr: input.nameAr, renameFrom: input.renameFrom ?? null, items: touched } },
+        { actorId: actor.personId, type: 'menu.category_updated', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, nameAr: input.nameAr, renameFrom: input.renameFrom ?? null, items: touched, ...byConsole(by) } },
         { name: 'org', id: input.merchantOrgId },
       );
     });
     return this.menuView(input.merchantOrgId);
   }
 
-  async menuReorderCategories(actor: Actor, input: ReorderCategoriesInput): Promise<AdminMenu> {
-    await this.owner(actor, input.merchantOrgId);
+  async menuReorderCategories(actor: Actor, input: ReorderCategoriesInput, by: MenuAccess = 'merchant'): Promise<AdminMenu> {
+    await this.access(actor, input.merchantOrgId, 'owner', by);
     await this.uow.run(async (tx) => {
       const touched = await this.catalog.reorderCategories(input.merchantOrgId, input.order, tx);
       await this.events.emit(
         tx,
-        { actorId: actor.personId, type: 'menu.categories_reordered', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, order: [...input.order], items: touched } },
+        { actorId: actor.personId, type: 'menu.categories_reordered', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, order: [...input.order], items: touched, ...byConsole(by) } },
         { name: 'org', id: input.merchantOrgId },
       );
     });
     return this.menuView(input.merchantOrgId);
   }
 
-  async menuSetModifiers(actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean; servesMin?: number | null | undefined; servesMax?: number | null | undefined }> }> }): Promise<AdminMenuItem> {
-    await this.owner(actor, input.merchantOrgId);
-    return this.itemEvent(actor, input.merchantOrgId, 'item.modifiers_updated', { groups: input.groups.length }, (tx) => this.catalog.setModifiers(input.merchantOrgId, input.itemId, input.groups, tx));
+  async menuSetModifiers(actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean; servesMin?: number | null | undefined; servesMax?: number | null | undefined }> }> }, by: MenuAccess = 'merchant'): Promise<AdminMenuItem> {
+    await this.access(actor, input.merchantOrgId, 'owner', by);
+    await this.consolePriceGuard(input.merchantOrgId, by, async () => modifierPricesChanged((await this.catalog.adminItem(input.merchantOrgId, input.itemId)).modifierGroups, input.groups));
+    return this.itemEvent(actor, input.merchantOrgId, 'item.modifiers_updated', { groups: input.groups.length }, (tx) => this.catalog.setModifiers(input.merchantOrgId, input.itemId, input.groups, tx), by);
+  }
+
+  /**
+   * The Console's «الصق المنيو» (`ops.stores.addItems`): pasted dishes created in one go, after the
+   * menu's last dish, with their first price-history rows. A shop open to customers refuses it (each
+   * row sets a price, and prices there are the owner's).
+   */
+  async consoleAddItems(actor: Actor, input: { merchantOrgId: string; categoryAr?: string | null | undefined; items: ReadonlyArray<{ nameAr: string; priceIqd: number }> }): Promise<AdminMenu> {
+    await this.access(actor, input.merchantOrgId, 'owner', 'console');
+    await this.consolePriceGuard(input.merchantOrgId, 'console', async () => true);
+    await this.uow.run(async (tx) => {
+      let order = (await this.catalog.adminMenu(input.merchantOrgId)).reduce((m, i) => Math.max(m, i.sortOrder), 0);
+      for (const row of input.items) {
+        order += 10;
+        const { item } = await this.catalog.upsertItem(input.merchantOrgId, { patch: { nameAr: row.nameAr, priceIqd: row.priceIqd, categoryAr: input.categoryAr ?? null, sortOrder: order } }, actor.personId, tx);
+        await this.events.emit(
+          tx,
+          { actorId: actor.personId, type: 'item.published', occurredAt: this.clock.now(), payload: { merchantOrgId: input.merchantOrgId, itemId: item.id, priceIqd: item.priceIqd, by: 'console' } },
+          { name: 'org', id: input.merchantOrgId },
+        );
+      }
+    });
+    return this.menuView(input.merchantOrgId);
+  }
+
+  /**
+   * The Console's «من صورنا» (`ops.stores.libraryPhoto`): one of Driver's library photos becomes the
+   * dish's «صورة توضيحية», as setup's library pick does, without an upload or the same-day review
+   * (the library is ours). Only a file that is really in the library is accepted.
+   */
+  async consoleLibraryPhoto(actor: Actor, input: { merchantOrgId: string; itemId: string; photo: string }): Promise<AdminMenuItem> {
+    await this.access(actor, input.merchantOrgId, 'any', 'console');
+    const slug = LIBRARY_PHOTO_FILE.exec(input.photo)?.[1];
+    if (!slug || !foodMediaPath(input.photo)) throw new DriverError('upload_invalid');
+    return this.itemEvent(actor, input.merchantOrgId, 'item.photo_replaced', { library: slug }, (tx) => this.catalog.replacePhoto(input.merchantOrgId, input.itemId, `/media/food/${input.photo}`, tx, slug), 'console');
   }
 
   private importView(j: MenuImportJobRecord): MenuImportJob {
