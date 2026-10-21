@@ -37,6 +37,13 @@ describe.skipIf(!url)('zones on Postgres (needs DATABASE_URL)', () => {
     expect(await repo.savePlacement({ cityId: CITY, key: 'nope', ring, centre: { lat: 32.907, lng: 45.065 }, placedById: 'p_ali', placedAt: new Date() })).toBeNull();
   });
 
+  it('moves a zone to another group, and refuses one that is gone', async () => {
+    expect(await repo.setTier(CITY, 'centre', 'near')).toMatchObject({ key: 'centre', tier: 'near' });
+    expect((await repo.list(CITY)).find((r) => r.key === 'centre')).toMatchObject({ tier: 'near' });
+    expect(await repo.setTier(CITY, 'nope', 'far')).toBeNull();
+    await repo.setTier(CITY, 'centre', 'centre');
+  });
+
   it('keeps one question per stop, the first answer, and confirms only the outline that was asked about', async () => {
     const asked = new Date('2026-10-06T07:00:00Z');
     const base = { cityId: CITY, zoneKey: 'centre', outlineAt: PLACED_AT, driverId: 'p_d1', tripId: 'trp_zt', askedAt: asked };
