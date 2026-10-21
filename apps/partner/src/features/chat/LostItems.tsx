@@ -6,7 +6,7 @@ import { useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useSignedIn } from '@/lib/session';
 
-/** How often home re-reads the reopened chats (a push also arrives with the rider's line). */
+/** Safety re-read of the reopened chats; a rider's message re-reads them at once (`live.partner`). */
 const LOST_ITEMS_POLL_MS = 60_000;
 
 /** Whether a time falls on a later Baghdad day than now ("لحد باجر 6:28 ص" rather than a bare clock). */

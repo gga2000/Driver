@@ -3643,6 +3643,7 @@
   "chat.failed": "Not sent. Tap to retry",
   "chat.closed": "This chat closed after the order ended. Read-only",
   "chat.closes_at": "This chat closes at {time}",
+  "chat.closes_at_tomorrow": "This chat stays open until tomorrow {time}",
   "chat.not_open": "The chat opens when the order is accepted",
   "chat.empty_title": "No messages yet",
   "chat.empty_body": "Send a quick reply or type a message",
