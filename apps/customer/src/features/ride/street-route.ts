@@ -195,26 +195,3 @@ export function distanceWords(m: number): { value: string; unit: 'm' | 'km' } {
   if (m < 950) return { value: String(Math.max(50, Math.round(m / 50) * 50)), unit: 'm' };
   return { value: (Math.round(m / 100) / 10).toFixed(1), unit: 'km' };
 }
-
-/** The point halfway along a path (where the distance sits on the line), with the street's bearing there. */
-export function midpoint(path: readonly LngLat[]): { at: LngLat; bearing: number } | null {
-  if (path.length < 2) return null;
-  const legs: number[] = [];
-  let total = 0;
-  for (let i = 1; i < path.length; i++) {
-    const m = metres(path[i - 1]!, path[i]!);
-    legs.push(m);
-    total += m;
-  }
-  let left = total / 2;
-  for (let i = 0; i < legs.length; i++) {
-    const a = path[i]!, b = path[i + 1]!;
-    if (left <= legs[i]! || i === legs.length - 1) {
-      const k = legs[i]! === 0 ? 0 : Math.min(1, left / legs[i]!);
-      const bearing = (Math.atan2((b[0] - a[0]) * mPerDegLng(a[1]), (b[1] - a[1]) * M_PER_DEG_LAT) * 180) / Math.PI;
-      return { at: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k], bearing };
-    }
-    left -= legs[i]!;
-  }
-  return null;
-}

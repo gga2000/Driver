@@ -16,7 +16,7 @@ import { PinBubble, PlaceChip, SearchBox, StepDots } from '@/features/ride/MapSt
 import { useNearbyVehicles, useZoneFor } from '@/features/ride/queries';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
-import { FromDot, MeDot, RouteToPin, useLiveRoute, type RouteLook } from '@/features/ride/RouteToPin';
+import { FromDot, MeDot, RouteToPin, useLiveRoute } from '@/features/ride/RouteToPin';
 import { useGrantedPosition } from '@/features/ride/phone-position';
 import type { WalkRoad } from '@/features/ride/walk-stop';
 import type { CameraValues } from '@/features/track/map/types';
@@ -50,8 +50,7 @@ export default function RideWhereTo() {
   const insets = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
   const scale = Math.max(1, fontScale);
-  const params = useLocalSearchParams<{ vertical?: string; look?: string }>();
-  const look: RouteLook = params.look === 'bubble' || params.look === 'ribbon' ? params.look : 'thread';
+  const params = useLocalSearchParams<{ vertical?: string }>();
   const ride = useRideStore();
   const { sources, defaultPickup, landmarksLoading, landmarksFailed, retryLandmarks } = useRideSpots();
   const draft = ride.draft;
@@ -244,11 +243,11 @@ export default function RideWhereTo() {
           tone={step}
           onRoads={addRoads}
           under={(cam, size) => (
-            <MapUnder cam={cam} size={size} me={meAt} from={step === 'dropoff' && pickup ? pickup.pin : null} roads={roads} look={look} service={draft.vertical === 'tuktuk' ? 'tuktuk' : 'taxi'} moving={moving} />
+            <MapUnder cam={cam} size={size} me={meAt} from={step === 'dropoff' && pickup ? pickup.pin : null} roads={roads} service={draft.vertical === 'tuktuk' ? 'tuktuk' : 'taxi'} />
           )}
           testID="ride-where-map"
         />
-        <PinBubble label={t(step === 'pickup' ? 'ride.map_pickup_bubble' : 'ride.map_dropoff_bubble')} hidden={moving || (look === 'bubble' && step === 'dropoff' && !!pickup)} />
+        <PinBubble label={t(step === 'pickup' ? 'ride.map_pickup_bubble' : 'ride.map_dropoff_bubble')} hidden={moving} />
         <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + theme.space[3], left: theme.space[4], right: theme.space[4], flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
           <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={back} style={{ backgroundColor: theme.colors.surface }} testID="ride-back" />
           {step === 'pickup' && nearby.data?.nearestMinutes ? (
@@ -454,12 +453,12 @@ export default function RideWhereTo() {
 }
 
 /** Under the centre pin: where the phone is, and in step 2 the street line from the pickup to the pin. */
-function MapUnder({ cam, size, me, from, roads, look, service, moving }: { cam: CameraValues; size: SharedValue<Size>; me: LatLng | null; from: LatLng | null; roads: WalkRoad[]; look: RouteLook; service: 'taxi' | 'tuktuk'; moving: boolean }) {
+function MapUnder({ cam, size, me, from, roads, service }: { cam: CameraValues; size: SharedValue<Size>; me: LatLng | null; from: LatLng | null; roads: WalkRoad[]; service: 'taxi' | 'tuktuk' }) {
   const t = useT();
   const route = useLiveRoute(cam, from ? [from.lng, from.lat] : null, roads);
   return (
     <>
-      {from ? <RouteToPin cam={cam} size={size} route={route} look={look} service={service} moving={moving} kmLabel={(km) => t('ride.route_km', { km })} mLabel={(m) => t('ride.route_m', { m })} bubbleLabel={t('ride.map_dropoff_bubble')} /> : null}
+      {from ? <RouteToPin cam={cam} size={size} route={route} service={service} kmLabel={(km) => t('ride.route_km', { km })} mLabel={(m) => t('ride.route_m', { m })} /> : null}
       {from ? <FromDot cam={cam} size={size} at={from} /> : null}
       {me ? <MeDot cam={cam} size={size} at={me} /> : null}
     </>

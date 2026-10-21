@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStreetGraph, distanceWords, midpoint, streetRoute, type LngLat } from './street-route';
+import { buildStreetGraph, distanceWords, streetRoute, type LngLat } from './street-route';
 
 // A small grid of streets ~100 m apart around Aziziyah, cut in two at a "tile seam" on x = 45.0610.
 const X = [45.06, 45.061, 45.062];
@@ -48,13 +48,5 @@ describe('distanceWords', () => {
     expect(distanceWords(30)).toEqual({ value: '50', unit: 'm' });
     expect(distanceWords(420)).toEqual({ value: '400', unit: 'm' });
     expect(distanceWords(2_437)).toEqual({ value: '2.4', unit: 'km' });
-  });
-});
-
-describe('midpoint', () => {
-  it('finds the middle of the path', () => {
-    const m = midpoint([[45.06, 32.9], [45.062, 32.9]])!;
-    expect(m.at[0]).toBeCloseTo(45.061, 6);
-    expect(Math.round(m.bearing)).toBe(90);
   });
 });

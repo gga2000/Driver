@@ -4,11 +4,11 @@ import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring
 import type { LatLng } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
 import type { LabelObstacle } from '@driver/map';
+import type { Road } from '@driver/map/golden';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { TILE_SIZE, type Camera, type Size } from '@/features/track/geo';
 import { BaseMap } from '@/features/track/map/BaseMap';
 import type { CameraValues } from '@/features/track/map/types';
-import type { Road } from '@driver/map/golden';
 import { MAP_CREDIT } from '@/features/track/map/credit';
 
 const EARTH_CIRCUMFERENCE_M = 40_075_016.686;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedProps, useAnimatedReaction, useAnimatedStyle, useSharedValue, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
-import Svg, { Defs, Path, Text as SvgText, TextPath } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { color as palette, services } from '@driver/design-tokens';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { project, type Camera, type LngLat as LatLngPoint, type Size } from '@/features/track/geo';
@@ -13,8 +13,6 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 /** How often the route is worked out again while the pin moves (a street corner a frame is plenty). */
 const LIVE_ROUTE_MS = 70;
-
-export type RouteLook = 'thread' | 'bubble' | 'ribbon';
 
 export interface LiveRoute {
   /** Along the streets (or the straight hint when `onStreets` is false). */
@@ -29,7 +27,7 @@ export interface LiveRoute {
 /** The line's colours: the service's own (taxi yellow, tuktuk plum) on a dark edge and a cream casing. */
 function inkFor(service: 'taxi' | 'tuktuk') {
   const s = services.light[service];
-  return { line: s.fill, edge: '#2A1A0C', casing: palette.neutral[50], on: s.on };
+  return { line: s.fill, edge: '#2A1A0C', casing: palette.neutral[50] };
 }
 
 /** Points to screen space for the current camera (UI thread). */
@@ -113,25 +111,17 @@ export function RouteToPin({
   cam,
   size,
   route,
-  look,
   service,
-  moving,
   kmLabel,
   mLabel,
-  bubbleLabel,
 }: {
   cam: CameraValues;
   size: SharedValue<Size>;
   route: LiveRoute | null;
-  look: RouteLook;
   service: 'taxi' | 'tuktuk';
-  moving: boolean;
   kmLabel: (km: string) => string;
   mLabel: (m: string) => string;
-  /** The "bubble" look: the pin's own words («نزّلني هنا») beside the distance. */
-  bubbleLabel?: string;
 }) {
-  const theme = useTheme();
   const ink = inkFor(service);
   const pts = useSharedValue<LngLat[]>([]);
   const ends = useSharedValue<Array<[LngLat, LngLat]>>([]);
@@ -141,16 +131,6 @@ export function RouteToPin({
     ends.value = route?.ends ?? [];
     straightPts.value = route?.straight ?? [];
   }, [route, pts, ends, straightPts]);
-  // The one-time draw when the pin settles (the "bubble" look: dotted while moving, the streets when it lands).
-  const draw = useSharedValue(1);
-  useEffect(() => {
-    if (look !== 'bubble') return;
-    if (moving) {
-      cancelAnimation(draw);
-      draw.value = 0;
-    } else draw.value = theme.reduceMotion ? 1 : withTiming(1, { duration: 520, easing: Easing.out(Easing.cubic) });
-  }, [look, moving, draw, theme.reduceMotion]);
-
   const d = useAnimatedProps(() => ({ d: screenPath(pts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value) }));
   const dEnds = useAnimatedProps(() => {
     const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
@@ -159,20 +139,6 @@ export function RouteToPin({
     return { d: out };
   });
   const dStraight = useAnimatedProps(() => ({ d: screenPath(straightPts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value) }));
-  // Ribbon text: along the part on screen, flipped when it runs right to left so it reads upright.
-  const textD = useAnimatedProps(() => {
-    const segs = visiblePieces(pts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value, labelBox(size.value));
-    if (!segs.length) return { d: '' };
-    const flip = segs[segs.length - 1]![2] < segs[0]![0];
-    const list = flip ? segs.slice().reverse().map(([ax, ay, bx, by]) => [bx, by, ax, ay]) : segs;
-    let d = '';
-    for (let i = 0; i < list.length; i++) {
-      const [ax, ay, bx, by] = list[i]!;
-      d += `${i === 0 ? 'M' : 'L'}${ax!.toFixed(1)} ${ay!.toFixed(1)}L${bx!.toFixed(1)} ${by!.toFixed(1)}`;
-    }
-    return { d };
-  });
-  const drawn = useAnimatedProps(() => ({ d: screenPath(pts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value), strokeDashoffset: (1 - draw.value) * 4000 }));
 
   const words = route ? distanceWords(route.metres) : null;
   const distance = words ? (words.unit === 'km' ? kmLabel(words.value) : mLabel(words.value)) : '';
@@ -181,7 +147,8 @@ export function RouteToPin({
     const segs = visiblePieces(pts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value, labelBox(size.value));
     let total = 0;
     for (const [ax, ay, bx, by] of segs) total += Math.hypot(bx - ax, by - ay);
-    if (total < 60) return { opacity: 0 };
+    // Too little of the line on screen (a short trip, or the pin over the pickup): the tag waits beside the pin head.
+    if (total < 60) return { opacity: 1, transform: [{ translateX: size.value.w / 2 + 62 }, { translateY: size.value.h / 2 - 70 }] };
     let left = total / 2;
     for (const [ax, ay, bx, by] of segs) {
       const len = Math.hypot(bx - ax, by - ay);
@@ -196,7 +163,7 @@ export function RouteToPin({
 
   if (!route) return null;
   const straight = !route.onStreets;
-  const W = look === 'ribbon' ? 17 : look === 'thread' ? 7 : 5;
+  const W = 7;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill} testID="ride-route">
       <Svg width="100%" height="100%">
@@ -212,53 +179,19 @@ export function RouteToPin({
             <AnimatedPath animatedProps={d} stroke={withAlpha(palette.neutral[1000], 0.14)} strokeWidth={W + 8} strokeLinecap="round" strokeLinejoin="round" fill="none" />
             <AnimatedPath animatedProps={d} stroke={ink.casing} strokeWidth={W + 5} strokeLinecap="round" strokeLinejoin="round" fill="none" />
             <AnimatedPath animatedProps={d} stroke={ink.edge} strokeWidth={W + 2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            {look === 'bubble' ? (
-              <AnimatedPath animatedProps={drawn} stroke={ink.line} strokeWidth={W} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="4000 4000" fill="none" />
-            ) : (
-              <AnimatedPath animatedProps={d} stroke={ink.line} strokeWidth={W} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            )}
-            {look === 'ribbon' ? (
-              <>
-                <Defs>
-                  <AnimatedPath id="ride-route-text" animatedProps={textD} fill="none" />
-                </Defs>
-                <SvgText fill={ink.on} fontSize={12} fontWeight="700" fontFamily="IBMPlexSansArabic_700Bold" dy={4} letterSpacing={0.2}>
-                  <TextPath href="#ride-route-text" startOffset="50%" textAnchor="middle">
-                    {distance}
-                  </TextPath>
-                </SvgText>
-              </>
-            ) : null}
+            <AnimatedPath animatedProps={d} stroke={ink.line} strokeWidth={W} strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </>
         )}
       </Svg>
-      {look === 'bubble' ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, top: '50%', alignItems: 'center', marginTop: -(52 + 36 + 46) }}>
-          <View testID="ride-route-distance" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, height: 38, borderRadius: 13, backgroundColor: palette.neutral[900], shadowColor: palette.neutral[1000], shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } }}>
-            {bubbleLabel && !moving ? (
-              <Text variant="label" weight={700} numberOfLines={1} style={{ color: palette.neutral[50] }}>
-                {bubbleLabel}
-              </Text>
-            ) : null}
-            <View style={{ height: 24, paddingHorizontal: 9, borderRadius: 8, backgroundColor: ink.line, justifyContent: 'center' }}>
-              <Text variant="caption" weight={700} tabular numberOfLines={1} style={{ color: ink.on }}>
-                {distance}
-              </Text>
-            </View>
+      <Animated.View style={[{ position: 'absolute', left: 0, top: 0 }, chipStyle]}>
+        <View style={{ transform: [{ translateX: -40 }, { translateY: -15 }], width: 80, alignItems: 'center' }}>
+          <View testID="ride-route-distance" style={{ height: 30, paddingHorizontal: 11, borderRadius: 15, backgroundColor: palette.neutral[900], borderWidth: 2, borderColor: ink.line, justifyContent: 'center', shadowColor: palette.neutral[1000], shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
+            <Text variant="caption" weight={700} tabular numberOfLines={1} style={{ color: palette.neutral[50] }}>
+              {distance}
+            </Text>
           </View>
         </View>
-      ) : null}
-      {look === 'thread' ? (
-        <Animated.View style={[{ position: 'absolute', left: 0, top: 0 }, chipStyle]}>
-          <View style={{ transform: [{ translateX: -40 }, { translateY: -15 }], width: 80, alignItems: 'center' }}>
-            <View testID="ride-route-distance" style={{ height: 30, paddingHorizontal: 11, borderRadius: 15, backgroundColor: palette.neutral[900], borderWidth: 2, borderColor: ink.line, justifyContent: 'center', shadowColor: palette.neutral[1000], shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
-              <Text variant="caption" weight={700} tabular numberOfLines={1} style={{ color: palette.neutral[50] }}>
-                {distance}
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-      ) : null}
+      </Animated.View>
     </View>
   );
 }
