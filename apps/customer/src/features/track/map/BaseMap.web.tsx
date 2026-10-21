@@ -56,6 +56,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
   const labels = useSharedValue(1);
   // Our map paints the neighbourhood names itself (Console zones, #339); the original map still needs the drawn ones.
   const [goldenNames, setGoldenNames] = useState(GOLDEN_MAP);
+  // Pin pickers (`alwaysDay`) draw no names: one would sit under the pin, and the sheet already says «المنطقة: …».
   const cbs = useRef({ onUserGestureStart, onUserCamera, onFail, onRoads });
   cbs.current = { onUserGestureStart, onUserCamera, onFail, onRoads };
 
@@ -74,7 +75,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         // Golden hour when its files are set up; the original map otherwise and as the fallback.
         let light = golden?.resolveLight(alwaysDay ? { light: 'day' } : {}).light;
         const goldenStyle = () =>
-          golden!.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode: 'customer', light: light!, zoneNames: true }).style as unknown as StyleSpecification;
+          golden!.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode: 'customer', light: light!, zoneNames: !alwaysDay }).style as unknown as StyleSpecification;
         let onGolden = !!golden;
         try {
           map = new maplibregl.Map({
@@ -192,7 +193,7 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
     <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
       {/* Our map paints the neighbourhood names; the original map (the fallback) still gets them drawn in SVG. */}
-      {goldenNames ? null : <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />}
+      {goldenNames || alwaysDay ? null : <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />}
       {/* Landmarks (maps b3) over the tiles and under every pin the screen draws. */}
       <LandmarkLayer drawn={drawn} cam={cam} size={size} opacity={labels} coveredTop={coveredTop ?? 0} coveredBottom={coveredBottom ?? 0} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
     </View>
