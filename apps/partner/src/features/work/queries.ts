@@ -27,6 +27,10 @@ export function useLivePartner(enabled: boolean) {
     key: LIVE_PARTNER_KEY,
     subscribe: (client, h) => client.live.partner.subscribe(undefined, h),
     resyncKeys: ['partner.status', 'partner.currentOffer', 'partner.activeJob', 'chat.threads'],
+    // A message in one of his chats also re-reads home's «نسيت غرض» strips (their unread count, a new ask).
+    onEvent: (e, qc, api) => {
+      if ((e.type === 'invalidate' && e.keys.includes('chat.threads')) || e.type === 'hello') void qc.invalidateQueries({ queryKey: api.chat.lostItems.queryKey() });
+    },
   });
 }
 

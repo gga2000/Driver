@@ -289,6 +289,8 @@ export const ERROR_TABLE = {
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
   // s7 «نسيت غرض»: only a completed ride, only within 24 h of its end
   chat_lost_item_unavailable: { retryHint: 'never', status: 'CONFLICT' },
+  // s7 «انحلّت»: someone closed the lost-item chat; it is not reopened
+  chat_lost_item_resolved: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   /** Voice notes are for the customer ↔ courier / driver chat and the support chat only (`VOICE_THREAD_KINDS`). */
   chat_voice_unavailable: { retryHint: 'never', status: 'BAD_REQUEST' },

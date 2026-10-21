@@ -56,8 +56,20 @@ number without the app, and it never says where he went. The accounts come from
 - `chat.lostItems()` (driving roles) → the driver's reopened chats still open, newest ask first
   (`ChatLostItemThread`: `orderId`, `threadId`, `openUntil`, `askedAt`, `unread`). The partner home
   shows one strip per chat.
-- Everything else is the chat as before (masking, quick replies, read receipts); after `openUntil` the
-  thread is read-only again.
+- `chat.resolveLostItem({ orderId })` «انحلّت» (Ali, 2026-10-21) → the thread view. The rider or orderer,
+  the driver, or support closes the reopened chat before its 24 h are up: `lost_item_until` becomes now,
+  one server line names who did it («انحلّت قصة الغرض · السايق / الراكب / الدعم سكّر المحادثة», pushed
+  like any message), the driver's strip goes, and the chat closes at once (also inside the usual half
+  hour after the ride). Pressing it again, or together, writes nothing more. No open ask →
+  `chat_lost_item_unavailable`; afterwards `chat.lostItem` answers `chat_lost_item_resolved`. No new
+  column: "resolved" is a window that ends before the ride's end + 24 h.
+- `ChatThreadView.lostItem` and `ChatThreadSummary.lostItem`: `open` / `resolved` / null on the driver chat.
+  The apps show «انحلّت؟ سكّر المحادثة» (one confirm) under the chat's header while `open`; the Console
+  support case shows the same on the rider↔driver tab; the customer's order screen stops offering
+  «نسيت غرض» once `resolved`.
+- Everything else is the chat as before (masking, read receipts); after `openUntil` the thread is
+  read-only again. In the driver's app a chat whose order is no longer his job shows no on-the-way
+  quick replies.
 
 ## d3 «السايق قريب، اطلع هسة»
 

@@ -300,7 +300,9 @@ export default function OrderLiveScreen() {
   };
   const openChat = (kind: 'customer_courier' | 'customer_merchant' | 'customer_support') => router.push({ pathname: '/chat/[orderId]', params: { orderId: id, kind } });
   // s7 «نسيت غرض بالسيارة؟»: up to 24 h after the ride, the chat with the driver opens again.
-  const lostUntil = lostItemUntil(v, now);
+  // Closed with «انحلّت» (by either side or support): it is not offered again.
+  const lostResolved = threads.data?.find((x) => x.kind === 'customer_courier')?.lostItem === 'resolved';
+  const lostUntil = lostResolved ? null : lostItemUntil(v, now);
   const lostBusy = useRef(false);
   const askLostItem = async () => {
     if (lostBusy.current) return;
