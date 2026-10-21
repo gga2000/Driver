@@ -287,7 +287,7 @@ export function ZonesPage() {
       <div className="space-y-4">
         <Field label={t('console.zones_new_name_ar')}><Input autoFocus value={nameForm?.name_ar ?? ''} onChange={(e) => setNameForm((prev) => prev ? { ...prev, name_ar: e.target.value } : prev)} /></Field>
         <Field label={t('console.zones_new_name_en')}><Input value={nameForm?.name_en ?? ''} onChange={(e) => setNameForm((prev) => prev ? { ...prev, name_en: e.target.value } : prev)} /></Field>
-        {nameForm ? <ZoneGroupPicker tier={nameForm.tier} was={nameForm.was} fares={fares.data} locked={Boolean(nameForm.key) && !canMoveGroup} onPick={(tier) => setNameForm((prev) => (prev ? { ...prev, tier } : prev))} /> : null}
+        {nameForm ? <ZoneGroupPicker tier={nameForm.tier} was={nameForm.was} fares={fares.data} locked={!canMoveGroup} onPick={(tier) => setNameForm((prev) => (prev ? { ...prev, tier } : prev))} /> : null}
       </div>
     </Dialog>
     </>

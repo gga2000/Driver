@@ -12,6 +12,8 @@ export const ZONE_READ_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'f
 export const ZONE_EDIT_ROLES: readonly RoleKind[] = ['admin', 'field_ops'];
 /** Who moves an area between groups (it changes delivery, taxi and tuktuk prices): Ali only (2026-10-20). */
 export const ZONE_TIER_ROLES: readonly RoleKind[] = ['admin'];
+/** The group a new area gets when someone outside `ZONE_TIER_ROLES` adds it. */
+export const NEW_ZONE_TIER = 'near' as const;
 
 /** draft = the AI guess; placed = drawn on a real map in the Console; confirmed = drivers agreed on the ground. */
 export const ZonePlacement = z.enum(['draft', 'placed', 'confirmed']);

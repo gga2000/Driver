@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
-import { ClearZoneCheckFlagInput, CreateZoneInput, PlaceZoneInput, RemoveZoneInput, RenameZoneInput, SetZoneTierInput, ZONE_EDIT_ROLES, ZONE_TIER_ROLES, ZoneTierFare, ZONE_READ_ROLES, ZonePlacementView, ZonesInput } from '../zones-io.js';
+import { ClearZoneCheckFlagInput, CreateZoneInput, PlaceZoneInput, RemoveZoneInput, RenameZoneInput, SetZoneTierInput, NEW_ZONE_TIER, ZONE_EDIT_ROLES, ZONE_TIER_ROLES, ZoneTierFare, ZONE_READ_ROLES, ZonePlacementView, ZonesInput } from '../zones-io.js';
 
 /** `ops.zones.*` — the zone outlines (maps program SP3). Saving an outline does not move any fee; `setTier` does. */
 export const opsZonesRouter = router({
@@ -18,7 +18,11 @@ export const opsZonesRouter = router({
     .output(ZonePlacementView)
     .mutation(({ ctx, input }) => ctx.zones.place(ctx.actor, input)),
   create: protectedProcedure(ZONE_EDIT_ROLES).input(CreateZoneInput).output(ZonePlacementView)
-    .mutation(({ ctx, input }) => ctx.zones.create!(ctx.actor, input)),
+    // The group prices every trip to the area, so only an admin picks it; anyone else's new area starts «قريب».
+    .mutation(async ({ ctx, input }) => {
+      const admin = (await Promise.all(ZONE_TIER_ROLES.map((r) => ctx.identity.hasRole(ctx.actor.personId, r)))).some(Boolean);
+      return ctx.zones.create!(ctx.actor, admin ? input : { ...input, tier: NEW_ZONE_TIER });
+    }),
   rename: protectedProcedure(ZONE_EDIT_ROLES).input(RenameZoneInput).output(ZonePlacementView)
     .mutation(({ ctx, input }) => ctx.zones.rename!(ctx.actor, input)),
   remove: protectedProcedure(ZONE_EDIT_ROLES).input(RemoveZoneInput).output(z.void())
