@@ -459,8 +459,9 @@ function MapUnder({ cam, size, me, from, roads, service }: { cam: CameraValues; 
   return (
     <>
       {from ? <RouteToPin cam={cam} size={size} route={route} service={service} kmLabel={(km) => t('ride.route_km', { km })} mLabel={(m) => t('ride.route_m', { m })} /> : null}
-      {from ? <FromDot cam={cam} size={size} at={from} /> : null}
+      {/* The pickup above the phone's dot: in step 2 it is where the line starts. */}
       {me ? <MeDot cam={cam} size={size} at={me} /> : null}
+      {from ? <FromDot cam={cam} size={size} at={from} /> : null}
     </>
   );
 }
