@@ -37,6 +37,7 @@ async function setup(start = '2026-10-21T09:00:00Z') {
     },
   } as unknown as MerchantService;
   const setups = {
+    adopt: async () => undefined,
     opsGoLive: async () => {
       throw new DriverError('setup_not_ready');
     },

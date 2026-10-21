@@ -87,7 +87,15 @@ export class StoresConsoleService implements StoresOpsPort {
 
   /** The city's restaurants and grocers: setup steps, menu gaps and the last Console edit; still in setup first. */
   async list(_actor: Actor, input: StoresInput): Promise<StoreRow[]> {
-    const orgs = (await this.orgs.inCity(input.cityId)).filter((o) => STORE_TYPES.has(o.type));
+    const found = (await this.orgs.inCity(input.cityId)).filter((o) => STORE_TYPES.has(o.type));
+    // A shop field ops just signed up starts «جهّز محلك» the first time it is read (as in the owner's app).
+    const orgs = await Promise.all(
+      found.map(async (o) => {
+        if (o.merchant?.setup) return o;
+        await this.setups.adopt(o);
+        return this.orgs.get(o.id);
+      }),
+    );
     const fronts = new Map((await this.catalog.storefronts(input.cityId)).map((f) => [f.orgId, f]));
     const rows = await Promise.all(
       orgs.map(async (org): Promise<StoreRow> => {
