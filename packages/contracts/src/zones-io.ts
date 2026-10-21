@@ -10,6 +10,8 @@ import { ZONE_MAX_POINTS, ZONE_MIN_POINTS, type ZoneShapeProblem } from './zone-
 export const ZONE_READ_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'finance', 'admin', 'field_ops'];
 /** Who draws outlines: Ali (admin) and field ops. Outlines don't move fees until the switch-over (SP3b). */
 export const ZONE_EDIT_ROLES: readonly RoleKind[] = ['admin', 'field_ops'];
+/** Who moves an area between groups (it changes delivery, taxi and tuktuk prices): Ali only (2026-10-20). */
+export const ZONE_TIER_ROLES: readonly RoleKind[] = ['admin'];
 
 /** draft = the AI guess; placed = drawn on a real map in the Console; confirmed = drivers agreed on the ground. */
 export const ZonePlacement = z.enum(['draft', 'placed', 'confirmed']);

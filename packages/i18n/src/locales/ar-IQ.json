@@ -6462,6 +6462,7 @@
   "console.zones_rename": "غيّر اسم المنطقة",
   "console.zones_edit": "عدّل المنطقة",
   "console.zones_group": "المجموعة",
+  "console.zones_group_admin_only": "بس المدير يغيّر المجموعة، لأنها تغيّر أسعار التوصيل والتكسي والتكتك.",
   "console.zones_group_hint": "المجموعة تحدد سعر التوصيل والتكسي والتكتك من وإلى هاي المنطقة. تحت كل وحدة: السعر من المركز بالدينار.",
   "console.zones_group_fares": "توصيل {delivery} · تكسي {taxi} · تكتك {tuktuk}",
   "console.zones_group_changed": "راح تنتقل من «{from}» إلى «{to}». الأسعار تتغيّر من الطلب الجاي، والطلبات اللي انطلبت تبقى بسعرها.",

@@ -6462,6 +6462,7 @@
   "console.zones_rename": "Rename area",
   "console.zones_edit": "Edit area",
   "console.zones_group": "Group",
+  "console.zones_group_admin_only": "Only an admin can move an area to another group, because it changes delivery, taxi and tuktuk prices.",
   "console.zones_group_hint": "The group sets the delivery, taxi and tuktuk price to and from this area. Under each: the price from the centre, in IQD.",
   "console.zones_group_fares": "Delivery {delivery} · taxi {taxi} · tuktuk {tuktuk}",
   "console.zones_group_changed": "Moving from “{from}” to “{to}”. Prices change from the next order; orders already placed keep their price.",

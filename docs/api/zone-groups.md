@@ -10,7 +10,7 @@ config). So moving an area changes delivery, taxi and tuktuk prices to and from 
 
 | Procedure | Who | What |
 |---|---|---|
-| `ops.zones.setTier({ cityId, key, tier })` | `ZONE_EDIT_ROLES` | Moves an area to `centre`, `near`, `mid` or `far`. Audited (`zone.tier_set`, both groups in `detail`) and evented. The same group again does nothing. |
+| `ops.zones.setTier({ cityId, key, tier })` | `ZONE_TIER_ROLES` (admin only: it changes prices) | Moves an area to `centre`, `near`, `mid` or `far`. Audited (`zone.tier_set`, both groups in `detail`) and evented. The same group again does nothing. |
 | `ops.zones.tierFares({ cityId })` | `ZONE_READ_ROLES` | For each group, what delivery, taxi and tuktuk cost from the centre today, so the Console shows the fee before saving. |
 
 Errors: `zone_unknown`; `zone_tier_edge_fixed` (edge areas are set with dispatch, which asks drivers to opt in there, so they are not moved here).

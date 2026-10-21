@@ -6,6 +6,7 @@ import {
   formatAreaKm2,
   ZONE_CHECK_RULES,
   ZONE_EDIT_ROLES,
+  ZONE_TIER_ROLES,
   zoneProblemText,
   zoneServiceBounds,
   zoneShapeProblem,
@@ -79,6 +80,7 @@ export function ZonesPage() {
   const theme = useTheme();
   const { roles } = useMyRoles();
   const canEdit = hasAny(roles, ZONE_EDIT_ROLES);
+  const canMoveGroup = hasAny(roles, ZONE_TIER_ROLES);
   const [nameForm, setNameForm] = useState<{ key?: string; name_ar: string; name_en: string; tier: ZoneTier; was?: ZoneTier; centre?: { lat: number; lng: number } } | null>(null);
   const [layer, setLayer] = useState<MapLayer>('zones');
   const [tilt, setTilt] = useState(false);
@@ -285,7 +287,7 @@ export function ZonesPage() {
       <div className="space-y-4">
         <Field label={t('console.zones_new_name_ar')}><Input autoFocus value={nameForm?.name_ar ?? ''} onChange={(e) => setNameForm((prev) => prev ? { ...prev, name_ar: e.target.value } : prev)} /></Field>
         <Field label={t('console.zones_new_name_en')}><Input value={nameForm?.name_en ?? ''} onChange={(e) => setNameForm((prev) => prev ? { ...prev, name_en: e.target.value } : prev)} /></Field>
-        {nameForm ? <ZoneGroupPicker tier={nameForm.tier} was={nameForm.was} fares={fares.data} onPick={(tier) => setNameForm((prev) => (prev ? { ...prev, tier } : prev))} /> : null}
+        {nameForm ? <ZoneGroupPicker tier={nameForm.tier} was={nameForm.was} fares={fares.data} locked={Boolean(nameForm.key) && !canMoveGroup} onPick={(tier) => setNameForm((prev) => (prev ? { ...prev, tier } : prev))} /> : null}
       </div>
     </Dialog>
     </>
@@ -297,13 +299,13 @@ export function ZonesPage() {
  * when no exact pair is set, so each choice shows what a trip from the centre costs in it, and a
  * change says plainly that prices move from the next order on.
  */
-export function ZoneGroupPicker({ tier, was, fares, onPick }: { tier: ZoneTier; was?: ZoneTier; fares?: readonly ZoneTierFare[]; onPick: (tier: MovableZoneTier) => void }) {
+export function ZoneGroupPicker({ tier, was, fares, locked = false, onPick }: { tier: ZoneTier; was?: ZoneTier; fares?: readonly ZoneTierFare[]; /** Only the admin moves an existing area between groups. */ locked?: boolean; onPick: (tier: MovableZoneTier) => void }) {
   if (was === 'edge') return <p className="rounded-md bg-surface-2 px-3 py-2 text-sm text-muted">{t('console.zones_group_edge')}</p>;
   const fareOf = (x: ZoneTier) => fares?.find((f) => f.tier === x);
   return (
     <div>
       <p className="text-sm font-medium">{t('console.zones_group')}</p>
-      <p className="mb-2 text-xs text-muted">{t('console.zones_group_hint')}</p>
+      <p className="mb-2 text-xs text-muted">{t(locked ? 'console.zones_group_admin_only' : 'console.zones_group_hint')}</p>
       <div role="radiogroup" aria-label={t('console.zones_group')} className="grid grid-cols-2 gap-2">
         {MovableZoneTier.options.map((x) => {
           const f = fareOf(x);
@@ -313,8 +315,9 @@ export function ZoneGroupPicker({ tier, was, fares, onPick }: { tier: ZoneTier; 
               type="button"
               role="radio"
               aria-checked={tier === x}
+              disabled={locked}
               onClick={() => onPick(x)}
-              className={cx('min-h-11 rounded-md border px-3 py-2 text-start transition-colors duration-fast', tier === x ? 'border-accent bg-accent-tint' : 'border-line bg-surface hover:border-line-strong hover:bg-surface-2')}
+              className={cx('min-h-11 rounded-md border px-3 py-2 text-start transition-colors duration-fast disabled:cursor-not-allowed', tier === x ? 'border-accent bg-accent-tint' : 'border-line bg-surface enabled:hover:border-line-strong enabled:hover:bg-surface-2', locked && tier !== x && 'opacity-60')}
             >
               <span className="block text-sm font-semibold">{tierLabel(x)}</span>
               <span className="block text-xs text-muted">{f ? t('console.zones_group_fares', { delivery: formatIqd(f.deliveryIqd), taxi: formatIqd(f.taxiIqd), tuktuk: formatIqd(f.tuktukIqd) }) : '\u00a0'}</span>

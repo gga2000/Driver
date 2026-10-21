@@ -13,7 +13,7 @@ const VIEW: ZonePlacementView = {
 const RING = VIEW.ring;
 
 function caller(roles: readonly RoleKind[] | null) {
-  const zones: ZonesPort = { list: vi.fn(async () => [VIEW]), place: vi.fn(async () => VIEW), clearCheckFlag: vi.fn(async () => VIEW) };
+  const zones: ZonesPort = { list: vi.fn(async () => [VIEW]), place: vi.fn(async () => VIEW), clearCheckFlag: vi.fn(async () => VIEW), setTier: vi.fn(async () => VIEW), tierFares: vi.fn(async () => []) };
   const zoneChecks: ZoneChecksPort = { open: vi.fn(async () => null), answer: vi.fn(async () => undefined) };
   const ctx = {
     auth: roles ? { sub: 'p_staff', sid: 's1', iss: 'driver-api', iat: 0, exp: 0 } : null,
@@ -38,6 +38,9 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['ops.zones.list', ['dispatcher', 'support', 'finance', 'admin', 'field_ops'], (c) => c.ops.zones.list({})],
   ['ops.zones.place', ['admin', 'field_ops'], (c) => c.ops.zones.place({ key: 'centre', ring: RING, centre: VIEW.centre })],
   ['ops.zones.clearCheckFlag', ['admin', 'field_ops'], (c) => c.ops.zones.clearCheckFlag({ key: 'centre' })],
+  // Moving an area between groups reprices delivery, taxi and tuktuk: Ali only (field ops still draws outlines).
+  ['ops.zones.setTier', ['admin'], (c) => c.ops.zones.setTier({ key: 'hashimi', tier: 'mid' })],
+  ['ops.zones.tierFares', ['dispatcher', 'support', 'finance', 'admin', 'field_ops'], (c) => c.ops.zones.tierFares({})],
   ['partner.zoneCheck', ['courier', 'driver'], (c) => c.partner.zoneCheck()],
   ['partner.answerZoneCheck', ['courier', 'driver'], (c) => c.partner.answerZoneCheck({ checkId: 'zc_1', answer: 'yes' })],
 ];
