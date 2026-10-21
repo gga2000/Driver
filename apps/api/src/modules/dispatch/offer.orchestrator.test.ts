@@ -90,6 +90,57 @@ describe('smart_broadcast wave timing (rides, Ali 2026-10-21: 3 / 1.5 km / 25 s 
   });
 });
 
+describe('nobody new to ask: the offer rings again (Ali 2026-10-21)', () => {
+  it('a lone driver keeps the offer from the first ring to the free-cancel mark, with no gap and no +500', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h);
+    let open = 0;
+    for (let t = 0; t < 180; t += 1) {
+      const o = await h.openOffer('t1', 'a1');
+      if (o) open += 1;
+      if (o && !o.seenAt) await seen(h, 't1', 'a1', 3000); // he looks every time and lets it run out
+      await h.advance(1);
+    }
+    expect(open).toBe(180);
+    const offers = await h.offers('t1');
+    // 25 s, again 25 s, then the last stretch to the re-broadcast in one ring (30 s), then the re-broadcast.
+    expect(offers.map((o) => [o.pass, Math.round((o.expiresAt.getTime() - o.sentAt.getTime()) / 1000)])).toEqual([
+      [1, 25],
+      [1, 25],
+      [1, 30],
+      [2, 100],
+    ]);
+    expect(offers.every((o) => o.compensationIqd === 0)).toBe(true);
+    expect(h.events.ofType('dispatch.wave_sent').filter((e) => e.payload['again'] === true)).toHaveLength(2);
+    expect(h.events.last('dispatch.rebroadcast')?.payload['driverIds']).toEqual(['a1']);
+  });
+
+  it('«مو هسة» stops it: a driver who declined is not asked again', async () => {
+    const h = dispatchHarness();
+    await h.online('a1', 0.2);
+    await taxi(h);
+    await respond(h, 't1', 'a1', false);
+    await h.advance(120);
+    expect(await h.offers('t1')).toHaveLength(1);
+    expect(h.events.last('dispatch.rebroadcast')?.payload['driverIds']).toEqual([]);
+  });
+
+  it('with someone else free, a driver who let it run out stays out of the re-broadcast', async () => {
+    const h = await (async () => {
+      const h = dispatchHarness();
+      await h.online('a1', 0.2);
+      await taxi(h);
+      await seen(h, 't1', 'a1', 3000);
+      await h.advance(70);
+      await h.online('n1', 0.4);
+      await h.advance(10);
+      return h;
+    })();
+    expect(h.events.last('dispatch.rebroadcast')?.payload).toMatchObject({ driverIds: ['n1'], excluded: ['a1'] });
+  });
+});
+
 describe('first accept wins (SET NX lock)', () => {
   it('two simultaneous accepts: exactly one winner, the other is told the job is taken', async () => {
     const h = dispatchHarness();
