@@ -36,8 +36,9 @@ async function setup(start = '2026-10-21T09:00:00Z') {
       return { days: input.days, holidays: input.holidays };
     },
   } as unknown as MerchantService;
+  const adopted: string[] = [];
   const setups = {
-    adopt: async () => undefined,
+    adopt: async (org: { id: string }) => void adopted.push(org.id),
     opsGoLive: async () => {
       throw new DriverError('setup_not_ready');
     },
@@ -53,7 +54,7 @@ async function setup(start = '2026-10-21T09:00:00Z') {
   await orgs.setMerchantSettings(fresh.id, { setup: newSetupState(clock.now()) });
   // A shop from before setup: open to customers.
   const open = await orgs.create({ type: 'restaurant', name: 'مأكولات الشام', cityId: 'aziziyah', ownerId: 'owner_sham' });
-  return { id, clock, ev, catalog, orgs, menus, audits, svc, ops, person, shopCalls, fresh: fresh.id, open: open.id };
+  return { id, clock, ev, catalog, orgs, menus, audits, svc, ops, person, shopCalls, adopted, fresh: fresh.id, open: open.id };
 }
 
 describe('ops.stores: the team sets a new shop up', () => {
@@ -148,6 +149,17 @@ describe('ops.stores: a shop open to customers (Ali, 2026-10-21: "change now, te
     // The owner keeps his own path.
     expect((await h.menus.menuUpsertItem(owner, { ...S, nameAr: 'تمن', priceIqd: 1500 })).nameAr).toBe('تمن');
     expect((await h.svc.history(h.ops, S)).map((r) => r.actorId)).toEqual([admin.personId]);
+  });
+
+  it('a new shop enters setup before the team\'s first change; a refused caller starts nothing', async () => {
+    const h = await setup();
+    const brandNew = await h.orgs.create({ type: 'restaurant', name: 'كص الزهراء', cityId: 'aziziyah', ownerId: 'owner_new' });
+    const support = await h.person('07700000018');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: support.personId, kind: 'support' });
+    await expect(h.svc.addItems(support, { merchantOrgId: brandNew.id, items: [{ nameAr: 'كص', priceIqd: 3000 }] })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(h.adopted).toEqual([]);
+    await h.svc.addItems(h.ops, { merchantOrgId: brandNew.id, items: [{ nameAr: 'كص', priceIqd: 3000 }] });
+    expect(h.adopted).toEqual([brandNew.id]);
   });
 
   it('«فريقنا عدّل بمحلك»: the owner reads what the team changed, with a first name only; staff and the team are refused', async () => {

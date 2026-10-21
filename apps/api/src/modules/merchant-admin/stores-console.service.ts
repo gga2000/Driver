@@ -183,6 +183,10 @@ export class StoresConsoleService implements StoresOpsPort {
     opts: { why?: string | undefined; before?: (org: Org) => Promise<B> } = {},
   ): Promise<T> {
     const org = await this.store(merchantOrgId);
+    // A brand-new shop enters «جهّز محلك» before the team's first change, so dishes added first can
+    // never make it look like a shop from before setup (and lose its steps and «ارفع الكبنك»).
+    await this.menus.assertStoreOps(actor);
+    await this.setups.adopt(org);
     const before = opts.before ? await opts.before(org) : undefined;
     return this.uow.run(async (tx) => {
       const out = await write();

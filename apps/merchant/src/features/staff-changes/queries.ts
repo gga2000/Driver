@@ -28,6 +28,8 @@ export function useStaffChanges(merchantOrgId: string | null, owner: boolean) {
 /** The newest change each store's owner has seen on this device, kept across reloads. */
 let seen: SeenMap = {};
 let loaded = false;
+/** True once this device's marks are read: the chip waits for it, so it never flashes on a cold start. */
+let ready = false;
 const listeners = new Set<() => void>();
 const emit = () => {
   for (const l of listeners) l();
@@ -38,10 +40,11 @@ async function load() {
   loaded = true;
   const raw = await storage.getItem(STAFF_SEEN_KEY).catch(() => null);
   seen = { ...parseSeen(raw), ...seen };
+  ready = true;
   emit();
 }
 
-export function useStaffSeen(): { seen: SeenMap; see: (merchantOrgId: string, rows: readonly StaffChange[]) => void } {
+export function useStaffSeen(): { seen: SeenMap; ready: boolean; see: (merchantOrgId: string, rows: readonly StaffChange[]) => void } {
   useEffect(() => {
     void load();
   }, []);
@@ -62,7 +65,7 @@ export function useStaffSeen(): { seen: SeenMap; see: (merchantOrgId: string, ro
     emit();
     void storage.setItem(STAFF_SEEN_KEY, JSON.stringify(seen)).catch(() => undefined);
   }, []);
-  return { seen: value, see };
+  return { seen: value, ready, see };
 }
 
 /** The board header's «فريقنا عدّل بمحلك» chip: the owner's, while there are changes he hasn't opened. */
@@ -71,8 +74,8 @@ export function useStaffChangesAlert(): HeaderAlert | null {
   const { store, canSeeMoney: owner } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const changes = useStaffChanges(storeId, owner);
-  const { seen: marks } = useStaffSeen();
-  if (!owner || !storeId || !changes.data) return null;
+  const { seen: marks, ready } = useStaffSeen();
+  if (!owner || !storeId || !changes.data || !ready) return null;
   const fresh = unseenChanges(changes.data, marks[storeId], Date.now());
   if (fresh.length === 0) return null;
   return { key: 'staff-changes', testID: 'staff-changes-chip', icon: 'store', tone: 'accent', dot: true, label: t('merchant.staff_changes.chip', { n: fresh.length }), onPress: () => router.push('/staff-changes') };
