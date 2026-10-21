@@ -31,6 +31,8 @@ const STEP_ZOOM = 17;
 const PIN_SETTLE_MS = 1_500;
 /** Step 2 opens a little wider, so the line from the pickup has streets to run along. */
 const DROPOFF_ZOOM = 15.6;
+/** Streets kept for the line (the pickup's and the pin's neighbourhoods, many times over). */
+const MAX_ROADS = 1_500;
 
 /**
  * "منين نجيك؟ / وين رايح؟", map-led (Ali 2026-10-17, the "Mix" concept): the day map fills the screen
@@ -72,16 +74,24 @@ export default function RideWhereTo() {
   const meAt = me ?? (phone.isError ? null : phone.data) ?? null;
   // Every street the map has drawn in this visit: the pickup's streets stay known after the camera left them.
   const [roads, setRoads] = useState<WalkRoad[]>([]);
-  const seenRoads = useRef(new Set<string>());
+  const seenRoads = useRef(new Map<string, WalkRoad>());
   const addRoads = (rs: WalkRoad[]) => {
-    const fresh = rs.filter((r) => {
+    const seen = seenRoads.current;
+    let fresh = 0;
+    for (const r of rs) {
       const a = r.coords[0], b = r.coords[r.coords.length - 1];
       const k = `${r.coords.length}:${a?.[0].toFixed(6)},${a?.[1].toFixed(6)}:${b?.[0].toFixed(6)},${b?.[1].toFixed(6)}`;
-      if (seenRoads.current.has(k)) return false;
-      seenRoads.current.add(k);
-      return true;
-    });
-    if (fresh.length) setRoads((old) => [...old, ...fresh]);
+      if (seen.has(k)) continue;
+      seen.set(k, r);
+      fresh++;
+    }
+    if (!fresh) return;
+    // The oldest streets go first: a long visit around town keeps the router small.
+    for (const k of seen.keys()) {
+      if (seen.size <= MAX_ROADS) break;
+      seen.delete(k);
+    }
+    setRoads([...seen.values()]);
   };
   const nearby = useNearbyVehicles(pickup?.pin ?? null, draft.vertical);
   const zone = useZoneFor(pin);
@@ -187,7 +197,7 @@ export default function RideWhereTo() {
     if (searching) closeSearch();
     else if (step === 'dropoff') {
       setStep('pickup');
-      if (pickup) setRecentre({ pin: pickup.pin, seq: Date.now() });
+      if (pickup) setRecentre({ pin: pickup.pin, seq: Date.now(), zoom: STEP_ZOOM });
     } else if (router.canGoBack()) router.back();
     else router.replace('/');
   };
