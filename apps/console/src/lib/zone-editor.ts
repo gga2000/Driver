@@ -82,3 +82,41 @@ export function midpoints(ring: readonly LatLng[]): LatLng[] {
     return { lat: (p.lat + q.lat) / 2, lng: (p.lng + q.lng) / 2 };
   });
 }
+
+/** A dragged corner closer than this (screen pixels) to a neighbour's corner lands on it… */
+export const SNAP_CORNER_PX = 14;
+/** …and closer than this to a neighbour's edge lands on the edge (Ali, 2026-10-20: borders meet, no gaps). */
+export const SNAP_EDGE_PX = 10;
+
+export interface Px { x: number; y: number }
+
+/**
+ * Where a dragged corner lands: on the nearest corner of a neighbouring outline if one is within
+ * `SNAP_CORNER_PX`, else on the nearest neighbouring edge within `SNAP_EDGE_PX`, else where it was let go.
+ * Works in screen pixels so the pull feels the same at every zoom. `snapped` says which, for the cue.
+ */
+export function snapCorner(
+  at: LatLng,
+  neighbours: readonly (readonly LatLng[])[],
+  toPx: (p: LatLng) => Px,
+  fromPx: (p: Px) => LatLng,
+): { at: LatLng; snapped: 'corner' | 'edge' | null } {
+  const a = toPx(at);
+  const d2 = (p: Px, q: Px) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
+  let best: { at: LatLng; d: number } | null = null;
+  for (const ring of neighbours) for (const p of ring) {
+    const d = d2(a, toPx(p));
+    if (d <= SNAP_CORNER_PX ** 2 && (!best || d < best.d)) best = { at: p, d };
+  }
+  if (best) return { at: { lat: best.at.lat, lng: best.at.lng }, snapped: 'corner' };
+  let edge: { px: Px; d: number } | null = null;
+  for (const ring of neighbours) ring.forEach((p, i) => {
+    const s = toPx(p), e = toPx(ring[(i + 1) % ring.length]!);
+    const len = d2(s, e);
+    const k = len === 0 ? 0 : Math.max(0, Math.min(1, ((a.x - s.x) * (e.x - s.x) + (a.y - s.y) * (e.y - s.y)) / len));
+    const q = { x: s.x + k * (e.x - s.x), y: s.y + k * (e.y - s.y) };
+    const d = d2(a, q);
+    if (d <= SNAP_EDGE_PX ** 2 && (!edge || d < edge.d)) edge = { px: q, d };
+  });
+  return edge ? { at: fromPx((edge as { px: Px }).px), snapped: 'edge' } : { at, snapped: null };
+}

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { ConfigModule } from '../config/index.js';
 import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
 import { InMemoryZoneChecksRepository, PrismaZoneChecksRepository, ZONE_CHECKS_REPOSITORY, type ZoneChecksRepository } from './zone-checks.repository.js';
@@ -13,7 +14,7 @@ import { ZonesService } from './zones.service.js';
  * checks (SP3 §5.3) live in Postgres with a database and in memory otherwise.
  */
 @Module({
-  imports: [EventsModule, ControlsModule],
+  imports: [EventsModule, ControlsModule, ConfigModule],
   providers: [
     {
       provide: ZONES_REPOSITORY,

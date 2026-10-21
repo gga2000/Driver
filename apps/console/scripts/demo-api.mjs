@@ -495,6 +495,22 @@ await ops.merchantOnboarding(actor(haider), {
   notes: 'يفتح من 4 العصر لحد 12 بالليل',
 });
 const khalidOwner = await person('07740000001', 'خالد', [{ kind: 'merchant_owner', orgId: khalid.orgId }]);
+// محرر الخريطة › المراجعة (Ali, 2026-10-20): fixes waiting for the team — two couriers say مطعم خالد's
+// door moved to the next street, its owner sends a landmark his customers use, and a second copy of
+// the market sits next to the real one (a duplicate to merge). DEMO pins and words only.
+{
+  const { MapEditorService } = await load('modules/map-editor/index.js');
+  const { PlacesService } = await load('modules/places/index.js');
+  const editor = get(MapEditorService);
+  const kitchen = (await orgs.get(khalid.orgId)).merchant?.location?.pin;
+  if (kitchen) {
+    const target = { kind: 'restaurant', id: khalid.orgId };
+    await editor.report(actor(couriers[0].id), { cityId: 'aziziyah', kind: 'moved', target, pin: { lat: kitchen.lat + 0.0004, lng: kitchen.lng + 0.0003 }, note: 'الباب انتقل للشارع الثاني، بعد الإشارة' });
+    await editor.report(actor(couriers[1].id), { cityId: 'aziziyah', kind: 'moved', target, pin: { lat: kitchen.lat + 0.00042, lng: kitchen.lng + 0.00028 } });
+  }
+  await editor.report(actor(khalidOwner), { cityId: 'aziziyah', kind: 'new_place', pin: { lat: 32.905, lng: 45.06 }, name_ar: 'دوّار الساعة', note: 'الزباين يوصفون بي' });
+  await get(PlacesService).save({ cityId: 'aziziyah', pin: { lat: 32.90566, lng: 45.06088 }, name: 'سوك العزيزية', photos: [], confidence: 1, sharedWith: [], landmark: true, landmarkCategory: 'market', landmarkState: 'approved' });
+}
 await get(MerchantAdminService).dealsPropose(actor(khalidOwner), {
   merchantOrgId: khalid.orgId,
   type: 'percent',

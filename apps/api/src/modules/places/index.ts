@@ -11,7 +11,7 @@ export {
 } from './saved-places.service.js';
 export type { SavedPlaceRecord, SavedPlacesRepository, HouseholdPeers } from './saved-places.service.js';
 export { InMemoryPlacesRepository, PrismaPlacesRepository, PrismaSavedPlacesRepository, PLACES_REPOSITORY } from './places.repository.js';
-export type { PlacesRepository } from './places.repository.js';
+export type { PlacesRepository, LandmarkPatch } from './places.repository.js';
 export { PlacesRpc } from './places.rpc.js';
 export { LandmarkFeedService, landmarkFeedEtag } from './landmark-feed.js';
 export type { ApprovedLandmarkPhotos } from './landmark-feed.js';

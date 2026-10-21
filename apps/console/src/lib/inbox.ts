@@ -27,6 +27,7 @@ export const KIND_KEY: Record<InboxKind, MessageKey> = {
   pin_alert: 'console.today.kind_pin_alert',
   approval: 'console.today.kind_approval',
   late_departure: 'console.today.kind_late_departure',
+  over_ceiling: 'console.today.kind_over_ceiling',
 };
 
 export const KIND_TONE: Record<InboxKind, ChipTone> = {
@@ -43,6 +44,7 @@ export const KIND_TONE: Record<InboxKind, ChipTone> = {
   low_rating: 'warn',
   approval: 'neutral',
   late_departure: 'warn',
+  over_ceiling: 'warn',
 };
 
 /**
@@ -191,6 +193,10 @@ export function detailText(
       parts.push(t(f['reason'] === 'not_arrived' ? 'console.garage.late_not_arrived' : 'console.garage.late_no_show'));
       if (typeof f['riders'] === 'number') parts.push(countText('console.today.late_departure_riders', f['riders']));
       break;
+    case 'over_ceiling':
+      if (typeof f['receiptIqd'] === 'number' && typeof f['ceilingIqd'] === 'number')
+        parts.push(t('console.today.over_ceiling_detail', { receipt: formatIqd(f['receiptIqd']), ceiling: formatIqd(f['ceilingIqd']) }));
+      break;
     case 'pin_alert':
       parts.push(
         t(f['alert'] === 'cross_use' ? 'console.today.pin_cross_use' : 'console.today.pin_wrong'),
@@ -302,6 +308,7 @@ export function serviceOf(row: Pick<InboxRow, 'kind' | 'facts'>): Service | null
     case 'late':
     case 'stuck':
     case 'cash_cap':
+    case 'over_ceiling':
       return 'delivery';
     case 'late_departure':
       return 'intercity';
