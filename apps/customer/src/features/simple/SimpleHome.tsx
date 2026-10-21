@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, View } from 'react-native';
 import type { Order } from '@driver/contracts';
 import { Button, Icon, Text, useTheme, useToast, withAlpha, type IconName } from '@driver/ui';
 import { Screen } from '@/components/Screen';
+import { locationWeakToast } from '@/features/account/device';
 import { useMe, useSavePlace } from '@/features/account/queries';
 import { defaultPlaceName, EMPTY_PLACE_EDITOR, toSaveInput } from '@/features/account/PlaceEditor';
 import { liveStatusKey } from '@/features/home/live-card';
@@ -332,11 +333,11 @@ function SetHomePanel({ onClose }: { onClose: () => void }) {
   const saveHere = async () => {
     const r = await here.locate();
     if (typeof r !== 'object' || r.weak) {
-      toast.show({
-        message: t(r === 'denied' ? 'error.location_denied' : 'error.location_weak'),
-        tone: 'warning',
-        icon: 'location-arrow',
-      });
+      toast.show(
+        r === 'none'
+          ? { ...locationWeakToast(t), icon: 'location-arrow' }
+          : { message: t(r === 'denied' ? 'error.location_denied' : 'error.location_weak'), tone: 'warning', icon: 'location-arrow' },
+      );
       return;
     }
     const input = toSaveInput(

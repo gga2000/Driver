@@ -5807,6 +5807,8 @@
   "ride.map_pickup_bubble": "Get in here",
   "ride.map_dropoff_bubble": "Drop me here",
   "ride.map_confirm": "Here, done",
+  "ride.route_km": "{km} km",
+  "ride.route_m": "{m} m",
   "ride.map_search_pickup": "Type where to pick you up",
   "ride.map_search_dropoff": "Type a place: market, garage",
   "ride.map_near": "Near {place}",
