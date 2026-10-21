@@ -19,7 +19,6 @@ export interface LiveRoute {
   path: LngLat[];
   /** The short steps off the street at each end (a pin in a yard), drawn as dots. */
   ends: Array<[LngLat, LngLat]>;
-  straight: [LngLat, LngLat];
   metres: number;
   onStreets: boolean;
 }
@@ -84,8 +83,8 @@ export function useLiveRoute(cam: CameraValues, from: LngLat | null, roads: read
     if (!from) return setRoute(null);
     const to: LngLat = [lng, lat];
     const r = graph ? streetRoute(graph, from, to) : null;
-    if (r) setRoute({ path: r.path, ends: [[r.from, r.path[0]!], [r.path[r.path.length - 1]!, r.to]], straight: [from, to], metres: r.metres, onStreets: true });
-    else setRoute({ path: [from, to], ends: [], straight: [from, to], metres: Math.hypot((to[0] - from[0]) * 93_400, (to[1] - from[1]) * 110_540) * 1.3, onStreets: false });
+    if (r) setRoute({ path: r.path, ends: [[r.from, r.path[0]!], [r.path[r.path.length - 1]!, r.to]], metres: r.metres, onStreets: true });
+    else setRoute({ path: [from, to], ends: [], metres: Math.hypot((to[0] - from[0]) * 93_400, (to[1] - from[1]) * 110_540) * 1.3, onStreets: false });
   };
   const workRef = useRef(work);
   workRef.current = work;
@@ -125,12 +124,11 @@ export function RouteToPin({
   const ink = inkFor(service);
   const pts = useSharedValue<LngLat[]>([]);
   const ends = useSharedValue<Array<[LngLat, LngLat]>>([]);
-  const straightPts = useSharedValue<LngLat[]>([]);
   useEffect(() => {
+    // Off the streets the path is the straight hint itself.
     pts.value = route?.path ?? [];
     ends.value = route?.ends ?? [];
-    straightPts.value = route?.straight ?? [];
-  }, [route, pts, ends, straightPts]);
+  }, [route, pts, ends]);
   const d = useAnimatedProps(() => ({ d: screenPath(pts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value) }));
   const dEnds = useAnimatedProps(() => {
     const c = { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value };
@@ -138,7 +136,6 @@ export function RouteToPin({
     for (const e of ends.value) out += screenPath(e, c, size.value);
     return { d: out };
   });
-  const dStraight = useAnimatedProps(() => ({ d: screenPath(straightPts.value, { lng: cam.lng.value, lat: cam.lat.value, zoom: cam.zoom.value }, size.value) }));
 
   const words = route ? distanceWords(route.metres) : null;
   const distance = words ? (words.unit === 'km' ? kmLabel(words.value) : mLabel(words.value)) : '';
@@ -169,8 +166,8 @@ export function RouteToPin({
       <Svg width="100%" height="100%">
         {straight ? (
           <>
-            <AnimatedPath animatedProps={dStraight} stroke={withAlpha(ink.casing, 0.95)} strokeWidth={9} strokeLinecap="round" strokeDasharray="0.1 14" fill="none" />
-            <AnimatedPath animatedProps={dStraight} stroke={ink.edge} strokeWidth={5} strokeLinecap="round" strokeDasharray="0.1 14" fill="none" />
+            <AnimatedPath animatedProps={d} stroke={withAlpha(ink.casing, 0.95)} strokeWidth={9} strokeLinecap="round" strokeDasharray="0.1 14" fill="none" />
+            <AnimatedPath animatedProps={d} stroke={ink.edge} strokeWidth={5} strokeLinecap="round" strokeDasharray="0.1 14" fill="none" />
           </>
         ) : (
           <>
