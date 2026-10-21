@@ -13,12 +13,14 @@ import { OrdersModule } from '../orders/index.js';
 import { OrgsModule } from '../orgs/index.js';
 import { ScoringModule } from '../scoring/index.js';
 import { SimulatorModule } from '../simulator/index.js';
+import { SupportModule } from '../support/index.js';
 import { ConsoleReadService } from './console.reads.js';
+import { PeopleReadService } from './people.reads.js';
 
 /** The Console's read side: composes other modules' public services into `ctx.console`. Owns no tables. */
 @Module({
-  imports: [DispatchModule, IdentityModule, OrdersModule, LedgerModule, EventsModule, OrgsModule, ScoringModule, SimulatorModule, FleetModule, CatalogModule, DriverAccountModule, TripsModule, ControlsModule, NotifyModule],
-  providers: [ConsoleReadService],
-  exports: [ConsoleReadService],
+  imports: [DispatchModule, IdentityModule, OrdersModule, LedgerModule, EventsModule, OrgsModule, ScoringModule, SimulatorModule, FleetModule, CatalogModule, DriverAccountModule, TripsModule, ControlsModule, NotifyModule, SupportModule],
+  providers: [ConsoleReadService, PeopleReadService],
+  exports: [ConsoleReadService, PeopleReadService],
 })
 export class ConsoleModule {}

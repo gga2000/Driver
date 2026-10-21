@@ -23,6 +23,10 @@
       "types": "./dist/closures-io.d.ts",
       "default": "./dist/closures-io.js"
     },
+    "./people": {
+      "types": "./dist/people-io.d.ts",
+      "default": "./dist/people-io.js"
+    },
     "./seeds": {
       "types": "./dist/seeds/aziziyah-restaurants.d.ts",
       "default": "./dist/seeds/aziziyah-restaurants.js"
