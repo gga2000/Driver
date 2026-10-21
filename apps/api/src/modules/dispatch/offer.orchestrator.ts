@@ -492,9 +492,41 @@ export class OfferOrchestrator {
       await this.schedule('wave_end', r, expiresAt, i + 1);
       return;
     }
-    // Every wave sent (or empty): wait for the re-broadcast at 60 s.
+    // Every wave sent (or empty): nobody new to ask, so it rings again for those already asked.
+    if (await this.ringAgain(r, cfg, rebroadcastAt)) return;
     r.nextTimerAt = rebroadcastAt;
     await this.store.saveRequest(r);
+  }
+
+  /**
+   * Ali 2026-10-21: with nobody new to ask (one driver in the area, or the last wave out), the offer does
+   * not vanish until the re-broadcast: it rings again, `acceptTimeoutSec` at a time, for every driver
+   * already asked who has not said «مو هسة» and is still free. A last stretch shorter than two rings is
+   * one ring up to the re-broadcast, so no ring is a few seconds long. Money is untouched: the +500 at the
+   * re-broadcast still keys on each driver's first wave.
+   */
+  private async ringAgain(r: DispatchRequest, cfg: DispatchConfig, rebroadcastAt: number): Promise<boolean> {
+    const now = this.now();
+    const left = rebroadcastAt - now;
+    if (left <= 0) return false;
+    const offers = (await this.repo.listByTrip(r.tripId)).filter((o) => o.pass === 1);
+    const declined = new Set(offers.filter((o) => o.state === 'declined').map((o) => o.driverId));
+    const asked = [...new Set(offers.map((o) => o.driverId))].filter((id) => !declined.has(id));
+    if (asked.length === 0) return false;
+    const chosen = await this.candidates(r, cfg, { requireIdle: true, only: asked });
+    if (chosen.length === 0) return false;
+    const ringMs = cfg.acceptTimeoutSec * 1000;
+    const expiresAt = left < 2 * ringMs ? rebroadcastAt : now + ringMs;
+    const seconds = Math.round((expiresAt - now) / 1000);
+    const ids = chosen.map((c) => c.ranked.driverId);
+    await this.createOffers(r, 'smart_broadcast', chosen, { wave: r.wave, pass: 1, expiresAt, compensation: () => r.fallbackCompensationIqd ?? 0 });
+    await this.trips.offer(r.tripId, ids, seconds);
+    await this.emit('dispatch.wave_sent', r, { wave: r.wave, driverIds: ids, seconds, radiusKm: null, again: true });
+    r.nextTimerAt = expiresAt;
+    await this.store.saveRequest(r);
+    // Past the re-broadcast's own time the re-broadcast takes over; otherwise this wave's end rings again.
+    if (expiresAt < rebroadcastAt) await this.schedule('wave_end', r, expiresAt, r.wave);
+    return true;
   }
 
   private async onWaveEnd(r: DispatchRequest, wave: number): Promise<void> {
@@ -515,9 +547,19 @@ export class OfferOrchestrator {
     await this.expireOpen(r, () => true);
     const offers = await this.repo.listByTrip(r.tripId);
     const inWaves12 = new Set(offers.filter((o) => o.pass === 1 && (o.wave === 1 || o.wave === 2)).map((o) => o.driverId));
-    const excluded = new Set(offers.filter(isDeclinedOrIgnored).map((o) => o.driverId));
-    const ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
-    const compensation = (driverId: string) => Math.max(inWaves12.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd, r.fallbackCompensationIqd ?? 0);
+    const ignoredOnly = new Set(offers.filter(isDeclinedOrIgnored).map((o) => o.driverId));
+    const declinedOnly = new Set(offers.filter((o) => o.state === 'declined').map((o) => o.driverId));
+    let excluded = ignoredOnly;
+    let ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
+    // Ali 2026-10-21: a driver who let it run out is skipped only while someone else can take it; when
+    // nobody else is free he gets it again (one who said «مو هسة» never does).
+    if (ranked.length === 0 && declinedOnly.size < ignoredOnly.size) {
+      excluded = declinedOnly;
+      ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
+    }
+    // Edge-case §6: no +500 for a driver who ignored it; asked again only because nobody else is free,
+    // he gets the job back at its first price (no gain from letting the far offer run out).
+    const compensation = (driverId: string) => Math.max(inWaves12.has(driverId) || ignoredOnly.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd, r.fallbackCompensationIqd ?? 0);
     const expiresAt = (r.searchStartedAt ?? r.createdAt) + cfg.customerFreeCancelAfterSec * 1000;
 
     r.status = 'rebroadcast';
