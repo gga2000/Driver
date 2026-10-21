@@ -116,6 +116,17 @@ describe('nobody new to ask: the offer rings again (Ali 2026-10-21)', () => {
     expect(h.events.last('dispatch.rebroadcast')?.payload['driverIds']).toEqual(['a1']);
   });
 
+  it('a far lone driver (wave 3 only) who let it run out gets it again at the re-broadcast without the +500', async () => {
+    const h = dispatchHarness();
+    await h.online('far', 4);
+    await taxi(h);
+    await seen(h, 't1', 'far', 3000);
+    await h.advance(80);
+    const second = (await h.offers('t1')).filter((o) => o.pass === 2);
+    expect(second.map((o) => [o.driverId, o.compensationIqd])).toEqual([['far', 0]]);
+    expect(h.events.last('dispatch.rebroadcast')?.payload).toMatchObject({ driverIds: ['far'], compensated: [] });
+  });
+
   it('«مو هسة» stops it: a driver who declined is not asked again', async () => {
     const h = dispatchHarness();
     await h.online('a1', 0.2);

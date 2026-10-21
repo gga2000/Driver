@@ -557,7 +557,9 @@ export class OfferOrchestrator {
       excluded = declinedOnly;
       ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
     }
-    const compensation = (driverId: string) => Math.max(inWaves12.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd, r.fallbackCompensationIqd ?? 0);
+    // Edge-case §6: no +500 for a driver who ignored it; asked again only because nobody else is free,
+    // he gets the job back at its first price (no gain from letting the far offer run out).
+    const compensation = (driverId: string) => Math.max(inWaves12.has(driverId) || ignoredOnly.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd, r.fallbackCompensationIqd ?? 0);
     const expiresAt = (r.searchStartedAt ?? r.createdAt) + cfg.customerFreeCancelAfterSec * 1000;
 
     r.status = 'rebroadcast';
