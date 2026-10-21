@@ -148,8 +148,8 @@ export class MerchantAdminService implements MerchantAdminPort {
    * Menu access: the merchant's own (owner or staff, per `need`) through the `menu*` methods, or
    * Driver's team acting for the store through the separate `ops*` methods (Console `ops.stores.*`,
    * audited by `StoresConsoleService`). The ops path checks field ops or admin here as well as at the
-   * router; support, owners and staff are refused on it. On a store already open to customers the team
-   * never sets a price (`store_price_owner_only`): prices stay the owner's.
+   * router; support, owners and staff are refused on it. The team may change prices on a live store too
+   * (Ali, 2026-10-21: "change now, tell the owner"); the owner sees each change in his app.
    */
   private async access(actor: Actor, merchantOrgId: string, need: 'owner' | 'any', by: MenuAccess): Promise<void> {
     if (by === 'console') {
@@ -166,17 +166,6 @@ export class MerchantAdminService implements MerchantAdminPort {
     if (await this.identity.hasRole(actor.personId, 'field_ops')) return;
     if (await this.identity.hasRole(actor.personId, 'admin')) return;
     throw new DriverError('forbidden');
-  }
-
-  /** Open to customers: setup finished, or a store from before «جهّز محلك» (no setup record). */
-  async storeIsLive(merchantOrgId: string): Promise<boolean> {
-    const setup = (await this.orgs.merchantSettings(merchantOrgId)).setup;
-    return !setup || setup.liveAt !== null;
-  }
-
-  private async consolePriceGuard(merchantOrgId: string, by: MenuAccess, changesPrice: () => Promise<boolean>): Promise<void> {
-    if (by !== 'console') return;
-    if ((await this.storeIsLive(merchantOrgId)) && (await changesPrice())) throw new DriverError('store_price_owner_only');
   }
 
   async myMerchants(actor: Actor): Promise<Array<{ merchantOrgId: string; role: MerchantStaffRole }>> {
@@ -363,7 +352,6 @@ export class MerchantAdminService implements MerchantAdminPort {
 
   private async menuUpsertItemAs(by: MenuAccess, actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
     await this.access(actor, input.merchantOrgId, 'owner', by);
-    await this.consolePriceGuard(input.merchantOrgId, by, async () => !input.itemId || (await this.catalog.adminItem(input.merchantOrgId, input.itemId)).priceIqd !== input.priceIqd);
     return this.uow.run(async (tx) => {
       // The customer labels and the ticket kind share one column: a save that names one keeps the other.
       const stored = input.labels !== undefined || input.kind !== undefined
@@ -457,7 +445,6 @@ export class MerchantAdminService implements MerchantAdminPort {
 
   private async menuSetModifiersAs(by: MenuAccess, actor: Actor, input: { merchantOrgId: string; itemId: string; groups: Array<{ nameAr: string; nameEn?: string | null | undefined; minSelect: number; maxSelect: number; required: boolean; modifiers: Array<{ nameAr: string; nameEn?: string | null | undefined; priceIqd: number; available: boolean; servesMin?: number | null | undefined; servesMax?: number | null | undefined }> }> }): Promise<AdminMenuItem> {
     await this.access(actor, input.merchantOrgId, 'owner', by);
-    await this.consolePriceGuard(input.merchantOrgId, by, async () => modifierPricesChanged((await this.catalog.adminItem(input.merchantOrgId, input.itemId)).modifierGroups, input.groups));
     return this.itemEvent(actor, input.merchantOrgId, 'item.modifiers_updated', { groups: input.groups.length }, (tx) => this.catalog.setModifiers(input.merchantOrgId, input.itemId, input.groups, tx), by);
   }
 
@@ -468,7 +455,6 @@ export class MerchantAdminService implements MerchantAdminPort {
    */
   async opsAddItems(actor: Actor, input: { merchantOrgId: string; categoryAr?: string | null | undefined; items: ReadonlyArray<{ nameAr: string; priceIqd: number }> }): Promise<AdminMenu> {
     await this.access(actor, input.merchantOrgId, 'owner', 'console');
-    await this.consolePriceGuard(input.merchantOrgId, 'console', async () => true);
     await this.uow.run(async (tx) => {
       let order = (await this.catalog.adminMenu(input.merchantOrgId)).reduce((m, i) => Math.max(m, i.sortOrder), 0);
       for (const row of input.items) {

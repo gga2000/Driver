@@ -104,28 +104,26 @@ describe('ops.stores: the team sets a new shop up', () => {
   });
 });
 
-describe('ops.stores: a shop open to customers keeps its prices the owner\'s', () => {
-  it('names, photos, sections and the daily switches go through; any price change is refused', async () => {
+describe('ops.stores: a shop open to customers (Ali, 2026-10-21: "change now, tell the owner")', () => {
+  it('prices change at once, and the history says what they were', async () => {
     const h = await setup();
     const S = { merchantOrgId: h.open };
-    // Seeded before the rule: the shop's own dish.
     const { item } = await h.catalog.upsertItem(h.open, { patch: { nameAr: 'شاورما', priceIqd: 3000, categoryAr: 'لفات' } }, 'owner_sham');
-    const owned = { code: 'store_price_owner_only' };
 
-    await expect(h.svc.upsertItem(h.ops, { ...S, itemId: item.id, nameAr: 'شاورما', priceIqd: 3500 })).rejects.toMatchObject(owned);
-    await expect(h.svc.upsertItem(h.ops, { ...S, nameAr: 'فلافل', priceIqd: 1000 })).rejects.toMatchObject(owned);
-    await expect(h.svc.addItems(h.ops, { ...S, items: [{ nameAr: 'فلافل', priceIqd: 1000 }] })).rejects.toMatchObject(owned);
-    await expect(h.svc.setModifiers(h.ops, { ...S, itemId: item.id, groups: [{ nameAr: 'إضافات', minSelect: 0, maxSelect: 2, required: false, modifiers: [{ nameAr: 'جبن', priceIqd: 500, available: true }] }] })).rejects.toMatchObject(owned);
+    expect((await h.svc.upsertItem(h.ops, { ...S, itemId: item.id, nameAr: 'شاورما', priceIqd: 3500, categoryAr: 'لفات' })).priceIqd).toBe(3500);
+    await h.svc.setModifiers(h.ops, { ...S, itemId: item.id, groups: [{ nameAr: 'إضافات', minSelect: 0, maxSelect: 2, required: false, modifiers: [{ nameAr: 'جبن', priceIqd: 500, available: true }] }] });
+    await h.svc.upsertItem(h.ops, { ...S, itemId: item.id, nameAr: 'شاورما لحم', priceIqd: 3500, categoryAr: 'لفات' });
+    await h.svc.addItems(h.ops, { ...S, items: [{ nameAr: 'فلافل', priceIqd: 1000 }] });
 
-    // A fix that keeps the price is the team's to make.
-    expect((await h.svc.upsertItem(h.ops, { ...S, itemId: item.id, nameAr: 'شاورما لحم', priceIqd: 3000, description: 'بالصمون الحجري' })).nameAr).toBe('شاورما لحم');
-    expect((await h.svc.setModifiers(h.ops, { ...S, itemId: item.id, groups: [{ nameAr: 'الخبز', minSelect: 1, maxSelect: 1, required: true, modifiers: [{ nameAr: 'صمون', priceIqd: 0, available: true }] }] })).modifierGroups).toHaveLength(1);
-    expect((await h.svc.soldOutToday(h.ops, { ...S, itemId: item.id })).onSale).toBe(false);
-    expect((await h.svc.setAvailability(h.ops, { ...S, itemId: item.id, available: true })).available).toBe(true);
-    await h.svc.upsertCategory(h.ops, { ...S, nameAr: 'لفات وسندويشات', renameFrom: 'لفات' });
-    expect((await h.svc.menu(h.ops, S)).categories[0]!.items[0]!.priceIqd).toBe(3000);
-    // Refused changes leave no audit row.
-    expect((await h.svc.history(h.ops, S)).map((r) => r.action)).toEqual([STORE_AUDIT.sectionSaved, STORE_AUDIT.availability, STORE_AUDIT.soldOutToday, STORE_AUDIT.optionsSaved, STORE_AUDIT.itemSaved]);
+    const rows = await h.audits.list({ subjectKind: 'store', subjectId: h.open, limit: 10 });
+    expect(rows.map((r) => [r.action, r.detail.priceChanged ?? null])).toEqual([
+      [STORE_AUDIT.itemsAdded, null],
+      [STORE_AUDIT.itemSaved, false],
+      [STORE_AUDIT.optionsSaved, true],
+      [STORE_AUDIT.itemSaved, true],
+    ]);
+    expect(rows[3]).toMatchObject({ summary_ar: 'غيّر سعر «شاورما» من 3,000 لـ3,500 دينار بـمأكولات الشام', detail: { before: { priceIqd: 3000 }, after: { priceIqd: 3500 } } });
+    expect(rows[1]!.summary_ar).toBe('عدّل «شاورما لحم» بـمأكولات الشام');
   });
 
   it('the ops path is field ops and admin only: support, the shop\'s owner and staff are refused, with no audit row', async () => {

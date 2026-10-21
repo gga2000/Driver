@@ -19,8 +19,8 @@ import type {
  * Console › المطاعم (Ali, 2026-10-21): "our employees should be able to add the restaurant and their
  * items and images and set up everything for them". Driver's team does the owner's setup and menu work
  * for him from the Console, with the owner's own rules, every change written to the audit log under the
- * staff member's name, and the owner told in his app. On a shop already open to customers the team never
- * sets a price (`store_price_owner_only`) until Ali decides how the owner approves one.
+ * staff member's name, and the owner told in his app. Prices too, on a shop already open to customers
+ * (Ali, 2026-10-21: "change now, tell the owner").
  */
 
 /** Who sees every store's setup, menu and history in the Console. */

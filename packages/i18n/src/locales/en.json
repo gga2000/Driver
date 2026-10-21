@@ -9592,7 +9592,6 @@
   "home_food.reserved_passed": "That time has passed or filled up. Go back to her kitchen and reserve another time.",
   "error.home_reservation_owed": "You owe for a reservation you didn't take. It's added to your next cash order, or pay it from your wallet, then you can reserve again",
   "error.commission_tier_home_only": "The home-kitchen rate is for home kitchens only, and a home kitchen stays on it",
-  "error.store_price_owner_only": "This shop is open to customers, so only its owner changes prices. Talk to the owner",
   "error.parcel_not_found": "We couldn't find this parcel",
   "error.parcel_door_closed": "This link has ended. Ask the sender for a new one",
   "error.parcel_door_outside_zone": "This spot is outside the area the fare was set for. Mark a door in the same area or tell the sender",

@@ -24,7 +24,9 @@ import { AuditLogService } from '../controls/index.js';
 import { MerchantService, MerchantSetupService, setupFacts } from '../merchant/index.js';
 import { closedNow, OrgsService, type Org } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
-import { MerchantAdminService } from './merchant-admin.service.js';
+import { MerchantAdminService, modifierPricesChanged } from './merchant-admin.service.js';
+
+const iqd = (n: number) => n.toLocaleString('en-US');
 
 /** Every Console change to a store is one audit row on this subject (pickup spots and kitchen moves share it). */
 export const STORE_AUDIT_SUBJECT = 'store';
@@ -53,9 +55,9 @@ const STORE_TYPES = new Set(['restaurant', 'grocer']);
  * `ops.stores.*` — Console › المطاعم (Ali, 2026-10-21): Driver's team sets a store up and keeps its menu
  * for the owner. Every write goes through the owners' modules' separate `ops*` methods (each checks
  * field ops or admin itself, then runs the owner's very rules) and commits with one audit row under the
- * staff member's name, with what it was before and after and the team's «ليش؟». Prices of a shop
- * already open to customers stay the owner's (`store_price_owner_only`); his practice order, sound check
- * and payout stay his. The router gates the roles too.
+ * staff member's name, with what it was before and after and the team's «ليش؟». Prices change at once,
+ * on a live shop too, and the owner is told (Ali, 2026-10-21: "change now, tell the owner"); his practice
+ * order, sound check and payout stay his. The router gates the roles too.
  */
 @Injectable()
 export class StoresConsoleService implements StoresOpsPort {
@@ -135,6 +137,16 @@ export class StoresConsoleService implements StoresOpsPort {
     return this.menus.opsMenuGet(actor, input);
   }
 
+  /** The dish as it was, for the audit row's «قبل» (undefined when it is not this store's). */
+  private async itemBefore(merchantOrgId: string, itemId: string): Promise<{ nameAr: string; priceIqd: number; modifierGroups: AdminMenuItem['modifierGroups'] } | undefined> {
+    const item = await this.catalog.adminItem(merchantOrgId, itemId).catch((err: unknown) => {
+      // A dish of another store: the write itself refuses it.
+      if (err instanceof DriverError) return undefined;
+      throw err;
+    });
+    return item ? { nameAr: item.nameAr, priceIqd: item.priceIqd, modifierGroups: item.modifierGroups } : undefined;
+  }
+
   /**
    * One write and its audit row in one unit of work (the menu service's own run joins it). `before`
    * reads what the change replaces, kept next to the result's `detail`; `why` is the team's «ليش؟».
@@ -158,14 +170,20 @@ export class StoresConsoleService implements StoresOpsPort {
     });
   }
 
-  upsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
+  async upsertItem(actor: Actor, input: UpsertItemInput): Promise<AdminMenuItem> {
+    const before = input.itemId ? await this.itemBefore(input.merchantOrgId, input.itemId) : undefined;
     return this.audited(
       actor,
       input.merchantOrgId,
       STORE_AUDIT.itemSaved,
-      (org, item) => (input.itemId ? `عدّل «${item.nameAr}» بـ${org.name}` : `زاد «${item.nameAr}» لـ${org.name}`),
-      (item) => ({ itemId: item.id, created: !input.itemId, priceIqd: item.priceIqd }),
+      (org, item) => {
+        if (!input.itemId) return `زاد «${item.nameAr}» لـ${org.name}`;
+        const was = before?.priceIqd;
+        return was !== undefined && was !== item.priceIqd ? `غيّر سعر «${item.nameAr}» من ${iqd(was)} لـ${iqd(item.priceIqd)} دينار بـ${org.name}` : `عدّل «${item.nameAr}» بـ${org.name}`;
+      },
+      (item) => ({ itemId: item.id, created: !input.itemId, after: { nameAr: item.nameAr, priceIqd: item.priceIqd }, priceChanged: !!input.itemId && before?.priceIqd !== item.priceIqd }),
       () => this.menus.opsUpsertItem(actor, input),
+      { before: async () => before },
     );
   }
 
@@ -195,14 +213,16 @@ export class StoresConsoleService implements StoresOpsPort {
     return this.audited(actor, input.merchantOrgId, STORE_AUDIT.sectionsReordered, (org) => `رتّب أقسام المنيو بـ${org.name}`, () => ({ order: [...input.order] }), () => this.menus.opsReorderCategories(actor, input));
   }
 
-  setModifiers(actor: Actor, input: Parameters<MerchantAdminService['menuSetModifiers']>[1]): Promise<AdminMenuItem> {
+  async setModifiers(actor: Actor, input: Parameters<MerchantAdminService['menuSetModifiers']>[1]): Promise<AdminMenuItem> {
+    const before = await this.itemBefore(input.merchantOrgId, input.itemId);
     return this.audited(
       actor,
       input.merchantOrgId,
       STORE_AUDIT.optionsSaved,
       (org, item) => `عدّل أحجام وإضافات «${item.nameAr}» بـ${org.name}`,
-      (item) => ({ itemId: item.id, groups: input.groups.length }),
+      (item) => ({ itemId: item.id, groups: input.groups.length, priceChanged: modifierPricesChanged(before?.modifierGroups ?? [], input.groups) }),
       () => this.menus.opsSetModifiers(actor, input),
+      { before: async () => (before ? { modifierGroups: before.modifierGroups } : null) },
     );
   }
 
