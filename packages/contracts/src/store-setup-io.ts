@@ -65,6 +65,18 @@ export const StoreHistoryEntry = z.object({
 });
 export type StoreHistoryEntry = z.infer<typeof StoreHistoryEntry>;
 
+/**
+ * «فريقنا عدّل بمحلك»: one change Driver's team made to the store, as its owner sees it in the
+ * merchant app — what changed and the team member's first name (never his phone or full name).
+ */
+export const StaffChange = z.object({
+  id: z.string(),
+  at: z.coerce.date(),
+  byFirstName: z.string().nullable(),
+  summaryAr: z.string(),
+});
+export type StaffChange = z.infer<typeof StaffChange>;
+
 /** A library photo's file: `lib-<slug>-<n>.webp`, served by the API at `/media/food/<file>`. */
 export const LIBRARY_PHOTO_FILE = /^lib-([a-z]+(?:-[a-z]+)*)-(\d+)\.webp$/;
 
@@ -135,4 +147,6 @@ export interface StoresOpsPort {
   dishPhoto(actor: Actor, input: OpsDishPhotoInput): Promise<MerchantSetupView>;
   /** «ارفع الكبنك» for the owner: the same gate (his practice order and sound check included). */
   goLive(actor: Actor, input: OpsStoreInput): Promise<MerchantSetupView>;
+  /** `merchantAdmin.staffChanges`: the team's changes to his store, for its owner only (staff refused). */
+  ownerChanges(actor: Actor, input: StoreHistoryInput): Promise<StaffChange[]>;
 }

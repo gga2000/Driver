@@ -144,6 +144,11 @@ export class MerchantAdminService implements MerchantAdminPort {
     if ((await this.roleAt(actor, merchantOrgId)) !== 'merchant_owner') throw new DriverError('forbidden');
   }
 
+  /** The store's owner, or `forbidden` (staff too): for reads only he sees, like «فريقنا عدّل بمحلك». */
+  async assertOwner(actor: Actor, merchantOrgId: string): Promise<void> {
+    await this.owner(actor, merchantOrgId);
+  }
+
   /**
    * Menu access: the merchant's own (owner or staff, per `need`) through the `menu*` methods, or
    * Driver's team acting for the store through the separate `ops*` methods (Console `ops.stores.*`,

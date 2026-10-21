@@ -11,6 +11,7 @@ import type {
   OpsShopPhotoInput,
   OpsStoreInput,
   StoreHistoryEntry,
+  StaffChange,
   StoreHistoryInput,
   StoreRow,
   StoreSetupState,
@@ -140,6 +141,19 @@ export class StoresConsoleService implements StoresOpsPort {
     return rows.map((r) => ({ id: r.id, at: r.at, actorId: r.actorId, actorName: r.actorName, action: r.action, summaryAr: r.summary_ar }));
   }
 
+  /**
+   * «فريقنا عدّل بمحلك» in the merchant app: the same rows as «السجل», for the store's owner only, with
+   * the team member's first name (his full name and phone stay with us).
+   */
+  async ownerChanges(actor: Actor, input: StoreHistoryInput): Promise<StaffChange[]> {
+    await this.menus.assertOwner(actor, input.merchantOrgId);
+    const org = await this.store(input.merchantOrgId);
+    const rows = await this.audits.list({ subjectKind: STORE_AUDIT_SUBJECT, subjectId: org.id, limit: input.limit ?? 50 });
+    // «… بـمطعم خالد» reads oddly in his own shop's app: the store's name is dropped.
+    const own = (text: string) => text.replaceAll(` بـ${org.name}`, '').replaceAll(` لـ${org.name}`, '');
+    return rows.map((r) => ({ id: r.id, at: r.at, byFirstName: r.actorName?.trim().split(/\s+/)[0] || null, summaryAr: own(r.summary_ar) }));
+  }
+
   async menu(actor: Actor, input: MerchantScope): Promise<AdminMenu> {
     await this.store(input.merchantOrgId);
     return this.menus.opsMenuGet(actor, input);
@@ -200,7 +214,7 @@ export class StoresConsoleService implements StoresOpsPort {
       actor,
       input.merchantOrgId,
       STORE_AUDIT.itemsAdded,
-      (org) => `زاد ${input.items.length} أكلات لـ${org.name}${input.categoryAr ? ` بقسم «${input.categoryAr}»` : ''}`,
+      (org) => `زاد ${input.items.length === 1 ? `«${input.items[0]!.nameAr}»` : `${input.items.length} أكلات`} لـ${org.name}${input.categoryAr ? ` بقسم «${input.categoryAr}»` : ''}`,
       () => ({ count: input.items.length, categoryAr: input.categoryAr ?? null }),
       () => this.menus.opsAddItems(actor, input),
     );

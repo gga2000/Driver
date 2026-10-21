@@ -150,6 +150,26 @@ describe('ops.stores: a shop open to customers (Ali, 2026-10-21: "change now, te
     expect((await h.svc.history(h.ops, S)).map((r) => r.actorId)).toEqual([admin.personId]);
   });
 
+  it('«فريقنا عدّل بمحلك»: the owner reads what the team changed, with a first name only; staff and the team are refused', async () => {
+    const h = await setup();
+    const S = { merchantOrgId: h.open };
+    await h.id.service.setName(h.ops, 'حيدر كاظم الساعدي');
+    await h.svc.addItems(h.ops, { ...S, items: [{ nameAr: 'فلافل', priceIqd: 1000 }] });
+    const owner = await h.person('07700000015');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: owner.personId, kind: 'merchant_owner', orgId: h.open });
+    const staff = await h.person('07700000016');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: staff.personId, kind: 'merchant_staff', orgId: h.open });
+    const otherOwner = await h.person('07700000017');
+    await h.id.service.grantRole({ personId: 'system' }, { personId: otherOwner.personId, kind: 'merchant_owner', orgId: h.fresh });
+
+    const seen = await h.svc.ownerChanges(owner, S);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ byFirstName: 'حيدر' });
+    expect(seen[0]!.summaryAr).toBe('زاد «فلافل»');
+    expect(Object.keys(seen[0]!).sort()).toEqual(['at', 'byFirstName', 'id', 'summaryAr']);
+    for (const who of [staff, otherOwner, h.ops]) await expect(h.svc.ownerChanges(who, S)).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
   it('the merchant\'s own access is unchanged: a stranger still cannot read or write the menu', async () => {
     const h = await setup();
     await expect(h.menus.menuGet(h.ops, { merchantOrgId: h.fresh })).rejects.toMatchObject({ code: 'forbidden' });
