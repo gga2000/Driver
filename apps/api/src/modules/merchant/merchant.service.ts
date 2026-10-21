@@ -144,6 +144,8 @@ export interface MerchantSetupLinePort {
   /** A new shop (no storefront yet, nothing set up) starts its setup the first time it is read. */
   adopt(org: Org): Promise<void>;
   goLive(actor: Actor, input: MerchantOrgInput): Promise<unknown>;
+  /** The same shutter, raised by Driver's team for the owner (field ops or admin; same gate). */
+  opsGoLive(actor: Actor, input: MerchantOrgInput): Promise<unknown>;
 }
 
 export const MERCHANT_SETUP_LINE = Symbol('MERCHANT_SETUP_LINE');
@@ -158,6 +160,12 @@ export const MERCHANT_PHOTOS = Symbol('MERCHANT_PHOTOS');
 
 const OWNER: RoleKind = 'merchant_owner';
 const STAFF: RoleKind = 'merchant_staff';
+/** Driver's team acting for the owner from the Console (`ops*`): field ops and admin; support reads only. */
+const STORE_EDITORS: readonly RoleKind[] = ['field_ops', 'admin'];
+const STORE_READERS: readonly RoleKind[] = [...STORE_EDITORS, 'support'];
+type ActedBy = 'merchant' | 'console';
+/** The team's switches carry `by: 'console'` on their event, so the owner can tell them from his own. */
+const byConsole = (by: ActedBy): { by?: 'console' } => (by === 'console' ? { by } : {});
 const CARD_CACHE_MAX = 2000;
 /** Stores whose delivery map is kept (a town has a few hundred; the oldest goes first past this). */
 const AREA_CACHE_MAX = 1000;
@@ -271,33 +279,41 @@ export class MerchantService implements MerchantPort {
 
   async setOpen(actor: Actor, input: SetStoreOpenInput): Promise<StoreStatusView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
+    return this.setOpenAs('merchant', actor, org, input);
+  }
+
+  private async setOpenAs(by: ActedBy, actor: Actor, org: Org, input: SetStoreOpenInput): Promise<StoreStatusView> {
     const now = this.clock.now();
     // «جهّز محلك»: a shop still in setup opens by going live (every step done; owner only), and a
     // close (a quick pause included) leaves setup's own close in place, so "not live" stays closed.
     if (this.setup?.isInSetup(await this.stores.merchantSettings(org.id))) {
-      if (input.open) await this.setup.goLive(actor, { merchantOrgId: org.id });
+      if (input.open) await (by === 'console' ? this.setup.opsGoLive(actor, { merchantOrgId: org.id }) : this.setup.goLive(actor, { merchantOrgId: org.id }));
       return this.status(org);
     }
     if (input.open) {
       await this.stores.setMerchantSettings(org.id, { closed: null });
-      await this.events.record('merchant.opened', actor.personId, org.id, { at: now.toISOString() });
+      await this.events.record('merchant.opened', actor.personId, org.id, { at: now.toISOString(), ...byConsole(by) });
     } else {
       const until = input.pauseMinutes ? new Date(now.getTime() + input.pauseMinutes * 60_000) : null;
       const closed = { reason: input.reason ?? 'other', note: input.note?.trim() || null, at: now, until };
       await this.stores.setMerchantSettings(org.id, { closed });
-      await this.events.record('merchant.closed_early', actor.personId, org.id, { reason: closed.reason, note: closed.note, at: now.toISOString(), ...(until ? { until: until.toISOString() } : {}) });
+      await this.events.record('merchant.closed_early', actor.personId, org.id, { reason: closed.reason, note: closed.note, at: now.toISOString(), ...(until ? { until: until.toISOString() } : {}), ...byConsole(by) });
     }
     return this.status(org);
   }
 
   async setBusy(actor: Actor, input: SetBusyInput): Promise<StoreStatusView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
+    return this.setBusyAs('merchant', actor, org, input);
+  }
+
+  private async setBusyAs(by: ActedBy, actor: Actor, org: Org, input: SetBusyInput): Promise<StoreStatusView> {
     const now = this.clock.now();
     const busyUntil = busyUntilFor(input.on, now);
     // r5 (Ali 2026-10-08): +10 or +20, still for the hour; the schema lets only 10 or 20 through.
     const busyExtraMin = input.on ? busyExtraFor(input.extraMinutes) : null;
     await this.stores.setMerchantSettings(org.id, { busyUntil, busyExtraMin });
-    await this.events.record(input.on ? 'merchant.busy_on' : 'merchant.busy_off', actor.personId, org.id, { until: busyUntil?.toISOString() ?? null, ...(busyExtraMin !== null ? { extraMinutes: busyExtraMin } : {}) });
+    await this.events.record(input.on ? 'merchant.busy_on' : 'merchant.busy_off', actor.personId, org.id, { until: busyUntil?.toISOString() ?? null, ...(busyExtraMin !== null ? { extraMinutes: busyExtraMin } : {}), ...byConsole(by) });
     return this.status(org);
   }
 
@@ -328,6 +344,10 @@ export class MerchantService implements MerchantPort {
   async setHours(actor: Actor, input: SetStoreHoursInput): Promise<StoreHoursView> {
     const org = await this.assertStore(actor, input.merchantOrgId);
     await this.assertOwner(actor, org.id);
+    return this.setHoursAs('merchant', actor, org, input);
+  }
+
+  private async setHoursAs(by: ActedBy, actor: Actor, org: Org, input: SetStoreHoursInput): Promise<StoreHoursView> {
     if (storeHoursProblems(input.days, input.holidays).length > 0)
       throw new DriverError('store_hours_invalid');
     const now = this.clock.now();
@@ -347,6 +367,7 @@ export class MerchantService implements MerchantPort {
       shifts: windows.length,
       openDays: new Set(windows.map((w) => w.dow)).size,
       holidays: holidays.map((h) => ({ from: h.from, to: h.to })),
+      ...byConsole(by),
     });
     return this.hoursView(org, true);
   }
@@ -427,6 +448,41 @@ export class MerchantService implements MerchantPort {
     const org = await this.assertStore(actor, input.merchantOrgId);
     await this.assertOwner(actor, org.id);
     return this.replacePickupSpot(actor, org.id, input, 'merchant');
+  }
+
+  // ───────────────────────── Driver's team, for the owner (Console › المطاعم) ─────────────────────────
+  // Separate methods (never a flag on the owner's): each checks field ops or admin itself (support only
+  // reads) and then runs the owner's very rules. The Console audit row is the caller's.
+
+  async opsStoreStatus(actor: Actor, input: MerchantOrgInput): Promise<StoreStatusView> {
+    await this.assertStoreTeam(actor, true);
+    return this.status(await this.storeOrg(input.merchantOrgId));
+  }
+
+  async opsHours(actor: Actor, input: MerchantOrgInput): Promise<StoreHoursView> {
+    await this.assertStoreTeam(actor, true);
+    return this.hoursView(await this.storeOrg(input.merchantOrgId), true);
+  }
+
+  async opsSetHours(actor: Actor, input: SetStoreHoursInput): Promise<StoreHoursView> {
+    await this.assertStoreTeam(actor);
+    return this.setHoursAs('console', actor, await this.storeOrg(input.merchantOrgId), input);
+  }
+
+  /** The owner's open/close/pause: open orders stay as they are, customers read the same words. A shop in setup opens only by going live. */
+  async opsSetOpen(actor: Actor, input: SetStoreOpenInput): Promise<StoreStatusView> {
+    await this.assertStoreTeam(actor);
+    return this.setOpenAs('console', actor, await this.storeOrg(input.merchantOrgId), input);
+  }
+
+  async opsSetBusy(actor: Actor, input: SetBusyInput): Promise<StoreStatusView> {
+    await this.assertStoreTeam(actor);
+    return this.setBusyAs('console', actor, await this.storeOrg(input.merchantOrgId), input);
+  }
+
+  private async assertStoreTeam(actor: Actor, reads = false): Promise<void> {
+    for (const kind of reads ? STORE_READERS : STORE_EDITORS) if (await this.people.hasRole(actor.personId, kind)) return;
+    throw new DriverError('forbidden');
   }
 
   /**

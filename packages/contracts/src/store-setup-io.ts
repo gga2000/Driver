@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { RoleKind } from './auth.js';
 import type { Actor } from './identity-io.js';
-import { MerchantSetupView } from './merchant-setup-io.js';
+import { MerchantOrgInput, SetBusyInput, SetStoreHoursInput, SetStoreOpenInput, type StoreHoursView, type StoreStatusView } from './merchant-io.js';
+import { MerchantSetupView, SetupDishPhotoInput, SetupKindsInput, SetupShopPhotoInput } from './merchant-setup-io.js';
 import type {
   AdminMenu,
   AdminMenuItem,
@@ -50,15 +51,6 @@ export const StoreRow = z.object({
 });
 export type StoreRow = z.infer<typeof StoreRow>;
 
-/** One store as the Console's shop page shows it: the owner's setup view, read without his role. */
-export const StoreDetail = z.object({
-  setup: MerchantSetupView,
-  state: StoreSetupState,
-  /** Prices are the owner's once the shop is open to customers (the editor locks them). */
-  pricesLocked: z.boolean(),
-});
-export type StoreDetail = z.infer<typeof StoreDetail>;
-
 export const StoreHistoryInput = z.object({ merchantOrgId: z.string().min(1), limit: z.number().int().min(1).max(200).default(50) });
 export type StoreHistoryInput = z.input<typeof StoreHistoryInput>;
 
@@ -95,7 +87,30 @@ export const AddItemsInput = z.object({
 });
 export type AddItemsInput = z.infer<typeof AddItemsInput>;
 
-/** `ops.stores.*` as the API implements it (`modules/ops`). */
+/**
+ * Why the team changed the store (optional, «ليش؟»): kept on the audit row and shown in the owner's
+ * «فريقنا عدّل بمحلك» card. Named `why` because the owner's close already has a `reason`.
+ */
+export const StoreWhy = z.object({ why: z.string().trim().max(200).optional() });
+
+/** The owner's own inputs, plus the team's «ليش؟». */
+export const OpsStoreInput = MerchantOrgInput.and(StoreWhy);
+export type OpsStoreInput = z.infer<typeof OpsStoreInput>;
+export const OpsSetHoursInput = SetStoreHoursInput.and(StoreWhy);
+export type OpsSetHoursInput = z.infer<typeof OpsSetHoursInput>;
+export const OpsSetOpenInput = SetStoreOpenInput.and(StoreWhy);
+export type OpsSetOpenInput = z.infer<typeof OpsSetOpenInput>;
+export const OpsSetBusyInput = SetBusyInput.and(StoreWhy);
+export type OpsSetBusyInput = z.infer<typeof OpsSetBusyInput>;
+export const OpsSetupKindsInput = SetupKindsInput.and(StoreWhy);
+export type OpsSetupKindsInput = z.infer<typeof OpsSetupKindsInput>;
+/** A photo the team member uploaded himself (`account.photoUpload`). */
+export const OpsShopPhotoInput = SetupShopPhotoInput.and(StoreWhy);
+export type OpsShopPhotoInput = z.infer<typeof OpsShopPhotoInput>;
+export const OpsDishPhotoInput = SetupDishPhotoInput.and(StoreWhy);
+export type OpsDishPhotoInput = z.infer<typeof OpsDishPhotoInput>;
+
+/** `ops.stores.*` as the API implements it (`modules/merchant-admin`, `StoresConsoleService`). */
 export interface StoresOpsPort {
   list(actor: Actor, input: StoresInput): Promise<StoreRow[]>;
   history(actor: Actor, input: StoreHistoryInput): Promise<StoreHistoryEntry[]>;
@@ -108,4 +123,16 @@ export interface StoresOpsPort {
   setAvailability(actor: Actor, input: z.infer<typeof SetAvailabilityInput>): Promise<AdminMenuItem>;
   soldOutToday(actor: Actor, input: z.infer<typeof MenuItemIdInput>): Promise<AdminMenuItem>;
   libraryPhoto(actor: Actor, input: LibraryPhotoInput): Promise<AdminMenuItem>;
+  /** The shop's «جهّز محلك» as the owner sees it. */
+  setup(actor: Actor, input: z.infer<typeof MerchantOrgInput>): Promise<MerchantSetupView>;
+  status(actor: Actor, input: z.infer<typeof MerchantOrgInput>): Promise<StoreStatusView>;
+  hours(actor: Actor, input: z.infer<typeof MerchantOrgInput>): Promise<StoreHoursView>;
+  setHours(actor: Actor, input: OpsSetHoursInput): Promise<StoreHoursView>;
+  setOpen(actor: Actor, input: OpsSetOpenInput): Promise<StoreStatusView>;
+  setBusy(actor: Actor, input: OpsSetBusyInput): Promise<StoreStatusView>;
+  confirmKinds(actor: Actor, input: OpsSetupKindsInput): Promise<MerchantSetupView>;
+  shopPhoto(actor: Actor, input: OpsShopPhotoInput): Promise<MerchantSetupView>;
+  dishPhoto(actor: Actor, input: OpsDishPhotoInput): Promise<MerchantSetupView>;
+  /** «ارفع الكبنك» for the owner: the same gate (his practice order and sound check included). */
+  goLive(actor: Actor, input: OpsStoreInput): Promise<MerchantSetupView>;
 }

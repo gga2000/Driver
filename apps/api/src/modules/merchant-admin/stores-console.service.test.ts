@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Actor } from '@driver/contracts';
+import { DriverError, type Actor } from '@driver/contracts';
 import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { ConfigService } from '../config/index.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
+import type { MerchantService, MerchantSetupService } from '../merchant/index.js';
 import type { OrdersService } from '../orders/index.js';
 import { newSetupState, OrgsService } from '../orgs/index.js';
 import { DevBlobStore } from '../places/index.js';
@@ -25,7 +26,21 @@ async function setup(start = '2026-10-21T09:00:00Z') {
   const orgs = new OrgsService(undefined, clock);
   const menus = new MerchantAdminService(new InMemoryMerchantAdminRepository(), catalog, promotions, lh.ledger, lh.facade, {} as OrdersService, orgs, id.service, new ConfigService(), ev.events, blobs, ev.uow, clock);
   const audits = new AuditLogService(new InMemoryControlsRepository(), new StaffNames(id.service, clock), clock);
-  const svc = new StoresConsoleService(menus, orgs, catalog, audits, blobs, ev.uow, clock);
+  // The shop's own switches are the merchant module's `ops*` methods (tested there); here only what they return.
+  const shopCalls: string[] = [];
+  const shops = {
+    opsSetHours: async (actor: Actor, input: { days: unknown; holidays: unknown }) => {
+      if (actor.personId !== ops.personId) throw new DriverError('forbidden');
+      shopCalls.push('setHours');
+      return { days: input.days, holidays: input.holidays };
+    },
+  } as unknown as MerchantService;
+  const setups = {
+    opsGoLive: async () => {
+      throw new DriverError('setup_not_ready');
+    },
+  } as unknown as MerchantSetupService;
+  const svc = new StoresConsoleService(menus, shops, setups, orgs, catalog, audits, blobs, ev.uow, clock);
   async function person(phone: string): Promise<Actor> {
     return (await id.login(phone)).actor;
   }
@@ -36,7 +51,7 @@ async function setup(start = '2026-10-21T09:00:00Z') {
   await orgs.setMerchantSettings(fresh.id, { setup: newSetupState(clock.now()) });
   // A shop from before setup: open to customers.
   const open = await orgs.create({ type: 'restaurant', name: 'مأكولات الشام', cityId: 'aziziyah', ownerId: 'owner_sham' });
-  return { id, clock, ev, catalog, orgs, menus, audits, svc, ops, person, fresh: fresh.id, open: open.id };
+  return { id, clock, ev, catalog, orgs, menus, audits, svc, ops, person, shopCalls, fresh: fresh.id, open: open.id };
 }
 
 describe('ops.stores: the team sets a new shop up', () => {
@@ -139,6 +154,26 @@ describe('ops.stores: a shop open to customers keeps its prices the owner\'s', (
     const h = await setup();
     await expect(h.menus.menuGet(h.ops, { merchantOrgId: h.fresh })).rejects.toMatchObject({ code: 'forbidden' });
     await expect(h.menus.menuUpsertItem(h.ops, { merchantOrgId: h.fresh, nameAr: 'كباب', priceIqd: 7000 })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});
+
+describe('ops.stores: the shop itself', () => {
+  it('hours: one audit row with what it was before, what it is now and the team\'s «ليش؟»', async () => {
+    const h = await setup();
+    await h.orgs.setMerchantSettings(h.fresh, { openingHours: [{ dow: 0, start: '11:00', end: '23:00' }] });
+    const days = Array.from({ length: 7 }, (_, dow) => ({ dow, shifts: [{ start: '12:00', end: '00:00' }] }));
+    await h.svc.setHours(h.ops, { merchantOrgId: h.fresh, days, holidays: [], why: 'صاحب المحل طلب بالتلفون' });
+    const [row] = await h.audits.list({ subjectKind: 'store', subjectId: h.fresh, limit: 1 });
+    expect(row).toMatchObject({ action: STORE_AUDIT.hoursSet, actorId: h.ops.personId, summary_ar: 'رتّب أوقات دوام مشويات الحاج كريم' });
+    expect(row!.detail).toMatchObject({ before: { openingHours: [{ dow: 0, start: '11:00', end: '23:00' }] }, after: { days }, why: 'صاحب المحل طلب بالتلفون' });
+  });
+
+  it('a refused change leaves no audit row', async () => {
+    const h = await setup();
+    const stranger = await h.person('07700000019');
+    await expect(h.svc.setHours(stranger, { merchantOrgId: h.fresh, days: [], holidays: [] })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(h.svc.goLive(h.ops, { merchantOrgId: h.fresh })).rejects.toMatchObject({ code: 'setup_not_ready' });
+    expect(await h.svc.history(h.ops, { merchantOrgId: h.fresh })).toEqual([]);
   });
 });
 

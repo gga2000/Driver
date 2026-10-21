@@ -1,11 +1,27 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DriverError, setupProgress, type Actor, type AdminMenu, type AdminMenuItem, type MerchantScope, type ReorderCategoriesInput, type UpsertCategoryInput, type UpsertItemInput } from '@driver/contracts';
-import type { AddItemsInput, LibraryPhotoInput, StoreHistoryEntry, StoreHistoryInput, StoreRow, StoreSetupState, StoresInput, StoresOpsPort } from '@driver/contracts/store-setup';
+import { DriverError, setupProgress, type Actor, type AdminMenu, type AdminMenuItem, type MerchantOrgInput, type MerchantScope, type MerchantSetupView, type ReorderCategoriesInput, type StoreHoursView, type StoreStatusView, type UpsertCategoryInput, type UpsertItemInput } from '@driver/contracts';
+import type {
+  AddItemsInput,
+  LibraryPhotoInput,
+  OpsDishPhotoInput,
+  OpsSetBusyInput,
+  OpsSetHoursInput,
+  OpsSetOpenInput,
+  OpsSetupKindsInput,
+  OpsShopPhotoInput,
+  OpsStoreInput,
+  StoreHistoryEntry,
+  StoreHistoryInput,
+  StoreRow,
+  StoreSetupState,
+  StoresInput,
+  StoresOpsPort,
+} from '@driver/contracts/store-setup';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { CatalogService, itemPhotoUrl } from '../catalog/index.js';
 import { AuditLogService } from '../controls/index.js';
-import { setupFacts } from '../merchant/index.js';
+import { MerchantService, MerchantSetupService, setupFacts } from '../merchant/index.js';
 import { closedNow, OrgsService, type Org } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { MerchantAdminService } from './merchant-admin.service.js';
@@ -22,20 +38,31 @@ export const STORE_AUDIT = {
   availability: 'store.availability_set',
   soldOutToday: 'store.sold_out_today',
   libraryPhoto: 'store.library_photo',
+  hoursSet: 'store.hours_set',
+  openSet: 'store.open_set',
+  busySet: 'store.busy_set',
+  kindsSet: 'store.kinds_set',
+  shopPhoto: 'store.shop_photo',
+  dishPhoto: 'store.dish_photo',
+  wentLive: 'store.went_live',
 } as const;
 
 const STORE_TYPES = new Set(['restaurant', 'grocer']);
 
 /**
  * `ops.stores.*` — Console › المطاعم (Ali, 2026-10-21): Driver's team sets a store up and keeps its menu
- * for the owner. Every write goes through the owner's own menu rules (`MerchantAdminService`, as
- * `'console'`) and commits with one audit row under the staff member's name; prices of a shop already
- * open to customers stay the owner's (`store_price_owner_only`). The router gates the roles.
+ * for the owner. Every write goes through the owners' modules' separate `ops*` methods (each checks
+ * field ops or admin itself, then runs the owner's very rules) and commits with one audit row under the
+ * staff member's name, with what it was before and after and the team's «ليش؟». Prices of a shop
+ * already open to customers stay the owner's (`store_price_owner_only`); his practice order, sound check
+ * and payout stay his. The router gates the roles too.
  */
 @Injectable()
 export class StoresConsoleService implements StoresOpsPort {
   constructor(
     private readonly menus: MerchantAdminService,
+    private readonly shops: MerchantService,
+    private readonly setups: MerchantSetupService,
     private readonly orgs: OrgsService,
     private readonly catalog: CatalogService,
     private readonly audits: AuditLogService,
@@ -108,12 +135,25 @@ export class StoresConsoleService implements StoresOpsPort {
     return this.menus.opsMenuGet(actor, input);
   }
 
-  /** One write and its audit row in one unit of work (the menu service's own run joins it). */
-  private async audited<T>(actor: Actor, merchantOrgId: string, action: string, summary: (org: Org, out: T) => string, detail: (out: T) => Record<string, unknown>, write: () => Promise<T>): Promise<T> {
+  /**
+   * One write and its audit row in one unit of work (the menu service's own run joins it). `before`
+   * reads what the change replaces, kept next to the result's `detail`; `why` is the team's «ليش؟».
+   */
+  private async audited<T, B = undefined>(
+    actor: Actor,
+    merchantOrgId: string,
+    action: string,
+    summary: (org: Org, out: T) => string,
+    detail: (out: T) => Record<string, unknown>,
+    write: () => Promise<T>,
+    opts: { why?: string | undefined; before?: (org: Org) => Promise<B> } = {},
+  ): Promise<T> {
     const org = await this.store(merchantOrgId);
+    const before = opts.before ? await opts.before(org) : undefined;
     return this.uow.run(async (tx) => {
       const out = await write();
-      await this.audits.record({ cityId: org.cityId, actorId: actor.personId, action, subjectKind: STORE_AUDIT_SUBJECT, subjectId: org.id, summaryAr: summary(org, out), detail: detail(out) }, tx);
+      const extra = { ...(opts.before ? { before } : {}), ...(opts.why ? { why: opts.why } : {}) };
+      await this.audits.record({ cityId: org.cityId, actorId: actor.personId, action, subjectKind: STORE_AUDIT_SUBJECT, subjectId: org.id, summaryAr: summary(org, out), detail: { ...detail(out), ...extra } }, tx);
       return out;
     });
   }
@@ -190,5 +230,95 @@ export class StoresConsoleService implements StoresOpsPort {
       (item) => ({ itemId: item.id, photo: input.photo }),
       () => this.menus.opsLibraryPhoto(actor, input),
     );
+  }
+
+  // ───────────────────────── the shop itself ─────────────────────────
+
+  setup(actor: Actor, input: MerchantOrgInput): Promise<MerchantSetupView> {
+    return this.setups.opsGet(actor, input);
+  }
+
+  status(actor: Actor, input: MerchantOrgInput): Promise<StoreStatusView> {
+    return this.shops.opsStoreStatus(actor, input);
+  }
+
+  hours(actor: Actor, input: MerchantOrgInput): Promise<StoreHoursView> {
+    return this.shops.opsHours(actor, input);
+  }
+
+  setHours(actor: Actor, input: OpsSetHoursInput): Promise<StoreHoursView> {
+    return this.audited(
+      actor,
+      input.merchantOrgId,
+      STORE_AUDIT.hoursSet,
+      (org) => `رتّب أوقات دوام ${org.name}`,
+      (v) => ({ after: { days: v.days, holidays: v.holidays } }),
+      () => this.shops.opsSetHours(actor, input),
+      { why: input.why, before: async (org) => ({ openingHours: org.merchant?.openingHours ?? null, holidays: org.merchant?.holidays ?? [] }) },
+    );
+  }
+
+  setOpen(actor: Actor, input: OpsSetOpenInput): Promise<StoreStatusView> {
+    return this.audited(
+      actor,
+      input.merchantOrgId,
+      STORE_AUDIT.openSet,
+      (org) => (input.open ? `فتح ${org.name}` : input.pauseMinutes ? `وقّف ${org.name} ${input.pauseMinutes} دقيقة` : `سدّ ${org.name}`),
+      () => ({ after: { open: input.open, reason: input.reason ?? null, note: input.note ?? null, pauseMinutes: input.pauseMinutes ?? null } }),
+      () => this.shops.opsSetOpen(actor, input),
+      { why: input.why, before: async (org) => ({ closed: org.merchant?.closed ?? null }) },
+    );
+  }
+
+  setBusy(actor: Actor, input: OpsSetBusyInput): Promise<StoreStatusView> {
+    return this.audited(
+      actor,
+      input.merchantOrgId,
+      STORE_AUDIT.busySet,
+      (org) => (input.on ? `سوّى ${org.name} مزدحم` : `شال الزحمة عن ${org.name}`),
+      () => ({ after: { on: input.on, extraMinutes: input.on ? (input.extraMinutes ?? 10) : null } }),
+      () => this.shops.opsSetBusy(actor, input),
+      { why: input.why, before: async (org) => ({ busyUntil: org.merchant?.busyUntil ?? null, busyExtraMin: org.merchant?.busyExtraMin ?? null }) },
+    );
+  }
+
+  confirmKinds(actor: Actor, input: OpsSetupKindsInput): Promise<MerchantSetupView> {
+    return this.audited(
+      actor,
+      input.merchantOrgId,
+      STORE_AUDIT.kindsSet,
+      (org) => `ثبّت شنو يبيع ${org.name}`,
+      () => ({ after: { kinds: [...input.kinds] } }),
+      () => this.setups.opsConfirmKinds(actor, input),
+      { why: input.why, before: async (org) => ({ kinds: org.merchant?.setup?.kinds ?? null }) },
+    );
+  }
+
+  shopPhoto(actor: Actor, input: OpsShopPhotoInput): Promise<MerchantSetupView> {
+    return this.audited(
+      actor,
+      input.merchantOrgId,
+      STORE_AUDIT.shopPhoto,
+      (org) => `حط صورة محل ${org.name}`,
+      () => ({ after: { uploadId: input.uploadId } }),
+      () => this.setups.opsShopPhoto(actor, input),
+      { why: input.why, before: async (org) => ({ shopPhotoRef: org.merchant?.setup?.shopPhotoRef ?? null }) },
+    );
+  }
+
+  dishPhoto(actor: Actor, input: OpsDishPhotoInput): Promise<MerchantSetupView> {
+    return this.audited(
+      actor,
+      input.merchantOrgId,
+      STORE_AUDIT.dishPhoto,
+      (org) => `حط صورة أكلة بـ${org.name}`,
+      () => ({ after: { itemId: input.itemId, uploadId: input.uploadId, library: input.librarySlug ?? null } }),
+      () => this.setups.opsDishPhoto(actor, input),
+      { why: input.why, before: async (org) => ({ photoUrl: (await this.catalog.menu(org.id)).find((i) => i.id === input.itemId)?.photoUrl ?? null }) },
+    );
+  }
+
+  goLive(actor: Actor, input: OpsStoreInput): Promise<MerchantSetupView> {
+    return this.audited(actor, input.merchantOrgId, STORE_AUDIT.wentLive, (org) => `فتح ${org.name} للزباين`, (v) => ({ after: { live: v.live } }), () => this.setups.opsGoLive(actor, input), { why: input.why });
   }
 }
