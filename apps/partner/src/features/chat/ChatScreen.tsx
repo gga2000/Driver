@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Platform } from 'react-native';
 import type { ChatThreadKind } from '@driver/contracts';
 import { ChatThread, useToast } from '@driver/ui';
+import { LostItemResolve } from '@driver/ui/lost-item';
 import { absoluteUrl, pickPhoto, uploadPhoto } from '@/features/account/photo';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -62,7 +63,12 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         return { uploadId, localUri: picked.uri };
       }}
       voice={voice}
-      resolveLostItem={kind === 'customer_courier' ? () => actions.resolveLostItem.mutateAsync({ orderId }) : undefined}
+      // s7 «انحلّت»: while a lost-item ask keeps this chat open, he can close it.
+      pinned={
+        kind === 'customer_courier' && thread.data?.lostItem === 'open' ? (
+          <LostItemResolve t={t} resolve={() => actions.resolveLostItem.mutateAsync({ orderId })} errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)} />
+        ) : undefined
+      }
       currentLocation={async () => {
         const fix = await currentFix();
         return fix ? { lat: fix.lat, lng: fix.lng } : null;
