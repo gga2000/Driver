@@ -30,7 +30,7 @@ the number reveal. It owns no tables and needs no migration.
     same unit of work as the read (a fail-closed staff purpose).
 
   The Console then adds an audit row, `people.phone_reveal`, with the reason in its detail.
-  **Waiting for Ali's OK:** the reveal is a new privacy rule (decision card in the «الناس» thread).
+  **Ali's OK, 2026-10-21 22:29Z:** "Yes, with reason and record" (support, dispatch and admins; reason, record, 30 an hour).
 
 ## Not here
 Refunds and credits stay on support tickets and their limits. «مشكلة؟» and «افتح تذكرة» only open a
