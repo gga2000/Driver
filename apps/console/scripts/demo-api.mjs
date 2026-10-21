@@ -23,6 +23,8 @@
 // car, plate; the caller got the SMS), one finished, one cancelled. POST /demo/phone-accept → a demo
 // taxi driver takes the oldest phone booking still searching (the row turns «السايق جاي» within 10 s and
 // the caller's SMS shows in the order's message log); DEMO_PHONE=0 seeds none (the empty page).
+// POST /demo/lost-item → the finished phone-booking taxi's caller asks «نسيت غرض» and a support case
+// opens on it ({ desk }): its «الزبون ↔ الدليفري» tab offers «انحلّت · سكّر المحادثة».
 // GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
 // check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
