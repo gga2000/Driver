@@ -173,7 +173,7 @@ function PaletteBody({ onClose, onShortcuts }: { onClose: () => void; onShortcut
           group: 'drivers',
           label,
           hint: r.online ? t('console.presence_online') : undefined,
-          href: `/drivers/${encodeURIComponent(r.personId)}/ledger`,
+          href: `/drivers/${encodeURIComponent(r.personId)}`,
         });
     }
     for (const o of orders.data?.rows ?? []) {

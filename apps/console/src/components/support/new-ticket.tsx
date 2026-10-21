@@ -16,8 +16,12 @@ import { Button, cx, Dialog, Field, Input, Segmented, Textarea, useToast } from 
 const KINDS: readonly TicketKind[] = ['complaint', 'dispute', 'incident', 'question'];
 const CHANNELS: readonly Exclude<TicketChannel, 'chat'>[] = ['phone', 'whatsapp', 'in_app'];
 
-/** A ticket for a call or a WhatsApp message. "#1284" as the customer says it finds the order (K-02). */
-export function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * A ticket for a call or a WhatsApp message. "#1284" as the customer says it finds the order (K-02).
+ * From a person's profile («الناس») the ticket is already theirs (`customerId`), and an order row's
+ * «مشكلة؟» brings its order (`orderId`).
+ */
+export function NewTicketDialog({ open, onClose, customerId, orderId: givenOrderId }: { open: boolean; onClose: () => void; customerId?: string; orderId?: string }) {
   const trpc = useTRPC();
   const router = useRouter();
   const toast = useToast();
@@ -51,7 +55,7 @@ export function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () 
   useEffect(() => {
     if (!open) return;
     setSubject('');
-    setOrderId('');
+    setOrderId(givenOrderId ?? '');
     setPicked(null);
     setNote('');
     create.reset();
@@ -67,6 +71,7 @@ export function NewTicketDialog({ open, onClose }: { open: boolean; onClose: () 
       subject: subject.trim(),
       ...(note.trim() ? { note: note.trim() } : {}),
       ...(chosenOrder ? { orderId: chosenOrder } : {}),
+      ...(customerId ? { customerId } : {}),
     });
   };
   return (

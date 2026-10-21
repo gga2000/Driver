@@ -68,6 +68,8 @@ const CANCELLED: ReadonlySet<string> = new Set([
 ]);
 const OPEN_TICKET: ReadonlySet<string> = new Set(['open', 'waiting', 'escalated']);
 /** Taxi and tuktuk rides (not a delivered basket: kept out of the average order). */
+/** «هسة»: still on its way (a delivered order waiting to be closed is done for the customer). */
+const LIVE_STATES = ACTIVE_ORDER_STATES.filter((s) => s !== 'delivered' && s !== 'completed' && s !== 'disputed');
 const RIDE_TYPES: ReadonlySet<string> = new Set(['ride']);
 
 interface CustomerStats {
@@ -282,7 +284,7 @@ export class PeopleReadService implements PeoplePort {
       this.identity.lastActiveAtOf([personId]),
       this.orders.listForPerson(personId),
       this.orders.search({ cityId, ordererIds: [personId], limit: 10 }),
-      this.orders.search({ cityId, ordererIds: [personId], states: ACTIVE_ORDER_STATES, limit: 5 }),
+      this.orders.search({ cityId, ordererIds: [personId], states: LIVE_STATES, limit: 5 }),
       this.support.ticketsOfCustomer(personId, since365),
       this.cityScan(cityId, now),
       this.ledger.eventsSince(`customer:${personId}`, new Date(now.getTime() - 30 * DAY_MS)),
@@ -560,7 +562,7 @@ export class PeopleReadService implements PeoplePort {
 
   async story(input: z.output<typeof StoryInput>): Promise<StoryPage> {
     const now = this.clock.now();
-    const before = input.before ?? new Date(now.getTime() + 1);
+    const before = input.cursor ?? new Date(now.getTime() + 1);
     const want = (k: StoryItem['kind']) =>
       !input.kinds || input.kinds.length === 0 || input.kinds.includes(k);
     const items: StoryItem[] =

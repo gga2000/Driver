@@ -181,7 +181,7 @@ export const StoryInput = z.object({
     .max(4)
     .optional(),
   /** Older than this (the previous page's `nextBefore`). */
-  before: z.coerce.date().optional(),
+  cursor: z.coerce.date().optional(),
   limit: z.number().int().min(1).max(100).default(40),
 });
 export type StoryInput = z.input<typeof StoryInput>;

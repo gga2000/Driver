@@ -316,7 +316,7 @@ describe('PeopleReadService', () => {
         personId: w.ids['regular']!,
         who: 'customer',
         limit: 10,
-        before: first.nextBefore!,
+        cursor: first.nextBefore!,
       }),
     );
     expect(rest.items.map((i) => i.orderId)).toEqual([placed[1], placed[0]]);
