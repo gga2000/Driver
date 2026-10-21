@@ -48,6 +48,8 @@ else {
 }
 await page.getByRole('button', { name: /^ادخل$/ }).click();
 await page.waitForTimeout(1500);
+// The «شغّل صوت الإنذار» prompt would cover the bottom of every shot: turn the sound on once.
+await page.getByRole('button', { name: 'شغّل صوت الإنذار' }).click({ timeout: 5000 }).catch(() => undefined);
 
 // The demo's new shop waits in approvals: approve it so a shop in setup shows.
 await go('/approvals');
@@ -112,6 +114,9 @@ await page.setViewportSize({ width: 390, height: 844 });
 await page.getByRole('tab', { name: 'المنيو' }).click();
 await page.waitForTimeout(SETTLE);
 await shot('12-phone-menu');
+await page.getByRole('tab', { name: 'المحل' }).click();
+await page.waitForTimeout(SETTLE);
+await shot('13-phone-shop', { full: true });
 
 console.log(hasSetup ? '' : '  (no shop in setup in this demo)');
 if (errors.length) console.log('page errors:\n' + errors.join('\n'));
