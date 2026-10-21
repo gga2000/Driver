@@ -3,6 +3,7 @@ import { PeopleCustomersInput, PersonInput, StoryInput } from '@driver/contracts
 import { FleetService, InMemoryFleetRepository } from '../fleet/index.js';
 import { createInMemoryEvents } from '../events/index.js';
 import { dispatchHarness } from '../dispatch/test-harness.js';
+import { PHONE_REVEAL_LIMIT_EVENT, STAFF_PHONE_REVEAL_PURPOSE, STAFF_REVEAL_PER_HOUR } from '../identity/index.js';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { ledgerHarness } from '../ledger/test-harness.js';
 import { ordersHarness } from '../orders/test-harness.js';
@@ -10,7 +11,6 @@ import { ScoringService } from '../scoring/index.js';
 import type { SupportService, TicketRecord } from '../support/index.js';
 import {
   CONSOLE_PEOPLE_PURPOSE,
-  CONSOLE_PHONE_REVEAL_PURPOSE,
   customerSignals,
   medianGapDays,
   PeopleReadService,
@@ -99,6 +99,9 @@ async function world() {
     ['quiet', '07712340012', null],
     ['upset', '07712340013', null],
     ['courier', '07712340014', 'courier'],
+    ['agent', '07712340015', 'support'],
+    ['finance', '07712340016', 'finance'],
+    ['admin', '07712340017', 'admin'],
   ] as const) {
     const { personId } = await id.login(phone);
     if (kind) await id.service.grantRole(SYSTEM, { personId, kind });
@@ -351,15 +354,40 @@ describe('PeopleReadService', () => {
     ).rejects.toThrow();
   });
 
-  it('revealPhone: the whole number, one vault row under its own purpose', async () => {
+  it('revealPhone: support sees the whole number, one vault row under its own purpose', async () => {
     const w = await world();
-    const r = await w.people.revealPhone({ personId: 'staff_1' } as never, {
-      personId: w.ids['quiet']!,
-      reason: 'call_back',
-    });
+    const agent = { personId: w.ids['agent']!, sessionId: 's' };
+    const r = await w.people.revealPhone(agent, { personId: w.ids['quiet']!, reason: 'call_back' });
     expect(r.phone).toContain('7712340012');
-    expect(w.id.repo.accessLogs.map((l) => [l.personId, l.purpose, l.fieldsRead])).toEqual([
-      [w.ids['quiet'], CONSOLE_PHONE_REVEAL_PURPOSE, ['phone_e164']],
+    const rows = w.id.repo.accessLogs.filter((l) => l.purpose === STAFF_PHONE_REVEAL_PURPOSE);
+    expect(rows.map((l) => [l.personId, l.accessorId, l.fieldsRead])).toEqual([
+      [w.ids['quiet'], w.ids['agent'], ['phone_e164']],
     ]);
+  });
+
+  it('revealPhone: refused without a calling desk role, for oneself, and for staff unless admin', async () => {
+    const w = await world();
+    const as = (who: string) => ({ personId: w.ids[who]!, sessionId: 's' });
+    const reveal = (who: string, target: string) =>
+      w.id.service.staffRevealPhone(as(who), w.ids[target]!, 'call_back');
+    await expect(reveal('finance', 'quiet')).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(reveal('courier', 'quiet')).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(reveal('agent', 'agent')).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(reveal('agent', 'finance')).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(reveal('admin', 'finance')).resolves.toContain('7712340016');
+    await expect(
+      w.id.service.staffRevealPhone(as('agent'), w.ids['quiet']!, 'curious' as never),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(w.id.repo.accessLogs.filter((l) => l.purpose === STAFF_PHONE_REVEAL_PURPOSE)).toHaveLength(1);
+  });
+
+  it('revealPhone: 30 an hour per staff member, then refused with a security alert', async () => {
+    const w = await world();
+    const agent = { personId: w.ids['agent']!, sessionId: 's' };
+    for (let i = 0; i < STAFF_REVEAL_PER_HOUR; i += 1)
+      await w.id.service.staffRevealPhone(agent, w.ids['quiet']!, 'call_back');
+    await expect(w.id.service.staffRevealPhone(agent, w.ids['quiet']!, 'call_back')).rejects.toMatchObject({ code: 'rate_limited' });
+    expect(w.id.events.events.some((e) => e.type === PHONE_REVEAL_LIMIT_EVENT)).toBe(true);
+    expect(w.id.repo.accessLogs.filter((l) => l.purpose === STAFF_PHONE_REVEAL_PURPOSE)).toHaveLength(STAFF_REVEAL_PER_HOUR);
   });
 });

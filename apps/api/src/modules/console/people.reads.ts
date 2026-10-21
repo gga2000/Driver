@@ -44,8 +44,6 @@ import { cashHeld, pinState } from './driver-state.js';
 
 /** Vault purpose of the profile header and the list's name / last-4 search (a fail-closed staff read). */
 export const CONSOLE_PEOPLE_PURPOSE = 'console_people';
-/** Vault purpose of «اكشف الرقم»: the whole number, one access row per reveal. */
-export const CONSOLE_PHONE_REVEAL_PURPOSE = 'console_phone_reveal';
 
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
@@ -710,18 +708,15 @@ export class PeopleReadService implements PeoplePort {
   // ───────────────────────── reveal ─────────────────────────
 
   /**
-   * The whole number for a reason the staff member picks: one vault access row (a fail-closed staff
-   * read) and one Console audit row carrying the reason, so «منو شاف الرقم» has the who and the why.
+   * The whole number for a reason the staff member picks. Identity decides who may (role, not their
+   * own or another staff record unless admin, 30 an hour) and writes the vault row; this adds the
+   * Console audit row carrying the reason, so «منو شاف الرقم» has the who and the why.
    */
   async revealPhone(
     actor: Actor,
     input: z.output<typeof RevealPhoneInput>,
   ): Promise<RevealedPhone> {
-    const phone = await this.identity.phoneForCall(
-      input.personId,
-      actor.personId,
-      CONSOLE_PHONE_REVEAL_PURPOSE,
-    );
+    const phone = await this.identity.staffRevealPhone(actor, input.personId, input.reason);
     if (phone === null) throw new DriverError('not_found');
     await this.audits?.record({
       cityId: null,
