@@ -48,7 +48,7 @@ import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { OtpGuard } from './rate-limit.js';
 import { isStagingTestNumber, STAFF_ROLES, type StagingTestConfig } from './staging-test.js';
-import { InMemoryWindowCounter } from '../../shared/window-counter.js';
+import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
 
 const HOUR_MS = 3_600_000;
@@ -111,8 +111,8 @@ export class IdentityService implements IdentityPort {
   private readonly sessions: SessionService;
   private readonly guardians: GuardianService;
   private readonly selfReads: SelfReadLogWindow;
-  /** Staff number reveals per person per hour (`staffRevealPhone`). */
-  private readonly reveals: InMemoryWindowCounter;
+  /** Staff number reveals per person per hour (`staffRevealPhone`), in the shared counter (Redis across machines when set). */
+  private readonly reveals: WindowCounter;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
 
@@ -127,13 +127,14 @@ export class IdentityService implements IdentityPort {
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
     @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort | null,
     @Optional() @Inject(STAGING_TEST) private readonly stagingTest: StagingTestConfig | null = null,
+    @Optional() @Inject(WINDOW_COUNTER) counter?: WindowCounter,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
     this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp ?? undefined, stagingTest);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
-    this.reveals = new InMemoryWindowCounter(clock);
+    this.reveals = counter ?? new InMemoryWindowCounter(clock);
   }
 
   // ───────────────────────── phone helpers ─────────────────────────
