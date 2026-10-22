@@ -164,6 +164,13 @@ describe('MapEditorService — Console › محرر الخريطة (Ali, 2026-10
     expect((await h.svc.inbox(ALI, { cityId: CITY })).cards[0]).toMatchObject({ reporters: 1 });
   });
 
+  it('at the open-report limit, saying the same thing again still answers with the open report', async () => {
+    const h = await setup();
+    const first = await h.svc.report(YASIR, { cityId: CITY, kind: 'moved', target: { kind: 'restaurant', id: h.khalid.id }, pin: MOSQUE });
+    for (let i = 0; i < 19; i += 1) await h.svc.report(YASIR, { cityId: CITY, kind: 'new_place', pin: MOSQUE, name_ar: `مكان ${i}` });
+    expect((await h.svc.report(YASIR, { cityId: CITY, kind: 'moved', target: { kind: 'restaurant', id: h.khalid.id }, pin: NEAR_MOSQUE })).reportId).toBe(first.reportId);
+  });
+
   it('accepting a new place adds it as a landmark with the team’s correction', async () => {
     const h = await setup();
     const { reportId } = await h.svc.report(YASIR, { cityId: CITY, kind: 'new_place', pin: MOSQUE, name_ar: 'دوار الساعه' });
