@@ -9,6 +9,9 @@ const COURIER = '0770 111 0001';
 export default async function run(s) {
   await s.demoPost('/demo/clear?who=courier');
   const p = await s.signIn(COURIER);
+  // A phone that already allowed its location (the headless browser has no GPS prompt to answer).
+  await p.context.grantPermissions(['geolocation']).catch(() => undefined);
+  await p.context.setGeolocation({ latitude: 32.9088, longitude: 45.0648 }).catch(() => undefined);
   await p.wait('online-switch');
   await p.wait('driver-map-home');
   await p.shot('off-shift', { settle: 2500 });
@@ -17,18 +20,20 @@ export default async function run(s) {
   await p.byTestId('online-switch').click();
   const go = p.byTestId('check-go');
   if (await go.waitFor({ timeout: 5000 }).then(() => true, () => false)) await go.click();
-  await p.page.getByText('شغّال · ندورلك طلب').waitFor({ timeout: 30_000 });
-  await p.wait('live-town-layer');
-  await p.shot('working', { settle: 1500 });
+  await p.page.getByText('ندورلك طلب').waitFor({ timeout: 30_000 });
+  // The flat map draws one town layer; the 3D map draws a marker per kitchen.
+  await p.page.locator('[data-testid="live-town-layer"], [data-testid^="live-kitchen"]').first().waitFor({ timeout: 30_000 });
+  await p.shot('working', { settle: 3000 });
   // The next picture: the driver counts (one picture late) and a new ripple in الهاشمي.
   await s.demoPost('/demo/town/tick');
   await p.page.waitForTimeout(21_500);
-  await p.shot('working-later', { settle: 1200 });
+  await p.shot('working-later', { settle: 3000 });
+  if (process.env.LIVE_DEBUG) console.log('me', await p.page.evaluate(() => [...document.querySelectorAll('[data-testid^="live-kitchen"],[data-testid="live-me"]')].map((e) => e.getAttribute('data-testid') + ' ' + e.parentElement.style.transform + ' ' + getComputedStyle(e.parentElement).visibility + ' ' + getComputedStyle(e.parentElement).opacity)));
 
   await s.demoPost('/demo/town/day?who=courier');
   await p.byTestId('live-day-toggle').click();
   await p.wait('live-day-coin');
-  await p.shot('my-day', { settle: 2600 });
+  await p.shot('my-day', { settle: 4000 });
   await p.byTestId('live-day-toggle').click();
 
   await p.context.setOffline(true);

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { router } from 'expo-router';
-import { Linking, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Linking, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { agoText, EmptyState, Icon, Skeleton, SlideToConfirm, Text, useConnectionBanner, useTheme, useToast, type IconName } from '@driver/ui';
 import { BlockedSwitch, GateBanner, PapersBanner } from '@/features/account/GateParts';
@@ -16,11 +16,11 @@ import { MapPeek } from '@/features/home/MapPeek';
 import { ShiftCheckSheet, useShiftCheckDue } from '@/features/home/ShiftCheck';
 import { ActiveJobBanner } from '@/features/work/HomeParts';
 import { ClimateCheckCard } from '@/features/work/ClimateCheck';
-import { mapsUrl, VEHICLE_ICON } from '@/features/work/logic';
-import { DriverMap } from '@/features/map/DriverMap';
+import { mapsUrl } from '@/features/work/logic';
+import { LiveBottom, LiveRow, type LiveNotice } from '@/features/livehome/LiveBottom';
 import { LiveTop } from '@/features/livehome/LiveTop';
-import { TownLayer } from '@/features/livehome/TownLayer';
-import { dayPoints, dayStops } from '@/features/livehome/pulse-logic';
+import { LiveTownMap } from '@/features/livehome/LiveTownMap';
+import { dayStops } from '@/features/livehome/pulse-logic';
 import { useMyDay, useTownPulse } from '@/features/livehome/queries';
 import { openNav, useNavApp } from '@/features/work/nav';
 import { ReadinessRow } from '@/features/work/ReadinessRow';
@@ -33,13 +33,6 @@ import { usePresence } from '@/features/work/usePresence';
 import { useLocale, useT } from '@/lib/i18n';
 import { formatClock, formatWhen, type Locale } from '@driver/i18n';
 import { LIVE_PARTNER_KEY, useLiveMode } from '@/lib/live';
-
-/** The busy-area glow on the live home: faint, so it never covers the map (Ali, 2026-10-22: "very subtle"). */
-const LIVE_GLOW = 0.45;
-/** The live home's view: his part of town, about 2 km across. */
-const LIVE_ZOOM = 13.9;
-/** The bottom sheet's cards scroll past this share of the screen; the map keeps the rest. */
-const SHEET_MAX = 0.2;
 
 /** «7:42 م» in Baghdad time, Western digits, 12-hour with ص/م like every time in the app (check-up item 8). */
 function clockOf(d: Date, locale: Locale): string {
@@ -74,8 +67,6 @@ export default function Home() {
   const [day, setDay] = useState(false);
   const myDay = useMyDay(day && (s?.canDrive ?? false));
   const dayTrail = useMemo(() => dayStops(myDay.data), [myDay.data]);
-  const dayFrame = useMemo(() => (day ? dayPoints(dayTrail) : undefined), [day, dayTrail]);
-  const { height } = useWindowDimensions();
   const [topH, setTopH] = useState(0);
   const [bottomH, setBottomH] = useState(0);
   // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
@@ -240,30 +231,67 @@ export default function Home() {
     </>
   );
 
-  // «المدينة حيّة» (Ali, 2026-10-22): a driver's home is the live map; fleet owners and field ops keep the hub.
+  // «المدينة حيّة» (Ali, 2026-10-22, the concept he picked): a driver's home is the live 3D map with two
+  // pills on top and one slim card over the slide; fleet owners and field ops keep the hub.
   if (s?.canDrive) {
-    const note = day ? (dayTrail.length === 0 && myDay.isSuccess ? t('partner.live_my_day_empty') : null) : !online && !gate ? t('partner.live_off_hint') : null;
+    const shortOf: Partial<Record<AttentionKind, { short: string; icon: IconName }>> = {
+      cash: { short: t(cashLoudness(s.cash) === 'blocked' ? 'partner.cash_blocked_title' : 'partner.cash_near_title'), icon: 'cash' },
+      papers: { short: t('partner.live_notice_papers'), icon: 'clock' },
+      invite: { short: t('partner.live_notice_invite'), icon: 'car' },
+      climate: { short: t('partner.live_notice_climate'), icon: 'snow' },
+    };
+    const notices: LiveNotice[] = attention.map((a) => ({ key: a.key, node: a.node, short: shortOf[a.key]?.short ?? null, icon: shortOf[a.key]?.icon ?? 'bell' }));
+    const kitchens = online && !day ? (town.data?.kitchens.length ?? 0) : 0;
+    const note = day && dayTrail.length === 0 && myDay.isSuccess ? t('partner.live_my_day_empty') : null;
+    const extras = (
+      <>
+        {!cut && (conn.kind === 'stale' || status.isError) ? (
+          <View
+            testID={status.isError ? 'home-connection-lost' : 'home-stale'}
+            accessibilityLiveRegion="polite"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: 16, backgroundColor: theme.colors.warningTint }}
+          >
+            <Icon name="clock" size={18} color="warningText" />
+            <Text variant="label" color="warningText" style={{ flex: 1 }}>
+              {status.isError ? t('partner.connection_lost') : t('net.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })}
+            </Text>
+          </View>
+        ) : null}
+        <LostItemStrips />
+        {practice ? <LiveRow testID="mode-practice" icon="play" title={t('partner.practice_card_title')} cta={t('partner.practice_card_cta')} onPress={() => router.push('/practice')} /> : null}
+        {s.modes.includes('intercity') ? <LiveRow testID="mode-intercity" icon="garage" title={t('partner.intercity_card_title')} cta={t('partner.intercity_card_cta')} onPress={() => router.push('/intercity')} /> : null}
+        {s.modes.includes('khat') ? <LiveRow testID="mode-khat" icon="seat" title={t('partner.khat_card_title')} cta={t('partner.khat_card_cta')} onPress={() => router.push('/khat')} /> : null}
+        {booked ? (
+          <LiveRow
+            testID="mode-booked"
+            icon="taxi"
+            title={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
+            cta={t('partner.booked_home_cta')}
+            onPress={() => router.push('/booked')}
+          />
+        ) : null}
+        {!gate ? <ReadinessRow /> : null}
+      </>
+    );
     return (
       <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
-        <DriverMap
-          testID="driver-map-home"
+        <LiveTownMap
           self={s.position ?? null}
-          vehicleIcon={VEHICLE_ICON[vehicle]}
           online={online}
-          {...(online ? { heat: demandGlow.data?.zones ?? [], heatAt: demandGlow.data?.at.getTime() ?? 0, heatStrength: LIVE_GLOW } : {})}
-          layers={(m) => <TownLayer cam={m.cam} size={m.size} pulse={online && !day ? (town.data ?? null) : null} day={day ? dayTrail : null} />}
-          frame={dayFrame}
+          vehicle={vehicle}
+          pulse={online && !cut ? (town.data ?? null) : null}
+          day={day ? dayTrail : null}
+          glow={demandGlow.data?.zones ?? []}
+          glowAt={demandGlow.data?.at.getTime() ?? 0}
           topInset={topH}
           bottomInset={bottomH}
-          soloZoom={LIVE_ZOOM}
         />
         <LiveTop
           state={state}
           name={firstName(me.data?.name)}
-          vehicle={vehicle}
           earningsIqd={s.today.earningsIqd}
           jobs={s.today.jobs}
-          sinceClock={online && s.onlineSince ? clockOf(s.onlineSince, locale) : null}
+          busyTown={(town.data?.kitchens.length ?? 0) > 0 || (s.demand != null && s.demand.level !== 'quiet')}
           cutTitle={t(conn.net.state === 'unreachable' ? 'partner.net_unreachable_title' : 'partner.net_offline_title')}
           cutBody={t('partner.net_offline_body', { ago: agoText(conn.ageSeconds ?? 0, t) })}
           day={day}
@@ -271,35 +299,7 @@ export default function Home() {
           note={note}
           onLayout={setTopH}
         />
-        <View
-          testID="live-sheet"
-          onLayout={(e) => setBottomH(e.nativeEvent.layout.height)}
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            start: 0,
-            end: 0,
-            backgroundColor: theme.colors.bg,
-            borderTopLeftRadius: 26,
-            borderTopRightRadius: 26,
-            paddingTop: theme.space[2],
-            shadowColor: theme.colors.text,
-            shadowOpacity: 0.12,
-            shadowRadius: 16,
-            shadowOffset: { width: 0, height: -4 },
-            elevation: 8,
-          }}
-        >
-          <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, marginBottom: theme.space[1] }} />
-          <ScrollView style={{ maxHeight: Math.round(height * SHEET_MAX) }} contentContainerStyle={{ paddingHorizontal: theme.space[4], paddingTop: theme.space[2], gap: theme.space[3] }}>
-            <View style={[column, { gap: theme.space[3] }]}>{cards}</View>
-          </ScrollView>
-          {showSlide ? (
-            <SafeAreaView edges={['bottom']} style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[3], paddingTop: theme.space[3] }}>
-              <View style={column}>{slideControl}</View>
-            </SafeAreaView>
-          ) : null}
-        </View>
+        <LiveBottom notices={notices} extras={extras} hint={day ? null : hint} kitchens={kitchens} onGo={goThere} slide={showSlide ? slideControl : null} onLayout={setBottomH} />
         {overlays}
       </View>
     );

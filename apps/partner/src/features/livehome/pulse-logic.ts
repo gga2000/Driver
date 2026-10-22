@@ -106,3 +106,25 @@ export function coinSides(stops: readonly DayStop[]): Array<'above' | 'below'> {
     return 'above';
   });
 }
+
+/** The live map's zoom range: far enough to see a few kitchens, never so far the houses turn pale and flat (the Golden style thins them under ~15.7). */
+export const LIVE_ZOOM_MAX = 16.3;
+export const LIVE_ZOOM_MIN = 15.8;
+
+/**
+ * How close the home opens: near enough to see the nearest two kitchens cooking around him (within
+ * about 1.2 km), the closest view when there are none. `halfWidthPx` is half the map's width.
+ */
+export function framingZoom(self: LngLat, kitchens: readonly { at: LngLat }[], halfWidthPx = 195): number {
+  const metres = (a: LngLat) => Math.hypot((a.lng - self.lng) * 93_400, (a.lat - self.lat) * 110_540);
+  const near = kitchens
+    .map((k) => metres(k.at))
+    .filter((d) => d <= 1_200)
+    .sort((a, b) => a - b)
+    .slice(0, 2);
+  const far = near[near.length - 1];
+  if (!far) return LIVE_ZOOM_MAX;
+  // Metres per pixel at zoom z here: 131,300 / 2^z; keep the farther of them inside 80 % of the half-width.
+  const z = Math.log2((0.8 * halfWidthPx * 131_300) / far);
+  return Math.round(Math.min(LIVE_ZOOM_MAX, Math.max(LIVE_ZOOM_MIN, z)) * 10) / 10;
+}

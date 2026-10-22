@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { coinSides, dayPoints, dayStops, FIRST_RIPPLES, justReady, newRipples, rippleSpot } from './pulse-logic';
+import { coinSides, dayPoints, dayStops, FIRST_RIPPLES, framingZoom, justReady, LIVE_ZOOM_MAX, LIVE_ZOOM_MIN, newRipples, rippleSpot } from './pulse-logic';
 
 const k = (id: string, state: 'cooking' | 'ready') => ({
   id,
@@ -59,5 +59,17 @@ describe('live home pulse logic', () => {
     const at = (lat: number, lng: number) => ({ lat, lng });
     const stop = (id: string, d: { lat: number; lng: number } | null) => ({ tripId: id, pickup: null, dropoff: d, earnedIqd: 500 });
     expect(coinSides([stop('a', at(32.91, 45.06)), stop('b', at(32.9105, 45.061)), stop('c', at(32.89, 45.07)), stop('d', null)])).toEqual(['above', 'below', 'above', 'above']);
+  });
+
+  it('opens close with no kitchens near, and steps back just enough to see the nearest two', () => {
+    const me = { lat: 32.905, lng: 45.06 };
+    const at = (dLng: number) => ({ at: { lat: me.lat, lng: me.lng + dLng } });
+    expect(framingZoom(me, [])).toBe(LIVE_ZOOM_MAX);
+    expect(framingZoom(me, [at(0.05)])).toBe(LIVE_ZOOM_MAX); // ~4.7 km away: not "near"
+    expect(framingZoom(me, [at(0.001)])).toBe(LIVE_ZOOM_MAX); // ~90 m
+    const mid = framingZoom(me, [at(0.001), at(0.003), at(0.009)]); // second is ~280 m
+    expect(mid).toBeGreaterThan(LIVE_ZOOM_MIN);
+    expect(mid).toBeLessThan(LIVE_ZOOM_MAX);
+    expect(framingZoom(me, [at(0.011), at(-0.012)])).toBe(LIVE_ZOOM_MIN); // ~1.1 km
   });
 });
