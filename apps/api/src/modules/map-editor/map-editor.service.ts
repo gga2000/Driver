@@ -358,6 +358,11 @@ export class MapEditorService implements MapEditorPort {
       const known = input.target.kind === 'landmark' ? layers.landmarks.some((l) => l.id === input.target?.id && !l.hidden) : layers.restaurants.some((r) => r.orgId === input.target?.id);
       if (!known) throw new DriverError('map_place_unknown');
     }
+    // The same person saying the same thing again (a second tap, «جان هنا؟» after the menu) is one report.
+    if (input.target) {
+      const same = (await this.repo.openReports(input.cityId)).find((r) => r.reporterId === actor.personId && r.kind === input.kind && r.targetKind === input.target?.kind && r.targetId === input.target?.id);
+      if (same) return { reportId: same.id };
+    }
     const roles = await this.identity.activeRoles(actor.personId);
     const row = await this.repo.addReport({
       cityId: input.cityId,
