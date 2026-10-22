@@ -397,6 +397,8 @@ export const PartnerJobStop = z.object({
   pin: LatLng.nullable(),
   /** Merchant name at a pickup, null at the customer's door. */
   label: z.string().nullable(),
+  /** The kitchen's org at a pickup from one of our merchants, so «الخريطة غلط» names the right restaurant; absent otherwise. */
+  merchantOrgId: z.string().nullable().optional(),
   orderId: z.string().nullable(),
   /** The customer's courier note ("باب أخضر، يم الجامع"). */
   note: z.string().nullable(),
