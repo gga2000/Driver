@@ -129,15 +129,14 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
   /**
    * A shop field ops signed up (ops onboarding: an org with no storefront, customers can't see it yet)
    * starts «جهّز محلك» the first time its status or setup is read, so the ops module stays as it is.
-   * A shop with a storefront or a menu is from before setup and never changes.
+   * A shop with a storefront is from before setup and never changes.
    */
   async adopt(org: Org): Promise<void> {
     if (this.older.has(org.id)) return;
     if (org.type !== 'restaurant' && org.type !== 'grocer') return;
     const s = await this.stores.merchantSettings(org.id);
     if (s.setup) return;
-    // A storefront or dishes already on the menu: a shop from before setup (or the simulator's), never closed by it.
-    if ((await this.catalog.storefront(org.id)) || (await this.catalog.menu(org.id)).length > 0) {
+    if (await this.catalog.storefront(org.id)) {
       this.older.add(org.id);
       return;
     }

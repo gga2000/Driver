@@ -88,15 +88,7 @@ export class StoresConsoleService implements StoresOpsPort {
 
   /** The city's restaurants and grocers: setup steps, menu gaps and the last Console edit; still in setup first. */
   async list(_actor: Actor, input: StoresInput): Promise<StoreRow[]> {
-    const found = (await this.orgs.inCity(input.cityId)).filter((o) => STORE_TYPES.has(o.type));
-    // A shop field ops just signed up starts «جهّز محلك» the first time it is read (as in the owner's app).
-    const orgs = await Promise.all(
-      found.map(async (o) => {
-        if (o.merchant?.setup) return o;
-        await this.setups.adopt(o);
-        return this.orgs.get(o.id);
-      }),
-    );
+    const orgs = (await this.orgs.inCity(input.cityId)).filter((o) => STORE_TYPES.has(o.type));
     const fronts = new Map((await this.catalog.storefronts(input.cityId)).map((f) => [f.orgId, f]));
     const rows = await Promise.all(
       orgs.map(async (org): Promise<StoreRow> => {
@@ -117,13 +109,16 @@ export class StoresConsoleService implements StoresOpsPort {
             )
           : null;
         const total = progress?.total ?? 7;
+        // A shop field ops just signed up (no storefront, no dishes) shows as in setup before anything
+        // adopts it; the list only reads.
+        const unstarted = !s?.setup && !front && menu.length === 0;
         return {
           merchantOrgId: org.id,
           name: org.name,
           type: org.type as StoreRow['type'],
           photoUrl: itemPhotoUrl(this.blobs, front?.photoUrl ?? s?.setup?.shopPhotoRef ?? null),
-          state: this.stateOf(org),
-          steps: { done: progress?.done ?? total, total, next: progress?.next ?? null },
+          state: unstarted ? 'setup' : this.stateOf(org),
+          steps: { done: unstarted ? 0 : (progress?.done ?? total), total, next: progress?.next ?? null },
           dishes: menu.length,
           dishesNoPhoto,
           lastEdit: last[0] ? { at: last[0].at, actorName: last[0].actorName } : null,

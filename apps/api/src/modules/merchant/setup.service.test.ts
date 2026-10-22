@@ -104,15 +104,6 @@ describe('merchant setup — who sees it', () => {
     expect((await orgs.merchantSettings(old.id)).setup).toBeNull();
   });
 
-  it('a shop with dishes but no storefront (the simulator\'s) is never put into setup or closed', async () => {
-    const { svc, orgs, catalog } = await harness();
-    const sim = await orgs.create({ type: 'restaurant', name: 'مطعم الريف', cityId: 'aziziyah', ownerId: 'o3' });
-    await catalog.upsertItem(sim.id, { patch: { nameAr: 'تكة', priceIqd: 6000, categoryAr: 'مشويات' } }, 'o3');
-    await svc.adopt(sim);
-    expect((await orgs.merchantSettings(sim.id)).setup).toBeNull();
-    expect((await orgs.merchantSettings(sim.id)).closed).toBeNull();
-  });
-
   it('a new shop is adopted once: reading it twice changes nothing more', async () => {
     const { svc, fresh, orgs, recorded } = await harness();
     const first = (await orgs.merchantSettings(fresh.id)).setup;

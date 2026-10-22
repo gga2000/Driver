@@ -11,7 +11,7 @@ const edit = protectedProcedure(STORE_SETUP_EDIT_ROLES);
 /**
  * `ops.stores.*` — Console › المطاعم (Ali, 2026-10-21): Driver's team sets a restaurant up and keeps its
  * menu for the owner. Field ops and admins change, support reads. The owner's own rules apply, each
- * change is audited under the staff member's name, and prices of a shop already open stay the owner's.
+ * change is audited under the staff member's name, and the owner sees it in «فريقنا عدّل بمحلك».
  */
 export const opsStoresRouter = router({
   list: read.input(StoresInput).output(z.array(StoreRow)).query(({ ctx, input }) => ctx.stores.list(ctx.actor, input)),

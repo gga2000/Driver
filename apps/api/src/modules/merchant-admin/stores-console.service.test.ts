@@ -54,6 +54,7 @@ async function setup(start = '2026-10-21T09:00:00Z') {
   await orgs.setMerchantSettings(fresh.id, { setup: newSetupState(clock.now()) });
   // A shop from before setup: open to customers.
   const open = await orgs.create({ type: 'restaurant', name: 'مأكولات الشام', cityId: 'aziziyah', ownerId: 'owner_sham' });
+  await catalog.upsertItem(open.id, { patch: { nameAr: 'شاورما', priceIqd: 3000, categoryAr: 'سندويشات' } }, 'owner_sham');
   return { id, clock, ev, catalog, orgs, menus, audits, svc, ops, person, shopCalls, adopted, fresh: fresh.id, open: open.id };
 }
 
@@ -95,6 +96,15 @@ describe('ops.stores: the team sets a new shop up', () => {
     expect(rows[0]).toMatchObject({ dishes: 1, dishesNoPhoto: 1, steps: { total: 7 }, lastEdit: { at: h.clock.now() } });
     expect(rows[0]!.steps.done).toBeLessThan(7);
     expect(rows[1]).toMatchObject({ steps: { done: 7, total: 7, next: null }, lastEdit: null });
+  });
+
+  it('shows a bare shop field ops just signed up as in setup, and the list never writes', async () => {
+    const h = await setup();
+    const bare = await h.orgs.create({ type: 'restaurant', name: 'باچة أبو علي', cityId: 'aziziyah', ownerId: 'owner_ali' });
+    const rows = await h.svc.list(h.ops, { cityId: 'aziziyah' });
+    expect(rows.find((r) => r.merchantOrgId === bare.id)).toMatchObject({ state: 'setup', steps: { done: 0, total: 7 } });
+    expect(h.adopted).toEqual([]);
+    expect((await h.orgs.merchantSettings(bare.id)).setup).toBeNull();
   });
 
   it('refuses a library file that is not in the library, and a store that is not a shop', async () => {

@@ -455,8 +455,8 @@ export class MerchantAdminService implements MerchantAdminPort {
 
   /**
    * The Console's «الصق المنيو» (`ops.stores.addItems`): pasted dishes created in one go, after the
-   * menu's last dish, with their first price-history rows. A shop open to customers refuses it (each
-   * row sets a price, and prices there are the owner's).
+   * menu's last dish, with their first price-history rows. Open shops too (Ali, 2026-10-21: "change
+   * now, tell the owner"): each change is audited and shown to the owner in «فريقنا عدّل بمحلك».
    */
   async opsAddItems(actor: Actor, input: { merchantOrgId: string; categoryAr?: string | null | undefined; items: ReadonlyArray<{ nameAr: string; priceIqd: number }> }): Promise<AdminMenu> {
     await this.access(actor, input.merchantOrgId, 'owner', 'console');
