@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { EmptyState, Skeleton, Text, useTheme } from '@driver/ui';
+import { OwnerOnly } from '@/components/OwnerOnly';
 import { Page } from '@/components/Page';
 import { Glyph } from '@/features/menu/Glyph';
 import { Panel } from '@/features/menu/parts';
@@ -36,15 +37,13 @@ export function StaffChangesScreen() {
       {body}
     </Page>
   );
-  if (store && !owner) return page(<EmptyState icon="lock" title={t('merchant.staff_changes.owner_only')} />);
+  if (store && !owner) return <OwnerOnly title={t('merchant.staff_changes.title')} back testID="staff-changes" />;
   if (!changes.data) {
     return page(
       changes.isError ? (
         <EmptyState icon="x" title={t('merchant.common.error')} action={{ label: t('merchant.menu.retry'), onPress: () => void changes.refetch() }} />
       ) : (
-        <View style={{ gap: theme.space[3] }}>
-          <Skeleton height={160} radius={theme.radius.xl} />
-        </View>
+        <Skeleton height={160} radius={theme.radius.xl} />
       ),
     );
   }
@@ -75,7 +74,7 @@ export function StaffChangesScreen() {
                 </View>
                 {fresh ? (
                   <Text variant="caption" weight={700} color="accentText">
-                    {t('merchant.staff_changes.new')}
+                    {t('merchant.board.col_new')}
                   </Text>
                 ) : null}
               </View>
