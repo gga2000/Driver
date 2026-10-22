@@ -40,12 +40,10 @@ export function StaffChangesScreen() {
   if (!changes.data) {
     return page(
       changes.isError ? (
-        <EmptyState icon="x" title={t('merchant.staff_changes.load_failed')} action={{ label: t('merchant.menu.retry'), onPress: () => void changes.refetch() }} />
+        <EmptyState icon="x" title={t('merchant.common.error')} action={{ label: t('merchant.menu.retry'), onPress: () => void changes.refetch() }} />
       ) : (
         <View style={{ gap: theme.space[3] }}>
-          <Skeleton height={72} radius={theme.radius.xl} />
-          <Skeleton height={72} radius={theme.radius.xl} />
-          <Skeleton height={72} radius={theme.radius.xl} />
+          <Skeleton height={160} radius={theme.radius.xl} />
         </View>
       ),
     );
@@ -54,9 +52,6 @@ export function StaffChangesScreen() {
   const now = Date.now();
   return page(
     <>
-      <Text variant="body" color="textMuted">
-        {t('merchant.staff_changes.intro')}
-      </Text>
       {changes.data.length === 0 ? (
         <EmptyState icon="check" title={t('merchant.staff_changes.empty')} />
       ) : (
@@ -75,7 +70,7 @@ export function StaffChangesScreen() {
                 <View style={{ flex: 1, gap: theme.space[1] }}>
                   <Text variant="bodyStrong">{c.summaryAr}</Text>
                   <Text variant="caption" color="textMuted">
-                    {(c.byFirstName ? t('merchant.staff_changes.by', { name: c.byFirstName }) : t('merchant.staff_changes.by_team')) + ' · ' + dates.when(c.at, now)}
+                    {(c.byFirstName ? t('merchant.staff_changes.by', { name: c.byFirstName }) + ' · ' : '') + dates.when(c.at, now)}
                   </Text>
                 </View>
                 {fresh ? (
