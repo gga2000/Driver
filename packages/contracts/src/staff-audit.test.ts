@@ -94,6 +94,8 @@ const AUDITED = [
   'identity.endAllSessions',
   // Admins put failed outbox rows back on the queue: the audit row commits with the requeue.
   'system.requeueOutbox',
+  // «الناس»: showing a whole phone number writes an audit row with the reason (and a vault access row).
+  'people.revealPhone',
 ];
 
 /** Staff writes with no console audit row yet (CON-10; logging lands in E3). Reason per line. */
