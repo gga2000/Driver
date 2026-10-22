@@ -50,6 +50,10 @@
     "./speed-report": {
       "types": "./dist/speed-report.d.ts",
       "default": "./dist/speed-report.js"
+    },
+    "./town-pulse": {
+      "types": "./dist/town-pulse-io.d.ts",
+      "default": "./dist/town-pulse-io.js"
     }
   },
   "scripts": {
