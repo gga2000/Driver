@@ -2534,11 +2534,11 @@ async function rideShots() {
   if (box) {
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
-    // The steps open close in (zoom 17), so four drags carry the pin the same ~800 m.
-    for (let n = 0; n < 4; n++) {
+    // Step 2 opens at zoom 15.6 (room for the street line), so two shorter drags carry the pin the same ~800 m.
+    for (let n = 0; n < 2; n++) {
       await page.mouse.move(x, y);
       await page.mouse.down();
-      for (let i = 1; i <= 14; i++) await page.mouse.move(x + i * 12, y + i * 22, { steps: 2 });
+      for (let i = 1; i <= 14; i++) await page.mouse.move(x + i * 9, y + i * 16.5, { steps: 2 });
       await page.mouse.up();
       await settle(300);
     }

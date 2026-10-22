@@ -83,6 +83,8 @@ export interface ChatRepository {
   reopenForLostItem(threadId: string, until: Date, at: Date, tx: Tx): Promise<ChatThreadRecord>;
   /** s7: threads reopened for a lost item that are still open at `now`. */
   lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]>;
+  /** s7 «انحلّت»: ends a still-open lost-item window at `at`; false when it was not open (already resolved or over). */
+  resolveLostItem(threadId: string, at: Date, tx: Tx): Promise<boolean>;
 }
 
 export const CHAT_REPOSITORY = Symbol('CHAT_REPOSITORY');
@@ -193,6 +195,13 @@ export class InMemoryChatRepository implements ChatRepository {
 
   async lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]> {
     return [...this.threads.values()].filter((t) => t.lostItemUntil !== null && t.lostItemUntil.getTime() > now.getTime()).map((t) => ({ ...t }));
+  }
+
+  async resolveLostItem(threadId: string, at: Date): Promise<boolean> {
+    const t = this.threads.get(threadId);
+    if (!t || !t.lostItemUntil || t.lostItemUntil.getTime() <= at.getTime()) return false;
+    t.lostItemUntil = at;
+    return true;
   }
 }
 
@@ -360,5 +369,11 @@ export class PrismaChatRepository implements ChatRepository {
 
   async lostItemThreadsOpen(now: Date): Promise<ChatThreadRecord[]> {
     return (await this.db().chatThread.findMany({ where: { lostItemUntil: { gt: now } }, orderBy: { lostItemAskedAt: 'desc' } })).map(threadOf);
+  }
+
+  async resolveLostItem(threadId: string, at: Date, tx: Tx): Promise<boolean> {
+    // Conditional, so two people pressing «انحلّت» together write the closing line once.
+    const r = await this.db(tx).chatThread.updateMany({ where: { id: threadId, lostItemUntil: { gt: at } }, data: { lostItemUntil: at } });
+    return r.count > 0;
   }
 }
