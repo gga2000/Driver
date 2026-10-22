@@ -249,6 +249,10 @@ export const ChatParticipant = z.object({
 });
 export type ChatParticipant = z.infer<typeof ChatParticipant>;
 
+/** s7: a «نسيت غرض» chat still open, or closed early by the rider, the driver or support («انحلّت»). */
+export const ChatLostItemState = z.enum(['open', 'resolved']);
+export type ChatLostItemState = z.infer<typeof ChatLostItemState>;
+
 export const ChatThreadView = z.object({
   threadId: z.string().nullable(),
   orderId: z.string(),
@@ -270,6 +274,11 @@ export const ChatThreadView = z.object({
   quickReplies: z.array(QuickReplyKey),
   /** Whether the reader may ask for a masked call in this thread right now. */
   canCall: z.boolean(),
+  /**
+   * s7 «نسيت غرض» on the driver chat: `open` while a lost-item ask keeps it open (any party or support
+   * may resolve it), `resolved` once someone did, null otherwise.
+   */
+  lostItem: ChatLostItemState.nullable(),
   serverNow: z.coerce.date(),
 });
 export type ChatThreadView = z.infer<typeof ChatThreadView>;
@@ -283,6 +292,8 @@ export const ChatThreadSummary = z.object({
   unread: z.number().int().min(0),
   lastMessageAt: z.coerce.date().nullable(),
   canCall: z.boolean(),
+  /** s7: the lost-item state of the driver chat (see `ChatThreadView.lostItem`). */
+  lostItem: ChatLostItemState.nullable(),
 });
 export type ChatThreadSummary = z.infer<typeof ChatThreadSummary>;
 
@@ -352,6 +363,10 @@ export const ChatLostItemResult = z.object({
   openUntil: z.coerce.date(),
 });
 export type ChatLostItemResult = z.infer<typeof ChatLostItemResult>;
+
+/** s7 «انحلّت»: the rider, the driver or support closes the reopened chat before its 24 h are up. */
+export const ChatResolveLostItemInput = z.object({ orderId: z.string().min(1) });
+export type ChatResolveLostItemInput = z.infer<typeof ChatResolveLostItemInput>;
 
 /** A reopened «نسيت غرض» chat on the driver's side (the partner app lists them until they close). */
 export const ChatLostItemThread = z.object({
@@ -425,4 +440,5 @@ export interface ChatPort {
   lostItem(actor: Actor, input: ChatLostItemInput): Promise<ChatLostItemResult>;
   /** s7: the driver's reopened «نسيت غرض» chats that are still open, newest first. */
   lostItems(actor: Actor): Promise<ChatLostItemThread[]>;
+  resolveLostItem(actor: Actor, input: ChatResolveLostItemInput): Promise<ChatThreadView>;
 }

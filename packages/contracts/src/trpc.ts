@@ -28,6 +28,7 @@ import type { ShoppingPort } from './shopping-io.js';
 import type { FoodCartsPort } from './food-carts-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
+import type { MapEditorPort } from './map-editor-io.js';
 import type { MerchantSetupPort } from './merchant-setup-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
@@ -131,6 +132,8 @@ export interface AppContext {
   accountClose: AccountClosePort;
   /** Zone outlines drawn in the Console (`modules/zones`). */
   zones: ZonesPort;
+  /** Console › محرر الخريطة: restaurants, landmarks, history and fixes inbox (`modules/map-editor`). */
+  mapEditor: MapEditorPort;
   /** N20 «شارع مسدود»: streets closed for today (`modules/closures`). */
   closures: ClosuresPort;
   /** «الناس»: customer and driver profiles in the Console (`modules/console`). */

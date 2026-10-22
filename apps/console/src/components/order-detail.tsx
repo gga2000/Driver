@@ -36,6 +36,7 @@ import { badRating } from '@/lib/rating-case';
 import { CopyId, ItemName, OrgName, PersonName } from './named';
 import { OrderReplay } from './order-replay';
 import { OrderStatus } from './order-status';
+import { ErrandReceiptAction, errandReceiptOpen } from './errand/receipt-action';
 import { StuckStrip } from './stuck/strip';
 import { canTakeOff, TakeOffDialog } from './dispatch/take-off';
 import {
@@ -141,6 +142,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     <Frame>
       <Header o={o} lateMin={lateMin} riskMin={risk?.lateByMin ?? null} courierId={courierId} trip={lastTrip.data ?? null} now={now} />
       <StuckStrip orderId={o.id} />
+      {errandReceiptOpen(o) ? <ErrandReceiptAction orderId={o.id} banner /> : null}
       {o.rating && badRating(o.rating) ? <RatingCase o={o} courierId={courierId} /> : null}
       <section aria-labelledby="order-story" className="rounded-lg border border-line bg-surface shadow-card">
         <Facts o={o} courierId={courierId} zoneKey={row?.zoneKey ?? null} />

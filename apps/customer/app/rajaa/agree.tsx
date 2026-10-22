@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AgreementKind, LatLng } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
 import { Button, Icon, IconButton, Text, TextField, useTheme, useToast } from '@driver/ui';
-import { currentFix, locationDeniedToast } from '@/features/account/device';
+import { currentFix, locationDeniedToast, locationWeakToast } from '@/features/account/device';
 import { PinPicker } from '@/features/places/PinPicker';
 import { useAskAgreement } from '@/features/rajaa/queries';
 import { apiErrorMessage } from '@/lib/api';
@@ -48,7 +48,7 @@ export default function AskAgreedPrice() {
     const fix = await currentFix();
     setLocating(false);
     if (fix === 'denied') toast.show(locationDeniedToast(t));
-    else if (!fix) toast.show({ message: t('error.location_weak'), tone: 'danger' });
+    else if (!fix) toast.show(locationWeakToast(t));
     else setRecentre({ pin: fix.pin, seq: Date.now(), ...(fix.accuracyM ? { accuracyM: fix.accuracyM } : {}) });
   };
 

@@ -32,6 +32,8 @@ export function usePresence(status: PartnerStatus | undefined) {
   const locale = useLocale();
   const toast = useToast();
   const on = useGoOnline();
+  // The background beat has its own mutation, so the slider's «دنوقّفك…» spinner is only his own tap.
+  const beat = useGoOnline();
   const off = useGoOffline();
   const statusRef = useRef(status);
   statusRef.current = status;
@@ -42,7 +44,7 @@ export function usePresence(status: PartnerStatus | undefined) {
     const id = setInterval(() => {
       const s = statusRef.current;
       // No fix at all: skip this beat rather than report a made-up place (presence lapses after 90 s).
-      void bestFix().then((at) => (at ? on.mutateAsync({ at, ...(s?.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }) : undefined)).catch(() => undefined);
+      void bestFix().then((at) => (at ? beat.mutateAsync({ at, ...(s?.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }) : undefined)).catch(() => undefined);
     }, HEARTBEAT_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -42,6 +42,7 @@ export interface ZonesRepository {
   create(input: CreateZoneRecord, tx?: Tx): Promise<ZoneRecord>;
   rename(cityId: string, key: string, nameAr: string, nameEn: string, tx?: Tx): Promise<ZoneRecord | null>;
   remove(cityId: string, key: string, tx?: Tx): Promise<boolean>;
+  setTier(cityId: string, key: string, tier: ZoneTier, tx?: Tx): Promise<ZoneRecord | null>;
   /**
    * placed → confirmed, only while the outline is still the one placed at `outlineAt` (a redraw since
    * the drivers answered wins). Null when the zone moved on.
@@ -103,6 +104,17 @@ export class InMemoryZonesRepository implements ZonesRepository {
     const row = this.rows.get(k);
     if (!row || row.active === false) return null;
     const updated = { ...row, nameAr, nameEn };
+    this.rows.set(k, updated);
+    this.afterWrite();
+    return copy(updated);
+  }
+
+  async setTier(cityId: string, key: string, tier: ZoneTier): Promise<ZoneRecord | null> {
+    this.ensure(cityId);
+    const k = rowKey(cityId, key);
+    const row = this.rows.get(k);
+    if (!row || row.active === false) return null;
+    const updated = { ...row, tier };
     this.rows.set(k, updated);
     this.afterWrite();
     return copy(updated);
@@ -248,6 +260,13 @@ export class PrismaZonesRepository implements ZonesRepository {
   async rename(cityId: string, key: string, nameAr: string, nameEn: string, tx?: Tx): Promise<ZoneRecord | null> {
     const rows = await this.db(tx).$queryRaw<ZoneRow[]>`
       UPDATE "public"."zones" SET "name_ar" = ${nameAr}, "name_en" = ${nameEn}, "updated_at" = NOW()
+      WHERE "city_id" = ${cityId} AND "key" = ${key} AND "is_active" = true RETURNING ${COLUMNS}`;
+    return rows[0] ? fromRow(cityId, rows[0]) : null;
+  }
+
+  async setTier(cityId: string, key: string, tier: ZoneTier, tx?: Tx): Promise<ZoneRecord | null> {
+    const rows = await this.db(tx).$queryRaw<ZoneRow[]>`
+      UPDATE "public"."zones" SET "tier" = ${tier}::"public"."ZoneTier", "updated_at" = NOW()
       WHERE "city_id" = ${cityId} AND "key" = ${key} AND "is_active" = true RETURNING ${COLUMNS}`;
     return rows[0] ? fromRow(cityId, rows[0]) : null;
   }

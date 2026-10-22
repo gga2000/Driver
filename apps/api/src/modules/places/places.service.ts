@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { LatLng, Place } from '@driver/contracts';
-import { InMemoryPlacesRepository, PLACES_REPOSITORY, type PlacesRepository } from './places.repository.js';
+import type { Tx } from '../../shared/db/unit-of-work.js';
+import { InMemoryPlacesRepository, PLACES_REPOSITORY, type LandmarkPatch, type PlacesRepository } from './places.repository.js';
 import { pointInRing, type ZonePolygon } from './zones.js';
 
 /**
@@ -44,6 +45,15 @@ export class PlacesService {
   /** The city's landmark places (shared city knowledge), by name. */
   async landmarks(cityId: string): Promise<Place[]> {
     return (await this.repo.landmarks(cityId)).sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id.localeCompare(b.id));
+  }
+
+  /** Console › محرر الخريطة: the landmark rows it may change (approved and hidden), by name. */
+  async editableLandmarks(cityId: string): Promise<Place[]> {
+    return (await this.repo.editableLandmarks(cityId)).sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id.localeCompare(b.id));
+  }
+
+  editLandmark(id: string, patch: LandmarkPatch, tx?: Tx): Promise<Place | null> {
+    return this.repo.editLandmark(id, patch, tx);
   }
 
   nearby(cityId: string, pin: LatLng, radiusKm: number): Promise<Array<Place & { distanceKm: number }>> {

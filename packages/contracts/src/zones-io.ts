@@ -10,6 +10,10 @@ import { ZONE_MAX_POINTS, ZONE_MIN_POINTS, type ZoneShapeProblem } from './zone-
 export const ZONE_READ_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'finance', 'admin', 'field_ops'];
 /** Who draws outlines: Ali (admin) and field ops. Outlines don't move fees until the switch-over (SP3b). */
 export const ZONE_EDIT_ROLES: readonly RoleKind[] = ['admin', 'field_ops'];
+/** Who moves an area between groups (it changes delivery, taxi and tuktuk prices): Ali only (2026-10-20). */
+export const ZONE_TIER_ROLES: readonly RoleKind[] = ['admin'];
+/** The group a new area gets when someone outside `ZONE_TIER_ROLES` adds it. */
+export const NEW_ZONE_TIER = 'near' as const;
 
 /** draft = the AI guess; placed = drawn on a real map in the Console; confirmed = drivers agreed on the ground. */
 export const ZonePlacement = z.enum(['draft', 'placed', 'confirmed']);
@@ -73,6 +77,22 @@ export const RenameZoneInput = z.object({
   name_ar: z.string().trim().min(1).max(100),
   name_en: z.string().trim().min(1).max(100),
 });
+/**
+ * The group an area belongs to (Ali, 2026-10-20). The group sets the fee between two areas when no
+ * exact pair is priced, so moving one changes delivery, taxi and tuktuk prices to and from it.
+ * «حافة» stays out: drivers opt in to those trips, so it is set with dispatch, not here.
+ */
+export const MovableZoneTier = z.enum(['centre', 'near', 'mid', 'far']);
+export type MovableZoneTier = z.infer<typeof MovableZoneTier>;
+export const SetZoneTierInput = z.object({ cityId: CityId.default('aziziyah'), key: z.string().trim().min(1).max(60), tier: MovableZoneTier });
+/** What a trip from the town centre costs to an area in each group, so the Console shows the fee before saving. */
+export const ZoneTierFare = z.object({
+  tier: ZoneTier,
+  deliveryIqd: z.number().int().min(0),
+  taxiIqd: z.number().int().min(0),
+  tuktukIqd: z.number().int().min(0),
+});
+export type ZoneTierFare = z.infer<typeof ZoneTierFare>;
 export const RemoveZoneInput = z.object({ cityId: CityId.default('aziziyah'), key: z.string().trim().min(1).max(60) });
 /**
  * «تم الفحص» (Ali, 2026-10-06): the team looked at a flagged zone and the outline is right, so the
@@ -137,6 +157,8 @@ export interface ZonesPort {
   create?(actor: Actor, input: z.output<typeof CreateZoneInput>): Promise<ZonePlacementView>;
   rename?(actor: Actor, input: z.output<typeof RenameZoneInput>): Promise<ZonePlacementView>;
   remove?(actor: Actor, input: z.output<typeof RemoveZoneInput>): Promise<void>;
+  setTier?(actor: Actor, input: z.output<typeof SetZoneTierInput>): Promise<ZonePlacementView>;
+  tierFares?(cityId: string): ZoneTierFare[];
   /** The zone as it reads after the check: no flag, and `confirmed` if the drivers' "إي" already add up. */
   clearCheckFlag(actor: Actor, input: z.output<typeof ClearZoneCheckFlagInput>): Promise<ZonePlacementView>;
 }
