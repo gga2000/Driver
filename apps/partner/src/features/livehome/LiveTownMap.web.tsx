@@ -4,17 +4,19 @@ import { StyleSheet, View } from 'react-native';
 import type { GeoJSONSource, LngLatBoundsLike, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { RTL_TEXT_PLUGIN_URL } from '@driver/map';
 import type { GoldenLight } from '@driver/map/golden';
-import { demandGlowLayers, type DemandCell } from '@driver/map/pieces/demand';
+import { demandGlowLayers } from '@driver/map/pieces/demand';
 import { ICONS, useLiteMode, useTheme, type IconName } from '@driver/ui';
 import { goldenLightFor, MAP_URLS } from '@/features/map/base/golden-map';
 import { useMapColors } from '@/features/map/base/mapColors';
 import { useGlowCells } from '@/features/map/HeatLayer';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { FlatTownMap, LIVE_GLOW } from './FlatTownMap';
+import { FlatTownMap } from './FlatTownMap';
+import { boundsOf, CAM, DAY_CAM, dayLines, EMPTY, glowRings, LIFE_MS, livePadding, RIPPLE_MS, rippleAt, rippleLayers, RISE_MS, SRC, trailLayers, TURN_MS, turnBearing } from './live-map-shared';
 import type { LiveTownMapProps } from './live-map-types';
-import { coinSides, framingZoom, justReady, LIVE_ZOOM_MAX, newRipples, type DayStop } from './pulse-logic';
-import { buildStreetGraph, streetRoute, type LngLat as Pt, type StreetGraph } from './street-route';
+import { LiveCredit } from './LiveCredit';
+import { coinSides, framingZoom, justReady, newRipples } from './pulse-logic';
+import { buildStreetGraph, type LngLat as Pt, type StreetGraph } from './street-route';
 
 type Golden = typeof import('@driver/map/golden');
 
@@ -38,25 +40,6 @@ export function LiveTownMap(props: LiveTownMapProps) {
   // A new light (sunset, «شكل الشاشة») builds the map again with that light's style and pieces.
   return <Golden3D key={goldenLightFor(night)} {...props} light={goldenLightFor(night)} onFail={() => setFailed(true)} />;
 }
-
-/** Close, tilted, from the south-east like the concept. */
-const CAM = { zoom: LIVE_ZOOM_MAX, pitch: 58, bearing: 330 };
-/** One slow quarter-ish turn when the home opens, then still. */
-const TURN_DEG = 28;
-const TURN_MS = 30_000;
-/** Cars and people move this long after the home opens, then park (battery: the home stays open all shift). */
-const LIFE_MS = 45_000;
-/** A ripple widens over this long. */
-const RIPPLE_MS = 2_400;
-const RISE_MS = 2_600;
-
-/** He stays in the lower-middle of the map even when the bottom cards are tall (the map shows over them). */
-function pad(el: HTMLElement | null, top: number, bottom: number) {
-  const h = el?.clientHeight ?? 800;
-  return { top: Math.min(top, h * 0.22), bottom: Math.min(bottom, h * 0.3), left: 0, right: 0 };
-}
-
-const SRC = { glow: 'live-glow', ripples: 'live-ripples', trail: 'live-trail', life: 'live-life' } as const;
 
 let goldenReady: Promise<void> | null = null;
 /** Once per page: the `pmtiles://` protocol and right-to-left shaping for the Arabic street names. */
@@ -90,30 +73,6 @@ function el(html: string, label?: string): HTMLElement {
   }
   return d;
 }
-
-const kx = 111_320 * Math.cos((32.9 * Math.PI) / 180);
-const ky = 110_540;
-
-/** A zone's faint glow as stacked discs (as the courier map draws N17), at the live home's strength. */
-function glowRings(cells: readonly DemandCell[]) {
-  const ring = ([lng, lat]: readonly [number, number], r: number) =>
-    Array.from({ length: 41 }, (_, i) => {
-      const a = ((i % 40) / 40) * Math.PI * 2;
-      return [lng + (Math.cos(a) * r) / kx, lat + (Math.sin(a) * r) / ky] as [number, number];
-    });
-  return {
-    type: 'FeatureCollection' as const,
-    features: cells.flatMap((c) =>
-      [1, 0.8, 0.6, 0.4, 0.2].map((step) => ({
-        type: 'Feature' as const,
-        properties: { w: Math.min(1, c.weight * LIVE_GLOW) * (0.15 + 0.2 * (1 - step)) },
-        geometry: { type: 'Polygon' as const, coordinates: [ring(c.at, 560 * (0.55 + 0.45 * c.weight) * step)] },
-      })),
-    ),
-  };
-}
-
-const EMPTY = { type: 'FeatureCollection' as const, features: [] as never[] };
 
 interface Golden3DProps extends LiveTownMapProps {
   light: GoldenLight;
@@ -181,7 +140,7 @@ function Golden3D({ self, online, pulse, day, glow, topInset, bottomInset, light
         }
         mapRef.current = map;
         const m = map;
-        m.setPadding(pad(container.current, live.current.topInset, live.current.bottomInset));
+        m.setPadding(livePadding(container.current.clientHeight, live.current.topInset, live.current.bottomInset));
         m.on('styleimagemissing', (e: { id: string }) => {
           const img = golden.goldenImages(light)[e.id];
           if (img && !m.hasImage(e.id)) m.addImage(e.id, img);
@@ -195,37 +154,9 @@ function Golden3D({ self, online, pulse, day, glow, topInset, bottomInset, light
           m.addSource(SRC.glow, { type: 'geojson', data: EMPTY });
           for (const l of demandGlowLayers({ source: SRC.glow, light, id: 'live-glow' })) m.addLayer(l as never, under);
           m.addSource(SRC.ripples, { type: 'geojson', data: EMPTY });
-          const ink = light === 'night' ? '#FFB04A' : '#E07A10';
-          m.addLayer(
-            {
-              id: 'live-ripples-fill',
-              type: 'circle',
-              source: SRC.ripples,
-              paint: { 'circle-radius': ['*', ['get', 'r'], 0.55], 'circle-color': ink, 'circle-opacity': ['*', ['get', 'o'], 0.25], 'circle-blur': 0.6, 'circle-pitch-alignment': 'map' },
-            },
-            under,
-          );
-          m.addLayer(
-            {
-              id: 'live-ripples',
-              type: 'circle',
-              source: SRC.ripples,
-              paint: { 'circle-radius': ['get', 'r'], 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': ink, 'circle-stroke-width': 2.5, 'circle-stroke-opacity': ['get', 'o'], 'circle-pitch-alignment': 'map' },
-            },
-            under,
-          );
+          for (const l of rippleLayers(light === 'night')) m.addLayer(l as never, under);
           m.addSource(SRC.trail, { type: 'geojson', lineMetrics: true, data: EMPTY });
-          m.addLayer({ id: 'live-trail-glow', type: 'line', source: SRC.trail, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#F38A1B', 'line-width': 14, 'line-opacity': 0.22, 'line-blur': 6 } }, under);
-          m.addLayer(
-            {
-              id: 'live-trail',
-              type: 'line',
-              source: SRC.trail,
-              layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: { 'line-width': 5, 'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, light === 'night' ? '#8A5A20' : '#F2C27A', 1, '#E07A10'] },
-            },
-            under,
-          );
+          for (const l of trailLayers(light === 'night')) m.addLayer(l as never, under);
           for (const id of Object.values(golden.RESTAURANT_SOURCES)) m.addSource(id, { type: 'geojson', data: EMPTY });
           for (const l of golden.restaurantLayers(light)) m.addLayer(l as never, under);
           // The streets on screen: for the shops' fronts, the street life and «يومي»'s way along the streets.
@@ -250,7 +181,7 @@ function Golden3D({ self, online, pulse, day, glow, topInset, bottomInset, light
 
   // The covered top and bottom move the centre into the band he sees.
   useEffect(() => {
-    mapRef.current?.setPadding(pad(container.current, topInset, bottomInset));
+    mapRef.current?.setPadding(livePadding(container.current?.clientHeight ?? 800, topInset, bottomInset));
   }, [topInset, bottomInset]);
 
   // Him: the saffron dot with a soft breathing ring while he works.
@@ -267,7 +198,7 @@ function Golden3D({ self, online, pulse, day, glow, topInset, bottomInset, light
     const m = mapRef.current;
     const c = cam.current;
     if (!m || !c.follow || !c.center) return;
-    const bearingNow = (now: number) => CAM.bearing + (c.turnStart ? TURN_DEG * Math.min(1, (now - c.turnStart) / TURN_MS) : 0);
+    const bearingNow = (now: number) => turnBearing(c.turnStart, now);
     if (reduce) {
       m.jumpTo({ center: c.center, zoom: c.zoom, pitch: CAM.pitch, bearing: bearingNow(performance.now()) });
       return;
@@ -460,8 +391,7 @@ function Golden3D({ self, online, pulse, day, glow, topInset, bottomInset, light
       const feats = ripples.current
         .filter((r) => tNow >= r.t0)
         .map((r) => {
-          const a = reduce ? 0.5 : (tNow - r.t0) / RIPPLE_MS;
-          return { type: 'Feature' as const, properties: { r: 6 + a * 70, o: 1 - a }, geometry: { type: 'Point' as const, coordinates: r.at } };
+          return { type: 'Feature' as const, properties: rippleAt(tNow - r.t0, reduce), geometry: { type: 'Point' as const, coordinates: r.at } };
         });
       m.getSource<GeoJSONSource>(SRC.ripples)?.setData({ type: 'FeatureCollection', features: feats } as never);
       if (ripples.current.length) raf = requestAnimationFrame(tick);
@@ -512,21 +442,9 @@ function Golden3D({ self, online, pulse, day, glow, topInset, bottomInset, light
         );
       }
     });
-    const pts = lines.flat();
-    if (pts.length > 0) {
-      const bb = pts.reduce<[[number, number], [number, number]]>(
-        (b, p) => [
-          [Math.min(b[0][0], p[0]), Math.min(b[0][1], p[1])],
-          [Math.max(b[1][0], p[0]), Math.max(b[1][1], p[1])],
-        ],
-        [
-          [180, 90],
-          [-180, -90],
-        ],
-      );
-      // On top of the map's own padding (the band between the cards).
-      m.fitBounds(bb as LngLatBoundsLike, { padding: { top: 56, bottom: 24, left: 64, right: 64 }, pitch: 30, bearing: -8, maxZoom: 16.5, duration: reduce ? 0 : 1200 });
-    }
+    const bb = boundsOf(lines.flat());
+    // On top of the map's own padding (the band between the cards).
+    if (bb) m.fitBounds(bb as LngLatBoundsLike, { padding: { top: 56, bottom: 24, left: 64, right: 64 }, ...DAY_CAM, duration: reduce ? 0 : 1200 });
   }, [day, ready, words, reduce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ink = theme.colors;
@@ -553,19 +471,9 @@ function Golden3D({ self, online, pulse, day, glow, topInset, bottomInset, light
           } as React.CSSProperties
         }
       />
+      <LiveCredit bottom={bottomInset} />
     </View>
   );
-}
-
-/** Each delivery as a way along the streets when the map has them, else a straight line. */
-function dayLines(day: readonly DayStop[], graph: StreetGraph | null): Pt[][] {
-  return day.flatMap((s) => {
-    if (!s.pickup || !s.dropoff) return [];
-    const a: Pt = [s.pickup.lng, s.pickup.lat];
-    const b: Pt = [s.dropoff.lng, s.dropoff.lat];
-    const r = graph ? streetRoute(graph, a, b) : null;
-    return [r ? [a, ...r.path, b] : [a, b]];
-  });
 }
 
 const css = `
