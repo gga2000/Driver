@@ -351,6 +351,11 @@ export class MapEditorService implements MapEditorPort {
   // ───────────────────────── fixes from the apps ─────────────────────────
 
   async report(actor: Actor, input: ReportMapFixInput): Promise<MapReportAck> {
+    // The same person saying the same thing again (a second tap, «جان هنا؟» after the menu) is one report, even at the limit.
+    if (input.target) {
+      const same = (await this.repo.openReports(input.cityId)).find((r) => r.reporterId === actor.personId && r.kind === input.kind && r.targetKind === input.target?.kind && r.targetId === input.target?.id);
+      if (same) return { reportId: same.id };
+    }
     if ((await this.repo.openCountBy(actor.personId)) >= MAP_EDITOR_RULES.openPerReporter) throw new DriverError('map_reports_limit');
     if (input.pin) this.inService(input.cityId, input.pin);
     if (input.target) {
