@@ -118,6 +118,7 @@ export function ShopScreen() {
     { id: 'pot', icon: 'flame', title: t('merchant.pot.title'), hint: t('merchant.more.pot_hint'), href: '/pot' },
     { id: 'story', icon: 'store', title: t('merchant.story.title'), hint: t('merchant.more.story_hint'), href: '/story' },
     { id: 'pickup-spot', icon: 'map-pin', title: t('merchant.more.pickup_spot'), hint: t('merchant.more.pickup_spot_hint'), href: '/pickup-spot' },
+    { id: 'my-map', icon: 'location-arrow', title: t('merchant.more.my_map'), hint: t('merchant.more.my_map_hint'), href: '/my-map' },
     { id: 'delivery-area', icon: 'grid', title: t('merchant.more.delivery_area'), hint: t('merchant.more.delivery_area_hint'), href: '/delivery-area' },
     { id: 'settings', icon: 'sliders', title: t('merchant.more.settings'), hint: t('merchant.more.settings_hint'), href: '/settings' },
   ];
