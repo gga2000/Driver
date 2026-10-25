@@ -27,6 +27,7 @@ import {
   serveDist,
   startDemoApi,
 } from './lib.mjs';
+import { PERF_NOW, pinClock } from './clock.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const budgets = JSON.parse(readFileSync(join(import.meta.dirname, 'budgets.json'), 'utf8')).screens;
@@ -50,6 +51,7 @@ async function newPage(apiBase, viewport) {
   const page = await browser.newPage({ viewport, locale: 'ar-IQ' });
   await page.route(/tile|openfreemap|maptiler|\.pbf/, (r) => r.abort());
   await installCounters(page);
+  await pinClock(page, process.env.PERF_NOW ?? PERF_NOW);
   const net = { bytes: 0, fileBytes: 0 };
   page.on('response', async (r) => {
     if (!r.url().startsWith(apiBase) || r.url().includes('/demo/')) return;
