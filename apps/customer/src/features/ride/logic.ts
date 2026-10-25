@@ -1,5 +1,4 @@
 import {
-  AZIZIYAH_ZONES,
   climateAt,
   haversineM,
   sortCargo,
@@ -18,6 +17,7 @@ import {
   type RideCargo,
   type ZoneTier,
 } from '@driver/contracts';
+import { liveZones } from '@/lib/zones-state';
 
 /**
  * City taxi / tuktuk booking as plain data (customer spec §5, dispatch & pricing spec §1–§4): where
@@ -152,7 +152,7 @@ export function sameSpot(a: Pick<Spot, 'zoneId' | 'pin'>, b: Pick<Spot, 'zoneId'
 
 /** The zone a seed id names, or null (unknown zone ids never price). */
 export function zoneOf(zoneId: string) {
-  return AZIZIYAH_ZONES.find((z) => z.id === zoneId) ?? null;
+  return liveZones().find((z) => z.id === zoneId) ?? null;
 }
 
 export function zoneTier(zoneId: string): ZoneTier | null {
@@ -166,8 +166,8 @@ export function zoneTitle(zoneId: string, locale: 'ar-IQ' | 'en' = 'ar-IQ'): str
 }
 
 /** The 34 zones as destinations, at their centroid (the rider can move the pin afterwards). */
-export function zoneSpots(locale: 'ar-IQ' | 'en', centreHint: string): Spot[] {
-  return AZIZIYAH_ZONES.map((z) => ({
+export function zoneSpots(locale: 'ar-IQ' | 'en', centreHint: string, zones: readonly { id: string; name_ar: string; name_en: string; group: string; lat: number; lng: number }[] = liveZones()): Spot[] {
+  return zones.map((z) => ({
     id: `zone:${z.id}`,
     kind: 'zone' as const,
     title: zoneTitle(z.id, locale),

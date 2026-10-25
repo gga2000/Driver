@@ -17,6 +17,7 @@ import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lock
 import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
+import { ZoneSync } from '@/lib/zones-live';
 import { CachedPhoto } from '@/lib/cached-photo';
 import { LiteHint } from '@/features/data-saver/LiteHint';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
@@ -110,6 +111,8 @@ export default function RootLayout() {
                 <SystemBanner />
                 {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
                 <SeasonWatcher />
+                {/* The areas ops edits in the Console reach names, pickers and the ride list. */}
+                <ZoneSync />
                 {/* An SOS pressed offline is sent even after the app was closed (FLOW-05). */}
                 <SosOutboxSync />
                 {/* The first slow connection offers low-data mode once (speed g4). */}
