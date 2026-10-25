@@ -14,7 +14,7 @@ import { DevBlobStore } from '../places/index.js';
 import { InMemoryPromotionsRepository, PromotionsService } from '../promotions/index.js';
 import { InMemoryMerchantAdminRepository } from './merchant-admin.repository.js';
 import { MerchantAdminService, modifierPricesChanged } from './merchant-admin.service.js';
-import { STORE_AUDIT, StoresConsoleService } from './stores-console.service.js';
+import { STAFF_CHANGED_EVENT, STORE_AUDIT, StoresConsoleService } from './stores-console.service.js';
 
 async function setup(start = '2026-10-21T09:00:00Z') {
   const id = identityHarness(start);
@@ -43,7 +43,7 @@ async function setup(start = '2026-10-21T09:00:00Z') {
       throw new DriverError('setup_not_ready');
     },
   } as unknown as MerchantSetupService;
-  const svc = new StoresConsoleService(menus, shops, setups, orgs, catalog, audits, blobs, ev.uow, clock);
+  const svc = new StoresConsoleService(menus, shops, setups, orgs, catalog, audits, blobs, ev.uow, clock, ev.events);
   async function person(phone: string): Promise<Actor> {
     return (await id.login(phone)).actor;
   }
@@ -96,6 +96,18 @@ describe('ops.stores: the team sets a new shop up', () => {
     expect(rows[0]).toMatchObject({ dishes: 1, dishesNoPhoto: 1, steps: { total: 7 }, lastEdit: { at: h.clock.now() } });
     expect(rows[0]!.steps.done).toBeLessThan(7);
     expect(rows[1]).toMatchObject({ steps: { done: 7, total: 7, next: null }, lastEdit: null });
+  });
+
+  it('tells the owner once per sitting (the first change after 30 quiet minutes), naming only the kind of change', async () => {
+    const h = await setup();
+    const pushes = async () => (await h.ev.events.forAggregate('org', h.open, { types: [STAFF_CHANGED_EVENT] })).map((e) => e.payload);
+    const dish = await h.svc.upsertItem(h.ops, { merchantOrgId: h.open, nameAr: 'فلافل', priceIqd: 1500 });
+    h.clock.set('2026-10-21T09:20:00Z');
+    await h.svc.upsertItem(h.ops, { merchantOrgId: h.open, itemId: dish.id, nameAr: 'فلافل', priceIqd: 2000 });
+    expect(await pushes()).toEqual([{ merchantOrgId: h.open, kind: 'menu' }]);
+    h.clock.set('2026-10-21T09:50:00Z');
+    await h.svc.upsertItem(h.ops, { merchantOrgId: h.open, itemId: dish.id, nameAr: 'فلافل', priceIqd: 2250 });
+    expect((await pushes()).map((p) => p['kind'])).toEqual(['menu', 'prices']);
   });
 
   it('shows a bare shop field ops just signed up as in setup, and the list never writes', async () => {

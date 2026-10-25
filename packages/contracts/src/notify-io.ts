@@ -149,6 +149,7 @@ export const NotifyTemplateId = z.enum([
   'merchant_activated',
   'home_kitchen_activated',
   'menu_photos_ready',
+  'merchant_staff_changed',
   'courier_cash_receipt',
   'driver_pay_reply',
   'tip_received',
@@ -658,6 +659,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     push: { title: 'push.menu_photos_ready.title', body: 'push.menu_photos_ready.body', androidChannel: 'orders', deepLink: 'driver-merchant://menu-photos' },
     primary: ['push'],
     quietHours: 'send',
+  },
+  // «فريقنا عدّل بمحلك»: Driver's team changed the shop from the Console — its owners hear it once per
+  // sitting (the first change after 30 quiet minutes), with the kind of change only; the list is in the app.
+  merchant_staff_changed: {
+    id: 'merchant_staff_changed',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.merchant_staff_changed.title', body: 'push.merchant_staff_changed.body', androidChannel: 'orders', deepLink: 'driver-merchant://staff-changes' },
+    primary: ['push'],
+    quietHours: 'defer',
   },
   // «جهّز محلك»: ops approved the shop — its owners hear it is live and where to finish setting it up.
   merchant_activated: {
