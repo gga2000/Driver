@@ -27,6 +27,10 @@
       "types": "./dist/people-io.d.ts",
       "default": "./dist/people-io.js"
     },
+    "./store-setup": {
+      "types": "./dist/store-setup-io.d.ts",
+      "default": "./dist/store-setup-io.js"
+    },
     "./seeds": {
       "types": "./dist/seeds/aziziyah-restaurants.d.ts",
       "default": "./dist/seeds/aziziyah-restaurants.js"

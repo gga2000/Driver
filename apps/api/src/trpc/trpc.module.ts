@@ -10,7 +10,7 @@ import { DriverAccountModule, DriverAccountService } from '../modules/driver-acc
 import { KhatModule, KhatService } from '../modules/khat/index.js';
 import { FleetModule, FleetService } from '../modules/fleet/index.js';
 import { OpsDishPhotosService, OpsModule, OpsPickupSpotsService, OpsService } from '../modules/ops/index.js';
-import { MerchantAdminModule, MerchantAdminService } from '../modules/merchant-admin/index.js';
+import { MerchantAdminModule, MerchantAdminService, StoresConsoleService } from '../modules/merchant-admin/index.js';
 import { MenuPhotosModule, MenuPhotosService } from '../modules/menu-photos/index.js';
 import { ShoppingModule, ShoppingService } from '../modules/shopping/index.js';
 import { FoodCartsModule, FoodCartsService } from '../modules/food-carts/index.js';
@@ -79,6 +79,7 @@ export class TrpcService {
     private readonly pickupSpots: OpsPickupSpotsService,
     private readonly dishPhotos: OpsDishPhotosService,
     private readonly merchantAdmin: MerchantAdminService,
+    private readonly stores: StoresConsoleService,
     private readonly menuPhotos: MenuPhotosService,
     private readonly shopping: ShoppingService,
     private readonly foodCarts: FoodCartsService,
@@ -170,6 +171,7 @@ export class TrpcService {
       pickupSpots: this.pickupSpots,
       dishPhotos: this.dishPhotos,
       merchantAdmin: this.merchantAdmin,
+      stores: this.stores,
       menuPhotos: this.menuPhotos,
       shopping: this.shopping,
       foodCarts: this.foodCarts,

@@ -42,6 +42,7 @@ import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
 import type { ClosuresPort } from './closures-io.js';
 import type { PeoplePort } from './people-io.js';
+import type { StoresOpsPort } from './store-setup-io.js';
 import type { SupportPort } from './support-io.js';
 import type { AccountClosePort } from './account-close-io.js';
 import type { SafetyPort } from './safety-io.js';
@@ -138,6 +139,8 @@ export interface AppContext {
   closures: ClosuresPort;
   /** «الناس»: customer and driver profiles in the Console (`modules/console`). */
   people: PeoplePort;
+  /** Console › المطاعم: store setup and menu for the owner (`modules/ops`). */
+  stores: StoresOpsPort;
   /** Drivers confirm zones at the end of a delivery (`modules/zones`, maps program SP3). */
   zoneChecks: ZoneChecksPort;
   /** SOS: the person's alert, the Console's incident desk (`modules/safety`). */

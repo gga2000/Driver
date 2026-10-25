@@ -37,6 +37,7 @@ import { useMarketChip } from '@/features/market/MarketChip';
 import { useBalance, useCurrentStore, useStoreStatus, useStoreSwitches } from '@/features/store/queries';
 import { StoreHeader, type HeaderAlert } from '@/features/store/StoreHeader';
 import { FirstOrderRibbon, SetupBoardCard, SetupBoardWaiting } from '@/features/setup/BoardSetup';
+import { useStaffChangesAlert } from '@/features/staff-changes/queries';
 import { shouldLand } from '@/features/setup/logic';
 import { setupSession, useSetupActions } from '@/features/setup/queries';
 import { BusySheet, CashSheet, CloseStoreSheet } from '@/features/store/StoreSheets';
@@ -192,6 +193,7 @@ export function Board() {
   const prefs = usePrefs();
   const { wide, width } = useLayout();
   const { store, canSeeMoney } = useCurrentStore();
+  const staffChanges = useStaffChangesAlert();
   const marketChip = useMarketChip(store?.orgId ?? null);
   const storeId = store?.orgId ?? null;
   const board = useBoard(storeId);
@@ -653,6 +655,8 @@ export function Board() {
     !gateOpen && soundOff ? { key: 'sound', testID: 'sound-off-chip', icon: 'volume-off', tone: 'danger', dot: true, label: t('merchant.sound.off_chip'), onPress: () => void soundOn() } : null,
     inSetup && setupLine ? { key: 'setup', testID: 'setup-chip', icon: 'store', tone: 'warning', label: t('merchant.setup.header_chip', { percent: setupLine.percent }), onPress: () => router.push(canSeeMoney ? '/setup' : '/more') } : null,
     marketChip,
+    // «فريقنا عدّل بمحلك»: the owner's, while our team's changes from the Console wait for a look.
+    staffChanges,
     // S-M4 on a phone: a courier at the pass is seen from any tab of the board, in the bar (o3).
     !wide && segment !== 'ready' && atPass[0]
       ? {
