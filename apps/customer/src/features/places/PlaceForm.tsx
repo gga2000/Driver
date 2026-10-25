@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
+import { useLiveZones } from '@/lib/zones-live';
 import { View } from 'react-native';
-import { AZIZIYAH_ZONES } from '@driver/contracts';
 import { Button, ChipGroup, Text, TextField, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { zoneName, type PlaceLabel, type SavedPlace } from '@/lib/profile';
@@ -22,8 +22,8 @@ export function placeLabelKey(label: PlaceLabel) {
   return LABEL_KEY[label];
 }
 
-/** Centre and near zones first: that's where most orders go. "كل المناطق" shows all 34. */
-const COMMON_ZONES = AZIZIYAH_ZONES.filter((z) => z.tier === 'centre' || z.tier === 'near');
+/** Centre and near zones first: that's where most orders go. "كل المناطق" shows them all. */
+const isCommon = (z: { tier: string }) => z.tier === 'centre' || z.tier === 'near';
 
 /**
  * Saved-place form (label, zone, courier note). Zone-level for now; the map pin and gate photo
@@ -34,12 +34,13 @@ export function PlaceForm({ value, onChange }: { value: PlaceDraft; onChange: (n
   const t = useT();
   const locale = useLocale();
   const [allZones, setAllZones] = useState(false);
+  const all = useLiveZones();
   const zones = useMemo(() => {
-    const list = allZones ? AZIZIYAH_ZONES : COMMON_ZONES;
+    const list = allZones ? all : all.filter(isCommon);
     // Keep a chosen far zone visible after collapsing.
-    const chosen = AZIZIYAH_ZONES.find((z) => z.id === value.zoneId);
+    const chosen = all.find((z) => z.id === value.zoneId);
     return chosen && !list.includes(chosen) ? [...list, chosen] : list;
-  }, [allZones, value.zoneId]);
+  }, [all, allZones, value.zoneId]);
 
   return (
     <View style={{ gap: theme.space[6] }}>

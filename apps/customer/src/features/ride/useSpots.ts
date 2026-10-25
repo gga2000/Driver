@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useLiveZones } from '@/lib/zones-live';
 import type { MessageKey } from '@driver/i18n';
 import { placeLabelKey } from '@/features/places/PlaceForm';
 import { useLocale, useT } from '@/lib/i18n';
@@ -38,6 +39,7 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
   const landmarks = useLandmarks();
   const refetchLandmarks = landmarks.refetch;
   const shops = useShopPlaces();
+  const zones = useLiveZones();
   const lang = locale === 'en' ? 'en' : 'ar-IQ';
 
   return useMemo(() => {
@@ -51,12 +53,12 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
         recent: ride.recent,
         landmarks: (landmarks.data ?? []).map((l) => landmarkSpot(l, lang, t(LANDMARK_KIND[l.kind]))),
         shops: (shops.data ?? []).map((m) => shopSpot(m, lang, t('ride.kind_shop'))).filter((x): x is Spot => x !== null),
-        zones: zoneSpots(lang, t('ride.zone_centre')),
+        zones: zoneSpots(lang, t('ride.zone_centre'), zones),
       },
       defaultPickup,
       landmarksLoading: landmarks.isLoading,
       landmarksFailed: landmarks.isError && !landmarks.data,
       retryLandmarks: () => void refetchLandmarks(),
     };
-  }, [prof, ride.recent, landmarks.data, landmarks.isLoading, landmarks.isError, refetchLandmarks, shops.data, lang, t]);
+  }, [prof, ride.recent, landmarks.data, landmarks.isLoading, landmarks.isError, refetchLandmarks, shops.data, zones, lang, t]);
 }
