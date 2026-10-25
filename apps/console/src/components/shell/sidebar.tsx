@@ -39,6 +39,7 @@ import {
   IconZones,
   Kbd,
   IconShield,
+  IconUser,
   type IconProps,
 } from '../ui';
 import { BrandWordmark } from './brand';
@@ -71,6 +72,7 @@ export const NAV_ICONS: Record<IconName, ComponentType<IconProps>> = {
   system: IconSystem,
   audit: IconNote,
   staff: IconShield,
+  customers: IconUser,
 };
 
 /**

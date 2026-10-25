@@ -809,6 +809,25 @@ export class SupportService implements SupportPort, OnModuleInit, OnModuleDestro
     };
   }
 
+  /** «الناس»: a customer's tickets opened since `since`, newest first (profile and timeline). */
+  async ticketsOfCustomer(customerId: string, since: Date): Promise<TicketRecord[]> {
+    return (await this.repo.forCustomer(customerId, since)).sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
+  }
+
+  /** «الناس»: tickets on these orders (a driver's complaints come through his jobs), newest first. */
+  async ticketsOnOrders(orderIds: readonly string[]): Promise<TicketRecord[]> {
+    return (await this.repo.forOrders(orderIds)).sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
+  }
+
+  /** «الناس»: open (unresolved) tickets per customer in the city, for the list's «عدهم مشكلة». */
+  async openTicketsByCustomer(cityId: string): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const t of await this.repo.list({ cityId, statuses: ['open', 'waiting', 'escalated'], limit: 2_000 })) {
+      if (t.customerId) out.set(t.customerId, (out.get(t.customerId) ?? 0) + 1);
+    }
+    return out;
+  }
+
   // ───────────────────────── actions ─────────────────────────
 
   private async touch(ticket: TicketRecord, actor: Actor, patch: Parameters<SupportRepository['update']>[1], tx: Tx): Promise<TicketRecord> {

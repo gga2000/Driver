@@ -40,6 +40,8 @@ export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'console_driver_search',
   'console_order_search',
   'console_staff',
+  'console_people',
+  'console_phone_reveal',
   'document_review',
   'safety_desk',
   'safety_incident',

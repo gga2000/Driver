@@ -33,7 +33,7 @@ const LINK_ALLOWED = { presence: PRESENCE_FILTERS, role: ['all', ...RosterRole.o
  * Everyone with a driving role (`drivers.list`): search by name (a logged vault match on the API),
  * filters for the service, presence, tier and papers that are running out; each row says who he is
  * (initials, name, vehicle and plate), his state as the map draws it, today's jobs and earnings, his
- * cash against the cap and his tier. A row opens his ledger.
+ * cash against the cap and his tier. A row opens his profile («الناس»).
  */
 export function DriversPage() {
   const signedIn = useSignedIn();
@@ -74,7 +74,7 @@ export function DriversPage() {
   const names = useNames({ people: rows.map((r) => r.personId) });
   const docsCount = docs.data?.total ?? 0;
   const onlineCount = online.data?.total ?? 0;
-  const open = (d: DriverRosterRow) => router.push(`/drivers/${encodeURIComponent(d.personId)}/ledger`);
+  const open = (d: DriverRosterRow) => router.push(`/drivers/${encodeURIComponent(d.personId)}`);
   const [activeKey, setActiveKey] = useRowKeys(rows, (d) => d.personId, open, signedIn);
 
   const columns: Column<DriverRosterRow>[] = [
@@ -89,7 +89,7 @@ export function DriversPage() {
             <Avatar id={d.personId} name={p?.displayName} />
             <span className="min-w-0 leading-5">
               <Link
-                href={`/drivers/${encodeURIComponent(d.personId)}/ledger`}
+                href={`/drivers/${encodeURIComponent(d.personId)}`}
                 onClick={(e) => e.stopPropagation()}
                 className="block truncate font-semibold text-text hover:text-accent-text hover:underline"
                 title={d.personId}
