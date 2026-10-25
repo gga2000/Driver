@@ -124,6 +124,16 @@ export interface PartnerDeps {
     batchShare: number;
     take(vertical: Vertical): TakeRule | null;
   };
+  /**
+   * «المدينة حيّة»: the city's kitchens at work and where orders were placed (orders' `townActivity`; shops
+   * only, no order ids or customers). Absent: the live map shows no kitchens or areas.
+   */
+  town?: {
+    activity(cityId: string, from: Date, to: Date): Promise<{
+      kitchens: Array<{ merchantOrgId: string; pin: LatLng | null; state: 'merchant_accepted' | 'preparing' | 'ready'; acceptedAt: Date | null; promisedReadyAt: Date | null }>;
+      placed: Array<{ zoneId: string | null; placedAt: Date }>;
+    }>;
+  };
   roles: { activeRoles(personId: string): Promise<RoleKind[]> };
   vehicles: { vehicleOf(driverId: string): Promise<VehicleClass | null> };
   /**

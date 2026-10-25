@@ -43,6 +43,7 @@ import {
   type VehicleClass,
   type Trip,
 } from '@driver/contracts';
+import { TOWN_PULSE_RULES, townPulseFor, townPulseSnapshot, type PartnerMyDay, type PartnerTownPulse, type TownPulseSnapshot } from '@driver/contracts/town-pulse';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
@@ -68,6 +69,9 @@ export class PartnerService implements PartnerPort {
   private readonly forecasts = new Map<string, { bucket: number; byZone: Map<string, number> }>();
   /** N17: one glow picture per city per `DEMAND_GLOW_RULES.snapshotMs` (aggregated and a few minutes old). */
   private readonly glows = new Map<string, { bucket: number; snap: Promise<DemandGlowSnapshot> }>();
+  /** «المدينة حيّة»: one picture per city per `snapshotMs`, and the drivers as the pictures saw them (shown at least `driversDelayMs` late). */
+  private readonly pulses = new Map<string, { bucket: number; snap: Promise<TownPulseSnapshot> }>();
+  private readonly pulseDrivers = new Map<string, Array<{ at: number; drivers: Array<{ driverId: string; lat: number; lng: number }> }>>();
 
   constructor(
     @Inject(PARTNER_DEPS) private readonly deps: PartnerDeps,
@@ -392,6 +396,69 @@ export class PartnerService implements PartnerPort {
       });
     }
     return glowFor(await hit.snap, actor.personId);
+  }
+
+  /**
+   * «المدينة حيّة» (Partner live map home): kitchens cooking or ready around him, new orders per area and
+   * drivers per cell. Every driver in a city reads the same picture, rebuilt at most every `snapshotMs`.
+   */
+  async townPulse(actor: Actor): Promise<PartnerTownPulse> {
+    const now = this.clock.now();
+    const presence = await this.deps.presence.get(actor.personId);
+    const cityId = presence?.cityId ?? DEFAULT_CITY;
+    const bucket = Math.floor(now.getTime() / TOWN_PULSE_RULES.snapshotMs);
+    let hit = this.pulses.get(cityId);
+    if (!hit || hit.bucket !== bucket) {
+      const snap = this.takePulse(cityId, now);
+      hit = { bucket, snap };
+      this.pulses.set(cityId, hit);
+      snap.catch(() => {
+        if (this.pulses.get(cityId) === hit) this.pulses.delete(cityId);
+      });
+    }
+    return townPulseFor(await hit.snap, { driverId: actor.personId, at: presence ? { lat: presence.lat, lng: presence.lng } : null });
+  }
+
+  private async takePulse(cityId: string, now: Date): Promise<TownPulseSnapshot> {
+    const R = TOWN_PULSE_RULES;
+    const from = new Date(now.getTime() - R.ordersDelayMs - R.ordersWindowMs);
+    const to = new Date(now.getTime() - R.ordersDelayMs);
+    const [activity, live] = await Promise.all([
+      this.deps.town ? this.deps.town.activity(cityId, from, to) : Promise.resolve({ kitchens: [], placed: [] }),
+      this.deps.presence.live ? this.deps.presence.live(cityId) : Promise.resolve([]),
+    ]);
+    // Drivers at least `driversDelayMs` late: keep each picture's positions and show the newest one
+    // that is old enough (lane A's privacy rule: no live positions, whatever the picture rate).
+    const seen = this.pulseDrivers.get(cityId) ?? [];
+    seen.push({ at: now.getTime(), drivers: live.map((d) => ({ driverId: d.driverId, lat: d.lat, lng: d.lng })) });
+    const oldEnough = now.getTime() - R.driversDelayMs;
+    let pick = -1;
+    seen.forEach((p, i) => {
+      if (p.at <= oldEnough) pick = i;
+    });
+    // Older than the one shown are never needed again.
+    const kept = pick > 0 ? seen.slice(pick) : seen;
+    this.pulseDrivers.set(cityId, kept);
+    const drivers = pick >= 0 ? seen[pick]!.drivers : [];
+    return townPulseSnapshot({ at: now, kitchens: activity.kitchens, placed: activity.placed, drivers });
+  }
+
+  /** «يومي»: today's deliveries with what each earned, from the same ledger lines as today's money. */
+  async myDay(actor: Actor): Promise<PartnerMyDay> {
+    const now = this.clock.now();
+    const lines = await this.deps.money.driverLines(actor.personId, startOfLocalDay(now));
+    const perTrip = new Map<string, typeof lines>();
+    for (const l of lines) if (l.tripId) perTrip.set(l.tripId, [...(perTrip.get(l.tripId) ?? []), l]);
+    const jobs: PartnerMyDay['jobs'] = [];
+    for (const [tripId, tripLines] of perTrip) {
+      const trip = await this.deps.trips.get(tripId).catch(() => null);
+      if (!trip || trip.courierId !== actor.personId || !trip.completedAt) continue;
+      const pickup = trip.stops.find((s) => s.type === 'pickup')?.target ?? null;
+      const dropoff = [...trip.stops].reverse().find((s) => s.type === 'dropoff')?.target ?? null;
+      jobs.push({ tripId, pickup, dropoff, doneAt: trip.completedAt, earnedIqd: todayFromLines(tripLines).earningsIqd });
+    }
+    jobs.sort((a, b) => a.doneAt.getTime() - b.doneAt.getTime());
+    return { jobs, earningsIqd: todayFromLines(lines).earningsIqd };
   }
 
   private async takeGlow(cityId: string, now: Date): Promise<DemandGlowSnapshot> {

@@ -127,6 +127,8 @@ function takeFor(vertical: Vertical): TakeRule | null {
           batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare,
           take: takeFor,
         },
+        // «المدينة حيّة»: kitchens at work and where orders were placed (shops only, no order ids or customers).
+        town: { activity: (cityId, from, to) => orders.townActivity(cityId, from, to) },
         roles: { activeRoles: (id): Promise<RoleKind[]> => roles.activeRoles(id) },
         // The registered vehicle (review #20): the vehicle registry the courier card reads (`vehicles`
         // with a database, the in-process registry otherwise), else the fleet's own registry.

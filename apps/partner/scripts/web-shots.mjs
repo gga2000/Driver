@@ -47,7 +47,8 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
+// SHOTS_GL=1: software WebGL, so the 3D Golden map draws in a container without a GPU.
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH, ...(process.env.SHOTS_GL ? { args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : {}) });
 const errors = [];
 const written = [];
 /** The page most recently opened: screenshotted as <group>-FAILED.png when a module throws. */
@@ -75,6 +76,8 @@ async function openPage(group, { prePrompt = false } = {}) {
   // The night look (n2) follows the clock; shots pin it so they don't change with the time they run.
   // SHOTS_LOOK=night shows every screen in the ember palette.
   await context.addInitScript((look) => localStorage.setItem('driver.partner.appearance', look), process.env.SHOTS_LOOK === 'night' ? 'night' : 'day');
+  // RTL_PLUGIN_FILE: a local copy of the map's Arabic shaping plugin, for containers that cannot reach its host.
+  if (process.env.RTL_PLUGIN_FILE) await context.route(/mapbox-gl-rtl-text/, (route) => route.fulfill({ path: process.env.RTL_PLUGIN_FILE, contentType: 'application/javascript' }));
   const page = await context.newPage();
   // A refusal the flow provokes on purpose (p.expectRefusal()): the browser's "400" line is not an error.
   let refusalExpected = false;
