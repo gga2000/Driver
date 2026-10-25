@@ -74,6 +74,19 @@ function barrelStatements(distDir) {
 }
 
 /**
+ * The barrel lines an app keeps, in barrel order. A name two lines provide (a module re-exporting another,
+ * e.g. notify-io.ts's Android channels) comes from the line with the fewest names, so the bigger module stays out.
+ */
+function pickStatements(statements, wanted) {
+  const kept = new Set();
+  for (const name of wanted) {
+    const from = statements.filter((s) => s.names.includes(name)).sort((a, b) => a.names.length - b.names.length)[0];
+    if (from) kept.add(from);
+  }
+  return statements.filter((s) => kept.has(s));
+}
+
+/**
  * Writes `<outDir>/contracts.js` for one app and returns its path, or `null` when the app needs the whole barrel.
  * `appRoots`: the app's folders, relative to the repo root (tests, *.config.* and Node-only scripts/ are skipped).
  */
@@ -81,7 +94,8 @@ function writeContractsSubset({ repoRoot, appRoots, outDir }) {
   const wanted = importedNames(repoRoot, [...appRoots, ...SHARED_ROOTS]);
   if (!wanted) return null;
   const distDir = path.join(repoRoot, 'packages/contracts/dist');
-  const kept = barrelStatements(distDir).filter((s) => s.names.some((n) => wanted.has(n)));
+  const statements = barrelStatements(distDir);
+  const kept = pickStatements(statements, wanted);
   fs.mkdirSync(outDir, { recursive: true });
   const rel = (from) => path.relative(outDir, path.join(distDir, from)).split(path.sep).join('/');
   const body = kept.map((s) => `export ${s.clause} from '${rel(s.from)}';`).join('\n');
@@ -90,4 +104,4 @@ function writeContractsSubset({ repoRoot, appRoots, outDir }) {
   return file;
 }
 
-module.exports = { writeContractsSubset, namesIn, importedNames, barrelStatements, SHARED_ROOTS };
+module.exports = { writeContractsSubset, namesIn, importedNames, barrelStatements, pickStatements, SHARED_ROOTS };

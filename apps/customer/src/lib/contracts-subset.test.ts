@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
 type Statement = { clause: string; from: string; names: string[] };
-const { namesIn, importedNames, barrelStatements, SHARED_ROOTS } = require('../../scripts/contracts-subset.cjs') as {
+const { namesIn, importedNames, barrelStatements, pickStatements, SHARED_ROOTS } = require('../../scripts/contracts-subset.cjs') as {
   namesIn: (text: string) => Set<string> | null;
   importedNames: (repoRoot: string, roots: string[]) => Set<string> | null;
   barrelStatements: (distDir: string) => Statement[];
+  pickStatements: (statements: Statement[], wanted: Set<string>) => Statement[];
   SHARED_ROOTS: string[];
 };
 const repoRoot = path.resolve(__dirname, '../../../..');
@@ -27,8 +28,11 @@ describe('contracts subset (production builds take only the schemas an app impor
     const all = barrelStatements(path.join(repoRoot, 'packages/contracts/dist'));
     if (!wanted) return; // whole barrel: nothing can be missing
     const exported = new Set(all.flatMap((s) => s.names));
-    const kept = new Set(all.filter((s) => s.names.some((n) => wanted.has(n))).flatMap((s) => s.names));
+    const picked = pickStatements(all, wanted);
+    const kept = new Set(picked.flatMap((s) => s.names));
     expect([...wanted].filter((n) => exported.has(n) && !kept.has(n))).toEqual([]);
     expect(kept.size).toBeLessThan(exported.size);
+    // The Android channels come from their own file, not the server's notify text catalogue.
+    expect(picked.map((s) => s.from)).not.toContain('./notify-io.js');
   });
 });
