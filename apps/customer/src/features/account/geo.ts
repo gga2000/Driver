@@ -1,4 +1,5 @@
 import { AZIZIYAH_ZONES, type LatLng } from '@driver/contracts';
+import { liveZones } from '@/lib/zones-state';
 
 /**
  * The pin picker's schematic map of Aziziyah: an equirectangular box around the 34 zone centroids
@@ -50,9 +51,10 @@ export function unproject(x: number, y: number, width: number, height: number, b
 
 /** Zone the pin is nearest to (centroid distance minus draft radius) — a preview; the server decides. */
 export function nearestZone(p: LatLng): string {
-  let best = AZIZIYAH_ZONES[0]!;
+  const zones = liveZones();
+  let best = zones[0]!;
   let bestD = Infinity;
-  for (const z of AZIZIYAH_ZONES) {
+  for (const z of zones) {
     const dy = (p.lat - z.lat) * M_PER_DEG_LAT;
     const dx = (p.lng - z.lng) * M_PER_DEG_LNG;
     const d = Math.hypot(dx, dy) - z.radiusM;
@@ -65,7 +67,7 @@ export function nearestZone(p: LatLng): string {
 }
 
 export function zoneCentre(zoneId: string): LatLng | null {
-  const z = AZIZIYAH_ZONES.find((x) => x.id === zoneId);
+  const z = liveZones().find((x) => x.id === zoneId);
   return z ? { lat: z.lat, lng: z.lng } : null;
 }
 

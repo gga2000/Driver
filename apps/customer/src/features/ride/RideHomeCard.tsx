@@ -22,7 +22,7 @@ import { useMyLocationSpot } from './WhereParts';
 export function RideHomeCard() {
   const t = useT();
   const toast = useToast();
-  const { sources, defaultPickup } = useRideSpots();
+  const { sources, defaultPickup } = useRideSpots(false);
   const last = useLastRide();
   const here = useMyLocationSpot();
   const home = sources.saved.find((s) => s.savedLabel === 'home') ?? null;

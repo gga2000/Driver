@@ -456,6 +456,8 @@ export class PartnerService implements PartnerPort {
           zoneId: s.zoneKey,
           pin: s.target,
           label: s.type === 'pickup' && order?.merchantOrgId ? (names.get(order.merchantOrgId) ?? null) : null,
+          // The map editor's «الخريطة غلط» and the after-pickup «جان هنا؟» report this kitchen by its id.
+          merchantOrgId: s.type === 'pickup' && !rideJob && order?.merchantOrgId ? order.merchantOrgId : null,
           orderId: s.orderId,
           // M-09: the courier reads the customer's note for him; an order placed with one note for
           // everyone (no courier note) keeps showing that one.

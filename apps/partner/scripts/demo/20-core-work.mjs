@@ -6,7 +6,7 @@
 //        …&for=1                               booked by the buyer for «أم علي» (ride ideas c9/s3): the offer
 //                                              and the job name her, «اتصل بالراكب» calls her number
 //   POST /demo/offer?who=tuktuk&kind=favourite a ride booked for later asking for him (joy l9): his minute alone
-//   POST /demo/job?who=courier&step=…          an accepted food job at: to_pickup · at_pickup ·
+//   POST /demo/job?who=courier&step=…          an accepted food job at: to_pickup · at_pickup · ready ·
 //                                              to_dropoff · at_dropoff · unreachable
 //        …&door=1                              to the customer's saved home with a door photo and note,
 //                                              never delivered to before ("اتصل قبل لا توصل", maps f6/a5)
@@ -137,6 +137,7 @@ export default async function register(demo) {
     await trips.arrive(trip.id, pickup.id, personId, { pin: KHALID_PIN });
     if (step === 'at_pickup') return { tripId: trip.id, orderId: order.id };
     await orders.markReady('demo-staff', { orderId: order.id });
+    if (step === 'ready') return { tripId: trip.id, orderId: order.id };
     await trips.completeStop(trip.id, pickup.id, personId);
     const mid = { lat: 32.8995, lng: 45.0702 };
     await dispatch.presence.heartbeat(personId, mid).catch(() => undefined);
