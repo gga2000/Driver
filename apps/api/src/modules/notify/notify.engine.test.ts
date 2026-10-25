@@ -106,6 +106,19 @@ describe('quiet hours and the marketing cap', () => {
     expect(quietHoursEnd(new Date('2026-10-05T01:00:00Z')).toISOString()).toBe('2026-10-05T05:00:00.000Z');
   });
 
+  it('holds the owner\'s «فريقنا عدّل بمحلك» push overnight and sends it at 08:00, once for the event', async () => {
+    const h = notifyHarness({ start: '2026-10-04T21:00:00Z' }); // 00:00 local
+    await h.register('owner', undefined, 'merchant');
+    const req = { eventId: 'sc1', template: 'merchant_staff_changed' as const, to: 'owner', params: { change: 'غيّرنا أوقات الدوام' } };
+    await h.service.dispatch(req);
+    await h.service.dispatch(req); // a retried event: the same row, never a second push
+    await h.run();
+    expect((await h.rows({ personId: 'owner' })).map((r) => [r.status, r.reason])).toEqual([['deferred', 'quiet_hours']]);
+    h.clock.set('2026-10-05T05:00:00Z');
+    await h.run();
+    expect((await h.rows({ personId: 'owner' })).map((r) => r.status)).toEqual(['sent']);
+  });
+
   it('holds marketing until 08:00 and sends transactional messages at once', async () => {
     const h = notifyHarness({ start: '2026-10-04T20:30:00Z' }); // 23:30 local
     await h.register('cust');

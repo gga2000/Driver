@@ -97,6 +97,7 @@ export const NOTIFY_EVENT_TYPES = [
   'merchant.paid_by_courier',
   'merchant.activated',
   'menu_photos.shot',
+  'stores.console_changed',
   'ops.cash_received',
   'wallet.topped_up',
   'order.change_to_wallet',
@@ -157,6 +158,15 @@ export interface NotifySubscriberDeps {
 
 const MERCHANT_STAFF = ['merchant_staff', 'merchant_owner'] as const;
 const MERCHANT_OWNERS = ['merchant_owner'] as const;
+/** The kinds of Console change the owner's push may name, one fixed phrase each (never free text). */
+const STAFF_CHANGE_PHRASES: Readonly<Record<string, MessageKey>> = {
+  menu: 'push.merchant_staff_changed.menu',
+  prices: 'push.merchant_staff_changed.prices',
+  photos: 'push.merchant_staff_changed.photos',
+  hours: 'push.merchant_staff_changed.hours',
+  open: 'push.merchant_staff_changed.open',
+  setup: 'push.merchant_staff_changed.setup',
+};
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
 /** A support reply in a push body: one line, at most 140 characters. */
@@ -571,6 +581,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const [owners, store, courier] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId), str(p['courierId']) ? L.firstName(String(p['courierId']), 'merchant_cash_handover') : null]);
       const params = { store: store ?? '', amount: iqd(amount), courier: courier ?? '', date: localDate(e.occurredAt), balance: iqd(Math.max(0, num(p['merchantBalanceIqd']) ?? 0)), reference: str(p['handoverId']) ?? e.id };
       return owners.map((to) => ({ ...base, template: 'merchant_cash_handover' as const, to, params }));
+    }
+    case 'stores.console_changed': {
+      // «فريقنا عدّل بمحلك»: the team changed the shop from the Console (sent once per sitting by the
+      // stores module). The push names only a fixed kind of change; dishes, prices and names stay in the app.
+      const orgId = str(p['merchantOrgId']);
+      const kind = str(p['kind']);
+      const phrase = kind && Object.hasOwn(STAFF_CHANGE_PHRASES, kind) ? STAFF_CHANGE_PHRASES[kind] : undefined;
+      if (!orgId || !phrase) return [];
+      const owners = await L.orgPeople(orgId, MERCHANT_OWNERS);
+      return owners.map((to) => ({ ...base, template: 'merchant_staff_changed' as const, to, params: { change: t(phrase, {}, 'ar-IQ') } }));
     }
     case 'menu_photos.shot': {
       // Menu photo service (maps k3): «صور المنيو جاهزة» to the store's owners, who accept or reject each.
