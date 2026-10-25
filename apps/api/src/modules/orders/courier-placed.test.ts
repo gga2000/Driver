@@ -73,10 +73,10 @@ describe('errands and parcels at placement (dispatch starts on order.placed)', (
 });
 
 /** Ali's real launch list for Aziziyah (city file): what orders.quote and orders.place let through. */
-describe('launch scope at checkout (Aziziyah launch day: food, taxi, tuktuk, parcel)', () => {
+describe('launch scope at checkout (Aziziyah launch day: food, taxi, tuktuk, parcel, intercity)', () => {
   it('food, taxi, tuktuk and parcels go through; grocery and errands are refused with service_paused from quote and place', async () => {
     const config = new ConfigService();
-    expect(config.launchedVerticals('aziziyah')).toEqual(['food', 'taxi', 'tuktuk', 'parcel']);
+    expect(config.launchedVerticals('aziziyah')).toEqual(['food', 'taxi', 'tuktuk', 'parcel', 'intercity']);
     const h = ordersHarness(undefined, { controls: launchControls(config) });
     const ride = (rideVertical: 'taxi' | 'tuktuk'): PlaceOrderInput => ({ cityId: 'aziziyah', type: 'ride', rideVertical, pickup: { zoneKey: 'centre', pin: KITCHEN }, dropoff: { zoneKey: 'street_30', pin: HOME } });
     for (const input of [h.foodInput(), ride('taxi'), ride('tuktuk'), parcel()]) {
