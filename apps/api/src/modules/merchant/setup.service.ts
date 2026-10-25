@@ -66,6 +66,15 @@ export function setupCatalogOf(catalog: CatalogService): SetupCatalogPort {
 }
 
 const OWNER: RoleKind = 'merchant_owner';
+/**
+ * Driver's team acting for the owner from the Console (`ops*`): field ops and admin; support reads only.
+ * The roles are checked city-wide (one town today); once field ops are city-scoped, check the store's cityId too.
+ */
+const STORE_EDITORS: readonly RoleKind[] = ['field_ops', 'admin'];
+const STORE_READERS: readonly RoleKind[] = [...STORE_EDITORS, 'support'];
+type SetupBy = 'merchant' | 'console';
+/** The team's edits carry `by: 'console'` on their event, so the owner can tell them from his own. */
+const byConsole = (by: SetupBy): { by?: 'console' } => (by === 'console' ? { by } : {});
 
 /**
  * «جهّز محلك» (`merchant.setup.*`): a new shop's first day. Owner only — staff never see setup. The
@@ -106,6 +115,14 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
     return this.view(org);
   }
 
+  /** Console (`ops.stores.get`): the shop's setup as the owner sees it. Field ops, admin and support. */
+  async opsGet(actor: Actor, input: MerchantOrgInput): Promise<MerchantSetupView> {
+    if (!(await this.isStoreTeam(actor, true))) throw new DriverError('forbidden');
+    const org = await this.shop(input.merchantOrgId);
+    await this.adopt(org);
+    return this.view(org);
+  }
+
   /** Shops already known to be from before setup (they have a storefront): not read again. */
   private readonly older = new Set<string>();
 
@@ -127,7 +144,16 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
   }
 
   async confirmKinds(actor: Actor, input: SetupKindsInput): Promise<MerchantSetupView> {
-    const { org, s, setup } = await this.inSetup(actor, input.merchantOrgId);
+    return this.confirmKindsAs('merchant', actor, input);
+  }
+
+  /** Console (`ops.stores.*`): the shop's kinds, confirmed for the owner. Field ops or admin only. */
+  async opsConfirmKinds(actor: Actor, input: SetupKindsInput): Promise<MerchantSetupView> {
+    return this.confirmKindsAs('console', actor, input);
+  }
+
+  private async confirmKindsAs(by: SetupBy, actor: Actor, input: SetupKindsInput): Promise<MerchantSetupView> {
+    const { org, s, setup } = await this.inSetup(actor, input.merchantOrgId, by);
     const kinds = [...input.kinds] as FoodDoor[];
     const front = await this.catalog.storefront(org.id);
     if (front) await this.catalog.saveStorefront({ ...front, tags: tagsForDoors(kinds, front.tags) });
@@ -138,7 +164,7 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
       setup: { ...setup, kinds, kindsAt: this.clock.now() },
       ...(prep && s.defaultPrepMin === null ? { defaultPrepMin: prep.storeMinutes } : {}),
     });
-    await this.events.record('merchant.setup_kinds', actor.personId, org.id, { kinds });
+    await this.events.record('merchant.setup_kinds', actor.personId, org.id, { kinds, ...byConsole(by) });
     return this.view(org);
   }
 
@@ -162,7 +188,16 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
   }
 
   async shopPhoto(actor: Actor, input: MerchantOrgInput & { uploadId: string }): Promise<MerchantSetupView> {
-    const { org, setup } = await this.inSetup(actor, input.merchantOrgId);
+    return this.shopPhotoAs('merchant', actor, input);
+  }
+
+  /** Console (`ops.stores.*`): the shop's photo, uploaded by the team member (`account.photoUpload`). Field ops or admin only. */
+  async opsShopPhoto(actor: Actor, input: MerchantOrgInput & { uploadId: string }): Promise<MerchantSetupView> {
+    return this.shopPhotoAs('console', actor, input);
+  }
+
+  private async shopPhotoAs(by: SetupBy, actor: Actor, input: MerchantOrgInput & { uploadId: string }): Promise<MerchantSetupView> {
+    const { org, setup } = await this.inSetup(actor, input.merchantOrgId, by);
     await this.assertUpload(input.uploadId, actor.personId);
     const ref = `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`;
     const front = await this.catalog.storefront(org.id);
@@ -172,10 +207,19 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
   }
 
   async dishPhoto(actor: Actor, input: MerchantOrgInput & { itemId: string; uploadId: string; librarySlug?: string | null | undefined }): Promise<MerchantSetupView> {
-    const { org } = await this.inSetup(actor, input.merchantOrgId);
+    return this.dishPhotoAs('merchant', actor, input);
+  }
+
+  /** Console (`ops.stores.*`): a dish photo the team member uploaded; it waits for the same-day look like the owner's. Field ops or admin only. */
+  async opsDishPhoto(actor: Actor, input: MerchantOrgInput & { itemId: string; uploadId: string; librarySlug?: string | null | undefined }): Promise<MerchantSetupView> {
+    return this.dishPhotoAs('console', actor, input);
+  }
+
+  private async dishPhotoAs(by: SetupBy, actor: Actor, input: MerchantOrgInput & { itemId: string; uploadId: string; librarySlug?: string | null | undefined }): Promise<MerchantSetupView> {
+    const { org } = await this.inSetup(actor, input.merchantOrgId, by);
     await this.assertUpload(input.uploadId, actor.personId);
     await this.catalog.setPhoto(org.id, input.itemId, `${UPLOAD_PHOTO_PREFIX}${input.uploadId}`, input.librarySlug ?? null);
-    await this.events.record('item.photo_replaced', actor.personId, org.id, { itemId: input.itemId, library: input.librarySlug ?? null, ...(input.librarySlug ? {} : { review: 'pending' }) });
+    await this.events.record('item.photo_replaced', actor.personId, org.id, { itemId: input.itemId, library: input.librarySlug ?? null, ...(input.librarySlug ? {} : { review: 'pending' }), ...byConsole(by) });
     return this.view(org);
   }
 
@@ -259,7 +303,16 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
    * from what he confirmed, and the close setup put on it at the start comes off. Idempotent.
    */
   async goLive(actor: Actor, input: MerchantOrgInput): Promise<MerchantSetupView> {
-    const { org, s, setup } = await this.inSetup(actor, input.merchantOrgId);
+    return this.goLiveAs('merchant', actor, input);
+  }
+
+  /** Console (`ops.stores.*`): raises the shutter for the owner, under the same gate: every step done, his practice order and sound check included (the team cannot tick those). Field ops or admin only. */
+  async opsGoLive(actor: Actor, input: MerchantOrgInput): Promise<MerchantSetupView> {
+    return this.goLiveAs('console', actor, input);
+  }
+
+  private async goLiveAs(by: SetupBy, actor: Actor, input: MerchantOrgInput): Promise<MerchantSetupView> {
+    const { org, s, setup } = await this.inSetup(actor, input.merchantOrgId, by);
     if (setup.liveAt) return this.view(org);
     const facts = await this.inputs(org, s, setup);
     const progress = progressOf(facts);
@@ -274,7 +327,7 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
       await this.catalog.saveStorefront({ orgId: org.id, cityId: org.cityId, nameAr: org.name, cuisineAr: cuisineLine(kinds), tags: tagsForDoors(kinds, []), photoUrl: setup.shopPhotoRef, minOrderIqd: 0, hours });
     }
     await this.stores.setMerchantSettings(org.id, { setup: { ...setup, liveAt: now }, ...(setup.closedBySetup ? { closed: null } : {}) });
-    await this.events.record('merchant.went_live', actor.personId, org.id, { at: now.toISOString(), dishes: facts.dishes.length });
+    await this.events.record('merchant.went_live', actor.personId, org.id, { at: now.toISOString(), dishes: facts.dishes.length, ...byConsole(by) });
     return this.view(org);
   }
 
@@ -409,6 +462,17 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
   /** The owner of a restaurant or grocer (staff never see setup: `forbidden`). */
   private async ownerStore(actor: Actor, merchantOrgId: string): Promise<Org> {
     if (!(await this.people.hasRole(actor.personId, OWNER, merchantOrgId))) throw new DriverError('forbidden');
+    return this.shop(merchantOrgId);
+  }
+
+  /** Driver's team: field ops or admin set a shop up; support also reads (`reads`). */
+  private async isStoreTeam(actor: Actor, reads = false): Promise<boolean> {
+    for (const kind of reads ? STORE_READERS : STORE_EDITORS) if (await this.people.hasRole(actor.personId, kind)) return true;
+    return false;
+  }
+
+  /** A restaurant or grocer (`org_not_found` otherwise). */
+  private async shop(merchantOrgId: string): Promise<Org> {
     let org: Org;
     try {
       org = await this.stores.get(merchantOrgId);
@@ -419,9 +483,10 @@ export class MerchantSetupService implements MerchantSetupPort, MerchantSetupLin
     return org;
   }
 
-  /** The owner, of a shop that is in setup (a shop from before setup has nothing to set up). */
-  private async inSetup(actor: Actor, merchantOrgId: string): Promise<{ org: Org; s: MerchantSettings; setup: MerchantSetupState }> {
-    const org = await this.ownerStore(actor, merchantOrgId);
+  /** The owner (or, on the `ops*` methods, Driver's team), of a shop in setup (a shop from before setup has nothing to set up). */
+  private async inSetup(actor: Actor, merchantOrgId: string, by: SetupBy = 'merchant'): Promise<{ org: Org; s: MerchantSettings; setup: MerchantSetupState }> {
+    if (by === 'console' && !(await this.isStoreTeam(actor))) throw new DriverError('forbidden');
+    const org = by === 'console' ? await this.shop(merchantOrgId) : await this.ownerStore(actor, merchantOrgId);
     const s = await this.stores.merchantSettings(org.id);
     if (!s.setup) throw new DriverError('forbidden');
     return { org, s, setup: s.setup };

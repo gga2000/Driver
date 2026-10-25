@@ -31,7 +31,9 @@ import { HomeKitchenApplication, HomeKitchenApplyInput } from '../home-kitchen-a
 import { protectedProcedure, router } from '../trpc.js';
 import { opsControlsRouter } from './control-room.js';
 import { opsZonesRouter } from './zones.js';
+import { opsMapEditorRouter } from './map-editor.js';
 import { opsClosuresRouter } from './closures.js';
+import { opsStoresRouter } from './stores.js';
 
 export const FIELD_OPS_ROLES: readonly RoleKind[] = ['field_ops', 'admin'];
 
@@ -168,6 +170,10 @@ export const opsRouter = router({
   zones: opsZonesRouter,
   /** Stores' pickup spots set from the Console (field ops, admin). */
   pickupSpots: opsPickupSpotsRouter,
+  /** Console › محرر الخريطة: restaurants and landmarks, history and the fixes inbox (admin / field ops to change). */
+  mapEditor: opsMapEditorRouter,
   /** N20 «شارع مسدود»: streets closed for today; every route goes around them (field ops, dispatchers, admin). */
   closures: opsClosuresRouter,
+  /** Console › المطاعم: the team sets a store up and keeps its menu for the owner (field ops, admin; support reads). */
+  stores: opsStoresRouter,
 });

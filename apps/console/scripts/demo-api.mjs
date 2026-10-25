@@ -23,6 +23,8 @@
 // car, plate; the caller got the SMS), one finished, one cancelled. POST /demo/phone-accept → a demo
 // taxi driver takes the oldest phone booking still searching (the row turns «السايق جاي» within 10 s and
 // the caller's SMS shows in the order's message log); DEMO_PHONE=0 seeds none (the empty page).
+// POST /demo/lost-item → the finished phone-booking taxi's caller asks «نسيت غرض» and a support case
+// opens on it ({ desk }): its «الزبون ↔ الدليفري» tab offers «انحلّت · سكّر المحادثة».
 // GET /demo/handover-code?driverId=… is the code a courier's app shows today (to tick him off on the
 // 23:00 round, S-K5). POST /demo/khat-sweep[?late=1] → a خطوط run that ended without the empty-car
 // check (the red row under the SOS banner; `late=1`: confirmed late). POST /demo/pin-alert[?kind=wrong]
@@ -188,6 +190,19 @@ app.use('/demo/phone-accept', async (_req, res) => {
   try {
     if (!acceptDemoPhoneBooking) throw new Error('still seeding');
     res.end(JSON.stringify(await acceptDemoPhoneBooking()));
+  } catch (err) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+  }
+});
+// POST /demo/lost-item → حسن's finished taxi (the phone booking below): the caller asked «نسيت غرض» and
+// called support; answers { desk } — the support case, whose «السايق» tab offers «انحلّت · سكّر المحادثة».
+let demoLostItem = null;
+app.use('/demo/lost-item', async (_req, res) => {
+  res.setHeader('content-type', 'application/json');
+  try {
+    if (!demoLostItem) throw new Error('still seeding (or DEMO_PHONE=0)');
+    res.end(JSON.stringify(await demoLostItem()));
   } catch (err) {
     res.statusCode = 500;
     res.end(JSON.stringify({ error: String(err?.message ?? err) }));
@@ -480,6 +495,22 @@ await ops.merchantOnboarding(actor(haider), {
   notes: 'يفتح من 4 العصر لحد 12 بالليل',
 });
 const khalidOwner = await person('07740000001', 'خالد', [{ kind: 'merchant_owner', orgId: khalid.orgId }]);
+// محرر الخريطة › المراجعة (Ali, 2026-10-20): fixes waiting for the team — two couriers say مطعم خالد's
+// door moved to the next street, its owner sends a landmark his customers use, and a second copy of
+// the market sits next to the real one (a duplicate to merge). DEMO pins and words only.
+{
+  const { MapEditorService } = await load('modules/map-editor/index.js');
+  const { PlacesService } = await load('modules/places/index.js');
+  const editor = get(MapEditorService);
+  const kitchen = (await orgs.get(khalid.orgId)).merchant?.location?.pin;
+  if (kitchen) {
+    const target = { kind: 'restaurant', id: khalid.orgId };
+    await editor.report(actor(couriers[0].id), { cityId: 'aziziyah', kind: 'moved', target, pin: { lat: kitchen.lat + 0.0004, lng: kitchen.lng + 0.0003 }, note: 'الباب انتقل للشارع الثاني، بعد الإشارة' });
+    await editor.report(actor(couriers[1].id), { cityId: 'aziziyah', kind: 'moved', target, pin: { lat: kitchen.lat + 0.00042, lng: kitchen.lng + 0.00028 } });
+  }
+  await editor.report(actor(khalidOwner), { cityId: 'aziziyah', kind: 'new_place', pin: { lat: 32.905, lng: 45.06 }, name_ar: 'دوّار الساعة', note: 'الزباين يوصفون بي' });
+  await get(PlacesService).save({ cityId: 'aziziyah', pin: { lat: 32.90566, lng: 45.06088 }, name: 'سوك العزيزية', photos: [], confidence: 1, sharedWith: [], landmark: true, landmarkCategory: 'market', landmarkState: 'approved' });
+}
 await get(MerchantAdminService).dealsPropose(actor(khalidOwner), {
   merchantOrgId: khalid.orgId,
   type: 'percent',
@@ -739,6 +770,13 @@ const trips = get(TripsService);
     await trips.completeStop(doneTrip.id, p.id, hassan, startCode ? { startCode } : {});
     await trips.arrive(doneTrip.id, d.id, hassan, { pin: d.target });
     await trips.completeStop(doneTrip.id, d.id, hassan, { handover: { cashCollectedIqd: done.totalIqd } });
+    demoLostItem = async () => {
+      const { ChatService } = await load('modules/chat/index.js');
+      const rider = (await orders.get(done.orderId)).ordererId;
+      await get(ChatService).lostItem(actor(rider), { orderId: done.orderId });
+      const tk = await support.open(actor(zainab), { cityId: 'aziziyah', kind: 'question', channel: 'phone', subject: 'نسى تلفونه بالتكسي', customerId: rider, orderId: done.orderId });
+      return { orderId: done.orderId, ticketId: tk.id, desk: `/support/${tk.id}` };
+    };
     // Cancelled: the caller found a lift.
     const off = await bookFor(zainab, '07733337788', 'سجاد', 'تقاطع شارع ٣٠', 'حديقة الشاشة', 'tuktuk');
     await phones.cancel(actor(zainab), { orderId: off.orderId });

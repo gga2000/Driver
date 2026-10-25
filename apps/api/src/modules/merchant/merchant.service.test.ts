@@ -342,6 +342,9 @@ describe('MerchantService — store status, busy mode, early close, printer', ()
       isInSetup: (s) => Boolean(s.setup && !s.setup.liveAt),
       adopt: async () => undefined,
       goLive: async (_actor, input) => void wentLive.push(input.merchantOrgId),
+      opsGoLive: async () => {
+        throw new Error('not the owner path');
+      },
     };
     const svc = new MerchantService(h.orders, h.trips, { grants: async () => [], hasRole: async () => true, courierFirstName: async () => null, courierVehicle: async () => null }, orgs, { itemNames: async () => new Map(), storefrontTags: async () => null }, { record: async (type, _a, _o, payload) => void recorded.push({ type, payload }) }, h.clock, new EtaService(new StraightLineRouter()), area, null, line);
     const before = recorded.length;
@@ -470,7 +473,11 @@ describe('MerchantService — opening hours', () => {
       grants: async () => [],
       hasRole: async (personId, kind, orgId) =>
         (personId === 'o1' && kind === 'merchant_owner') ||
-        (personId === 's1' && kind === 'merchant_staff' && orgId === base.khalid.id),
+        (personId === 's1' && kind === 'merchant_staff' && orgId === base.khalid.id) ||
+        // Driver's team (city-wide roles): Console › المطاعم acts for the owner.
+        (personId === 'ops1' && kind === 'field_ops') ||
+        (personId === 'adm1' && kind === 'admin') ||
+        (personId === 'sup1' && kind === 'support'),
       courierFirstName: async () => null,
       courierVehicle: async () => null,
     };
@@ -509,6 +516,37 @@ describe('MerchantService — opening hours', () => {
       await code(svc.setHours(staff, { merchantOrgId: khalid.id, days: split(), holidays: [] })),
     ).toBe('forbidden');
     expect((await svc.hours(owner, { merchantOrgId: khalid.id })).canEdit).toBe(true);
+  });
+
+  it('Console: field ops and admin set hours, open, pause and busy with the owner\'s rules; support only reads; owner and staff are refused on the ops path', async () => {
+    const { h, svc, staff, owner, khalid, orgs, recorded } = await withCatalog();
+    h.clock.set('2026-10-04T10:00:00Z');
+    const ops = { personId: 'ops1', sessionId: 'o' };
+    const admin = { personId: 'adm1', sessionId: 'a' };
+    const support = { personId: 'sup1', sessionId: 's' };
+    const S = { merchantOrgId: khalid.id };
+
+    expect((await svc.opsHours(support, S)).canEdit).toBe(true);
+    expect((await svc.opsSetHours(ops, { ...S, days: split(), holidays: [] })).source).toBe('store');
+    expect(recorded.find((r) => r.type === 'merchant.hours_set')?.payload).toMatchObject({ by: 'console' });
+    // The same hours rules as the owner's.
+    const bad = split().map((d, i) => (i === 0 ? { ...d, shifts: [{ start: '12:00', end: '12:00' }] } : d));
+    expect(await code(svc.opsSetHours(admin, { ...S, days: bad, holidays: [] }))).toBe('store_hours_invalid');
+
+    await svc.opsSetOpen(ops, { ...S, open: false, pauseMinutes: 30, reason: 'other' });
+    expect((await orgs.merchantSettings(khalid.id)).closed).toMatchObject({ until: expect.any(Date) });
+    expect(recorded.find((r) => r.type === 'merchant.closed_early')?.payload).toMatchObject({ by: 'console' });
+    await svc.opsSetOpen(admin, { ...S, open: true });
+    expect((await orgs.merchantSettings(khalid.id)).closed).toBeNull();
+    await svc.opsSetBusy(ops, { ...S, on: true, extraMinutes: 10 });
+    expect((await orgs.merchantSettings(khalid.id)).busyExtraMin).toBe(10);
+
+    for (const who of [support, owner, staff]) {
+      expect(await code(svc.opsSetHours(who, { ...S, days: split(), holidays: [] }))).toBe('forbidden');
+      expect(await code(svc.opsSetOpen(who, { ...S, open: false }))).toBe('forbidden');
+      expect(await code(svc.opsSetBusy(who, { ...S, on: false }))).toBe('forbidden');
+    }
+    for (const who of [owner, staff]) expect(await code(svc.opsHours(who, S))).toBe('forbidden');
   });
 
   it('saves split shifts and a holiday: persisted on the store, mirrored to the storefront, recorded', async () => {
