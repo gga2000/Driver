@@ -15,14 +15,14 @@ const subscribeWanted = (cb: () => void) => {
 /**
  * The areas for a screen: it redraws when the server's list arrives or changes. The list is only fetched
  * once a screen that shows areas asks for it, so home, food, menu and orders don't pay its download
- * (speed budgets) while the place and ride pickers always see the Console's areas.
+ * (speed budgets; `fetch = false` for the home cards, which only read what is already there) while the place and ride pickers always see the Console's areas.
  */
-export function useLiveZones(): readonly AziziyahZoneSeed[] {
+export function useLiveZones(fetch = true): readonly AziziyahZoneSeed[] {
   useEffect(() => {
-    if (wanted) return;
+    if (!fetch || wanted) return;
     wanted = true;
     wantListeners.forEach((cb) => cb());
-  }, []);
+  }, [fetch]);
   return useSyncExternalStore(subscribeZones, liveZones, liveZones);
 }
 

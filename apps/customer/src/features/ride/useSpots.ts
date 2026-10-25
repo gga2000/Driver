@@ -29,9 +29,10 @@ export function savedSpot(p: SavedPlace, title: string, locale: 'ar-IQ' | 'en'):
 
 /**
  * Everything "وين رايح؟" searches (saved places, recent trips, landmarks, restaurants, the 34 zones) and the
- * default pickup: the selected deliver-to place.
+ * default pickup: the selected deliver-to place. The home cards pass `liveAreas = false`: they show what is
+ * already loaded and leave the areas download to the ride screens (home's speed budget).
  */
-export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | null; landmarksLoading: boolean; landmarksFailed: boolean; retryLandmarks: () => void } {
+export function useRideSpots(liveAreas = true): { sources: SpotSources; defaultPickup: Spot | null; landmarksLoading: boolean; landmarksFailed: boolean; retryLandmarks: () => void } {
   const t = useT();
   const locale = useLocale();
   const prof = useProfile();
@@ -39,7 +40,7 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
   const landmarks = useLandmarks();
   const refetchLandmarks = landmarks.refetch;
   const shops = useShopPlaces();
-  const zones = useLiveZones();
+  const zones = useLiveZones(liveAreas);
   const lang = locale === 'en' ? 'en' : 'ar-IQ';
 
   return useMemo(() => {

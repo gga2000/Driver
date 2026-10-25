@@ -47,7 +47,7 @@ export function SimpleHome() {
   const simple = useSimpleMode();
   const me = useMe();
   const prof = useProfile();
-  const { sources } = useRideSpots();
+  const { sources } = useRideSpots(false);
   const home = homeOf(sources.saved);
   const here = useMyLocationSpot();
   const active = useActiveRide();
