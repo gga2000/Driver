@@ -42,11 +42,11 @@ function keyRefs(source, into) {
   return into;
 }
 
-function walk(dir, refs) {
+function walk(dir, refs, skip = SKIP_DIRS) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) walk(p, refs);
+      if (!skip.has(entry.name)) walk(p, refs, skip);
     } else if (SOURCE.test(entry.name) && !entry.name.includes('.test.') && !SERVER_ONLY.has(entry.name)) {
       keyRefs(fs.readFileSync(p, 'utf8'), refs);
     }
@@ -72,9 +72,9 @@ function dropFor(messages, refs, always, unnamed) {
   return drop;
 }
 
-function writeLocales({ repoRoot, outDir, roots, always, unnamed }) {
+function writeLocales({ repoRoot, outDir, roots, always, unnamed, skip }) {
   const refs = { exact: new Set(), prefixes: new Set() };
-  for (const root of roots) walk(path.join(repoRoot, root), refs);
+  for (const root of roots) walk(path.join(repoRoot, root), refs, skip);
   fs.mkdirSync(outDir, { recursive: true });
   const out = {};
   for (const locale of LOCALES) {
@@ -93,8 +93,10 @@ function writeCustomerLocales({ repoRoot, outDir }) {
 /** The partner app's tables: no Console, WhatsApp or SMS texts, and none of the customer-only screens. */
 const PARTNER_ROOTS = ['apps/partner/app', 'apps/partner/src', ...SHARED_ROOTS];
 const PARTNER_DROP = new Set(['console', 'wa', 'sms', 'push']);
+/** The contracts' `routers/` run on the server only (the apps import its schemas, never the routers), so the texts they name are not the phone's. */
+const PHONE_SKIP_DIRS = new Set([...SKIP_DIRS, 'routers']);
 function writePartnerLocales({ repoRoot, outDir }) {
-  return writeLocales({ repoRoot, outDir, roots: PARTNER_ROOTS, always: PARTNER_DROP, unnamed: true });
+  return writeLocales({ repoRoot, outDir, roots: PARTNER_ROOTS, always: PARTNER_DROP, unnamed: true, skip: PHONE_SKIP_DIRS });
 }
 
 /**
