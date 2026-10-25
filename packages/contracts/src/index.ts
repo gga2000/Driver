@@ -57,6 +57,7 @@ export * from './map-editor-io.js';
 export * from './closed-street.js';
 // Console and ops closure schemas: `@driver/contracts/closures`; the apps only need the types.
 export type * from './closures-io.js';
+export type * from './store-setup-io.js';
 export * from './safety-io.js';
 export * from './tracking.js';
 export * from './account-io.js';

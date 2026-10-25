@@ -6,6 +6,7 @@ export { CATALOG_REPOSITORY, InMemoryCatalogRepository, PrismaCatalogRepository 
 export { seedStorefronts } from './seed.js';
 export { kindOfLabels, withKind } from './dish-kind.js';
 export { UPLOAD_PHOTO_PREFIX, STOREFRONT_PHOTOS, itemPhotoUrl, photoLink } from './photos.js';
+export { foodMediaPath } from './food-media.controller.js';
 export type { PhotoLink, PhotoLinks } from './photos.js';
 export { potDay, potShowing, potSuggestions, daysBefore } from './pots.js';
 export type { SeededStorefront } from './seed.js';
