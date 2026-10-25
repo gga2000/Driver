@@ -69,9 +69,9 @@ export class PartnerService implements PartnerPort {
   private readonly forecasts = new Map<string, { bucket: number; byZone: Map<string, number> }>();
   /** N17: one glow picture per city per `DEMAND_GLOW_RULES.snapshotMs` (aggregated and a few minutes old). */
   private readonly glows = new Map<string, { bucket: number; snap: Promise<DemandGlowSnapshot> }>();
-  /** «المدينة حيّة»: one picture per city per `snapshotMs`, and the drivers as the last picture saw them (a snapshot late). */
+  /** «المدينة حيّة»: one picture per city per `snapshotMs`, and the drivers as the pictures saw them (shown at least `driversDelayMs` late). */
   private readonly pulses = new Map<string, { bucket: number; snap: Promise<TownPulseSnapshot> }>();
-  private readonly pulseDrivers = new Map<string, Array<{ driverId: string; lat: number; lng: number }>>();
+  private readonly pulseDrivers = new Map<string, Array<{ at: number; drivers: Array<{ driverId: string; lat: number; lng: number }> }>>();
 
   constructor(
     @Inject(PARTNER_DEPS) private readonly deps: PartnerDeps,
@@ -427,9 +427,19 @@ export class PartnerService implements PartnerPort {
       this.deps.town ? this.deps.town.activity(cityId, from, to) : Promise.resolve({ kitchens: [], placed: [] }),
       this.deps.presence.live ? this.deps.presence.live(cityId) : Promise.resolve([]),
     ]);
-    // Drivers a picture late: this picture shows where they were at the last one.
-    const drivers = this.pulseDrivers.get(cityId) ?? [];
-    this.pulseDrivers.set(cityId, live.map((d) => ({ driverId: d.driverId, lat: d.lat, lng: d.lng })));
+    // Drivers at least `driversDelayMs` late: keep each picture's positions and show the newest one
+    // that is old enough (lane A's privacy rule: no live positions, whatever the picture rate).
+    const seen = this.pulseDrivers.get(cityId) ?? [];
+    seen.push({ at: now.getTime(), drivers: live.map((d) => ({ driverId: d.driverId, lat: d.lat, lng: d.lng })) });
+    const oldEnough = now.getTime() - R.driversDelayMs;
+    let pick = -1;
+    seen.forEach((p, i) => {
+      if (p.at <= oldEnough) pick = i;
+    });
+    // Older than the one shown are never needed again.
+    const kept = pick > 0 ? seen.slice(pick) : seen;
+    this.pulseDrivers.set(cityId, kept);
+    const drivers = pick >= 0 ? seen[pick]!.drivers : [];
     return townPulseSnapshot({ at: now, kitchens: activity.kitchens, placed: activity.placed, drivers });
   }
 

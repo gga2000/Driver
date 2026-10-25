@@ -127,6 +127,9 @@ function harness(
     street?: boolean;
     /** «المدينة حيّة»: the city's kitchens and placed orders. */
     town?: PartnerDeps['town'];
+    /** «المدينة حيّة»: who is online (default: the N17 pair), and a clock the test can move. */
+    live?: Array<{ driverId: string; zoneId: string; lat: number; lng: number; free: boolean }>;
+    clock?: FakeClock;
     /** Today's ledger lines (default: two delivery fees on orders a and b). */
     lines?: Array<{ type: string; amountIqd: number; tripId?: string; orderId?: string }>;
   } = {},
@@ -145,10 +148,11 @@ function harness(
       },
       zones: async () => ['centre', 'zakur'],
       // N17: one courier waiting in zakur (him), one busy in the centre.
-      live: async () => [
-        { driverId: 'drv1', zoneId: 'zakur', lat: 32.9, lng: 45.07, free: true },
-        { driverId: 'drv2', zoneId: 'centre', lat: 32.905, lng: 45.06, free: false },
-      ],
+      live: async () =>
+        opts.live ?? [
+          { driverId: 'drv1', zoneId: 'zakur', lat: 32.9, lng: 45.07, free: true },
+          { driverId: 'drv2', zoneId: 'centre', lat: 32.905, lng: 45.06, free: false },
+        ],
     },
     dispatch: {
       openOffer: async () => {
@@ -220,7 +224,7 @@ function harness(
     ...(opts.climate ? { climate: opts.climate } : {}),
     ...(opts.town ? { town: opts.town } : {}),
   };
-  return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
+  return new PartnerService(deps, opts.clock ?? new FakeClock(opts.now ?? NOW));
 }
 
 /** The harness options a test changes between two beats (perf o4). */
@@ -423,6 +427,19 @@ describe('PartnerService', () => {
     expect(reads).toBe(1);
     // Without the town feed the map is quiet, not broken.
     expect(await harness({ online: true }).townPulse(actor)).toMatchObject({ kitchens: [], areas: [], drivers: [] });
+  });
+
+  it('townPulse: three drivers in one cell show only once their picture is a full minute old, never sooner', async () => {
+    const clock = new FakeClock(NOW);
+    const three = [1, 2, 3].map((i) => ({ driverId: `d${i}`, zoneId: 'centre', lat: 32.905 + i * 0.00005, lng: 45.06, free: true }));
+    const h = harness({ online: true, live: three, clock });
+    const seen: number[] = [];
+    // A picture every 20 s (what a busy city makes): 0, 20, 40, 60, 80 s.
+    for (let s = 0; s <= 80; s += 20) {
+      clock.set(new Date(NOW.getTime() + s * 1000));
+      seen.push((await h.townPulse(actor)).drivers.reduce((n, d) => n + d.n, 0));
+    }
+    expect(seen).toEqual([0, 0, 0, 3, 3]);
   });
 
   it('myDay («يومي»): his finished trips today with what each earned, from the same lines as today', async () => {

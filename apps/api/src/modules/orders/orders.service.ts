@@ -706,10 +706,6 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
-   * Joy r6 («عشاك يوصل وياك»): how long before a delivery time a kitchen must hear of a pre-order —
-   * its prep (with today's busy extra) and the scheduled lead `scheduleOffer` uses — and where it is.
-   */
-  /**
    * «المدينة حيّة» (Partner live map home): the city's kitchens with an order accepted, cooking or ready, and
    * the drop-off areas of orders placed between `from` and `to`. Shops only: home-cook kitchens (private
    * houses) and food carts are left out. No order ids, customers or pins leave here; the partner module
@@ -745,6 +741,10 @@ export class OrdersService implements OnModuleInit {
   }
   private readonly townShops = new Map<string, { shop: { pin: LatLng | null } | null; until: number }>();
 
+  /**
+   * Joy r6 («عشاك يوصل وياك»): how long before a delivery time a kitchen must hear of a pre-order —
+   * its prep (with today's busy extra) and the scheduled lead `scheduleOffer` uses — and where it is.
+   */
   async kitchenTiming(merchantOrgId: string): Promise<{ prepMin: number; leadMin: number; pin: LatLng | null } | null> {
     const profile = await this.merchants.profile(merchantOrgId);
     if (!profile) return null;
