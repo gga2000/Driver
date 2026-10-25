@@ -48,9 +48,9 @@ describe('practice order (l4)', () => {
 
   it('a declined or rung-out order goes back to ring again; nothing is accepted late', () => {
     const s = ring(newPractice('taxi', T0), T0);
-    expect(s.offer?.ringSec).toBe(20);
+    expect(s.offer?.ringSec).toBe(25);
     expect(respond(s, false, T0 + 1_000).stage).toBe('idle');
-    expect(respond(s, true, T0 + 21_000).stage).toBe('idle');
+    expect(respond(s, true, T0 + 26_000).stage).toBe('idle');
   });
 
   it('answers the screens from the phone and refuses any other write', () => {

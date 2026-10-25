@@ -109,6 +109,12 @@ export const ERROR_TABLE = {
   zone_at_capacity: { retryHint: 'later', status: 'CONFLICT' },
   control_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  zone_tier_edge_fixed: { retryHint: 'never', status: 'BAD_REQUEST' },
+  map_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  map_landmark_seeded: { retryHint: 'never', status: 'BAD_REQUEST' },
+  map_edit_stale: { retryHint: 'never', status: 'CONFLICT' },
+  map_report_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  map_reports_limit: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   zone_key_taken: { retryHint: 'never', status: 'CONFLICT' },
   zone_shape_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_overlap: { retryHint: 'never', status: 'CONFLICT' },
@@ -283,6 +289,8 @@ export const ERROR_TABLE = {
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
   // s7 «نسيت غرض»: only a completed ride, only within 24 h of its end
   chat_lost_item_unavailable: { retryHint: 'never', status: 'CONFLICT' },
+  // s7 «انحلّت»: someone closed the lost-item chat; it is not reopened
+  chat_lost_item_resolved: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   /** Voice notes are for the customer ↔ courier / driver chat and the support chat only (`VOICE_THREAD_KINDS`). */
   chat_voice_unavailable: { retryHint: 'never', status: 'BAD_REQUEST' },

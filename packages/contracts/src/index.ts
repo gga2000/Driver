@@ -53,9 +53,11 @@ export * from './carry-over.js';
 export * from './search.js';
 export * from './zone-geometry.js';
 export * from './zones-io.js';
+export * from './map-editor-io.js';
 export * from './closed-street.js';
 // Console and ops closure schemas: `@driver/contracts/closures`; the apps only need the types.
 export type * from './closures-io.js';
+export type * from './store-setup-io.js';
 export * from './safety-io.js';
 export * from './tracking.js';
 export * from './account-io.js';

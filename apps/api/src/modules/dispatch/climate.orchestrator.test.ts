@@ -44,8 +44,8 @@ describe('x1 cold car in summer: the first waves of a hot day’s car ride', () 
       ['ac5', 1.5, 'ac'],
     ]);
     await ride(h);
-    await h.advance(15);
-    await h.advance(15);
+    await h.advance(25);
+    await h.advance(25);
     expect(waves(h)).toEqual([
       { wave: 1, driverIds: ['ac1', 'ac2', 'ac3'], only: 'ac' },
       { wave: 2, driverIds: ['ac4', 'ac5'], only: 'ac' },
@@ -75,7 +75,7 @@ describe('x1 cold car in summer: the first waves of a hot day’s car ride', () 
     await ride(h);
     expect(waves(h)[0]).toEqual({ wave: 1, driverIds: ['cool'], only: 'ac' });
     // Wave 3 (wave 2 has nobody new): no longer an AC car, he is ranked by distance with the rest.
-    await h.advance(15);
+    await h.advance(25);
     expect(waves(h)[1]).toEqual({ wave: 3, driverIds: ['broken', 'plain'], only: null });
 
     // 15:00 opens the evening shift: his answer was for the day shift.

@@ -157,7 +157,7 @@ describe('«عوائل» (ride step 3, s6)', () => {
     const h = dispatchHarness();
     await familyCity(h);
     await ride(h, { familyPreferred: true });
-    await h.advance(15);
+    await h.advance(25);
     expect(h.trips.offers[1]?.driverIds).toEqual(expect.arrayContaining(['plain', 'fam_new', 'fam_low']));
   });
 
@@ -270,7 +270,7 @@ describe('«نبّهه» (ride step 3, n4)', () => {
     const h = dispatchHarness();
     const [o1] = await searching(h);
     await h.service.nudgeOffer('t1', o1!, 'c1');
-    await h.advance(60);
+    await h.advance(80);
     const again = (await h.offers('t1')).filter((o) => o.driverId === 'a1' && o.id !== o1);
     expect(again.length).toBeGreaterThan(0);
     expect(await code(h.service.nudgeOffer('t1', again.at(-1)!.id, 'c1'))).toBe('nudge_already');
@@ -281,7 +281,7 @@ describe('«نبّهه» (ride step 3, n4)', () => {
     const [o1, o2] = await searching(h);
     await h.service.respond(h.actor('a2'), { offerId: o2!, accept: false });
     expect(await code(h.service.nudgeOffer('t1', o2!, 'c1'))).toBe('nudge_offer_closed');
-    await h.advance(15);
+    await h.advance(25);
     expect(await code(h.service.nudgeOffer('t1', o1!, 'c1'))).toBe('nudge_offer_closed');
     expect(await code(h.service.nudgeOffer('t1', 'do_999', 'c1'))).toBe('nudge_offer_closed');
   });

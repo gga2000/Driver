@@ -87,8 +87,10 @@ describe('launch control room (e2e)', () => {
     await app.listen(0);
     const address = app.getHttpServer().address();
     origin = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
-    // Open at any hour: no opening hours on file.
+    // Open at any hour: no opening hours on file and no Friday-prayer pause (the city default would
+    // refuse every order placed or scheduled 11:45–13:15 Baghdad on a Friday).
     khalid = (await seedStorefronts(app.get(OrgsService), app.get(CatalogService), AZIZIYAH_RESTAURANTS.slice(0, 1).map((r) => ({ ...r, hours: [] })), 'cr-owner'))[0]!;
+    await app.get(OrgsService).setMerchantSettings(khalid.orgId, { pauseWindows: [] });
     await app.get(OrgsService).settled();
   });
 

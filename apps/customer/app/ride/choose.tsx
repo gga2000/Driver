@@ -425,6 +425,7 @@ export default function RideChoose() {
                   }
                 : null
           }
+          service={vertical === 'tuktuk' ? 'tuktuk' : 'taxi'}
           onRoads={safe.onRoads}
           testID="ride-map"
         />

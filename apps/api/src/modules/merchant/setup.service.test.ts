@@ -32,6 +32,10 @@ async function harness() {
     { personId: 'o1', kind: 'merchant_owner', orgId: fresh.id },
     { personId: 's1', kind: 'merchant_staff', orgId: fresh.id },
     { personId: 'o2', kind: 'merchant_owner', orgId: old.id },
+    // Driver's team (city-wide roles).
+    { personId: 'f1', kind: 'field_ops', orgId: '' },
+    { personId: 'a1', kind: 'admin', orgId: '' },
+    { personId: 'h1', kind: 'support', orgId: '' },
   ];
   const people: MerchantPeoplePort = {
     grants: async () => [],
@@ -48,6 +52,7 @@ async function harness() {
     ['up_dish', 'o1'],
     ['up_spot', 'o1'],
     ['up_stranger', 'x9'],
+    ['up_ops_shop', 'f1'],
   ]);
   const photos: MerchantPhotosPort = { owns: async (id, personId) => uploads.get(id) === personId, readUrl: (id) => `https://blob.test/${id}`, remove: async () => undefined };
   const svc = new MerchantSetupService(orgs, people, setupCatalogOf(catalog), orders, events, clock, photos);
@@ -56,8 +61,11 @@ async function harness() {
   const owner = { personId: 'o1', sessionId: 'a' };
   const staff = { personId: 's1', sessionId: 'b' };
   const oldOwner = { personId: 'o2', sessionId: 'c' };
+  const ops = { personId: 'f1', sessionId: 'd' };
+  const admin = { personId: 'a1', sessionId: 'e' };
+  const support = { personId: 'h1', sessionId: 'f' };
   const input = { merchantOrgId: fresh.id };
-  return { clock, orgs, catalog, svc, fresh, old, owner, staff, oldOwner, input, recorded, active };
+  return { clock, orgs, catalog, svc, fresh, old, owner, staff, oldOwner, ops, admin, support, input, recorded, active };
 }
 
 /** Everything but the step under test, done the way the owner would. */
@@ -207,6 +215,46 @@ describe('merchant setup — the shutter and the first order', () => {
     expect(h.recorded.filter((r) => r.type === 'merchant.first_order')).toHaveLength(1);
     await h.svc.firstOrderSeen(h.owner, h.input);
     expect((await h.svc.statusLine(h.fresh, await h.orgs.merchantSettings(h.fresh.id)))?.firstOrderId).toBeNull();
+  });
+});
+
+describe('merchant setup — Driver\'s team sets the shop up for the owner (Console)', () => {
+  it('field ops and admin may; support only reads; the owner, staff and strangers are refused on the ops path', async () => {
+    const h = await harness();
+    expect((await h.svc.opsConfirmKinds(h.ops, { ...h.input, kinds: ['meal', 'cafe'] })).kinds.confirmed).toEqual(['meal', 'cafe']);
+    expect(await code(h.svc.opsConfirmKinds(h.admin, { ...h.input, kinds: ['meal'] }))).toBe('ok');
+    expect(await code(h.svc.opsGet(h.support, h.input))).toBe('ok');
+    for (const who of [h.support, h.owner, h.staff, { personId: 'x9', sessionId: 'z' }]) {
+      expect(await code(h.svc.opsConfirmKinds(who, { ...h.input, kinds: ['meal'] }))).toBe('forbidden');
+      expect(await code(h.svc.opsShopPhoto(who, { ...h.input, uploadId: 'up_ops_shop' }))).toBe('forbidden');
+      expect(await code(h.svc.opsGoLive(who, h.input))).toBe('forbidden');
+    }
+    for (const who of [h.owner, h.staff]) expect(await code(h.svc.opsGet(who, h.input))).toBe('forbidden');
+    // His events say the team did it.
+    expect(h.recorded.find((r) => r.type === 'merchant.setup_kinds')?.payload).toMatchObject({ by: 'console' });
+  });
+
+  it('the shop photo must be one the team member uploaded himself', async () => {
+    const h = await harness();
+    expect(await code(h.svc.opsShopPhoto(h.ops, { ...h.input, uploadId: 'up_dish' }))).toBe('upload_invalid');
+    expect(await code(h.svc.opsShopPhoto(h.ops, { ...h.input, uploadId: 'up_ops_shop' }))).toBe('ok');
+    expect((await h.orgs.merchantSettings(h.fresh.id)).setup?.shopPhotoRef).toContain('up_ops_shop');
+  });
+
+  it('goLive keeps the same gate: refused while the practice order (his) or any step is missing, then opens', async () => {
+    const h = await harness();
+    await finishAll(h, new Set(['counter']));
+    expect(await code(h.svc.opsGoLive(h.ops, h.input))).toBe('setup_not_ready');
+    // The team cannot tick his practice order: there is no ops method for it, and the owner's refuses them.
+    expect(await code(h.svc.check(h.ops, { ...h.input, check: 'practice' }))).toBe('forbidden');
+    await h.svc.check(h.owner, { ...h.input, check: 'practice' });
+    expect((await h.svc.opsGoLive(h.ops, h.input)).live).toBe(true);
+    expect(h.recorded.find((r) => r.type === 'merchant.went_live')?.payload).toMatchObject({ by: 'console' });
+  });
+
+  it('a shop from before setup has nothing to set up', async () => {
+    const h = await harness();
+    expect(await code(h.svc.opsConfirmKinds(h.ops, { merchantOrgId: h.old.id, kinds: ['meal'] }))).toBe('forbidden');
   });
 });
 
