@@ -47,8 +47,7 @@ export interface GoldenPalette {
   sky: { sky: string; horizon: string; fog: string };
   /** Six real roof finishes (plaster, yellow brick, cream, ochre…); each house carries `tone` 0–5. */
   roofTones: readonly [string, string, string, string, string, string];
-  /** Night only: the roof colour of a house with its lights on, and the warm light it spills on the street. */
-  litRoof: string | null;
+  /** Night only: the warm light a home with its lights on spills on the street, and the colour of its windows. */
   windowGlow: string | null;
   /**
    * Streets up close (audit 2026-10-12): warm dusty tarmac with a sandy shoulder, a pale kerb and a white centre line.
@@ -105,7 +104,7 @@ const DAY: GoldenPalette = {
   sky: { sky: '#F6D9A6', horizon: '#FBEBD0', fog: '#F6E7CB' },
   // lime plaster, yellow brick, sand brick, white-washed, dusty stone, baked brick: Iraqi walls, sculpted by a real sun
   roofTones: ['#F2E2C6', '#EDD3A6', '#E4C190', '#F4E8D2', '#E0C8A4', '#D2AE82'],
-  litRoof: null, windowGlow: null,
+  windowGlow: null,
   riverDepth: ['#ADA972', '#A19E68', '#96955E', '#8B8C55', '#82834E', '#7A7C49', '#717344'],
   reeds: ['#7A853A', '#8E9446', '#6A7432'],
   crops: ['#E2CB86', '#CFCB86', '#BCC07A', '#E4CFA2', '#D9C08F'],
@@ -165,7 +164,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     sky: { sky: '#1E140C', horizon: '#4A2E16', fog: '#24190F' },
     // a warm evening, not a black-out: walls in umber and olive-brown (red-browns turn purple under the lamps)
     roofTones: ['#54473A', '#4C4033', '#5C4D3B', '#463B30', '#615240', '#50443A'],
-    litRoof: '#6E4A26', windowGlow: '#FFB04A',
+    windowGlow: '#FFB04A',
     riverDepth: ['#4A4E30', '#44482C', '#3E4229', '#383C25', '#323621', '#2C301D', '#262A18'],
     reeds: ['#3A4220', '#34391D', '#2C321A'],
     crops: ['#3A3218', '#2E3218', '#28301A', '#3A2E20', '#36291C'],

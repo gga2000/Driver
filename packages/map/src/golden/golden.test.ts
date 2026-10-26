@@ -15,6 +15,8 @@ import {
   LANDMARK_RISE,
   goldenImages,
   lightFor,
+  LIT_WALL_PATTERN,
+  litWallPattern,
   PALM_PATTERN,
   palmPattern,
   resolveLight,
@@ -233,5 +235,23 @@ describe('river sequins', () => {
     const still: Record<string, unknown> = {};
     twinkleRiver({ ...map, setPaintProperty: (id, _n, v) => { still[id] = v; } }, { reduceMotion: true });
     expect(still).toEqual({});
+  });
+});
+
+describe('lit homes at night', () => {
+  it('draws lit houses with the window wall pattern under a thin roof cap, and only at night', () => {
+    const night = buildGoldenStyle({ ...base, light: 'night' });
+    expect(ids(night)).toEqual(expect.arrayContaining(['golden-houses-3d', 'golden-lit-walls', 'golden-lit-cap']));
+    const walls = night.layers.find((l) => l.id === 'golden-lit-walls') as { paint: Record<string, unknown> };
+    expect(walls.paint['fill-extrusion-pattern']).toBe(LIT_WALL_PATTERN);
+    expect(Object.keys(goldenImages('night'))).toContain(LIT_WALL_PATTERN);
+    const day = buildGoldenStyle({ ...base, light: 'day' });
+    expect(ids(day).some((id) => id.startsWith('golden-lit-'))).toBe(false);
+    expect(Object.keys(goldenImages('day'))).not.toContain(LIT_WALL_PATTERN);
+  });
+  it('keeps the wall pattern opaque and the right size', () => {
+    const img = litWallPattern(GOLDEN_PALETTES.night);
+    expect(img.data.length).toBe(img.width * img.height * 4);
+    expect(img.data.every((v, i) => i % 4 !== 3 || v === 255)).toBe(true);
   });
 });

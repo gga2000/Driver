@@ -6,7 +6,7 @@ import { FOOD_SIGNS, SIGN_COLOURS, signImages } from './signs.js';
 // Overture's food categories (cafés, restaurants, bakeries, sweets, juice): the map's first focus
 const FOOD_PLACE = ['any', ...['restaurant', 'cafe', 'coffee', 'bakery', 'dessert', 'sweet', 'juice', 'food', 'eat_and_drink', 'tea'].map((w) => ['in', w, ['get', 'kind']])];
 import { GOLDEN_PALETTES, LANDMARK_PARTS, type GoldenPalette } from './palettes.js';
-import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
+import { FURROW_PATTERN, furrowPattern, LIT_WALL_PATTERN, litWallPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
 
 /**
@@ -109,7 +109,7 @@ export function resolveLight(opts: Pick<GoldenStyleOptions, 'light' | 'now'> = {
 
 /** Images the style uses; add each with `map.addImage(id, image)` (or on `styleimagemissing`). */
 export function goldenImages(light: GoldenLight): Record<string, PatternImage> {
-  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]), [FURROW_PATTERN]: furrowPattern(GOLDEN_PALETTES[light]), ...signImages(light === 'night') };
+  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]), [FURROW_PATTERN]: furrowPattern(GOLDEN_PALETTES[light]), ...(light === 'night' ? { [LIT_WALL_PATTERN]: litWallPattern(GOLDEN_PALETTES[light]) } : {}), ...signImages(light === 'night') };
 }
 
 type Stops = number[];
@@ -262,11 +262,11 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     });
   }
   const bld = { ...src, 'source-layer': 'buildings' } as const;
-  // each house wears one of six real roof finishes; at night a share of them have their lights on
+  // each house wears one of six real roof finishes; at night a share of them have their lights on, shown by the
+  // lit walls below (a house keeps its own roof finish, so lit homes don't turn into orange boxes)
   const t = p.roofTones;
   const finish = ['match', ['%', ['coalesce', ['get', 'tone'], 0], 6], 0, t[0], 1, t[1], 2, t[2], 3, t[3], 4, t[4], t[5]];
-  const house = p.litRoof ? ['case', ['==', ['get', 'lit'], 1], p.litRoof, finish] : finish;
-  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], house] as never;
+  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], finish] as never;
   const lm = { ...src, 'source-layer': 'landmarks' } as const;
   // `pool` parts are light on the ground: never solid, drawn see-through at night by their own layer
   const solidPart = ['!=', ['get', 'part'], 'pool'] as never;
@@ -297,24 +297,49 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     // a soft dark line where walls meet the ground, so houses sit on the street instead of floating
     L.push({
       id: 'golden-wall-foot', type: 'line', ...bld, minzoom: rise, filter: kindIn('house'),
-      paint: { 'line-color': p.shadow, 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.6, 18, 4] as never, 'line-blur': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.5, 18, 3] as never, 'line-opacity': fade(rise, 0, rise + 0.6, p.litRoof ? 0.6 : 0.32) },
+      paint: { 'line-color': p.shadow, 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.6, 18, 4] as never, 'line-blur': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.5, 18, 3] as never, 'line-opacity': fade(rise, 0, rise + 0.6, p.windowGlow ? 0.6 : 0.32) },
     });
     if (p.windowGlow) {
       // lit houses spill warm light onto the street around them
       L.push({
         id: 'golden-window-glow', type: 'circle', ...src, 'source-layer': 'lights', minzoom: 14.5,
-        paint: { 'circle-color': p.windowGlow, 'circle-opacity': 0.32, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 15, 5, 18, 34] as never },
+        paint: { 'circle-color': p.windowGlow, 'circle-opacity': 0.34, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 15, 6, 18, 40] as never },
       });
     }
+    // at night a home with its lights on wears the lit-wall pattern (a warm band of ground-floor windows) under a thin
+    // cap in its own roof finish, so the flat roof still reads as a roof
+    const unlit = ['!=', ['coalesce', ['get', 'lit'], 0], 1] as never;
+    const rise3d = ['interpolate', ['linear'], ['zoom'], rise, 0, rise + 0.6] as const;
     L.push({
-      id: 'golden-houses-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: kindIn('house', 'mosque'),
+      id: 'golden-houses-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: p.windowGlow ? (['all', kindIn('house', 'mosque'), unlit] as never) : kindIn('house', 'mosque'),
       paint: {
         'fill-extrusion-color': roofColor,
-        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], rise, 0, rise + 0.6, ['get', 'hm']] as never,
+        'fill-extrusion-height': [...rise3d, ['get', 'hm']] as never,
         'fill-extrusion-base': ['coalesce', ['get', 'base'], 0] as never,
         'fill-extrusion-vertical-gradient': true,
       },
     });
+    if (p.windowGlow) {
+      const litHouse = ['all', kindIn('house', 'mosque'), ['!', unlit]] as never;
+      L.push({
+        id: 'golden-lit-walls', type: 'fill-extrusion', ...bld, minzoom: rise, filter: litHouse,
+        paint: {
+          'fill-extrusion-pattern': LIT_WALL_PATTERN,
+          'fill-extrusion-height': [...rise3d, ['get', 'hm']] as never,
+          'fill-extrusion-base': ['coalesce', ['get', 'base'], 0] as never,
+          'fill-extrusion-vertical-gradient': true,
+        },
+      });
+      L.push({
+        id: 'golden-lit-cap', type: 'fill-extrusion', ...bld, minzoom: rise, filter: litHouse,
+        paint: {
+          'fill-extrusion-color': roofColor,
+          'fill-extrusion-height': [...rise3d, ['+', ['get', 'hm'], 0.06]] as never,
+          'fill-extrusion-base': [...rise3d, ['-', ['get', 'hm'], 0.5]] as never,
+          'fill-extrusion-vertical-gradient': true,
+        },
+      });
+    }
     // river bridges stand on piers, the deck a storey above the water with a dark rail each side
     L.push({
       id: 'golden-bridge-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: kindIn('deck', 'rail', 'pier'),

@@ -80,3 +80,49 @@ export function furrowPattern(p: GoldenPalette): PatternImage {
   }
   return { width: n, height: n, data };
 }
+
+/** Id of the lit-house wall pattern (night only); registered by `goldenImages()`. */
+export const LIT_WALL_PATTERN = 'golden-lit-walls';
+
+/**
+ * The wall of a home with its lights on (Ali picked look B, 2026-10-25): the same dark wall as its neighbours, the
+ * upper floor's glass dark and a warm band of larger windows along the ground floor, each in its own shade of warm.
+ * Tiles in both directions, so a long wall repeats the shopfront-and-courtyard rhythm.
+ */
+export function litWallPattern(p: GoldenPalette): PatternImage {
+  const W = 64;
+  const H = 96;
+  const wall = hex(p.roofTones[0]);
+  const warm = hex(p.windowGlow ?? '#FFB04A');
+  const mix = (a: [number, number, number], b: [number, number, number], k: number): [number, number, number] => [0, 1, 2].map((i) => Math.round(a[i]! * (1 - k) + b[i]! * k)) as [number, number, number];
+  const cream = mix(warm, [255, 240, 205], 0.6);
+  const amber = mix(warm, [255, 150, 50], 0.5);
+  const dark = mix(wall, [0, 0, 0], 0.35);
+  // x, y, width, height, colour, halo strength
+  const wins: ReadonlyArray<readonly [number, number, number, number, [number, number, number], number]> = [
+    [6, 62, 10, 12, cream, 0.3],
+    [27, 62, 10, 12, warm, 0.3],
+    [48, 62, 10, 12, amber, 0.3],
+    [10, 22, 6, 9, dark, 0],
+    [44, 22, 6, 9, dark, 0],
+  ];
+  const data = new Uint8Array(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    data[i * 4] = wall[0];
+    data[i * 4 + 1] = wall[1];
+    data[i * 4 + 2] = wall[2];
+    data[i * 4 + 3] = 255;
+  }
+  for (const [x0, y0, w, h, c, halo] of wins) {
+    for (let y = y0 - 3; y < y0 + h + 3; y++) {
+      for (let x = x0 - 3; x < x0 + w + 3; x++) {
+        const inside = x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
+        const dist = Math.max(x0 - x, x - (x0 + w - 1), y0 - y, y - (y0 + h - 1), 0);
+        const k = inside ? 1 : Math.max(0, halo * (1 - dist / 4));
+        const i = (((y + H) % H) * W + ((x + W) % W)) * 4;
+        for (let j = 0; j < 3; j++) data[i + j] = Math.round(data[i + j]! * (1 - k) + c[j]! * k);
+      }
+    }
+  }
+  return { width: W, height: H, data };
+}
