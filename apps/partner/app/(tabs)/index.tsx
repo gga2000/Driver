@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { router } from 'expo-router';
 import { Linking, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +17,11 @@ import { ShiftCheckSheet, useShiftCheckDue } from '@/features/home/ShiftCheck';
 import { ActiveJobBanner } from '@/features/work/HomeParts';
 import { ClimateCheckCard } from '@/features/work/ClimateCheck';
 import { mapsUrl } from '@/features/work/logic';
+import { LiveBottom, LiveRow, type LiveNotice } from '@/features/livehome/LiveBottom';
+import { LiveTop } from '@/features/livehome/LiveTop';
+import { LiveTownMap } from '@/features/livehome/LiveTownMap';
+import { dayStops } from '@/features/livehome/pulse-logic';
+import { useMyDay, useTownPulse } from '@/features/livehome/queries';
 import { openNav, useNavApp } from '@/features/work/nav';
 import { ReadinessRow } from '@/features/work/ReadinessRow';
 import { practiceKindFor } from '@/features/practice/scenario';
@@ -57,6 +62,13 @@ export default function Home() {
   const conn = useConnectionBanner({ live: useLiveMode(LIVE_PARTNER_KEY), updatedAt: status.dataUpdatedAt || null });
   const cut = !conn.net.online;
   const demandGlow = useDemandGlow(online && (s?.canDrive ?? false));
+  // «المدينة حيّة»: the town around him while he works; «يومي»: his own deliveries today.
+  const town = useTownPulse(online && (s?.canDrive ?? false) && !cut);
+  const [day, setDay] = useState(false);
+  const myDay = useMyDay(day && (s?.canDrive ?? false));
+  const dayTrail = useMemo(() => dayStops(myDay.data), [myDay.data]);
+  const [topH, setTopH] = useState(0);
+  const [bottomH, setBottomH] = useState(0);
   // Online gate (scoring §2): no check-in today, locked out, or an expired document keeps him offline.
   const gate = online ? null : gateKind(s?.gate);
   // a3: a paper reaches home only in its last 14 days.
@@ -119,6 +131,180 @@ export default function Home() {
   }
 
   const column = { width: '100%' as const, maxWidth: DASH_MAX_WIDTH, alignSelf: 'center' as const };
+  const cards = (
+    <>
+      {!s && status.isError ? (
+        <EmptyState icon="phone" title={t('partner.status_failed')} body={t('error.network')} action={{ label: t('action.retry'), onPress: () => void status.refetch() }} style={{ paddingVertical: theme.space[4] }} />
+      ) : !s ? (
+        <View style={{ gap: theme.space[3] }}>
+          <Skeleton width="100%" height={120} radius={20} />
+          <Skeleton width="70%" height={20} />
+        </View>
+      ) : (
+        <>
+          {/* A failed refresh while we still show the last status: offers can't reach him, say so. */}
+          {!cut && (conn.kind === 'stale' || status.isError) ? (
+            <View
+              testID={status.isError ? 'home-connection-lost' : 'home-stale'}
+              accessibilityLiveRegion="polite"
+              style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: 16, backgroundColor: theme.colors.warningTint }}
+            >
+              <Icon name="clock" size={18} color="warningText" />
+              <Text variant="label" color="warningText" style={{ flex: 1 }}>
+                {status.isError ? t('partner.connection_lost') : t('net.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })}
+              </Text>
+            </View>
+          ) : null}
+          <AttentionStack items={attention} />
+          {/* s7: a rider looking for something left in the car (the chat is open again for 24 h). */}
+          {s.canDrive ? <LostItemStrips /> : null}
+          {hint ? <WorkHintCard hint={hint} onGo={goThere} onMap={() => setPeek(true)} /> : null}
+          {practice ? <ModeTile testID="mode-practice" icon="play" title={t('partner.practice_card_title')} body={t('partner.practice_card_body')} cta={t('partner.practice_card_cta')} onPress={() => router.push('/practice')} /> : null}
+
+          {s.modes.includes('intercity') ? (
+            <ModeTile testID="mode-intercity" icon="garage" title={t('partner.intercity_card_title')} body={t('partner.intercity_card_body')} cta={t('partner.intercity_card_cta')} onPress={() => router.push('/intercity')} />
+          ) : null}
+          {s.modes.includes('khat') ? <ModeTile testID="mode-khat" icon="seat" title={t('partner.khat_card_title')} body={t('partner.khat_card_body')} cta={t('partner.khat_card_cta')} onPress={() => router.push('/khat')} /> : null}
+          {/* Review #28: rides booked for later — his next one, or how many wait for a driver. */}
+          {booked ? (
+            <ModeTile
+              testID="mode-booked"
+              icon="taxi"
+              title={t('partner.booked_title_later')}
+              body={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
+              cta={t('partner.booked_home_cta')}
+              onPress={() => router.push('/booked')}
+            />
+          ) : null}
+          {!s.canDrive ? <NonDriverHub modes={s.modes} /> : null}
+
+          {/* S-8 / h6: GPS · النت · الصوت · البطارية, every shift, a quiet line when all is well. */}
+          {s.canDrive && !gate ? <ReadinessRow /> : null}
+          {s.canDrive && cashLoudness(s.cash) === 'quiet' ? <CashLine cash={s.cash} /> : null}
+        </>
+      )}
+    </>
+  );
+  const showSlide = Boolean(s?.canDrive) && !(khatRun && !online);
+  const slideControl = gate ? (
+    <BlockedSwitch kind={gate} />
+  ) : online ? (
+    <SlideToConfirm
+      key="stop"
+      testID="online-switch"
+      tone="quiet"
+      icon="pause"
+      label={presence.busy ? t('partner.dash_slide_stopping') : t('partner.dash_slide_stop')}
+      loading={presence.busy}
+      confirmHaptic="warning"
+      onConfirm={() => void presence.goOffline()}
+    />
+  ) : (
+    <SlideToConfirm
+      key="start"
+      testID="online-switch"
+      label={presence.busy ? t('partner.dash_slide_starting') : t('partner.dash_slide_start')}
+      loading={presence.busy}
+      // Starting is low-risk, so a tap starts too (P-40); stopping is a slide only.
+      tapToConfirm
+      confirmHaptic="medium"
+      onConfirm={goOnline}
+      style={{ borderRadius: 999, shadowColor: theme.colors.accent, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 }}
+    />
+  );
+  const overlays = (
+    <>
+      <MapPeek visible={peek} onClose={closePeek} self={s?.position ?? null} vehicle={vehicle} online={online} zones={demandGlow.data?.zones ?? []} at={demandGlow.data?.at ?? null} />
+      <ShiftCheckSheet
+        visible={checking}
+        checkedIn={!gate}
+        onGo={() => {
+          setChecking(false);
+          check.markDone();
+          void presence.goOnline();
+        }}
+        onLater={() => setChecking(false)}
+      />
+      {/* Offers ring with the app closed only with notifications on: ask here, before he goes online. */}
+      {/* f4: asked when it is needed — once he is working, so no offer is missed — not on first sight. */}
+      <PrePromptGate active={Boolean(s?.canDrive) && online} />
+    </>
+  );
+
+  // «المدينة حيّة» (Ali, 2026-10-22, the concept he picked): a driver's home is the live 3D map with two
+  // pills on top and one slim card over the slide; fleet owners and field ops keep the hub.
+  if (s?.canDrive) {
+    const shortOf: Partial<Record<AttentionKind, { short: string; icon: IconName }>> = {
+      cash: { short: t(cashLoudness(s.cash) === 'blocked' ? 'partner.cash_blocked_title' : 'partner.cash_near_title'), icon: 'cash' },
+      papers: { short: t('partner.live_notice_papers'), icon: 'clock' },
+      invite: { short: t('partner.live_notice_invite'), icon: 'car' },
+      climate: { short: t('partner.live_notice_climate'), icon: 'snow' },
+    };
+    const notices: LiveNotice[] = attention.map((a) => ({ key: a.key, node: a.node, short: shortOf[a.key]?.short ?? null, icon: shortOf[a.key]?.icon ?? 'bell' }));
+    const kitchens = online && !day ? (town.data?.kitchens.length ?? 0) : 0;
+    const note = day && dayTrail.length === 0 && myDay.isSuccess ? t('partner.live_my_day_empty') : null;
+    const extras = (
+      <>
+        {!cut && (conn.kind === 'stale' || status.isError) ? (
+          <View
+            testID={status.isError ? 'home-connection-lost' : 'home-stale'}
+            accessibilityLiveRegion="polite"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: 16, backgroundColor: theme.colors.warningTint }}
+          >
+            <Icon name="clock" size={18} color="warningText" />
+            <Text variant="label" color="warningText" style={{ flex: 1 }}>
+              {status.isError ? t('partner.connection_lost') : t('net.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })}
+            </Text>
+          </View>
+        ) : null}
+        <LostItemStrips />
+        {practice ? <LiveRow testID="mode-practice" icon="play" title={t('partner.practice_card_title')} cta={t('partner.practice_card_cta')} onPress={() => router.push('/practice')} /> : null}
+        {s.modes.includes('intercity') ? <LiveRow testID="mode-intercity" icon="garage" title={t('partner.intercity_card_title')} cta={t('partner.intercity_card_cta')} onPress={() => router.push('/intercity')} /> : null}
+        {s.modes.includes('khat') ? <LiveRow testID="mode-khat" icon="seat" title={t('partner.khat_card_title')} cta={t('partner.khat_card_cta')} onPress={() => router.push('/khat')} /> : null}
+        {booked ? (
+          <LiveRow
+            testID="mode-booked"
+            icon="taxi"
+            title={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
+            cta={t('partner.booked_home_cta')}
+            onPress={() => router.push('/booked')}
+          />
+        ) : null}
+        {!gate ? <ReadinessRow /> : null}
+      </>
+    );
+    return (
+      <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+        <LiveTownMap
+          self={s.position ?? null}
+          online={online}
+          vehicle={vehicle}
+          pulse={online && !cut ? (town.data ?? null) : null}
+          day={day ? dayTrail : null}
+          glow={demandGlow.data?.zones ?? []}
+          glowAt={demandGlow.data?.at.getTime() ?? 0}
+          topInset={topH}
+          bottomInset={bottomH}
+        />
+        <LiveTop
+          state={state}
+          name={firstName(me.data?.name)}
+          earningsIqd={s.today.earningsIqd}
+          jobs={s.today.jobs}
+          busyTown={(town.data?.kitchens.length ?? 0) > 0 || (s.demand != null && s.demand.level !== 'quiet')}
+          cutTitle={t(conn.net.state === 'unreachable' ? 'partner.net_unreachable_title' : 'partner.net_offline_title')}
+          cutBody={t('partner.net_offline_body', { ago: agoText(conn.ageSeconds ?? 0, t) })}
+          day={day}
+          onDay={() => setDay((d) => !d)}
+          note={note}
+          onLayout={setTopH}
+        />
+        <LiveBottom notices={notices} extras={extras} hint={day ? null : hint} kitchens={kitchens} onGo={goThere} slide={showSlide ? slideControl : null} onLayout={setBottomH} />
+        {overlays}
+      </View>
+    );
+  }
+
   return (
     <View testID="home" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <DashTop
@@ -134,105 +320,15 @@ export default function Home() {
       />
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: theme.space[4], paddingTop: theme.space[4], paddingBottom: theme.space[4], gap: theme.space[3] }}>
-        <View style={[column, { gap: theme.space[3] }]}>
-          {!s && status.isError ? (
-            <EmptyState icon="phone" title={t('partner.status_failed')} body={t('error.network')} action={{ label: t('action.retry'), onPress: () => void status.refetch() }} style={{ paddingVertical: theme.space[4] }} />
-          ) : !s ? (
-            <View style={{ gap: theme.space[3] }}>
-              <Skeleton width="100%" height={120} radius={20} />
-              <Skeleton width="70%" height={20} />
-            </View>
-          ) : (
-            <>
-              {/* A failed refresh while we still show the last status: offers can't reach him, say so. */}
-              {!cut && (conn.kind === 'stale' || status.isError) ? (
-                <View testID={status.isError ? 'home-connection-lost' : 'home-stale'} accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[3], borderRadius: 16, backgroundColor: theme.colors.warningTint }}>
-                  <Icon name="clock" size={18} color="warningText" />
-                  <Text variant="label" color="warningText" style={{ flex: 1 }}>
-                    {status.isError ? t('partner.connection_lost') : t('net.stale', { ago: agoText(conn.ageSeconds ?? 0, t) })}
-                  </Text>
-                </View>
-              ) : null}
-              <AttentionStack items={attention} />
-              {/* s7: a rider looking for something left in the car (the chat is open again for 24 h). */}
-              {s.canDrive ? <LostItemStrips /> : null}
-              {hint ? <WorkHintCard hint={hint} onGo={goThere} onMap={() => setPeek(true)} /> : null}
-              {practice ? <ModeTile testID="mode-practice" icon="play" title={t('partner.practice_card_title')} body={t('partner.practice_card_body')} cta={t('partner.practice_card_cta')} onPress={() => router.push('/practice')} /> : null}
-
-              {s.modes.includes('intercity') ? (
-                <ModeTile testID="mode-intercity" icon="garage" title={t('partner.intercity_card_title')} body={t('partner.intercity_card_body')} cta={t('partner.intercity_card_cta')} onPress={() => router.push('/intercity')} />
-              ) : null}
-              {s.modes.includes('khat') ? (
-                <ModeTile testID="mode-khat" icon="seat" title={t('partner.khat_card_title')} body={t('partner.khat_card_body')} cta={t('partner.khat_card_cta')} onPress={() => router.push('/khat')} />
-              ) : null}
-              {/* Review #28: rides booked for later — his next one, or how many wait for a driver. */}
-              {booked ? (
-                <ModeTile
-                  testID="mode-booked"
-                  icon="taxi"
-                  title={t('partner.booked_title_later')}
-                  body={booked.kind === 'mine' ? t('partner.booked_home_mine', { when: formatWhen(booked.at, new Date(), { locale }) }) : t('partner.booked_home_open', { n: booked.n })}
-                  cta={t('partner.booked_home_cta')}
-                  onPress={() => router.push('/booked')}
-                />
-              ) : null}
-              {!s.canDrive ? <NonDriverHub modes={s.modes} /> : null}
-
-              {/* S-8 / h6: GPS · النت · الصوت · البطارية, every shift, a quiet line when all is well. */}
-              {s.canDrive && !gate ? <ReadinessRow /> : null}
-              {s.canDrive && cashLoudness(s.cash) === 'quiet' ? <CashLine cash={s.cash} /> : null}
-            </>
-          )}
-        </View>
+        <View style={[column, { gap: theme.space[3] }]}>{cards}</View>
       </ScrollView>
 
-      {s?.canDrive && !(khatRun && !online) ? (
+      {showSlide ? (
         <SafeAreaView edges={[]} style={{ paddingHorizontal: theme.space[4], paddingBottom: theme.space[3], paddingTop: theme.space[2], backgroundColor: theme.colors.bg }}>
-          <View style={column}>
-            {gate ? (
-              <BlockedSwitch kind={gate} />
-            ) : online ? (
-              <SlideToConfirm
-                key="stop"
-                testID="online-switch"
-                tone="quiet"
-                icon="pause"
-                label={presence.busy ? t('partner.dash_slide_stopping') : t('partner.dash_slide_stop')}
-                loading={presence.busy}
-                confirmHaptic="warning"
-                onConfirm={() => void presence.goOffline()}
-              />
-            ) : (
-              <SlideToConfirm
-                key="start"
-                testID="online-switch"
-                label={presence.busy ? t('partner.dash_slide_starting') : t('partner.dash_slide_start')}
-                loading={presence.busy}
-                // Starting is low-risk, so a tap starts too (P-40); stopping is a slide only.
-                tapToConfirm
-                confirmHaptic="medium"
-                onConfirm={goOnline}
-                style={{ borderRadius: 999, shadowColor: theme.colors.accent, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 }}
-              />
-            )}
-          </View>
+          <View style={column}>{slideControl}</View>
         </SafeAreaView>
       ) : null}
-
-      <MapPeek visible={peek} onClose={closePeek} self={s?.position ?? null} vehicle={vehicle} online={online} zones={demandGlow.data?.zones ?? []} at={demandGlow.data?.at ?? null} />
-      <ShiftCheckSheet
-        visible={checking}
-        checkedIn={!gate}
-        onGo={() => {
-          setChecking(false);
-          check.markDone();
-          void presence.goOnline();
-        }}
-        onLater={() => setChecking(false)}
-      />
-      {/* Offers ring with the app closed only with notifications on: ask here, before he goes online. */}
-      {/* f4: asked when it is needed — once he is working, so no offer is missed — not on first sight. */}
-      <PrePromptGate active={Boolean(s?.canDrive) && online} />
+      {overlays}
     </View>
   );
 }

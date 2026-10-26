@@ -259,6 +259,11 @@ function ticketWindowStart(now: Date): Date {
   return new Date(startOfLocalDay(now).getTime() - 86_400_000);
 }
 
+/** The most orders placed in the live map's window read at once (a busy city's ten minutes). */
+const TOWN_PLACED_LIMIT = 500;
+/** The catalog's tag on a food cart (`catalog.service` FOOD_CART_TAG): carts stay off the live map. */
+const FOOD_CART_TAG = 'food_cart';
+
 @Injectable()
 export class OrdersService implements OnModuleInit {
   constructor(
@@ -699,6 +704,42 @@ export class OrdersService implements OnModuleInit {
       totalIqd,
     });
   }
+
+  /**
+   * «المدينة حيّة» (Partner live map home): the city's kitchens with an order accepted, cooking or ready, and
+   * the drop-off areas of orders placed between `from` and `to`. Shops only: home-cook kitchens (private
+   * houses) and food carts are left out. No order ids, customers or pins leave here; the partner module
+   * builds one shared picture from it (`townPulseSnapshot`).
+   */
+  async townActivity(cityId: string, from: Date, to: Date): Promise<{
+    kitchens: Array<{ merchantOrgId: string; pin: LatLng | null; state: 'merchant_accepted' | 'preparing' | 'ready'; acceptedAt: Date | null; promisedReadyAt: Date | null }>;
+    placed: Array<{ zoneId: string | null; placedAt: Date }>;
+  }> {
+    const [cooking, placed] = await Promise.all([
+      this.repo.findMany({ cityId, states: ['merchant_accepted', 'preparing', 'ready'] }),
+      this.repo.search({ cityId, from, to, limit: TOWN_PLACED_LIMIT }),
+    ]);
+    const kitchens: Awaited<ReturnType<OrdersService['townActivity']>>['kitchens'] = [];
+    for (const o of cooking) {
+      if (o.type !== 'food' || !o.merchantOrgId) continue;
+      const shop = await this.townShop(o.merchantOrgId);
+      if (!shop) continue;
+      kitchens.push({ merchantOrgId: o.merchantOrgId, pin: shop.pin, state: o.state as 'merchant_accepted' | 'preparing' | 'ready', acceptedAt: o.acceptedAt, promisedReadyAt: o.promisedReadyAt });
+    }
+    return { kitchens, placed: placed.map((o) => ({ zoneId: o.dropoff?.zoneKey ?? null, placedAt: o.placedAt })) };
+  }
+
+  /** A shop's pin for the live map, or null for a home kitchen or a food cart (kept for ten minutes). */
+  private async townShop(merchantOrgId: string): Promise<{ pin: LatLng | null } | null> {
+    const now = this.clock.now().getTime();
+    const hit = this.townShops.get(merchantOrgId);
+    if (hit && hit.until > now) return hit.shop;
+    const [profile, front] = await Promise.all([this.merchants.profile(merchantOrgId), this.catalog.storefront?.(merchantOrgId) ?? Promise.resolve(null)]);
+    const shop = !profile || front?.home || front?.tags?.includes(FOOD_CART_TAG) ? null : { pin: profile.location?.pin ?? null };
+    this.townShops.set(merchantOrgId, { shop, until: now + 10 * 60_000 });
+    return shop;
+  }
+  private readonly townShops = new Map<string, { shop: { pin: LatLng | null } | null; until: number }>();
 
   /**
    * Joy r6 («عشاك يوصل وياك»): how long before a delivery time a kitchen must hear of a pre-order —

@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import { TOWN_PULSE_RULES, townPulseFor, townPulseSnapshot, type TownPulseInput } from './town-pulse-io.js';
+
+const at = new Date('2026-10-22T15:00:00Z');
+const min = (n: number) => new Date(at.getTime() - n * 60_000);
+const shop = { lat: 32.904, lng: 45.06 };
+const base: TownPulseInput = { at, kitchens: [], placed: [], drivers: [] };
+
+describe('townPulseSnapshot', () => {
+  it('shows a kitchen once, ready over cooking, with the soonest ring in quarter steps', () => {
+    const snap = townPulseSnapshot({
+      ...base,
+      kitchens: [
+        { merchantOrgId: 'k1', pin: shop, state: 'preparing', acceptedAt: min(10), promisedReadyAt: min(-10) },
+        { merchantOrgId: 'k1', pin: shop, state: 'merchant_accepted', acceptedAt: min(14), promisedReadyAt: min(-6) },
+        { merchantOrgId: 'k2', pin: shop, state: 'preparing', acceptedAt: min(5), promisedReadyAt: min(-5) },
+        { merchantOrgId: 'k2', pin: shop, state: 'ready', acceptedAt: min(20), promisedReadyAt: min(1) },
+        { merchantOrgId: 'k3', pin: null, state: 'preparing', acceptedAt: min(5), promisedReadyAt: min(-5) },
+      ],
+    });
+    expect(snap.kitchens).toEqual([
+      { id: 'k1', at: shop, state: 'cooking', progress: 0.5 },
+      { id: 'k2', at: shop, state: 'ready', progress: null },
+    ]);
+  });
+
+  it('counts new orders per area a few minutes late and only from the minimum up', () => {
+    const placed = [...Array(3)].map(() => ({ zoneId: 'centre', placedAt: min(5) }));
+    placed.push({ zoneId: 'fidaa', placedAt: min(5) }, { zoneId: 'fidaa', placedAt: min(4) }, { zoneId: 'centre', placedAt: min(1) }, { zoneId: 'centre', placedAt: min(30) });
+    const snap = townPulseSnapshot({ ...base, placed });
+    expect(snap.areas).toEqual([{ zoneId: 'centre', n: 3 }]);
+  });
+});
+
+describe('townPulseFor', () => {
+  const drivers = ['a', 'b', 'c', 'me'].map((driverId) => ({ driverId, lat: 32.9041, lng: 45.0601 }));
+  it('never lets him make a cell count, and shows no cell under the minimum', () => {
+    const snap = townPulseSnapshot({ ...base, drivers });
+    const me = townPulseFor(snap, { driverId: 'me', at: shop });
+    expect(me.drivers).toEqual([{ at: snap.cells[0]!.at, n: 3 }]);
+    const a = townPulseFor(townPulseSnapshot({ ...base, drivers: drivers.slice(1) }), { driverId: 'b', at: shop });
+    expect(a.drivers).toEqual([]);
+    expect(TOWN_PULSE_RULES.minCount).toBe(3);
+  });
+
+  it('keeps kitchens around him, nearest first', () => {
+    const far = { lat: 32.95, lng: 45.1 };
+    const snap = townPulseSnapshot({ ...base, kitchens: [{ merchantOrgId: 'far', pin: far, state: 'ready', acceptedAt: null, promisedReadyAt: null }, { merchantOrgId: 'near', pin: shop, state: 'ready', acceptedAt: null, promisedReadyAt: null }] });
+    expect(townPulseFor(snap, { driverId: 'me', at: shop }).kitchens.map((k) => k.id)).toEqual(['near']);
+  });
+});

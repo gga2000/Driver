@@ -35,6 +35,7 @@ import { inboxRouter } from './routers/inbox.js';
 import { onCallRouter } from './routers/on-call.js';
 import { garageTaxiRouter } from './routers/garage-taxi.js';
 import { closuresRouter } from './routers/closures.js';
+import { peopleRouter } from './routers/people.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -98,6 +99,7 @@ export const appRouter = router({
   household: householdRouter,
   partner: partnerRouter,
   closures: closuresRouter,
+  people: peopleRouter,
   merchant: merchantRouter,
   chat: chatRouter,
   tracking: trackingRouter,

@@ -80,6 +80,11 @@ describe('notify subscribers: events → notifications', () => {
     // Menu photo service (maps k3): the visit's photos are handed over — «صور المنيو جاهزة» to the owners.
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1', merchantOrgId: 'org_k', photos: 4 }))).toEqual([{ template: 'menu_photos_ready', to: 'owner', params: { store: 'مطعم خالد' } }]);
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1' }))).toEqual([]);
+    // «فريقنا عدّل بمحلك»: the team changed the shop from the Console — the owners only, a fixed phrase, never free text.
+    expect(await one(event('stores.console_changed', { merchantOrgId: 'org_k', kind: 'prices' }))).toEqual([{ template: 'merchant_staff_changed', to: 'owner', params: { change: 'غيّرنا أسعار بالمنيو' } }]);
+    expect(render('merchant_staff_changed', { change: 'غيّرنا أسعار بالمنيو' }, 'ar-IQ').body).toBe('غيّرنا أسعار بالمنيو. كل التعديلات بالتطبيق');
+    expect(await one(event('stores.console_changed', { merchantOrgId: 'org_k', kind: 'زاد «فلافل»' }))).toEqual([]);
+    expect(await one(event('stores.console_changed', { kind: 'menu' }))).toEqual([]);
     // «جهّز محلك»: ops approved the shop — its owners (never the onboarding contact as such) hear it is live.
     const activated = event('merchant.activated', { onboardingId: 'onb_1', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'someone', reason: null });
     expect(await one(activated)).toEqual([{ template: 'merchant_activated', to: 'owner', params: { shop: 'مطعم خالد', next: 'افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.' } }]);

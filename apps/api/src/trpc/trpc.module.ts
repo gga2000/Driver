@@ -3,7 +3,7 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { REQUEST_LIMITS, isDriverError, type AppContext, type ErrorCode, type SessionClaims } from '@driver/contracts';
 import { appRouter } from '@driver/contracts/router';
 import { ConfigModule, ConfigService } from '../modules/config/index.js';
-import { ConsoleModule, ConsoleReadService } from '../modules/console/index.js';
+import { ConsoleModule, ConsoleReadService, PeopleReadService } from '../modules/console/index.js';
 import { DispatchModule, DispatchService } from '../modules/dispatch/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { DriverAccountModule, DriverAccountService } from '../modules/driver-account/index.js';
@@ -90,6 +90,7 @@ export class TrpcService {
     private readonly trips: TripsRpc,
     private readonly dispatch: DispatchService,
     private readonly consoleReads: ConsoleReadService,
+    private readonly people: PeopleReadService,
     private readonly routes: RoutesRpc,
     private readonly catalog: CatalogRpc,
     private readonly tracking: TrackingService,
@@ -181,6 +182,7 @@ export class TrpcService {
       routes: this.routes,
       catalog: this.catalog,
       console: this.consoleReads,
+      people: this.people,
       tracking: this.tracking,
       places: this.places,
       wallet: this.wallet,

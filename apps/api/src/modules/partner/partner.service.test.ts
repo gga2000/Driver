@@ -125,6 +125,13 @@ function harness(
     answers?: Array<{ driverId: string; tripId: string; answer: string }>;
     /** HUNT-02: the food order was priced «بالشارع». */
     street?: boolean;
+    /** «المدينة حيّة»: the city's kitchens and placed orders. */
+    town?: PartnerDeps['town'];
+    /** «المدينة حيّة»: who is online (default: the N17 pair), and a clock the test can move. */
+    live?: Array<{ driverId: string; zoneId: string; lat: number; lng: number; free: boolean }>;
+    clock?: FakeClock;
+    /** Today's ledger lines (default: two delivery fees on orders a and b). */
+    lines?: Array<{ type: string; amountIqd: number; tripId?: string; orderId?: string }>;
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
@@ -141,10 +148,11 @@ function harness(
       },
       zones: async () => ['centre', 'zakur'],
       // N17: one courier waiting in zakur (him), one busy in the centre.
-      live: async () => [
-        { driverId: 'drv1', zoneId: 'zakur', lat: 32.9, lng: 45.07, free: true },
-        { driverId: 'drv2', zoneId: 'centre', lat: 32.905, lng: 45.06, free: false },
-      ],
+      live: async () =>
+        opts.live ?? [
+          { driverId: 'drv1', zoneId: 'zakur', lat: 32.9, lng: 45.07, free: true },
+          { driverId: 'drv2', zoneId: 'centre', lat: 32.905, lng: 45.06, free: false },
+        ],
     },
     dispatch: {
       openOffer: async () => {
@@ -200,10 +208,11 @@ function harness(
     quotes: { quote: () => null },
     money: {
       cap: async () => ({ tier: 'silver', owedIqd: 128_000, capIqd: 150_000, capRemainingIqd: 22_000, overCap: false, cashIqd: -131_000, ...opts.cap }),
-      driverLines: async () => [
-        { type: 'delivery_fee', amountIqd: 1_000, orderId: 'a' },
-        { type: 'delivery_fee', amountIqd: 1_500, orderId: 'b' },
-      ],
+      driverLines: async () =>
+        opts.lines ?? [
+          { type: 'delivery_fee', amountIqd: 1_000, orderId: 'a' },
+          { type: 'delivery_fee', amountIqd: 1_500, orderId: 'b' },
+        ],
       batchShare: 0.7,
       take: () => null,
     },
@@ -213,8 +222,9 @@ function harness(
     ...(opts.places ? { places: opts.places } : {}),
     ...(opts.pickupSpots ? { pickupSpots: opts.pickupSpots } : {}),
     ...(opts.climate ? { climate: opts.climate } : {}),
+    ...(opts.town ? { town: opts.town } : {}),
   };
-  return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
+  return new PartnerService(deps, opts.clock ?? new FakeClock(opts.now ?? NOW));
 }
 
 /** The harness options a test changes between two beats (perf o4). */
@@ -395,6 +405,55 @@ describe('PartnerService', () => {
     // Another courier reading the same picture sees the centre warm: it was picked for drv1.
     expect((await h.demandGlow({ ...actor, personId: 'drv9' })).zones).toEqual([{ zoneId: 'centre', level: 'warm', forYou: false }]);
     expect((await h.demandGlow(actor)).at).toEqual(g.at);
+  });
+
+  it('townPulse («المدينة حيّة»): shops cooking near him, areas only from 3 orders, drivers a picture late and only in threes', async () => {
+    const placed = [6, 7, 8].map((m) => ({ zoneId: 'centre', placedAt: new Date(NOW.getTime() - m * 60_000) }));
+    let reads = 0;
+    const town: PartnerDeps['town'] = {
+      activity: async () => {
+        reads++;
+        return { kitchens: [{ merchantOrgId: 'm1', pin: KITCHEN, state: 'preparing', acceptedAt: new Date(NOW.getTime() - 5 * 60_000), promisedReadyAt: new Date(NOW.getTime() + 15 * 60_000) }], placed: [...placed, { zoneId: 'zakur', placedAt: placed[0]!.placedAt }] };
+      },
+    };
+    const h = harness({ online: true, town });
+    const p = await h.townPulse(actor);
+    expect(p.kitchens).toEqual([{ id: 'm1', at: KITCHEN, state: 'cooking', progress: 0.25 }]);
+    expect(p.areas).toEqual([{ zoneId: 'centre', n: 3 }]);
+    // Two drivers online: never a cell under three, and the first picture has no drivers at all (a picture late).
+    expect(p.drivers).toEqual([]);
+    // One shared picture per 20 s for the whole city.
+    await h.townPulse({ ...actor, personId: 'drv9' });
+    expect(reads).toBe(1);
+    // Without the town feed the map is quiet, not broken.
+    expect(await harness({ online: true }).townPulse(actor)).toMatchObject({ kitchens: [], areas: [], drivers: [] });
+  });
+
+  it('townPulse: three drivers in one cell show only once their picture is a full minute old, never sooner', async () => {
+    const clock = new FakeClock(NOW);
+    const three = [1, 2, 3].map((i) => ({ driverId: `d${i}`, zoneId: 'centre', lat: 32.905 + i * 0.00005, lng: 45.06, free: true }));
+    const h = harness({ online: true, live: three, clock });
+    const seen: number[] = [];
+    // A picture every 20 s (what a busy city makes): 0, 20, 40, 60, 80 s.
+    for (let s = 0; s <= 80; s += 20) {
+      clock.set(new Date(NOW.getTime() + s * 1000));
+      seen.push((await h.townPulse(actor)).drivers.reduce((n, d) => n + d.n, 0));
+    }
+    expect(seen).toEqual([0, 0, 0, 3, 3]);
+  });
+
+  it('myDay («يومي»): his finished trips today with what each earned, from the same lines as today', async () => {
+    const done = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'completed'), stop('s2', 1, 'dropoff', 'zakur', HOME, 'completed')], { state: 'completed', courierId: actor.personId, completedAt: new Date(NOW.getTime() - 3_600_000) });
+    const someoneElse = trip('t2', [stop('s3', 0, 'pickup', 'street_30', KITCHEN)], { courierId: 'drv7', completedAt: NOW });
+    const lines = [
+      { type: 'delivery_fee', amountIqd: 1_250, tripId: 't1', orderId: 'o1' },
+      { type: 'tip', amountIqd: 500, tripId: 't1', orderId: 'o1' },
+      { type: 'delivery_fee', amountIqd: 900, tripId: 't2', orderId: 'o2' },
+      { type: 'driver_payout', amountIqd: -2_000 },
+    ];
+    const day = await harness({ trips: [done, someoneElse], lines }).myDay(actor);
+    expect(day.jobs).toEqual([{ tripId: 't1', pickup: KITCHEN, dropoff: HOME, doneAt: done.completedAt, earnedIqd: 1_750 }]);
+    expect(day.earningsIqd).toBe(2_650);
   });
 
   it('currentOffer: zones, merchant prep, cash to collect, ring, named pay', async () => {

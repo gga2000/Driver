@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -42,6 +42,12 @@ export interface DriverMapProps {
   heat?: ReadonlyArray<{ zoneId: string; level: DemandLevel; forYou?: boolean }>;
   /** When the heat picture was taken (epoch ms): a new one cross-fades in. */
   heatAt?: number;
+  /** 0–1: how strongly the busy zones glow (the live home keeps it faint so it never covers the map). */
+  heatStrength?: number;
+  /** The screen's own layers over the busy zones and under him («المدينة حيّة»), drawn from the same camera. */
+  layers?: (map: MapLayerCamera) => ReactNode;
+  /** More points the camera keeps in view (the live home's «يومي» trail). */
+  frame?: readonly LngLat[];
   /** N20: closed streets the road goes around (`OrderRoute.closures`), over the busy zones, under the road. */
   closures?: readonly CourierClosure[];
   /** Space covered by overlays at the top and bottom; the camera frames what's between. */
@@ -61,7 +67,7 @@ export interface DriverMapProps {
  * plus the driver's puck, job pins and a dashed route, all projected from one camera held in
  * shared values so overlays never drift from the tiles.
  */
-export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, heat, heatAt = 0, closures, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, landmarkNameZoom, testID = 'driver-map' }: DriverMapProps) {
+export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], road = null, heat, heatAt = 0, heatStrength = 1, layers, frame, closures, topInset = 0, bottomInset = 0, soloZoom = 15, maxZoom = 16, landmarkNameZoom, testID = 'driver-map' }: DriverMapProps) {
   const roadPoints = useMemo(() => (road ? decodePolyline(road) : null), [road]);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const sizeSV = useSharedValue<Size>({ w: 1, h: 1 });
@@ -72,7 +78,8 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
   const [drawn, setDrawn] = useState<Camera>(AZIZIYAH);
   const [placed, setPlaced] = useState(false);
   // N17: the map draws the busy zones as light itself when it can (MapLibre); the SVG fills are the fallback.
-  const glow = useGlowCells(heat);
+  const glowCells = useGlowCells(heat);
+  const glow = useMemo(() => (heatStrength >= 1 ? glowCells : glowCells.map((c) => ({ ...c, weight: c.weight * heatStrength }))), [glowCells, heatStrength]);
   const [mapGlows, setMapGlows] = useState(false);
   // N20: the map draws the closed streets itself when it can (MapLibre; the label needs its glyphs); the rest here.
   const t = useT();
@@ -82,7 +89,7 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
   const closed = useMemo(() => closedData(closures, closedLabel), [closedKey, closedLabel]);
   const [mapClosed, setMapClosed] = useState<ClosedDrawn>({ lines: false, labels: false });
 
-  const focus = useMemo(() => [...(self ? [self] : []), ...pins.map((p) => p.at)], [self, pins]);
+  const focus = useMemo(() => [...(self ? [self] : []), ...pins.map((p) => p.at), ...(frame ?? [])], [self, pins, frame]);
   const focusKey = focus.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('|');
   // Zone names and landmarks keep clear of the puck and every pin (QA 2026-10-07); keyed like the
   // camera. Each says how wide it really is (his disc, the pin's name pill), so a landmark's name
@@ -140,8 +147,9 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
       {size.w > 0 ? (
         <>
           <BaseMap drawn={drawn} cam={cam} size={size} onUserGestureStart={() => undefined} onUserCamera={setDrawn} labelAvoid={labelAvoid} coveredTop={topInset} coveredBottom={bottomInset} {...(landmarkNameZoom !== undefined ? { landmarkNameZoom } : {})} {...(heat ? { glow, onGlow: setMapGlows } : {})} {...(closures ? { closed, onClosed: setMapClosed } : {})} />
-          {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} at={heatAt} outline={mapGlows} /> : null}
+          {heat && heat.length > 0 ? <HeatLayer drawn={drawn} cam={cam} size={size} zones={heat} at={heatAt} outline={mapGlows} strength={heatStrength} /> : null}
           {closed.features.length > 0 ? <ClosureLayer drawn={drawn} cam={cam} size={size} data={closed} lines={!mapClosed.lines} labels={!mapClosed.labels} road={roadPoints ?? route} /> : null}
+          {layers ? layers({ cam, size: sizeSV, drawn, sizeNow: size }) : null}
           {roadPoints && roadPoints.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={roadPoints} solid /> : route.length > 1 ? <RouteLine cam={cam} size={sizeSV} points={route} /> : null}
           {/* His pulse under the pins (it never washes over a label), his disc over them (QA 2026-10-07: on
               the way to the kitchen «مطعم خالد» hid him; where he is matters most). */}
@@ -154,6 +162,14 @@ export function DriverMap({ self, vehicleIcon, online, pins = [], route = [], ro
       ) : null}
     </View>
   );
+}
+
+/** What a screen's own layer needs to sit on the map: the live camera, the size, and the settled camera. */
+export interface MapLayerCamera {
+  cam: CameraValues;
+  size: SharedValue<Size>;
+  drawn: Camera;
+  sizeNow: Size;
 }
 
 interface LayerProps {

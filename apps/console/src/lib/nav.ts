@@ -39,7 +39,8 @@ export type IconName =
   | 'garage'
   | 'system'
   | 'audit'
-  | 'staff';
+  | 'staff'
+  | 'customers';
 
 export interface NavItem {
   href: string;
@@ -98,6 +99,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
       { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
+      // «الناس» (Ali 2026-10-21): every customer with a profile; drivers' profiles open from السواق.
+      { href: '/customers', key: 'console.nav_customers', icon: 'customers', roles: READ, jump: 'i' },
       {
         href: '/approvals',
         key: 'console.nav_approvals',

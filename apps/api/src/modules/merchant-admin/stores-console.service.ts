@@ -22,6 +22,7 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { CatalogService, itemPhotoUrl } from '../catalog/index.js';
 import { AuditLogService } from '../controls/index.js';
+import { EventsService } from '../events/index.js';
 import { MerchantService, MerchantSetupService, setupFacts } from '../merchant/index.js';
 import { closedNow, OrgsService, type Org } from '../orgs/index.js';
 import { BLOB_STORE, type BlobStore } from '../places/index.js';
@@ -51,6 +52,22 @@ export const STORE_AUDIT = {
 } as const;
 
 const STORE_TYPES = new Set(['restaurant', 'grocer']);
+/** The owner hears of the team's changes once per sitting: the first change after 30 quiet minutes. */
+export const OWNER_PUSH_GAP_MS = 30 * 60_000;
+/** «فريقنا عدّل بمحلك» push to the store's owners (notify `merchant_staff_changed`). */
+export const STAFF_CHANGED_EVENT = 'stores.console_changed';
+/** «… بـمطعم خالد» reads oddly in his own shop's app (and its push): the store's name is dropped. */
+const ownerWording = (text: string, store: string) => text.replaceAll(` بـ${store}`, '').replaceAll(` لـ${store}`, '');
+/** What the push names: a fixed kind (one server phrase each, `push.merchant_staff_changed.<kind>`), never the dish or the person. */
+export type StaffChangeKind = 'menu' | 'prices' | 'photos' | 'hours' | 'open' | 'setup';
+export function staffChangeKind(action: string, detail: Record<string, unknown>): StaffChangeKind {
+  if (detail['priceChanged'] === true) return 'prices';
+  if (action === STORE_AUDIT.libraryPhoto || action === STORE_AUDIT.shopPhoto || action === STORE_AUDIT.dishPhoto) return 'photos';
+  if (action === STORE_AUDIT.hoursSet) return 'hours';
+  if (action === STORE_AUDIT.openSet || action === STORE_AUDIT.busySet) return 'open';
+  if (action === STORE_AUDIT.kindsSet || action === STORE_AUDIT.wentLive) return 'setup';
+  return 'menu';
+}
 
 /**
  * `ops.stores.*` — Console › المطاعم (Ali, 2026-10-21): Driver's team sets a store up and keeps its menu
@@ -72,6 +89,7 @@ export class StoresConsoleService implements StoresOpsPort {
     @Inject(BLOB_STORE) private readonly blobs: BlobStore,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly events: EventsService,
   ) {}
 
   private async store(merchantOrgId: string): Promise<Org> {
@@ -144,9 +162,7 @@ export class StoresConsoleService implements StoresOpsPort {
     await this.menus.assertOwner(actor, input.merchantOrgId);
     const org = await this.store(input.merchantOrgId);
     const rows = await this.audits.list({ subjectKind: STORE_AUDIT_SUBJECT, subjectId: org.id, limit: input.limit ?? 50 });
-    // «… بـمطعم خالد» reads oddly in his own shop's app: the store's name is dropped.
-    const own = (text: string) => text.replaceAll(` بـ${org.name}`, '').replaceAll(` لـ${org.name}`, '');
-    return rows.map((r) => ({ id: r.id, at: r.at, byFirstName: r.actorName?.trim().split(/\s+/)[0] || null, summaryAr: own(r.summary_ar) }));
+    return rows.map((r) => ({ id: r.id, at: r.at, byFirstName: r.actorName?.trim().split(/\s+/)[0] || null, summaryAr: ownerWording(r.summary_ar, org.name) }));
   }
 
   async menu(actor: Actor, input: MerchantScope): Promise<AdminMenu> {
@@ -183,10 +199,17 @@ export class StoresConsoleService implements StoresOpsPort {
     await this.menus.assertStoreOps(actor);
     await this.setups.adopt(org);
     const before = opts.before ? await opts.before(org) : undefined;
+    const [last] = await this.audits.list({ subjectKind: STORE_AUDIT_SUBJECT, subjectId: org.id, limit: 1 });
+    // The owner's push: once for a sitting of changes (the first in 30 minutes), not once per dish.
+    const tellOwner = !last || this.clock.now().getTime() - new Date(last.at).getTime() >= OWNER_PUSH_GAP_MS;
     return this.uow.run(async (tx) => {
       const out = await write();
       const extra = { ...(opts.before ? { before } : {}), ...(opts.why ? { why: opts.why } : {}) };
-      await this.audits.record({ cityId: org.cityId, actorId: actor.personId, action, subjectKind: STORE_AUDIT_SUBJECT, subjectId: org.id, summaryAr: summary(org, out), detail: { ...detail(out), ...extra } }, tx);
+      const facts = detail(out);
+      await this.audits.record({ cityId: org.cityId, actorId: actor.personId, action, subjectKind: STORE_AUDIT_SUBJECT, subjectId: org.id, summaryAr: summary(org, out), detail: { ...facts, ...extra } }, tx);
+      if (tellOwner) {
+        await this.events.emit(tx, { actorId: actor.personId, type: STAFF_CHANGED_EVENT, occurredAt: this.clock.now(), payload: { merchantOrgId: org.id, kind: staffChangeKind(action, facts) } }, { name: 'org', id: org.id });
+      }
       return out;
     });
   }

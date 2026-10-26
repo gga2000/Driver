@@ -11,7 +11,8 @@ deliver"**, and this file tracks every G0 row and every item in `docs/before-lau
 asks. On 2026-10-07 Ali approved the launch plan ("go ahead i like it"), including decision **D-22**:
 "start the before-launch items in G0 now, through the companion plan". So the G0 items are open from
 today. **Launch day is food plus taxi and tuktuk** (Ali, 2026-10-07: "taxis open from day 1"); Baghdad/Kut
-seats and خطوط still open about D+30, so their items stay parked (section 5).
+seats join on launch day (Ali, 2026-10-22: "open Baghdad/Kut at launch"); خطوط still opens about D+30, so
+its items stay parked (section 5).
 
 ## 1. How this works
 
@@ -132,7 +133,7 @@ Each is Ali's own action or involves money, so no thread does it for him. Recomm
 
 ## 5. Every item in `before-launch.md`, and where it goes
 
-Launch is food plus taxi and tuktuk (Ali, 2026-10-07); Baghdad/Kut seats and خطوط open about D+30, so their items wait.
+Launch is food plus taxi and tuktuk (Ali, 2026-10-07), with Baghdad/Kut seats added on 2026-10-22; خطوط opens about D+30, so its items wait. Seat items below that say "about D+30" now fall before launch.
 
 | `before-launch.md` item | Where it goes now |
 |---|---|
