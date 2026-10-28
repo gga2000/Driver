@@ -75,8 +75,20 @@ export const CustomerTownNow = z.object({
 });
 export type CustomerTownNow = z.infer<typeof CustomerTownNow>;
 
-/** A customer's cut of the city picture around their place (pure). */
-export function townNowFor(snap: TownPulseSnapshot, at: LatLng): CustomerTownNow {
+/** A city's box (the zones' service bounds); a place outside it gets an empty picture. */
+export interface TownBounds {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+/**
+ * A customer's cut of the city picture around their place (pure). Lane A's rules (2026-10-28): a place
+ * outside the city's box gets nothing, so the feed can't be probed with arbitrary points.
+ */
+export function townNowFor(snap: TownPulseSnapshot, at: LatLng, city: TownBounds | null): CustomerTownNow {
+  if (!city || at.lat < city.minLat || at.lat > city.maxLat || at.lng < city.minLng || at.lng > city.maxLng) return { at: snap.at, cooking: [], drivers: [] };
   const R = TOWN_PULSE_RULES;
   const dist = (p: LatLng) => haversineM(at, p);
   const near = (p: LatLng) => dist(p) <= R.radiusKm * 1000;

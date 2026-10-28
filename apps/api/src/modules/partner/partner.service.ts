@@ -42,6 +42,7 @@ import {
   type RoleKind,
   type VehicleClass,
   type Trip,
+  zoneServiceBounds,
 } from '@driver/contracts';
 import { TOWN_PULSE_RULES, townNowFor, townPulseFor, townPulseSnapshot, type CustomerTownNow, type PartnerMyDay, type PartnerTownPulse, type TownPulseSnapshot } from '@driver/contracts/town-pulse';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
@@ -411,7 +412,10 @@ export class PartnerService implements PartnerPort {
 
   /** «العزيزية هسة» (the customer's live map): the same city picture, cut around the customer's place. */
   async townNow(at: LatLng): Promise<CustomerTownNow> {
-    return townNowFor(await this.pulseOf(DEFAULT_CITY, this.clock.now()), at);
+    // Outside the city's box: nothing, and no picture is built for it (lane A, 2026-10-28).
+    const city = zoneServiceBounds(DEFAULT_CITY);
+    if (!city || at.lat < city.minLat || at.lat > city.maxLat || at.lng < city.minLng || at.lng > city.maxLng) return { at: this.clock.now(), cooking: [], drivers: [] };
+    return townNowFor(await this.pulseOf(DEFAULT_CITY, this.clock.now()), at, city);
   }
 
   /** The city's picture for this `snapshotMs` bucket: built once, shared by every reader. */

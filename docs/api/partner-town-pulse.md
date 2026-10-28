@@ -44,6 +44,6 @@ the 20 s per-city picture with the drivers.
 | `cooking[]` | `{ id, at }`: shops cooking now (ready counts as cooking), nearest 12 within 2.5 km | No progress, no order ids or counts; home cooks and carts never show |
 | `drivers[]` | `{ at, n }`: drivers per ~300 m cell | Cells of 3 or more, a picture old; a count only, nearest 8 |
 
-No areas, ever. Minutes to the customer and open/closed come from `catalog.restaurants` (with the
+Signed-in only; one shared picture per city every 20 s is the polling floor. A place outside the city's box (the zones' service bounds) gets an empty picture. Kitchens are shops with a food order accepted, cooking or ready (so approved and in the launched food vertical); the app shows only those also in `catalog.restaurants`. No areas, ever. Minutes to the customer and open/closed come from `catalog.restaurants` (with the
 drop-off), not from this feed. A customer sees their own courier only through their order's tracking.
 Guests get the map without this feed (open kitchens only).
