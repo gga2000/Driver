@@ -1882,6 +1882,11 @@ export class OrdersService implements OnModuleInit {
     return this.repo.deliveredByDropoffZone(merchantOrgId, range.from, range.to);
   }
 
+  /** Zone outline dry run (admin): recent delivered drop-off pins as bare coordinates, newest first. */
+  recentDropoffPins(limit: number): Promise<Array<{ lat: number; lng: number }>> {
+    return this.repo.recentDropoffPins(limit);
+  }
+
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
   async search(
     input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined; alsoOrdererIds?: readonly string[] | undefined },

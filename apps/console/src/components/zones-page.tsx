@@ -32,6 +32,7 @@ import { useTRPC } from '@/lib/trpc';
 import { MAP_LAYERS, type MapLayer } from '@/lib/map-editor';
 import { closedEditor, editorReducer, isDirty, type EditorState } from '@/lib/zone-editor';
 import { useMapEditor } from './map-editor';
+import { ZonePinCheckPanel } from './zone-pin-check-panel';
 import { Button, Chip, cx, Dialog, Field, Input, NeedLogin, PageHeader, QueryError, Skeleton, Tabs, useToast, type ChipTone } from './ui';
 
 const ZonesMapCanvas = dynamic(() => import('./zones-map-canvas'), {
@@ -290,6 +291,7 @@ export function ZonesPage() {
         {nameForm ? <ZoneGroupPicker tier={nameForm.tier} was={nameForm.was} fares={fares.data} locked={!canMoveGroup} onPick={(tier) => setNameForm((prev) => (prev ? { ...prev, tier } : prev))} /> : null}
       </div>
     </Dialog>
+    <ZonePinCheckPanel nameOf={nameOf} />
     </>
   );
 }
