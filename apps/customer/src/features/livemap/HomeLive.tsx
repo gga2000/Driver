@@ -2,6 +2,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { lift } from '@driver/design-tokens';
 import { Icon, Text, useLiteMode, useNetwork, useNow, useTheme, withAlpha } from '@driver/ui';
 import { useCatalogRestaurants, useDeliverTo } from '@/features/food/queries';
 import { useT } from '@/lib/i18n';
@@ -18,6 +19,10 @@ export function homeLiveHeight(screenH: number): number {
 
 /** Room at the bottom of the hero for its «العزيزية هسة» tag. */
 const TAG_ROOM = 56;
+/** The least map that shows between the search and the tag when big text or a long greeting grows the header. */
+const MIN_STRIP = 96;
+/** The cream fade at the hero's foot, so the map sits in the page like its top does. */
+const FOOT_FADE = 20;
 
 export interface HomeLiveProps {
   /** Home's hour: the night map from 18:00 to 06:00 (as the map box). */
@@ -70,21 +75,22 @@ export function HomeLive({ night, gutter, padTop, children }: HomeLiveProps) {
   const pad = { paddingHorizontal: gutter, paddingTop: padTop };
   if (!on) return <View style={[pad, { marginHorizontal: -gutter, marginTop: -padTop, gap: theme.space[4] }]}>{children}</View>;
 
-  const height = homeLiveHeight(screenH);
+  // Grows with its header (big text, a two-line Ramadan greeting) so some town always shows.
+  const height = Math.max(homeLiveHeight(screenH), topH + MIN_STRIP + TAG_ROOM);
   const order = onMap?.order ?? null;
   const top = headline(pins, town.data);
-  let line: string;
+  // Never the open count: the food box right under it already says it (home roast 4).
+  let line: string | null = null;
   if (order) line = t('live_map.order_title');
   else if (!net.online) line = t('live_map.offline');
   else if (town.data && top.cooking) line = t(countKey('live_map.cooking', top.cooking), { n: top.cooking });
-  else {
-    const open = pins.filter((p) => p.card.open).length;
-    line = t(countKey('live_map.open_now', open), { n: open });
-  }
+  else if (town.data && top.drivers) line = t(countKey('live_map.drivers', top.drivers), { n: top.drivers });
   const homeLabel = isHome ? (place?.label === 'home' ? t('live_map.home') : t('live_map.your_place')) : null;
-  // The cream holds solid behind the greeting and search, then fades into the map over 64 px.
-  const scrimH = topH + 64;
+  // The cream behind the greeting and search, then a fade into the map: by day a veil the streets show
+  // through over 64 px; at night solid, then 40 px, so no grey band over the dark town.
+  const scrimH = topH + (night ? 40 : 64);
   const solid = topH ? topH / scrimH : 0.8;
+  const veil = night ? [1, 1] : [0.94, 0.82];
   const bg = theme.colors.bg;
 
   return (
@@ -92,7 +98,7 @@ export function HomeLive({ night, gutter, padTop, children }: HomeLiveProps) {
       <Pressable
         testID="home-live-open"
         accessibilityRole="button"
-        accessibilityLabel={`${t('live_map.open')}، ${line}`}
+        accessibilityLabel={line ? `${t('live_map.open')}، ${line}` : t('live_map.open')}
         onPress={() => {
           theme.haptic('selection');
           router.push('/live');
@@ -116,15 +122,28 @@ export function HomeLive({ night, gutter, padTop, children }: HomeLiveProps) {
             onFail={() => setFailed(true)}
           />
         ) : null}
+        <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: FOOT_FADE }}>
+          <Svg width="100%" height="100%" preserveAspectRatio="none">
+            <Defs>
+              <LinearGradient id="home-live-foot" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={bg} stopOpacity={0} />
+                <Stop offset="1" stopColor={bg} stopOpacity={1} />
+              </LinearGradient>
+            </Defs>
+            <Rect width="100%" height="100%" fill="url(#home-live-foot)" />
+          </Svg>
+        </View>
         <View pointerEvents="none" style={[styles.tag, { bottom: theme.space[3], start: theme.space[5] }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 36, paddingStart: theme.space[3], paddingEnd: theme.space[2], borderRadius: 999, backgroundColor: withAlpha(theme.colors.surface, 0.96), boxShadow: '0 2px 8px rgba(40,24,8,0.2)' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 36, paddingStart: theme.space[3], paddingEnd: theme.space[2], borderRadius: 999, backgroundColor: withAlpha(theme.colors.surface, 0.96), boxShadow: theme.scheme === 'light' ? lift.card : undefined }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: net.online ? theme.colors.live : theme.colors.borderStrong }} />
             <Text variant="caption" weight={700}>
               {t('live_map.title')}
             </Text>
-            <Text variant="caption" color="textMuted" tabular numberOfLines={1} style={{ flexShrink: 1 }} testID="home-live-line">
-              {line}
-            </Text>
+            {line ? (
+              <Text variant="caption" color="textMuted" tabular numberOfLines={1} style={{ flexShrink: 1 }} testID="home-live-line">
+                {line}
+              </Text>
+            ) : null}
             <Icon name="chevron-forward" size={16} color="textMuted" />
           </View>
         </View>
@@ -133,8 +152,8 @@ export function HomeLive({ night, gutter, padTop, children }: HomeLiveProps) {
         <Svg width="100%" height="100%" preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="home-live-scrim" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={bg} stopOpacity={0.94} />
-              <Stop offset={solid} stopColor={bg} stopOpacity={0.82} />
+              <Stop offset="0" stopColor={bg} stopOpacity={veil[0]} />
+              <Stop offset={solid} stopColor={bg} stopOpacity={veil[1]} />
               <Stop offset="1" stopColor={bg} stopOpacity={0} />
             </LinearGradient>
           </Defs>
