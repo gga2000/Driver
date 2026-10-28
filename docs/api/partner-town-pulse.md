@@ -32,3 +32,18 @@ same `partner.demandGlow`, drawn at 45 % strength. Fleet owners and field ops ke
 
 Demo: `apps/partner/scripts/demo/40-town.mjs` (`POST /demo/town/tick`, `POST /demo/town/day?who=courier`);
 shots: `SHOTS=live`.
+
+## `catalog.townNow` (query, signed-in customers): «العزيزية هسة»
+
+Ali, 2026-10-28 ("A + B chip + C once"): the customer's live map reads the same city picture, cut
+for a customer around the place they deliver to (`townNowFor`). No extra database reads: it shares
+the 20 s per-city picture with the drivers.
+
+| Field | What | Privacy |
+|---|---|---|
+| `cooking[]` | `{ id, at }`: shops cooking now (ready counts as cooking), nearest 12 within 2.5 km | No progress, no order ids or counts; home cooks and carts never show |
+| `drivers[]` | `{ at, n }`: drivers per ~300 m cell | Cells of 3 or more, a picture old; a count only, nearest 8 |
+
+No areas, ever. Minutes to the customer and open/closed come from `catalog.restaurants` (with the
+drop-off), not from this feed. A customer sees their own courier only through their order's tracking.
+Guests get the map without this feed (open kitchens only).

@@ -3,6 +3,7 @@ import { CarryOverInput, CarryOverPreview, CatalogCraving, CatalogCravingsInput,
 import { HomeSlots, HomeSlotsInput } from '../home-kitchens.js';
 import { FollowDishInput, MyDishFollows, PotsTodayInput, TodayPot } from '../habits-io.js';
 import type { Actor } from '../identity-io.js';
+import { CustomerTownNow, CustomerTownNowInput } from '../town-pulse-io.js';
 import { protectedProcedure, publicProcedure, router, type AppContext } from '../trpc.js';
 
 /**
@@ -70,6 +71,14 @@ export const catalogRouter = router({
     .output(HomeSlots)
     .query(({ ctx, input }) => ctx.catalog.homeSlots(readerOf(ctx), input)),
   /** The dishes this person follows («خبرني لمن يطبخوه»). */
+  /**
+   * «العزيزية هسة» (the customer's live map): shops cooking around the place and drivers per part of town,
+   * from the same city picture the drivers' map reads (`partner.townPulse`), cut for a customer. Signed in only.
+   */
+  townNow: protectedProcedure()
+    .input(CustomerTownNowInput)
+    .output(CustomerTownNow)
+    .query(({ ctx, input }) => ctx.partner.townNow(input.at)),
   dishFollows: protectedProcedure()
     .output(MyDishFollows)
     .query(({ ctx }) => ctx.catalog.dishFollows(ctx.actor)),

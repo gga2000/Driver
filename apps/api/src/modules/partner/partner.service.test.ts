@@ -429,6 +429,20 @@ describe('PartnerService', () => {
     expect(await harness({ online: true }).townPulse(actor)).toMatchObject({ kitchens: [], areas: [], drivers: [] });
   });
 
+  it('townNow (the customer live map): the drivers\' city picture, cut for a customer, no second read', async () => {
+    let reads = 0;
+    const town: PartnerDeps['town'] = {
+      activity: async () => {
+        reads++;
+        return { kitchens: [{ merchantOrgId: 'm1', pin: KITCHEN, state: 'ready', acceptedAt: new Date(NOW.getTime() - 20 * 60_000), promisedReadyAt: NOW }], placed: [] };
+      },
+    };
+    const h = harness({ online: true, town });
+    await h.townPulse(actor);
+    expect(await h.townNow({ lat: 32.905, lng: 45.06 })).toEqual({ at: NOW, cooking: [{ id: 'm1', at: KITCHEN }], drivers: [] });
+    expect(reads).toBe(1);
+  });
+
   it('townPulse: three drivers in one cell show only once their picture is a full minute old, never sooner', async () => {
     const clock = new FakeClock(NOW);
     const three = [1, 2, 3].map((i) => ({ driverId: `d${i}`, zoneId: 'centre', lat: 32.905 + i * 0.00005, lng: 45.06, free: true }));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TOWN_PULSE_RULES, townPulseFor, townPulseSnapshot, type TownPulseInput } from './town-pulse-io.js';
+import { TOWN_PULSE_RULES, townNowFor, townPulseFor, townPulseSnapshot, type TownPulseInput } from './town-pulse-io.js';
 
 const at = new Date('2026-10-22T15:00:00Z');
 const min = (n: number) => new Date(at.getTime() - n * 60_000);
@@ -47,5 +47,39 @@ describe('townPulseFor', () => {
     const far = { lat: 32.95, lng: 45.1 };
     const snap = townPulseSnapshot({ ...base, kitchens: [{ merchantOrgId: 'far', pin: far, state: 'ready', acceptedAt: null, promisedReadyAt: null }, { merchantOrgId: 'near', pin: shop, state: 'ready', acceptedAt: null, promisedReadyAt: null }] });
     expect(townPulseFor(snap, { driverId: 'me', at: shop }).kitchens.map((k) => k.id)).toEqual(['near']);
+  });
+});
+
+describe('townNowFor (the customer live map)', () => {
+  it('shows cooking and ready shops alike as cooking, nearest first, never progress or areas', () => {
+    const far = { lat: 32.95, lng: 45.06 };
+    const near = { lat: 32.9045, lng: 45.0605 };
+    const snap = townPulseSnapshot({
+      ...base,
+      kitchens: [
+        { merchantOrgId: 'k1', pin: near, state: 'preparing', acceptedAt: min(10), promisedReadyAt: min(-10) },
+        { merchantOrgId: 'k2', pin: shop, state: 'ready', acceptedAt: min(20), promisedReadyAt: min(1) },
+        { merchantOrgId: 'k3', pin: far, state: 'preparing', acceptedAt: min(5), promisedReadyAt: min(-5) },
+      ],
+      placed: [...Array(4)].map(() => ({ zoneId: 'centre', placedAt: min(5) })),
+    });
+    const town = townNowFor(snap, shop);
+    expect(town.cooking).toEqual([{ id: 'k2', at: shop }, { id: 'k1', at: near }]);
+    expect(town).not.toHaveProperty('areas');
+    expect(Object.keys(town.cooking[0]!)).toEqual(['id', 'at']);
+  });
+
+  it('counts drivers only in cells of three or more, as a number, never who', () => {
+    const three = ['a', 'b', 'c'].map((driverId) => ({ driverId, lat: 32.9041, lng: 45.0601 }));
+    const two = ['d', 'e'].map((driverId) => ({ driverId, lat: 32.9101, lng: 45.0701 }));
+    const town = townNowFor(townPulseSnapshot({ ...base, drivers: [...three, ...two] }), shop);
+    expect(town.drivers).toEqual([{ at: expect.any(Object), n: 3 }]);
+    expect(JSON.stringify(town)).not.toMatch(/"a"|driverId/);
+  });
+
+  it('leaves out everything further than the radius', () => {
+    const away = { lat: shop.lat + (TOWN_PULSE_RULES.radiusKm + 1) / 111, lng: shop.lng };
+    const snap = townPulseSnapshot({ ...base, kitchens: [{ merchantOrgId: 'k9', pin: away, state: 'preparing', acceptedAt: min(1), promisedReadyAt: min(-9) }] });
+    expect(townNowFor(snap, shop).cooking).toEqual([]);
   });
 });
