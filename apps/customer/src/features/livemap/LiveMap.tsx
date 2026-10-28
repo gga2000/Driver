@@ -34,6 +34,8 @@ const TOWN_MIN_ZOOM = 14.6;
 /** Home's hero is a short strip: closer, with their place and the two nearest named shops. */
 const HERO_MIN_ZOOM = 15.6;
 const HERO_SHOPS = 2;
+/** Their place's pin and the bubbles hang above their point: the hero frames the points this much lower (twice the half-height, so the pin itself sits mid-strip). */
+const PIN_LIFT = 56;
 const ROUTE = 'live-route';
 const ROUTE_PINS = 'live-route-pins';
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -146,7 +148,7 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
       if (!cam) return;
       // The hero: the middle of what it frames sits in the middle of the strip under the search.
       const [[w, so], [e, n]] = golden.restaurantOverview(points.map((at) => ({ at })))!.bounds;
-      const put = s.still && !s.order ? { ...cam, center: [(w + e) / 2, (so + n) / 2] as Pt, padding: { top: s.topInset, bottom: s.bottomInset, left: 0, right: 0 } } : cam;
+      const put = s.still ? { ...cam, center: [(w + e) / 2, (so + n) / 2] as Pt, padding: { top: s.topInset + PIN_LIFT, bottom: s.bottomInset, left: 0, right: 0 } } : cam;
       if (!s.order) townCam.current = { center: put.center as Pt, zoom: put.zoom, bearing: put.bearing, pitch: put.pitch, ...('padding' in put ? { padding: put.padding } : {}) };
       if (quiet) camera.current?.jumpTo(put);
       else camera.current?.easeTo({ ...put, duration: 1600, easing: 'ease' });
@@ -184,6 +186,12 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
       if (from && !live.current.selectedId) camera.current?.easeTo({ ...from, bearing: from.bearing + 12, duration: 7000, easing: 'ease' });
     }, 600);
   }, [ready, size.w, size.h]);
+
+  // The hero's strip moves when its header grows (big text, a long greeting): frame it again, still.
+  useEffect(() => {
+    if (still && ready) frame(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topInset, bottomInset, ready]);
 
   const orderId = order?.id ?? null;
   useEffect(() => {

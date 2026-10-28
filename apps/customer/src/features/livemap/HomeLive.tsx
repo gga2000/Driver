@@ -20,7 +20,7 @@ export function homeLiveHeight(screenH: number): number {
 /** Room at the bottom of the hero for its «العزيزية هسة» tag. */
 const TAG_ROOM = 56;
 /** The least map that shows between the search and the tag when big text or a long greeting grows the header. */
-const MIN_STRIP = 96;
+const MIN_STRIP = 120;
 /** The cream fade at the hero's foot, so the map sits in the page like its top does. */
 const FOOT_FADE = 20;
 

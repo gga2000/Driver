@@ -48,6 +48,8 @@ const TOWN_MIN_ZOOM = 14.6;
 /** Home's hero is a short strip: closer, with their place and the two nearest named shops. */
 const HERO_MIN_ZOOM = 15.6;
 const HERO_SHOPS = 2;
+/** Their place's pin and the bubbles hang above their point: the hero frames the points this much lower (twice the half-height, so the pin itself sits mid-strip). */
+const PIN_LIFT = 56;
 
 /** The middle of a [[w, s], [e, n]] box. */
 const midOf = ([[w, so], [e, n]]: [Pt, Pt]): Pt => [(w + e) / 2, (so + n) / 2];
@@ -221,7 +223,7 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
       if (!fit) return;
       // The hero: the middle of what it frames sits in the middle of the strip under the search (padding keeps it there with the tilt).
       const { mid, ...rest } = fit;
-      const cam = s.still ? { ...rest, center: mid, padding: { top: s.topInset, bottom: s.bottomInset, left: 0, right: 0 } } : { ...rest, padding: { top: 0, bottom: 0, left: 0, right: 0 } };
+      const cam = s.still ? { ...rest, center: mid, padding: { top: s.topInset + PIN_LIFT, bottom: s.bottomInset, left: 0, right: 0 } } : { ...rest, padding: { top: 0, bottom: 0, left: 0, right: 0 } };
       go(() => (quiet ? m.jumpTo(cam) : m.easeTo({ ...cam, duration: 1600 })));
       return;
     }
@@ -326,6 +328,14 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
     frame(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, orderId]);
+
+  // The hero's strip moves when its header grows (big text, a long greeting): frame it again, still.
+  useEffect(() => {
+    if (!still) return;
+    mapRef.current?.resize();
+    frame(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topInset, bottomInset]);
 
   // New data (the list, the chips, the town picture, the courier): repaint without moving.
   useEffect(() => {
