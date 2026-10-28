@@ -22,6 +22,8 @@ export interface LiveMapProps {
   bottomInset: number;
   lite: boolean;
   onFail: () => void;
+  still?: boolean;
+  night?: boolean;
 }
 
 /** Whether this build can draw the live map (a phone build with the native map and our map's files). */
@@ -29,6 +31,9 @@ export const LIVE_MAP = nativeGolden();
 
 const TOWN_MAX_ZOOM = 16.4;
 const TOWN_MIN_ZOOM = 14.6;
+/** Home's hero is a short strip: closer, with their place and the two nearest named shops. */
+const HERO_MIN_ZOOM = 15.6;
+const HERO_SHOPS = 2;
 const ROUTE = 'live-route';
 const ROUTE_PINS = 'live-route-pins';
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -39,7 +44,7 @@ const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: 
  * rest; with an order on its way, the kitchen, their courier on the street route and their door.
  * Markers are the map's own. Reduce motion jumps; lite mode is the flat map.
  */
-export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, order, topInset, bottomInset, lite, onFail }: LiveMapProps) {
+export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, order, topInset, bottomInset, lite, onFail, still = false, night }: LiveMapProps) {
   const ml = nativeMapLibre()!;
   const theme = useTheme();
   const t = useT();
@@ -48,11 +53,11 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
   const [ready, setReady] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [facing, setFacing] = useState<Record<string, number>>({});
-  const light = useMemo(() => golden.resolveLight().light, []);
+  const light = useMemo(() => (night === undefined ? golden.resolveLight().light : night ? 'night' : 'golden'), [night]);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const turned = useRef(false);
   /** The last town view, so the first slow turn starts from it. */
-  const townCam = useRef<{ center: Pt; zoom: number; bearing: number; pitch: number } | null>(null);
+  const townCam = useRef<{ center: Pt; zoom: number; bearing: number; pitch: number; padding?: { top: number; bottom: number; left: number; right: number } } | null>(null);
 
   const list = useMemo(() => pins.map((x) => ({ id: x.id, at: x.at, facing: facing[x.id], kind: golden.restaurantKindOf([x.card.cuisine, ...x.card.tags]) })), [pins, facing]);
   const shopKey = pins.map((s) => s.id).join(',');
@@ -89,8 +94,8 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
     [order?.route],
   );
 
-  const live = useRef({ pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, size, facing, reduce: theme.reduceMotion });
-  live.current = { pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, size, facing, reduce: theme.reduceMotion };
+  const live = useRef({ pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, size, facing, still, reduce: theme.reduceMotion });
+  live.current = { pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, size, facing, still, reduce: theme.reduceMotion };
 
   const faceStreets = () => {
     if (lite || !roadLayers.length) return;
@@ -122,24 +127,29 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
     const shop = s.order ? null : s.pins.find((x) => x.id === s.selectedId);
     if (!shop) {
       // Their place with the nearest named shops; the furthest drop out until the town stays close (TOWN_MIN_ZOOM).
-      const points = framePoints(s.home, s.pins, s.bubbles, s.order);
+      const points = framePoints(s.home, s.pins, s.bubbles, s.order).slice(0, s.still && !s.order ? 1 + HERO_SHOPS : undefined);
+      const side = s.still ? 48 : 110;
+      const minZoom = s.still ? HERO_MIN_ZOOM : TOWN_MIN_ZOOM;
       const fitOf = (pts: Pt[]) => {
         const over = golden.restaurantOverview(pts.map((at) => ({ at })));
         if (!over) return null;
         const bearing = s.lite ? 0 : over.bearing;
         const maxZoom = s.order ? over.maxZoom : TOWN_MAX_ZOOM;
-        const fit = golden.fitCamera([over.bounds[0], over.bounds[1]], { width: s.size.w, height: s.size.h, padding: { ...padding, left: 110, right: 110 }, bearing, maxZoom });
+        const fit = golden.fitCamera([over.bounds[0], over.bounds[1]], { width: s.size.w, height: s.size.h, padding: { ...padding, left: side, right: side }, bearing, maxZoom });
         return { center: fit.center, zoom: fit.zoom, bearing, pitch: s.lite ? 0 : over.pitch };
       };
       let cam = fitOf(points);
-      while (!s.order && cam && cam.zoom < TOWN_MIN_ZOOM && points.length > 1) {
+      while (!s.order && cam && cam.zoom < minZoom && points.length > 1) {
         points.pop();
         cam = fitOf(points);
       }
       if (!cam) return;
-      if (!s.order) townCam.current = { center: cam.center as Pt, zoom: cam.zoom, bearing: cam.bearing, pitch: cam.pitch };
-      if (quiet) camera.current?.jumpTo(cam);
-      else camera.current?.easeTo({ ...cam, duration: 1600, easing: 'ease' });
+      // The hero: the middle of what it frames sits in the middle of the strip under the search.
+      const [[w, so], [e, n]] = golden.restaurantOverview(points.map((at) => ({ at })))!.bounds;
+      const put = s.still && !s.order ? { ...cam, center: [(w + e) / 2, (so + n) / 2] as Pt, padding: { top: s.topInset, bottom: s.bottomInset, left: 0, right: 0 } } : cam;
+      if (!s.order) townCam.current = { center: put.center as Pt, zoom: put.zoom, bearing: put.bearing, pitch: put.pitch, ...('padding' in put ? { padding: put.padding } : {}) };
+      if (quiet) camera.current?.jumpTo(put);
+      else camera.current?.easeTo({ ...put, duration: 1600, easing: 'ease' });
       return;
     }
     const at = { at: shop.at, facing: s.facing[shop.id] };
@@ -187,7 +197,7 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
   const dim = Boolean(order);
 
   return (
-    <View style={[StyleSheet.absoluteFill, { overflow: 'hidden', backgroundColor: theme.colors.bg }]} onLayout={onLayout} testID="live-map">
+    <View pointerEvents={still ? 'none' : 'auto'} style={[StyleSheet.absoluteFill, { overflow: 'hidden', backgroundColor: theme.colors.bg }]} onLayout={onLayout} testID={still ? 'live-map-still' : 'live-map'}>
       <ml.Map
         ref={map}
         style={StyleSheet.absoluteFill}
@@ -195,6 +205,11 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
         attribution={false}
         logo={false}
         compass={false}
+        dragPan={!still}
+        touchZoom={!still}
+        doubleTapZoom={!still}
+        touchRotate={!still}
+        touchPitch={!still}
         onDidFinishLoadingMap={() => setReady(true)}
         onDidFailLoadingMap={onFail}
         onDidFinishRenderingMapFully={faceStreets}

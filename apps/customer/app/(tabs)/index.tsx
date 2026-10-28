@@ -48,6 +48,7 @@ import { MapBox, mapBoxNight } from '@/features/home/MapBox';
 import { PromiseDoors } from '@/features/home/PromiseDoors';
 import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
+import { HomeLive } from '@/features/livemap/HomeLive';
 import { lastReorderable } from '@/features/orders/history';
 import { REORDER_LAST_PARAM } from '@/features/shortcuts/shortcuts';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
@@ -239,7 +240,8 @@ export default function Home() {
         onRefresh={() => void onRefresh()}
         contentStyle={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: theme.space[10] + (basketShown ? BASKET_ROOM : 0), gap: theme.space[6] }}
       >
-        <View style={{ gap: theme.space[4] }}>
+        {/* «العزيزية هسة» (Ali, 2026-10-28): the live town behind the greeting and search; a tap opens /live. */}
+        <HomeLive night={mapBoxNight(dp.hour)} gutter={theme.space[5]} padTop={theme.space[3]}>
           <Animated.View entering={rise(0)}>
             <Animated.View style={fade} onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>
               <HomeHeader daypart={dp} quiet={quiet} closed={night.night} ramadan={phase} />
@@ -251,7 +253,7 @@ export default function Home() {
           <Animated.View entering={rise(1)}>
             <SearchField testID="home-search" floating placeholder={t('search.placeholder')} accessibilityLabel={t('search.a11y_open')} onPress={() => router.push('/search')} />
           </Animated.View>
-        </View>
+        </HomeLive>
 
         {/* The slim bar comes down once the service boxes have gone up, never while they still show (home roast 4). */}
         <Animated.View entering={rise(2)} onLayout={(e) => setBarAt(e.nativeEvent.layout.y + e.nativeEvent.layout.height - theme.space[2])}>
