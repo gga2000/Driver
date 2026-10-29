@@ -228,6 +228,11 @@ export interface OrdersRepository {
    * an order, a customer or a pin (maps program r6).
    */
   deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]>;
+  /**
+   * Admin dry run for the zone outlines: the most recent delivered orders' drop-off pins (lat, lng only,
+   * no order, customer or time leaves), newest first. One bounded read ordered on `placed_at`.
+   */
+  recentDropoffPins(limit: number, tx?: Tx): Promise<Array<{ lat: number; lng: number }>>;
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
   /**
@@ -569,6 +574,16 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map((r) => ({ zoneKey: r.zone_key, orders: Number(r.orders) }));
   }
 
+  async recentDropoffPins(limit: number, tx?: Tx): Promise<Array<{ lat: number; lng: number }>> {
+    const rows = await this.db(tx).$queryRaw<Array<{ lat: string | null; lng: string | null }>>`
+      SELECT "dropoff"->'pin'->>'lat' AS "lat", "dropoff"->'pin'->>'lng' AS "lng"
+      FROM "public"."orders"
+      WHERE "delivered_at" IS NOT NULL AND "dropoff"->'pin' IS NOT NULL
+      ORDER BY "placed_at" DESC
+      LIMIT ${limit}`;
+    return rows.flatMap((r) => (r.lat !== null && r.lng !== null && Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng)) ? [{ lat: Number(r.lat), lng: Number(r.lng) }] : []));
+  }
+
   async orderersServedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]> {
     const rows = await this.db(tx).order.findMany({
       where: { placedAt: { gte: from, lt: to }, OR: [{ deliveredAt: { not: null } }, { state: { in: ['completed', 'closed'] } }] },
@@ -826,6 +841,14 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       counts.set(zone, (counts.get(zone) ?? 0) + 1);
     }
     return [...counts.entries()].map(([zoneKey, orders]) => ({ zoneKey, orders }));
+  }
+
+  async recentDropoffPins(limit: number): Promise<Array<{ lat: number; lng: number }>> {
+    return [...this.orders.values()]
+      .filter((o) => o.deliveredAt && o.dropoff?.pin)
+      .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
+      .slice(0, limit)
+      .map((o) => ({ lat: o.dropoff!.pin!.lat, lng: o.dropoff!.pin!.lng }));
   }
 
   async orderersServedBetween(from: Date, to: Date): Promise<string[]> {
