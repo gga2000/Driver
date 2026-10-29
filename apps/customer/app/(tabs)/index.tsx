@@ -49,6 +49,7 @@ import { PromiseDoors } from '@/features/home/PromiseDoors';
 import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
 import { HomeLive } from '@/features/livemap/HomeLive';
+import { LIVE_MAP } from '@/features/livemap/LiveMap';
 import { lastReorderable } from '@/features/orders/history';
 import { REORDER_LAST_PARAM } from '@/features/shortcuts/shortcuts';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
@@ -317,8 +318,9 @@ export default function Home() {
         {open.length > 0 && lateFirst ? hourFood : null}
 
         {/* The restaurant map in its own box (Ali's idea, 2026-10-09/10), where the map is set up (web for
-            now; the phones get it with the native map) and there are kitchens to show on it. */}
-        {GOLDEN_MAP && list && list.length > 0 ? (
+            now; the phones get it with the native map) and there are kitchens to show on it. Not where the
+            live town already stands at the top of home (Ali, 2026-10-29: «continue» on the recommendation to hide it). */}
+        {GOLDEN_MAP && !LIVE_MAP && list && list.length > 0 ? (
           <MapBox night={mapBoxNight(dp.hour)} fact={open.length > 0 ? null : t('home.rail_opening')} scrollY={scrollY} width={columnW} />
         ) : null}
 
