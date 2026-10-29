@@ -26,6 +26,12 @@ describe('route guard', () => {
     }
   });
 
+  it('lets a welcomed guest open the live map «العزيزية هسة» (lane D OK, 2026-10-28)', () => {
+    expect(g('signedOut', ['live'])).toBeNull();
+    // Only /live itself: anything signed-in-only it leads to still asks for the phone.
+    expect(g('signedOut', ['order', '[id]'], false, { pathname: '/order/o1' })).toEqual({ to: '/phone', remember: '/order/o1' });
+  });
+
   it('a friend’s invitation (/i/<code>) and the sticker pack open for guests; my own invite needs sign-in (joy g2, g7)', () => {
     expect(g('signedOut', ['i', '[code]'], false, { welcomed: false })).toBeNull();
     expect(g('signedOut', ['stickers'])).toBeNull();

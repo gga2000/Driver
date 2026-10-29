@@ -42,8 +42,9 @@ import {
   type RoleKind,
   type VehicleClass,
   type Trip,
+  zoneServiceBounds,
 } from '@driver/contracts';
-import { TOWN_PULSE_RULES, townPulseFor, townPulseSnapshot, type PartnerMyDay, type PartnerTownPulse, type TownPulseSnapshot } from '@driver/contracts/town-pulse';
+import { TOWN_PULSE_RULES, townNowFor, townPulseFor, townPulseSnapshot, type CustomerTownNow, type PartnerMyDay, type PartnerTownPulse, type TownPulseSnapshot } from '@driver/contracts/town-pulse';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
@@ -405,18 +406,32 @@ export class PartnerService implements PartnerPort {
   async townPulse(actor: Actor): Promise<PartnerTownPulse> {
     const now = this.clock.now();
     const presence = await this.deps.presence.get(actor.personId);
-    const cityId = presence?.cityId ?? DEFAULT_CITY;
+    const snap = await this.pulseOf(presence?.cityId ?? DEFAULT_CITY, now);
+    return townPulseFor(snap, { driverId: actor.personId, at: presence ? { lat: presence.lat, lng: presence.lng } : null });
+  }
+
+  /** «العزيزية هسة» (the customer's live map): the same city picture, cut around the customer's place. */
+  async townNow(at: LatLng): Promise<CustomerTownNow> {
+    // Outside the city's box: nothing, and no picture is built for it (lane A, 2026-10-28).
+    const city = zoneServiceBounds(DEFAULT_CITY);
+    if (!city || at.lat < city.minLat || at.lat > city.maxLat || at.lng < city.minLng || at.lng > city.maxLng) return { at: this.clock.now(), cooking: [], drivers: [] };
+    return townNowFor(await this.pulseOf(DEFAULT_CITY, this.clock.now()), at, city);
+  }
+
+  /** The city's picture for this `snapshotMs` bucket: built once, shared by every reader. */
+  private pulseOf(cityId: string, now: Date): Promise<TownPulseSnapshot> {
     const bucket = Math.floor(now.getTime() / TOWN_PULSE_RULES.snapshotMs);
     let hit = this.pulses.get(cityId);
     if (!hit || hit.bucket !== bucket) {
       const snap = this.takePulse(cityId, now);
-      hit = { bucket, snap };
-      this.pulses.set(cityId, hit);
+      const fresh = { bucket, snap };
+      hit = fresh;
+      this.pulses.set(cityId, fresh);
       snap.catch(() => {
-        if (this.pulses.get(cityId) === hit) this.pulses.delete(cityId);
+        if (this.pulses.get(cityId) === fresh) this.pulses.delete(cityId);
       });
     }
-    return townPulseFor(await hit.snap, { driverId: actor.personId, at: presence ? { lat: presence.lat, lng: presence.lng } : null });
+    return hit.snap;
   }
 
   private async takePulse(cityId: string, now: Date): Promise<TownPulseSnapshot> {

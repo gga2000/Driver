@@ -56,6 +56,55 @@ export const PartnerTownPulse = z.object({
 });
 export type PartnerTownPulse = z.infer<typeof PartnerTownPulse>;
 
+/**
+ * «العزيزية هسة», the customer's live map (Ali, 2026-10-28: A + the minutes chip + the shop tour once): the
+ * same city picture, cut for a customer. Kitchens near their place that are cooking (ready counts as
+ * cooking: a customer only needs «يطبخ هسة»), and how many drivers are in each part of town. No areas, no
+ * progress, no order ids or counts, no driver dots; driver cells keep the 3-or-more rule and the minute's delay.
+ */
+export const CustomerTownNowInput = z.object({ at: LatLng });
+export type CustomerTownNowInput = z.infer<typeof CustomerTownNowInput>;
+
+export const CustomerTownNow = z.object({
+  /** When the picture was taken. */
+  at: z.coerce.date(),
+  /** Shops cooking now within `radiusKm` of the place, nearest first. */
+  cooking: z.array(z.object({ id: z.string(), at: LatLng })),
+  /** Drivers per grid cell (cell centre), only cells with `minCount` or more, nearest first. */
+  drivers: z.array(z.object({ at: LatLng, n: z.number().int().min(1) })),
+});
+export type CustomerTownNow = z.infer<typeof CustomerTownNow>;
+
+/** A city's box (the zones' service bounds); a place outside it gets an empty picture. */
+export interface TownBounds {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+/**
+ * A customer's cut of the city picture around their place (pure). Lane A's rules (2026-10-28): a place
+ * outside the city's box gets nothing, so the feed can't be probed with arbitrary points.
+ */
+export function townNowFor(snap: TownPulseSnapshot, at: LatLng, city: TownBounds | null): CustomerTownNow {
+  if (!city || at.lat < city.minLat || at.lat > city.maxLat || at.lng < city.minLng || at.lng > city.maxLng) return { at: snap.at, cooking: [], drivers: [] };
+  const R = TOWN_PULSE_RULES;
+  const dist = (p: LatLng) => haversineM(at, p);
+  const near = (p: LatLng) => dist(p) <= R.radiusKm * 1000;
+  const cooking = snap.kitchens
+    .filter((k) => near(k.at))
+    .sort((a, b) => dist(a.at) - dist(b.at) || a.id.localeCompare(b.id))
+    .slice(0, R.maxKitchens)
+    .map((k) => ({ id: k.id, at: k.at }));
+  const drivers = snap.cells
+    .map((c) => ({ at: c.at, n: c.driverIds.length }))
+    .filter((c) => c.n >= R.minCount && near(c.at))
+    .sort((a, b) => dist(a.at) - dist(b.at))
+    .slice(0, R.maxCells);
+  return { at: snap.at, cooking, drivers };
+}
+
 /** «يومي»: his own deliveries today, with what each one earned (the same lines the earnings screen adds up). */
 export const PartnerMyDay = z.object({
   jobs: z.array(

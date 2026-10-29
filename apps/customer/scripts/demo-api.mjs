@@ -16,6 +16,7 @@
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
 //   - GET /demo/market lists the seeded stalls and bakeries «السوق» with their org ids;
 //   - POST /demo/popular  24 town orders at مطعم خالد so «الأكثر طلباً بالعزيزية» shows (joy o8);
+//   - POST /demo/town  «العزيزية هسة» (/live): five kitchens cooking and seven couriers online in two parts of town;
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
 //   - POST /demo/night?on=1|0  the street asleep (/food after midnight): every kitchen closed now and opening at its
 //     own morning hour; on=0 puts the real hours back.
@@ -177,6 +178,37 @@ app.use('/demo/popular', async (req, res) => {
         if (i % 2 === 0) lines.push({ catalogItemId: khalid.itemIds.get('pepsi'), qty: 1 });
         await orders.place(`demo-town-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines, paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: tomorrow });
       }
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// «العزيزية هسة» (the customer live map): five kitchens cooking now and seven couriers online in two parts of
+// town (a part shows a count only with 3 or more, from the picture before: the count appears ~20 s later).
+let townSeeded = false;
+app.use('/demo/town', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/town' });
+    if (!townSeeded) {
+      const homeKeys = new Set(DEMO_HOME_KITCHENS.map((k) => k.key));
+      const kitchens = seeded.filter((s) => s.seed.pin && !homeKeys.has(s.seed.key)).slice(0, 5);
+      for (const [i, s] of kitchens.entries()) {
+        // The first dish that needs no choices (some ask for a size or extras).
+        for (const itemId of s.itemIds.values()) {
+          const placed = await orders.place(`demo-town-cook-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: s.orgId, lines: [{ catalogItemId: itemId, qty: 2 }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } } }).catch(() => null);
+          if (!placed) continue;
+          await accept(placed.id);
+          break;
+        }
+      }
+      const crowd = [
+        { lat: 32.9041, lng: 45.0607 }, { lat: 32.9044, lng: 45.0611 }, { lat: 32.9047, lng: 45.0604 }, { lat: 32.9039, lng: 45.0615 },
+        { lat: 32.9128, lng: 45.0662 }, { lat: 32.9131, lng: 45.0668 }, { lat: 32.9126, lng: 45.0671 },
+      ];
+      for (const at of crowd) await newCourier(at);
+      townSeeded = true;
     }
     json(res, 200, { ok: true });
   } catch (err) {
