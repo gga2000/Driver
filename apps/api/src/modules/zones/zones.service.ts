@@ -14,10 +14,12 @@ import {
   zoneProblemText,
   zoneServiceBounds,
   zoneShapeProblem,
+  ZONE_PIN_CHECK_MAX,
   type Actor,
   type AziziyahZoneSeed,
   type PlaceZoneInput,
   type ZoneCheckTally,
+  type ZonePinCheck,
   type ZoneTier,
   type ZoneTierFare,
   type ZonePlacementView,
@@ -27,9 +29,11 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { ConfigService } from '../config/index.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
+import { ZoneResolver } from '../places/index.js';
 import { tierFare } from '../pricing/index.js';
 import { EventsService } from '../events/index.js';
 import { confirmsZone, tallyChecks } from './zone-checks.logic.js';
+import { pinCheck } from './zone-pin-check.logic.js';
 import { ZONE_CHECKS_REPOSITORY, type ZoneChecksRepository, type ZoneOutline } from './zone-checks.repository.js';
 import { ZONES_REPOSITORY, type ZoneRecord, type ZonesRepository } from './zones.repository.js';
 
@@ -42,6 +46,11 @@ const TIER_AR: Record<ZoneTier, string> = { centre: 'المركز', near: 'قر�
 export const ZONE_CHECKS_ACTOR = 'system:zone-checks';
 
 const SEEDS = new Map<string, readonly AziziyahZoneSeed[]>([['aziziyah', AZIZIYAH_ZONES]]);
+
+/** Where the dry run gets recent delivery pins (bound to orders in the tRPC module); bare coordinates only. */
+export interface ZonePinSource {
+  recentDropoffPins(limit: number): Promise<Array<{ lat: number; lng: number }>>;
+}
 
 /** The outline drivers are asked about: drawn zones only (a draft has nothing drawn to confirm). */
 function outlineOf(row: ZoneRecord): ZoneOutline | null {
@@ -75,6 +84,7 @@ function view(seed: AziziyahZoneSeed | undefined, row: ZoneRecord, names: Record
 @Injectable()
 export class ZonesService implements ZonesPort, OnApplicationBootstrap, OnModuleDestroy {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private pinSource: ZonePinSource | null = null;
 
   constructor(
     @Inject(ZONES_REPOSITORY) private readonly repo: ZonesRepository,
@@ -92,6 +102,21 @@ export class ZonesService implements ZonesPort, OnApplicationBootstrap, OnModule
     await this.syncTiers();
     this.timer = setInterval(() => void this.syncTiers().catch(() => {}), TIER_SYNC_MS);
     this.timer.unref?.();
+  }
+
+  /** Wired once at boot so zones never imports orders. */
+  attachPinSource(source: ZonePinSource): void {
+    this.pinSource = source;
+  }
+
+  /**
+   * Read-only dry run: recent delivery pins placed by the built-in circles versus the drawn outlines, and
+   * the delivery-fee difference by group. Moves no fee and returns no pin (counts and areas only).
+   */
+  async pinCheck(cityId: string): Promise<ZonePinCheck> {
+    const pins = (await this.pinSource?.recentDropoffPins(ZONE_PIN_CHECK_MAX)) ?? [];
+    const resolver = new ZoneResolver();
+    return pinCheck(cityId, pins, await this.list(cityId), this.tierFares(cityId), (pin) => resolver.resolve(cityId, pin));
   }
 
   onModuleDestroy(): void {

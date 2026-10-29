@@ -14,7 +14,7 @@ import { MerchantAdminModule, MerchantAdminService, StoresConsoleService } from 
 import { MenuPhotosModule, MenuPhotosService } from '../modules/menu-photos/index.js';
 import { ShoppingModule, ShoppingService } from '../modules/shopping/index.js';
 import { FoodCartsModule, FoodCartsService } from '../modules/food-carts/index.js';
-import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
+import { OrdersModule, OrdersRpc, OrdersService } from '../modules/orders/index.js';
 import { PartnerModule, PartnerService } from '../modules/partner/index.js';
 import { CustomerWalletService, LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { HouseholdsRpc, OrgsModule } from '../modules/orgs/index.js';
@@ -111,6 +111,7 @@ export class TrpcService {
     private readonly accountClose: AccountCloseService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
+    ordersService: OrdersService,
     private readonly closures: ClosuresService,
     private readonly mapEditor: MapEditorService,
     private readonly zoneChecks: ZoneChecksService,
@@ -126,6 +127,7 @@ export class TrpcService {
     @Inject(WINDOW_COUNTER) counter: WindowCounter,
   ) {
     this.limits = new RequestLimits(counter, ipModeFromEnv());
+    this.zones.attachPinSource(ordersService);
   }
 
   /** SCALE-20: per-person and per-address limits on every call (`request-limits.ts`). */

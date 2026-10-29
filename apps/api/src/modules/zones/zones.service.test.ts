@@ -83,4 +83,20 @@ describe('ZonesService', () => {
     await expect(svc.setTier(ALI, { cityId: 'aziziyah', key: 'atlantis', tier: 'far' })).rejects.toMatchObject({ code: 'zone_unknown' });
     expect(svc.tierFares('aziziyah').map((f) => [f.tier, f.deliveryIqd])).toEqual([['centre', 500], ['near', 500], ['mid', 1000], ['far', 1500], ['edge', 2000]]);
   });
+
+  it('dry run: a pin the drawn outline holds is placed there, and it moves no fee or outline', async () => {
+    const h = harness();
+    await h.svc.place(ALI, { cityId: 'aziziyah', key: 'centre', ring: square(600), centre: middle(600) });
+    const inside = middle(600);
+    h.svc.attachPinSource({ recentDropoffPins: async () => [inside, { lat: 32.5, lng: 44.0 }] });
+    const before = await h.svc.list('aziziyah');
+    const r = await h.svc.pinCheck('aziziyah');
+    expect(r).toMatchObject({ pins: 2, drawnZones: 1 });
+    expect(r.moves.every((m) => m.toKey === 'centre')).toBe(true);
+    expect(await h.svc.list('aziziyah')).toEqual(before);
+  });
+
+  it('dry run without a pin source reports nothing to compare', async () => {
+    expect(await harness().svc.pinCheck('aziziyah')).toMatchObject({ pins: 0, changed: 0, moves: [] });
+  });
 });

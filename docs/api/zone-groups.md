@@ -28,3 +28,13 @@ Zones page, ✎ next to an area: the dialog has «المجموعة» with the fo
 centre under each; a change says which way it moves and that prices change from the next order.
 While drawing, a dragged corner snaps to a drawn neighbour's corner (14 px) or edge (10 px); holding
 Alt (⌥) drags free.
+
+## Dry run: `ops.zones.pinCheck` (admin only, read-only)
+
+Ali, 2026-10-27: before pricing follows the drawn outlines, show what would change. `pinCheck` takes the
+most recent delivered orders' drop-off pins (up to 2,000, coordinates only), places each by the built-in
+circles and by the drawn outlines (an outline that holds the pin wins, otherwise the circle rule), and
+returns counts: pins looked at, how many change area, dearer / cheaper, average delivery-fee change (town
+centre → area, by group) and the biggest "from → to" moves. It writes nothing, returns no pin or customer,
+and moves no fee. The Console shows it as «شنو يتغير لو الأسعار تتبع الحدود؟» on the map page, for admins.
+Switching real pricing and dispatch to the outlines is a separate, fee-affecting step that waits for Ali.
