@@ -1,5 +1,4 @@
-/** How often the Golden hour light is checked (it changes a few times a day; the swap is a quiet cross-fade). */
-export const LIGHT_CHECK_MS = 10 * 60_000;
+export { LIGHT_CHECK_MS } from './light-check';
 
 type Maplibre = typeof import('maplibre-gl');
 
