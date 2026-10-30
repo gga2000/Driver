@@ -56,6 +56,13 @@ sweep; `worker` runs them and serves only its health check; `all` (the default) 
 without it. Each group's command in the toml sets its role and its heap cap (75 % of the machine), so
 an overload fails fast and restarts instead of swapping.
 
+**The worker watches itself** (`apps/api/src/shared/worker-self-check.ts`): every 30 s it asks how late
+its oldest due BullMQ job and its oldest due outbox row are. Work overdue for 2 minutes while nothing
+finished for 2 minutes means it is stuck: it logs one error (Sentry) and exits, and `[[restart]]` in the
+toml starts it again. While healthy it pings `WORKER_HEARTBEAT_URL`. Each BullMQ worker has its own
+Redis connection that waits out a Redis restart, and the outbox drains straight from Postgres every
+500 ms on the worker, so a Redis blip only pauses jobs.
+
 Set the counts once per app (and after `fly scale count 0`):
 
 ```bash
@@ -132,8 +139,14 @@ fly secrets set --config deploy/fly/api.toml --stage \
   UPLOADS_SECRET="$(openssl rand -hex 32)" \
   SHARE_LINK_SECRET="$(openssl rand -hex 32)" \
   SAFETY_LINK_SECRET="$(openssl rand -hex 32)" \
+  CONSOLE_BASE_URL='https://<the Console address the company owns>' \
+  SAFETY_LINK_BASE_URL='https://<the customer web address the company owns>/sos/' \
+  SHARE_LINK_BASE_URL='https://<the customer web address the company owns>' \
   S3_ENDPOINT='<from supabase.md step 5>' S3_BUCKET=uploads S3_REGION=eu-central-1 S3_FORCE_PATH_STYLE=true \
-  S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>'
+  S3_ACCESS_KEY_ID='<…>' S3_SECRET_ACCESS_KEY='<…>' \
+  CONSOLE_BASE_URL='https://driver-console.fly.dev' \
+  SAFETY_LINK_BASE_URL='<customer web origin>/sos/' \
+  SHARE_LINK_BASE_URL='<customer web origin>'
 
 # 4. First deploy (later deploys come from GitHub, runbook.md), then the machine counts
 fly deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --remote-only
@@ -161,8 +174,12 @@ Secrets go in with `fly secrets set` (encrypted, never shown again). Plain setti
 
 **What stops boot** (SEC-16, `modules/config/boot-check.ts`). Staging and production refuse to start
 without `DATABASE_URL` or `REDIS_URL`. Production (any `NODE_ENV=production` host without
-`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS and a `STAGING_TEST_OTP`; push other than Expo is
-refused where push is built (see `PUSH_PROVIDER` below).
+`DEPLOY_ENVIRONMENT=staging`) also refuses dev SMS, a `STAGING_TEST_OTP` and a missing link address
+(`CONSOLE_BASE_URL`, `SAFETY_LINK_BASE_URL`, `SHARE_LINK_BASE_URL`; staging only logs a warning for
+those; `NOTIFY_RECEIPT_BASE_URL` is optional everywhere and only warns); push other than Expo is refused where push is built (see
+`PUSH_PROVIDER` below). A link address that is set but is not a public https address (http,
+localhost, a private or `.internal` address) stops boot on staging and production alike. None of them
+has a default: set each **only to an address the company owns**.
 The log line lists every problem at once. A database or Redis that is configured but unreachable never
 stops boot: `health.ready` shows it, and `health.live` fails after 30 s without the database.
 
@@ -178,7 +195,8 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `DATABASE_STATEMENT_TIMEOUT_MS` | no | default `5000`: a query made while answering a phone is cancelled after 5 s ([Database time limits](#database-time-limits)). `0` = no limit |
 | `DATABASE_JOB_STATEMENT_TIMEOUT_MS` | no | default `120000`: the limit for jobs, sweeps and outbox deliveries (their transactions may stay open as long). `0` = no limit |
 | `DRIVER_ROLE` | no | set per process group by `[processes]` in the toml: `web`, `worker`; unset = `all` (one process does everything) |
-| `TIMERS_SWEEPER` | no | `on` (toml); unset = `off`. A sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. Today it holds dispatch's far-ahead timers (a booked ride's evening offer, deadline, reminder and T−30 search; a departure's start and low-fill check), each due a minute after its Redis job and marked fired when that job ran. `TIMERS_SWEEP_MS` default 5000 |
+| `WORKER_HEARTBEAT_URL` | no | a Better Stack heartbeat URL (`fly secrets set`): the worker pings it every minute while it is healthy, so a frozen, crashed or Redis-less worker pages through the missing ping. Unset = no heartbeat |
+| `TIMERS_SWEEPER` | no | `on` (toml); unset = `off`. A sweeper on the job machines fires due timers from `scheduled_timers`, so a Redis loss only delays them. Today it holds dispatch's far-ahead timers (a booked ride's evening offer, deadline, reminder and T−30 search; a departure's start and low-fill check), each due a minute after its Redis job and marked fired when that job ran. `TIMERS_SWEEP_MS` default 5000. A staging or production job machine without it logs a warning at boot |
 | `REDIS_URL` | **yes** | `redis://default:<password>@driver-redis.internal:6379?family=6` |
 | `JWT_SECRET` | **yes** | 64 hex chars; signs 15-minute access tokens. Rotation below. |
 | `JWT_KID` | no | `k1`, then `k2`, … on each rotation |
@@ -191,7 +209,14 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `MAX_INFLIGHT_REQUESTS` | no | `50` (toml): calls one machine serves at once; past it «busy, try again» (503 `server_busy`, `Retry-After: 1`), which the apps retry by themselves. Live streams and health are not counted. `off` turns it off |
 | `TRUST_PROXY` | no | `1` (toml): Fly's proxy is one hop, so OTP limits see the client's IP |
 | `REQUEST_LIMIT_IP_MODE` | no | `alert` (default) until carrier traffic is understood; `enforce` limits guests per address ([request-limits.md](../api/request-limits.md)) |
-| `CORS_ORIGINS` | no | every web version that calls the API, exact origins: today `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app` plus the Console; once the web domains exist, `https://app.<domain>,https://shop.<domain>,https://console.<domain>` |
+| `CONSOLE_BASE_URL` | **yes** (production) | the Console's public https origin, e.g. `https://driver-console.fly.dev`: the links in staff WhatsApp alerts (on-call, SOS, خطوط sweep) point here and nowhere else. Production refuses to boot without it; staging warns (Staging setup sets `https://<FLY_CONSOLE_APP>.fly.dev`). Only a public https value is accepted |
+| `SAFETY_LINK_BASE_URL` | **yes** (production) | where an emergency contact's SOS link opens: the customer web app's `/sos/`, e.g. `https://driver-customer-iota.vercel.app/sos/` (later `https://app.<domain>/sos/`). Never the default `https://driver.iq/sos/`, a domain we do not own. Same rule as `CONSOLE_BASE_URL` |
+| `SHARE_LINK_BASE_URL` | **yes** (production) | the customer web app's origin, e.g. `https://driver-customer-iota.vercel.app`: trip-share and phone-booking SMS links open its `/share/<token>` page. Never the default `https://driver.iq`. Same rule as `CONSOLE_BASE_URL`. (`NOTIFY_RECEIPT_BASE_URL` stays unset until there is a receipt page.) |
+| `CORS_ORIGINS` | no | every web version that calls the API, exact origins: today `https://driver-customer-iota.vercel.app,https://driver-merchant.vercel.app,https://driver-partner-ashen.vercel.app` plus the Console; once the web domains exist, `https://app.<domain>,https://shop.<domain>,https://console.<domain>` |
+| `CONSOLE_BASE_URL` | no | **required in production**: the Console address staff alerts link to (SOS, on-call, خطوط sweep, Console watch — WhatsApp, SMS twin), e.g. `https://driver-console.fly.dev` or later `https://console.<your-domain>`. Set it **only to an address the company owns**; there is deliberately no default. Must be public https. Unset (local, or staging with a warning): the messages carry no link, only the alert number and «افتح الكونسول من الكمبيوتر» |
+| `SAFETY_LINK_BASE_URL` | no | **required in production**: the SOS emergency contact's live-location page, served by the customer web (`apps/customer/app/sos/[token].tsx`): `https://<customer web>/sos/`, e.g. `https://driver-customer-iota.vercel.app/sos/`. Only an address the company owns. Unset: the contact's WhatsApp still goes out at the same moment, with where the phone last was as text (nearest landmark and coordinates) instead of a link |
+| `SHARE_LINK_BASE_URL` | no | **required in production**: the customer web address trip-share and phone-booking links start with (the page is `/share/<token>`), e.g. `https://driver-customer-iota.vercel.app`. Only an address the company owns. Unset: no link is made; the phone-booking SMS and «لمنو المشوار» SMS go without «تابعه», and the automatic trip share to trusted people is not sent (it is only a link) |
+| `NOTIFY_RECEIPT_BASE_URL` | no | **optional** (a warning when unset): the base of receipt links in WhatsApp receipts (`<base><orderId>`). No page serves receipt links yet, so leave it unset until one exists; then only an address the company owns, public https. Unset: the receipt goes with «تلگاه بالتطبيق» in place of the link |
 | `SMS_PROVIDER` | no | `fake` today (codes are written to the log — see the runbook); `gateway` + `SMS_GATEWAY_URL` / `SMS_GATEWAY_KEY` (secret) when the SMS provider exists |
 | `PUSH_PROVIDER`, `EXPO_ACCESS_TOKEN` | token: **yes** | `expo` on production: with `NODE_ENV=production` and `DEPLOY_ENVIRONMENT` not `staging`, the API refuses to boot on the dev push (it would report pushes delivered that no phone gets). `EXPO_ACCESS_TOKEN` when the Expo project has enhanced push security on. Staging may stay on `dev` |
 | `OTP_RATE_LIMIT_PER_*`, `OTP_SMS_DAILY_BUDGET`, `OTP_BLOCK_SPIKE_PER_HOUR`, `OTP_SMS_HARD_CAP_MULTIPLIER`, `OTP_GUARD_MODE*`, `OTP_BUDGET_MODE` | no | the OTP guard, [docs/api/otp-guard.md](../api/otp-guard.md). Launch values are the defaults; set `OTP_SMS_DAILY_BUDGET` to 3 × the expected day-one installs |
@@ -256,11 +281,13 @@ never rotated.
   `fly logs --config deploy/fly/api.toml`, or the app's **Monitoring** page on fly.io. Search for
   `"level":"error"`. Fly keeps a short history only: for longer retention ship them (Fly log shipper
   → Better Stack / Axiom free tiers).
-- **Uptime checks**: Fly's own checks restart a sick machine but tell nobody. Before launch, add a free
+- **Uptime checks**: Fly's checks only take a failing machine out of rotation (and hold a deploy); they
+  do not restart it. A process that exits is started again (`[[restart]]` in the toml), and the worker
+  exits by itself when it is stuck (see "Web and worker machines"). None of this tells anybody. Before launch, add a free
   external monitor (Better Stack Uptime or UptimeRobot) that checks every minute and alerts the on-call
   phone: the API at `https://driver-api.fly.dev/trpc/health.live` (status 200; 503 means the
   database has been unreachable for 30 seconds), `https://driver-api.fly.dev/trpc/health.ready` for the dependencies
-  (the text `"ok":true`; `"redis":"unavailable"` alone does not take the API down), and the Console at `https://driver-console.fly.dev/login` (status 200). Use the
+  (the text `"ok":true`; its Redis check is a write, so a full Redis shows `"redis":"unavailable"`; `"redis":"unavailable"` alone does not take the API down), and the Console at `https://driver-console.fly.dev/login` (status 200). Use the
   custom domains once they exist.
 - **Metrics**: the Fly dashboard shows CPU, memory, HTTP status codes and response times per machine;
   Supabase → Reports shows database load and slow queries.
@@ -339,10 +366,11 @@ uses the straight-line estimate for a minute, then tries again — customers nev
 `deploy/fly/redis.toml` runs Redis 7 on a 256 MB machine with a 1 GB volume: append-only file every
 second (queued timers survive a restart), `noeviction` (BullMQ must never lose a key), password, and no
 public address. Cost ≈ $2/month. If that machine restarts (Fly host maintenance), the API logs Redis as
-unavailable for a few seconds; outbox rows wait as `pending` and drain when it is back.
+unavailable for a few seconds; jobs pause and carry on when it is back, and the outbox keeps draining
+from Postgres meanwhile.
 
 Alternative: `fly redis create` (Upstash, managed). Upstash bills per command on its pay-as-you-go
-plan, and BullMQ polls continuously (blocking reads, stalled-job checks, the 500 ms outbox tick), which
+plan, and BullMQ polls continuously (blocking reads, stalled-job checks, outbox pokes), which
 adds up to millions of commands a month: choose a **fixed-price** Upstash plan if you go that way. Set
 `REDIS_URL` to the URL it prints (keep `?family=6` on Fly).
 

@@ -28,6 +28,13 @@ process.env.OTP_RATE_LIMIT_PER_IP_HOUR ??= '10000';
 process.env.OTP_RATE_LIMIT_PER_DEVICE_HOUR ??= '10000';
 const { createApp } = await load('bootstrap.js');
 const app = await createApp();
+// The studio opens every service so all screens stay reviewable; launch day itself is the city file's
+// `launchedVerticals` (food, taxi, tuktuk). DEMO_LAUNCH_SCOPE=1 keeps the launch-day scope instead.
+if (process.env.DEMO_LAUNCH_SCOPE !== '1') {
+  const { ConfigService } = await load('modules/config/index.js');
+  const config = app.get(ConfigService);
+  config.setLaunchedVerticals('aziziyah', config.city('aziziyah').verticals.map((v) => v.vertical));
+}
 // /demo/* hooks hang off one router mounted before init (Express routes added after Nest's init
 // would sit behind its 404). Module init registers the event subscribers (dispatch builds courier
 // trips on order.accepted); sections seed through them, so init runs before they do.

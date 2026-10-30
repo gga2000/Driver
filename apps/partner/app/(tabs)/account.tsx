@@ -168,7 +168,7 @@ export default function Account() {
             <ListRow
               testID="hub-vehicle-features"
               leading={vehicle?.vehicleClass === 'tuktuk' ? 'tuktuk' : 'car'}
-              title={t('partner.features_title')}
+              title={t(vehicle?.vehicleClass === 'tuktuk' ? 'partner.features_title_tuktuk' : 'partner.features_title')}
               subtitle={
                 features.confirmed.length > 0
                   ? t('partner.features_row_seen', { names: features.confirmed.map((f) => t(featureKey(f))).join('، ') })
@@ -233,7 +233,9 @@ export default function Account() {
             }
             divider
           />
-          <ListRow testID="nav-app" leading="map-pin" title={t('partner.nav_setting')} subtitle={nav.app ? t(navAppName(nav.app)) : t('partner.nav_setting_none')} onPress={() => setChoosingNav(true)} />
+          <ListRow testID="nav-app" leading="map-pin" title={t('partner.nav_setting')} subtitle={nav.app ? t(navAppName(nav.app)) : t('partner.nav_setting_none')} onPress={() => setChoosingNav(true)} divider />
+          {/* Both stores require it (docs/api/account-close.md): opens a support case; support closes the account. */}
+          <ListRow testID="hub-delete-account" leading="trash" title={t('partner.delete_row')} subtitle={t('partner.delete_row_sub')} onPress={() => router.push('/delete-account')} />
         </Card>
       </View>
       <AppearanceCard />

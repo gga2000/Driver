@@ -13,7 +13,7 @@ import { printerChipState, usePrinterSnapshot } from '@/features/print/runtime';
 import { color as palette } from '@driver/design-tokens';
 import { COUNTER } from '@/lib/counter';
 import { useReportBarBottom } from '@/lib/toast';
-import { chipsFitInline } from './header-fit';
+import { chipsFitInline, headerSlot, menuNeedsLook } from './header-fit';
 
 export interface StoreHeaderProps {
   storeName: string;
@@ -21,14 +21,18 @@ export interface StoreHeaderProps {
   balance: MerchantBalanceView | undefined;
   /** S-M5: the server's one-line money pill (owners); falls back to `balance` while it loads. */
   headline?: MoneyHeadline | undefined;
+  /** d12: a new shop before its first delivered order — «فلوسك تبين هنا من أول طلب» instead of zero. */
+  firstOrder?: boolean;
   canSeeMoney: boolean;
   now: number;
   wide: boolean;
   onToggleOpen: () => void;
   onBusy: () => void;
   onCash: () => void;
-  /** Chips that must be seen first ("الصوت طافي", "فاتك اليوم: 2"): before busy and printer. */
-  alerts?: ReactNode[];
+  /** What needs him now, most urgent first ("الصوت طافي", the courier at the pass): the first takes the alarm slot. */
+  alerts?: HeaderAlert[];
+  /** Kept in «…» ("فاتك اليوم: 2"); a `dot` puts a dot on «…». */
+  menuItems?: HeaderAlert[];
   /** r4: many orders wait and busy mode is off — the busy chip pulses once with «زحمة؟». */
   suggestBusy?: boolean;
   /** a7: bump to close the phone's "…" sheet (a new order started ringing). */
@@ -165,10 +169,10 @@ function OpenSwitch({ status, onPress, compact = false }: { status: StoreStatusV
  * فلوسك"; "عليك 4,250 دينار عمولة · تنخصم من الجاية" on the warning tint; "فلوسك جاية قبل 9:40 م".
  * Amounts and times are the server's; a tap on anything but the button opens the Money screen.
  */
-export function MoneyLine({ headline, wide, onRequest, onOpen }: { headline: MoneyHeadline; wide: boolean; onRequest: () => void; onOpen: () => void }) {
+export function MoneyLine({ headline, wide, onRequest, onOpen, roomy = false, firstOrder = false }: { headline: MoneyHeadline; wide: boolean; onRequest: () => void; onOpen: () => void; /** In the «…» sheet: a full-size «اطلب فلوسك» (44 px+). */ roomy?: boolean; /** d12: before the first delivered order. */ firstOrder?: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const p = moneyPill(headline);
+  const p = moneyPill(headline, { firstOrder });
   const bg = p.tone === 'warning' ? theme.colors.warningTint : p.tone === 'success' ? theme.colors.successTint : theme.colors.surface;
   const edge = p.tone === 'warning' ? theme.colors.warning : p.tone === 'success' ? theme.colors.success : theme.colors.border;
   const fg = p.tone === 'warning' ? 'warningText' : p.tone === 'success' ? 'successText' : 'text';
@@ -180,7 +184,7 @@ export function MoneyLine({ headline, wide, onRequest, onOpen }: { headline: Mon
   return (
     <View
       testID="cash-balance"
-      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 48, paddingStart: theme.space[4], paddingEnd: p.action === 'request' ? 4 : theme.space[4], borderRadius: theme.radius.pill, backgroundColor: bg, borderWidth: 1, borderColor: edge, flexShrink: 1 }}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: roomy ? 60 : 48, paddingStart: theme.space[4], paddingEnd: p.action === 'request' ? (roomy ? 6 : 4) : theme.space[4], borderRadius: theme.radius.pill, backgroundColor: bg, borderWidth: 1, borderColor: edge, flexShrink: 1 }}
     >
       <Pressable
         testID="money-line"
@@ -195,7 +199,7 @@ export function MoneyLine({ headline, wide, onRequest, onOpen }: { headline: Mon
           // Tablet (m1a): the amount on top, how it reaches him underneath — the pill stays narrow
           // enough for the status chips to keep their room in the bar.
           <View style={{ flexShrink: 1 }}>
-            <Text variant="label" weight={700} tabular color={fg} numberOfLines={1} style={{ lineHeight: 20 }}>
+            <Text variant="label" weight={700} tabular color={fg} style={{ lineHeight: 20 }}>
               {main}
             </Text>
             {sub ? (
@@ -217,7 +221,7 @@ export function MoneyLine({ headline, wide, onRequest, onOpen }: { headline: Mon
           </Text>
         )}
       </Pressable>
-      {p.action === 'request' ? <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={onRequest} /> : null}
+      {p.action === 'request' ? <Button testID="request-money" label={t('merchant.request_money')} size={roomy ? 'md' : 'sm'} onPress={onRequest} /> : null}
     </View>
   );
 }
@@ -297,20 +301,52 @@ function WideBar({ name, openSwitch, chips, money }: { name: ReactNode; openSwit
   );
 }
 
-export function StoreHeader({ storeName, status, balance, headline, canSeeMoney, wide, onToggleOpen, onBusy, onCash, alerts, suggestBusy = false, closeMenu = 0 }: StoreHeaderProps) {
+/**
+ * Day-one d04: what the board's header can show, as data. The board orders them by urgency; the
+ * header shows the first in its one alarm slot and moves the rest into «…».
+ */
+export interface HeaderAlert {
+  key: string;
+  testID: string;
+  icon: MIconName;
+  label: string;
+  tone: StatusTone;
+  dot?: boolean;
+  onPress: () => void;
+}
+
+/** The «…» button, with a dot while something in it needs a look. */
+function MoreButton({ dot, onPress, label, dotLabel }: { dot: boolean; onPress: () => void; label: string; dotLabel: string }) {
+  return (
+    <Pressable
+      testID="header-more"
+      accessibilityRole="button"
+      accessibilityLabel={dot ? dotLabel : label}
+      onPress={onPress}
+      style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? COUNTER.dateRaised : 'transparent' })}
+    >
+      <MIcon name="more" size={24} color={COUNTER.onDate} strokeWidth={2.4} />
+      {dot ? <View testID="header-more-dot" style={{ position: 'absolute', top: 7, end: 7, width: 10, height: 10, borderRadius: 5, backgroundColor: COUNTER.onDateLate, borderWidth: 1.5, borderColor: COUNTER.date }} /> : null}
+    </Pressable>
+  );
+}
+
+/**
+ * The board's status bar, one calm row (day-one d04): the store name, open/closed, busy mode and one
+ * alarm slot (the most urgent thing: sound off, setup, the courier at the pass…). The printer, the
+ * money line («اطلب فلوسك»), missed orders and any other alarm live in «…», which carries a dot while
+ * something there needs a look. On a phone the alarm slot takes its own row only while it shows.
+ */
+export function StoreHeader({ storeName, status, balance, headline, firstOrder = false, canSeeMoney, wide, onToggleOpen, onBusy, onCash, alerts = [], menuItems = [], suggestBusy = false, closeMenu = 0 }: StoreHeaderProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
   const [menu, setMenu] = useState(false);
   useEffect(() => setMenu(false), [closeMenu]);
-  // On a phone these live in the "…" menu: close it before the busy sheet or "اطلب فلوسك" opens.
-  const busyPress = () => {
+  /** Everything in the «…» sheet closes it before it acts (a sheet never opens over the sheet). */
+  const fromMenu = (fn: () => void) => () => {
     setMenu(false);
-    onBusy();
-  };
-  const cashPress = () => {
-    setMenu(false);
-    onCash();
+    fn();
   };
   const printer = usePrinterSnapshot();
   const chip = printerChipState(printer, status?.printer.state);
@@ -319,9 +355,30 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
   const { release } = bar;
   useEffect(() => release, [release]);
 
-  const chips: ReactNode[] = [...(alerts ?? [])];
-  // r1: busy mode on is a gold chip with the time it switches itself off; r3: on a phone it sits in
-  // the bar's own row (one tap), not in the "…" sheet.
+  const slot = headerSlot(alerts);
+  const slotChip = slot.slot ? <HeaderChip key={slot.slot.key} testID={slot.slot.testID} icon={slot.slot.icon} tone={slot.slot.tone} dot={slot.slot.dot} label={slot.slot.label} onPress={slot.slot.onPress} /> : null;
+  const printerAlert: HeaderAlert | null = status
+    ? {
+        key: 'printer',
+        testID: 'printer-chip',
+        icon: 'printer',
+        dot: chip === 'disconnected',
+        tone: chip === 'connected' ? 'success' : chip === 'disconnected' ? 'danger' : 'neutral',
+        label:
+          chip === 'connected'
+            ? t('merchant.printer.chip_connected')
+            : chip === 'disconnected'
+              ? t('merchant.printer.chip_disconnected')
+              : chip === 'preview'
+                ? t('merchant.printer.chip_preview')
+                : t('merchant.printer.chip_not_set_up'),
+        onPress: () => router.push('/printer'),
+      }
+    : null;
+  const inMenu = [...slot.rest, ...menuItems, ...(printerAlert ? [printerAlert] : [])];
+  const dot = menuNeedsLook(inMenu);
+
+  // r1: busy mode on is a gold chip with the time it switches itself off; r3: one tap from the bar.
   const busyUntil = status?.busy.on && status.busy.until ? status.busy.until : null;
   const busyChip = status ? (
     busyUntil ? (
@@ -330,55 +387,27 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
         testID="busy-chip"
         icon="flame"
         tone="warning"
-        label={wide ? t('merchant.busy.chip_until', { time: clock12(busyUntil) }) : t('merchant.busy.chip_until_short', { time: clock12(busyUntil) })}
-        onPress={busyPress}
+        label={wide ? t('merchant.busy.chip_until_extra', { extra: status.busy.extraPrepMinutes, time: clock12(busyUntil) }) : t('merchant.busy.chip_until_short', { time: clock12(busyUntil) })}
+        onPress={onBusy}
       />
     ) : (
-      <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="neutral" nudge={suggestBusy} label={t('merchant.busy.chip_off')} onPress={busyPress} />
+      <HeaderChip key="busy" testID="busy-chip" icon="flame" tone="neutral" nudge={suggestBusy} label={t('merchant.busy.chip_off')} onPress={onBusy} />
     )
   ) : null;
-  if (status) {
-    if (wide) chips.push(busyChip);
-    chips.push(
-      <HeaderChip
-        key="printer"
-        testID="printer-chip"
-        icon="printer"
-        dot={chip === 'disconnected'}
-        tone={chip === 'connected' ? 'success' : chip === 'disconnected' ? 'danger' : 'neutral'}
-        label={
-          chip === 'connected'
-            ? t('merchant.printer.chip_connected')
-            : chip === 'disconnected'
-              ? t('merchant.printer.chip_disconnected')
-              : chip === 'preview'
-                ? t('merchant.printer.chip_preview')
-                : t('merchant.printer.chip_not_set_up')
-        }
-        onPress={() => {
-          setMenu(false);
-          router.push('/printer');
-        }}
-      />,
-    );
-  }
 
-  // M-07 / S-M5: the balance in one readable line. Positive: what Driver holds for him and "اطلب فلوسك".
-  // Negative: "عليك 4,250 دينار عمولة · تنخصم من فلوسك الجاية" on the warning tint, no dead button (tap
-  // opens the Money screen that explains it). Zero: says so, no button.
+  // M-07 / S-M5: the balance in one readable line (now inside «…»). Positive: what Driver holds for him
+  // and "اطلب فلوسك". Negative: "عليك 4,250 دينار عمولة · تنخصم من فلوسك الجاية" on the warning tint, no
+  // dead button (tap opens the Money screen that explains it). Zero: says so, no button.
   const state = balance ? balanceState(balance.balanceIqd) : null;
-  const openMoney = () => {
-    setMenu(false);
-    router.push('/money');
-  };
+  const openMoney = fromMenu(() => router.push('/money'));
   const money =
     canSeeMoney && headline ? (
-      <MoneyLine headline={headline} wide={wide} onRequest={cashPress} onOpen={openMoney} />
+      <MoneyLine headline={headline} wide={false} roomy firstOrder={firstOrder} onRequest={fromMenu(onCash)} onOpen={openMoney} />
     ) : canSeeMoney && balance && state ? (
       state.kind === 'owed' ? (
-        <View testID="cash-balance" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], height: 48, paddingStart: theme.space[4], paddingEnd: 4, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
+        <View testID="cash-balance" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 60, paddingStart: theme.space[4], paddingEnd: 6, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }}>
           <MIcon name="cash" size={20} color="successText" />
-          <View style={{ flex: wide ? undefined : 1 }}>
+          <View style={{ flex: 1 }}>
             <Text variant="caption" color="textMuted" style={{ lineHeight: 16 }}>
               {t('merchant.money.pill_positive')}
             </Text>
@@ -386,22 +415,19 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
               {iqd(balance.balanceIqd, { locale })}
             </Text>
           </View>
-          <Button testID="request-money" label={t('merchant.request_money')} size="sm" onPress={cashPress} />
+          <Button testID="request-money" label={t('merchant.request_money')} size="md" onPress={fromMenu(onCash)} />
         </View>
       ) : (
         <Pressable
           testID="cash-balance"
           accessibilityRole="button"
-          onPress={() => {
-            setMenu(false);
-            router.push('/money');
-          }}
+          onPress={openMoney}
           style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 48, paddingHorizontal: theme.space[4], paddingVertical: 4, borderRadius: theme.radius.pill, backgroundColor: state.kind === 'owe' ? theme.colors.warningTint : theme.colors.surface, borderWidth: 1, borderColor: state.kind === 'owe' ? theme.colors.warning : theme.colors.border }}
         >
           <MIcon name="cash" size={20} color={state.kind === 'owe' ? 'warningText' : 'textMuted'} />
-          <View style={{ flex: wide ? undefined : 1 }}>
+          <View style={{ flex: 1 }}>
             <Text variant="label" weight={700} tabular color={state.kind === 'owe' ? 'warningText' : 'text'} style={{ lineHeight: 20 }}>
-              {state.kind === 'owe' ? t('merchant.money.pill_owe', { amount: amountParam(state.amountIqd) }) : t('merchant.money.pill_zero')}
+              {state.kind === 'owe' ? t('merchant.money.pill_owe', { amount: amountParam(state.amountIqd) }) : firstOrder ? t('merchant.money.pill_first') : t('merchant.money.pill_zero')}
             </Text>
             {state.kind === 'owe' ? (
               <Text variant="caption" color="warningText" style={{ lineHeight: 16 }}>
@@ -413,6 +439,21 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
       )
     ) : null;
 
+  const more = <MoreButton dot={dot} onPress={() => setMenu(true)} label={t('merchant.header.more')} dotLabel={t('merchant.header.more_dot_a11y')} />;
+  const sheet = (
+    <ModalSheet visible={menu} onClose={() => setMenu(false)} title={storeName} testID="header-menu">
+      {inMenu.length > 0 ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+          {inMenu.map((a) => (
+            <HeaderChip key={a.key} testID={a.testID} icon={a.icon} tone={a.tone} dot={a.dot} label={a.label} onPress={fromMenu(a.onPress)} />
+          ))}
+        </View>
+      ) : null}
+      {money}
+      <Button testID="header-switch-store" label={t('merchant.header.switch_store')} variant="secondary" icon="refresh" onPress={fromMenu(() => router.push('/stores'))} />
+    </ModalSheet>
+  );
+
   const name = (
     <Pressable onPress={() => router.push('/stores')} accessibilityRole="button" style={{ flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
       <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: COUNTER.dateRaised, alignItems: 'center', justifyContent: 'center' }}>
@@ -422,7 +463,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
         <Text variant="title" numberOfLines={1} style={[theme.face('display'), { color: COUNTER.onDate }]}>
           {storeName}
         </Text>
-        {status?.closed ? (
+        {status?.closed && !(status.setup && !status.setup.live) ? (
           <Text variant="caption" numberOfLines={1} style={{ color: COUNTER.onDateLate }}>
             {`${t(`merchant.close_reason.${status.closed.reason}` as const)} · ${clock12(status.closed.at)}`}
           </Text>
@@ -434,14 +475,13 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
   if (wide) {
     return (
       <View ref={bar.ref} onLayout={bar.onLayout}>
-        <WideBar name={name} openSwitch={status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : <Skeleton width={120} height={40} radius={20} />} chips={chips} money={money} />
+        <WideBar name={name} openSwitch={status ? <OpenSwitch status={status} onPress={onToggleOpen} /> : <Skeleton width={120} height={40} radius={20} />} chips={[busyChip, slotChip].filter((c) => c !== null)} money={more} />
+        {sheet}
       </View>
     );
   }
   // Phone (M-06): one 56-pt row — the store, busy mode (r3: one tap, gold while on), open/closed, and
-  // "…" for the printer and the cash (which also lives on the Money tab). Alert chips ("الصوت طافي",
-  // "فاتك اليوم") get a second row only while there is something to fix.
-  const needsLook = chip === 'disconnected';
+  // «…». The alarm slot gets a second row only while there is something to fix.
   return (
     <View ref={bar.ref} onLayout={bar.onLayout} style={{ backgroundColor: COUNTER.date }}>
       <OnBar.Provider value={true}>
@@ -451,7 +491,7 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
             <Text variant="bodyStrong" numberOfLines={1} style={[theme.face('display'), { lineHeight: 24, color: COUNTER.onDate }]}>
               {storeName}
             </Text>
-            {status?.closed ? (
+            {status?.closed && !(status.setup && !status.setup.live) ? (
               <Text variant="caption" numberOfLines={1} style={{ lineHeight: 16, color: COUNTER.onDateLate }}>
                 {t(`merchant.close_reason.${status.closed.reason}` as const)}
               </Text>
@@ -460,29 +500,15 @@ export function StoreHeader({ storeName, status, balance, headline, canSeeMoney,
         </Pressable>
         {busyChip}
         {status ? <OpenSwitch status={status} onPress={onToggleOpen} compact /> : <Skeleton width={84} height={44} radius={22} />}
-        <Pressable
-          testID="header-more"
-          accessibilityRole="button"
-          accessibilityLabel={t('merchant.header.more')}
-          onPress={() => setMenu(true)}
-          style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? COUNTER.dateRaised : 'transparent' })}
-        >
-          <MIcon name="more" size={24} color={COUNTER.onDate} strokeWidth={2.4} />
-          {needsLook ? <View style={{ position: 'absolute', top: 8, end: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: chip === 'disconnected' ? COUNTER.onDateLate : COUNTER.busy, borderWidth: 1.5, borderColor: COUNTER.date }} /> : null}
-        </Pressable>
+        {more}
       </View>
-      {(alerts ?? []).length > 0 ? (
-        // m3a: the alert chips wrap onto another line rather than scroll off the left edge.
-        <View testID="store-header-alerts" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2], paddingHorizontal: theme.space[4], paddingBottom: theme.space[2], alignItems: 'center' }}>
-          {alerts}
+      {slotChip ? (
+        <View testID="store-header-alerts" style={{ flexDirection: 'row', paddingHorizontal: theme.space[4], paddingBottom: theme.space[2], alignItems: 'center' }}>
+          {slotChip}
         </View>
       ) : null}
       </OnBar.Provider>
-      <ModalSheet visible={menu} onClose={() => setMenu(false)} title={storeName} testID="header-menu">
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>{chips.slice((alerts ?? []).length)}</View>
-        {money}
-        <Button testID="header-switch-store" label={t('merchant.header.switch_store')} variant="secondary" icon="refresh" onPress={() => { setMenu(false); router.push('/stores'); }} />
-      </ModalSheet>
+      {sheet}
     </View>
   );
 }

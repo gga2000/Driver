@@ -12,7 +12,7 @@ import { storeReviewFromEnv, type StoreReviewConfig } from './store-review.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { OtpGuard, otpGuardConfigFromEnv } from './rate-limit.js';
-import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
+import { requestPathRedis, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { ROLE_READER } from './role-reader.js';
 import { SessionService, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
@@ -34,7 +34,7 @@ import { SMS_PROVIDER } from './sms/provider.js';
       useFactory: (clock: Clock) => {
         const url = process.env['REDIS_URL'];
         const ttlMs = authCacheTtlMsFromEnv();
-        const bus = url && ttlMs > 0 ? new RedisDropBus(new Redis(url, { maxRetriesPerRequest: 3 }), new Redis(url, { maxRetriesPerRequest: null })) : new InProcessDropBus();
+        const bus = url && ttlMs > 0 ? new RedisDropBus(requestPathRedis(url), new Redis(url, { maxRetriesPerRequest: null })) : new InProcessDropBus();
         return new AuthCache(clock, ttlMs, bus);
       },
       inject: [CLOCK],
@@ -51,6 +51,7 @@ import { SMS_PROVIDER } from './sms/provider.js';
     { provide: SMS_PROVIDER, useFactory: () => smsPortFromEnv() },
     // "ما وصلك؟ دزلي على واتساب": login codes over WhatsApp (template `otp_login`), same provider choice
     // as notify (WHATSAPP_PROVIDER=dev → the API terminal + identity.devLastOtp; meta → Cloud API).
+    // Outside development without WHATSAPP_TOKEN there is no port (null): codes go by SMS only.
     { provide: OTP_WHATSAPP, useFactory: () => whatsAppPortFromEnv() },
     { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
     // The store-reviewer number and fixed code (BENCH-04): STORE_REVIEW_PHONE / STORE_REVIEW_CODE,

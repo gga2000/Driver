@@ -96,7 +96,7 @@ export default function CheckIn() {
         testID="checkin-passed"
         kind="passed"
         title={phase.kind === 'passed' ? t('partner.checkin_ok') : t('partner.checkin_verified_title')}
-        body={phase.kind === 'passed' ? t('partner.checkin_passed_body') : t('partner.checkin_verified_at', { time: s.verifiedAt ? clockTime(s.verifiedAt) : '' })}
+        body={phase.kind === 'passed' ? t('partner.checkin_passed_body') : t('partner.checkin_verified_at', { time: s.verifiedAt ? clockTime(s.verifiedAt, locale) : '' })}
         badge={s.badge_ar ?? t('partner.checkin_verified_title')}
         action={{ label: phase.kind === 'passed' ? t('partner.checkin_go_online') : t('partner.checkin_back_home'), onPress: () => router.navigate('/'), testID: 'checkin-done' }}
       />

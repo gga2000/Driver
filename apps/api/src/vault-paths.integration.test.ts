@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DriverError, PriceRequest, type Actor } from '@driver/contracts';
@@ -70,6 +70,11 @@ describe.skipIf(!url)('vault-reading paths and kept quotes on Postgres (needs DA
   });
 
   beforeAll(async () => {
+    // The links these messages carry (no built-in defaults): set before the modules read them.
+    vi.stubEnv('CONSOLE_BASE_URL', 'https://console.example.com');
+    vi.stubEnv('SAFETY_LINK_BASE_URL', 'https://app.example.com/sos/');
+    vi.stubEnv('SHARE_LINK_BASE_URL', 'https://app.example.com');
+    vi.stubEnv('NOTIFY_RECEIPT_BASE_URL', 'https://app.example.com/r/');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(CLOCK).useValue(clock).compile();
     app = moduleRef.createNestApplication({ logger: ['error'] });
     await app.init();
@@ -89,10 +94,12 @@ describe.skipIf(!url)('vault-reading paths and kept quotes on Postgres (needs DA
   }, 60_000);
 
   afterAll(async () => {
-    if (!app) return;
-    // Let the outbox finish what this boot wrote before the app (and its Prisma client) closes.
-    for (let i = 0; i < 50 && (await db.outbox.count({ where: { status: 'pending', attempts: 0 } })) > 0; i++) await new Promise((r) => setTimeout(r, 100));
-    await app.close();
+    if (app) {
+      // Let the outbox finish what this boot wrote before the app (and its Prisma client) closes.
+      for (let i = 0; i < 50 && (await db.outbox.count({ where: { status: 'pending', attempts: 0 } })) > 0; i++) await new Promise((r) => setTimeout(r, 100));
+      await app.close();
+    }
+    vi.unstubAllEnvs();
   });
 
   it('OTP sign-in, then the self profile read from the vault', async () => {
@@ -150,7 +157,7 @@ describe.skipIf(!url)('vault-reading paths and kept quotes on Postgres (needs DA
     const sent = await waitFor('the emergency contact message sent', async () => (await deliveries('sos_emergency_contact', `ec:${people.customer}`)).find((d) => d.status === 'sent' || d.status === 'delivered'));
     expect(sent.reason).toBeNull();
     // …and the page that link opens shows the person's first name (accessor `sos_link:<incident>`).
-    const token = safety.linkOf(incident.id).split('/').pop()!;
+    const token = safety.linkOf(incident.id)!.split('/').pop()!;
     expect(await safety.shared({ token })).toMatchObject({ status: 'live', firstName: 'زينب' });
   }, 60_000);
 

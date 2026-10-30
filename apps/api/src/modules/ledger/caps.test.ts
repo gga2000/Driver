@@ -63,6 +63,23 @@ describe('CapsService (CapsPort for dispatch)', () => {
     expect(await h.caps.canOffer('k1', { valueIqd: 40000, prepaid: false })).toBe(false);
   });
 
+  it('cash dispatch holds for a finished job counts like posted cash until its posting lands', async () => {
+    const h = ledgerHarness();
+    for (let i = 0; i < 4; i++) await h.posting.orderMoney(workedExample({ orderId: `o${i}`, tripId: `t${i}` }));
+    expect((await h.caps.status('k1')).owedIqd).toBe(62000);
+    expect(await h.caps.isOverCap('k1')).toBe(false);
+    expect(await h.caps.isOverCap('k1', 16500)).toBe(true); // 62,000 + 16,500 in hand ≥ 75,000
+    expect(await h.caps.canOffer('k1', { valueIqd: 5000, prepaid: false })).toBe(true);
+    expect(await h.caps.canOffer('k1', { valueIqd: 5000, prepaid: false }, 16500)).toBe(false);
+    expect(await h.caps.cashPosted('k1', 't4')).toBe(false);
+    await h.posting.orderMoney(workedExample({ orderId: 'o4', tripId: 't4' }));
+    expect(await h.caps.cashPosted('k1', 't4')).toBe(true);
+    expect(await h.caps.cashPosted('k2', 't4')).toBe(false); // another driver's cash account
+    // Per order: a trip with two cash drop-offs releases each order's hold on its own posting.
+    expect(await h.caps.cashPosted('k1', 't4', 'o4')).toBe(true);
+    expect(await h.caps.cashPosted('k1', 't4', 'o5')).toBe(false);
+  });
+
   it('role and tier come from the profile resolver; prepaid rides only add earnings', async () => {
     const h = ledgerHarness();
     h.profiles.set('d9', { role: 'intercity_driver', tier: 'bronze' });
@@ -105,5 +122,27 @@ describe('cap profiles from identity (role) and scoring (tier)', () => {
     expect((await caps.status('k1')).capIqd).toBe(150000);
     expect((await caps.status('d1')).capIqd).toBe(75000);
     expect((await caps.status('x1')).capIqd).toBe(300000);
+  });
+
+  it("speed x2: the partner app's reads keep his limit; his cash is read every time and dispatch's check stays live", async () => {
+    const h = ledgerHarness();
+    let reads = 0;
+    let tier: 'silver' | 'bronze' = 'silver';
+    const caps = new CapsService(h.ledger, rules, {
+      profile: async () => {
+        reads += 1;
+        return { role: 'courier', tier };
+      },
+    });
+    const first = await caps.status('k1', { keptLimit: true });
+    expect(first.capIqd).toBe(150000);
+    tier = 'bronze';
+    await h.ledger.recordAll(postMerchantPaidByCourier({ handoverId: 'h1', courierId: 'k1', merchantId: 'm1', amountIqd: 9000, occurredAt: at }));
+    const kept = await caps.status('k1', { keptLimit: true });
+    expect(kept).toMatchObject({ tier: 'silver', capIqd: 150000 });
+    expect(Math.abs(kept.cashIqd - first.cashIqd)).toBe(9000);
+    expect(reads).toBe(1);
+    expect(await caps.status('k1')).toMatchObject({ tier: 'bronze', capIqd: 75000 });
+    expect(reads).toBe(2);
   });
 });

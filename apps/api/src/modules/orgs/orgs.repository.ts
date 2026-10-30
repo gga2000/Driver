@@ -5,6 +5,7 @@ import type { Tx } from '../../shared/db/unit-of-work.js';
 import {
   DEFAULT_MERCHANT_SETTINGS,
   isMerchantType,
+  setupFrom,
   type MerchantPauseWindow,
   type MerchantSettings,
   type Org,
@@ -25,7 +26,7 @@ export interface OrgFilter {
  * and phones are read through identity (vault), never stored here.
  */
 export interface OrgsRepository {
-  create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[] }, tx?: Tx): Promise<Org>;
+  create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date }, tx?: Tx): Promise<Org>;
   get(orgId: string, tx?: Tx): Promise<Org | null>;
   list(filter: OrgFilter, tx?: Tx): Promise<Org[]>;
   /** Adds the member or replaces its role and limit. */
@@ -50,9 +51,9 @@ export class InMemoryOrgsRepository implements OrgsRepository {
   private readonly approvalRows = new Map<string, PayerApprovalRequest>();
   private seq = 0;
 
-  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; isTest?: boolean }): Promise<Org> {
+  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date; isTest?: boolean }): Promise<Org> {
     this.seq += 1;
-    const org: Org = { id: `org_${this.seq}`, type: input.type, name: input.name, cityId: input.cityId, members: input.members.map((m) => ({ ...m })), ...(input.isTest ? { isTest: true } : {}) };
+    const org: Org = { id: `org_${this.seq}`, type: input.type, name: input.name, cityId: input.cityId, members: input.members.map((m) => ({ ...m })), createdAt: input.createdAt ?? new Date(), ...(input.isTest ? { isTest: true } : {}) };
     if (isMerchantType(input.type)) org.merchant = { ...DEFAULT_MERCHANT_SETTINGS };
     this.orgs.set(org.id, org);
     return clone(org);
@@ -131,6 +132,7 @@ interface OrgRow {
   lastHeartbeat: Date | null;
   pauseWindows: unknown;
   busyUntil: Date | null;
+  busyExtraMin?: number | null;
   closedAt: Date | null;
   closedReason: string | null;
   closedNote: string | null;
@@ -147,6 +149,8 @@ interface OrgRow {
   pickupNote?: string | null;
   pickupPhotoRefs?: string[];
   pickupUpdatedAt?: Date | null;
+  setup?: unknown;
+  createdAt: Date;
   members: Array<{ personId: string; role: string; spendingLimitIqd: number | null; monthlyBudgetIqd?: number | null }>;
 }
 
@@ -185,6 +189,7 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
     name: r.name,
     cityId: r.cityId,
     members: r.members.map((m) => ({ personId: m.personId, role: m.role as OrgMember['role'], spendingLimitIqd: m.spendingLimitIqd, monthlyBudgetIqd: m.monthlyBudgetIqd ?? null })),
+    createdAt: r.createdAt,
     ...(r.isTest ? { isTest: true } : {}),
   };
   if (isMerchantType(type)) {
@@ -196,12 +201,14 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
       commissionTier: (r.commissionTier as CommissionTier | null) ?? null,
       location: r.locationZoneKey ? { zoneKey: r.locationZoneKey, ...(pin ? { pin } : {}) } : null,
       busyUntil: r.busyUntil,
+      busyExtraMin: r.busyExtraMin ?? null,
       closed: r.closedAt ? { reason: r.closedReason ?? '', note: r.closedNote, at: r.closedAt, until: r.closedUntil ?? null } : null,
       printer: r.printerState && r.printerAt ? { state: r.printerState === 'connected' ? 'connected' : 'disconnected', name: r.printerName, at: r.printerAt } : null,
       openingHours: openingHoursFrom(r.openingHours),
       holidays: holidaysFrom(r.holidayClosures),
       hoursUpdatedAt: r.hoursUpdatedAt ?? null,
       pickupSpot: r.pickupUpdatedAt ? { note: r.pickupNote ?? null, photoRefs: [...(r.pickupPhotoRefs ?? [])], updatedAt: r.pickupUpdatedAt } : null,
+      setup: setupFrom(r.setup),
     };
   }
   return org;
@@ -238,10 +245,11 @@ export class PrismaOrgsRepository implements OrgsRepository {
     return rows.map((r) => orgFromRow(r, pins.get(r.id)));
   }
 
-  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; isTest?: boolean }, tx?: Tx): Promise<Org> {
+  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date; isTest?: boolean }, tx?: Tx): Promise<Org> {
     const db = this.db(tx);
     const row = await db.org.create({
       data: {
+        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
         type: input.type,
         name: input.name,
         cityId: input.cityId,
@@ -290,6 +298,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
     if (patch.defaultPrepMin !== undefined) data.defaultPrepMin = patch.defaultPrepMin;
     if (patch.commissionTier !== undefined) data.commissionTier = patch.commissionTier;
     if (patch.busyUntil !== undefined) data.busyUntil = patch.busyUntil;
+    if (patch.busyExtraMin !== undefined) data.busyExtraMin = patch.busyExtraMin;
     if (patch.closed !== undefined) Object.assign(data, { closedAt: patch.closed?.at ?? null, closedReason: patch.closed?.reason ?? null, closedNote: patch.closed?.note ?? null, closedUntil: patch.closed?.until ?? null });
     if (patch.printer !== undefined) Object.assign(data, { printerState: patch.printer?.state ?? null, printerName: patch.printer?.name ?? null, printerAt: patch.printer?.at ?? null });
     if (patch.location !== undefined) data.locationZoneKey = patch.location?.zoneKey ?? null;
@@ -304,6 +313,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
           ? Prisma.DbNull
           : (patch.holidays as unknown as Prisma.InputJsonValue);
     if (patch.hoursUpdatedAt !== undefined) data.hoursUpdatedAt = patch.hoursUpdatedAt;
+    if (patch.setup !== undefined) data.setup = patch.setup === null ? Prisma.DbNull : (JSON.parse(JSON.stringify(patch.setup)) as Prisma.InputJsonValue);
     if (patch.pickupSpot !== undefined) Object.assign(data, { pickupNote: patch.pickupSpot?.note ?? null, pickupPhotoRefs: patch.pickupSpot?.photoRefs ?? [], pickupUpdatedAt: patch.pickupSpot?.updatedAt ?? null });
     await db.org.update({ where: { id: orgId }, data });
     if (patch.location !== undefined) {

@@ -10,7 +10,7 @@ import { useT } from '@/lib/i18n';
 import { ACTIVITY_COLLAPSED, activityRows, visibleActivity, type ActivityRow } from './logic';
 
 /**
- * «مين سوّى شنو» (owner only, on «يومك» → اليوم): who accepted, rejected, marked ready, added time,
+ * «منو سوّى شنو» (owner only, on «يومك» → اليوم): who accepted, rejected, marked ready, added time,
  * handed over, or marked a dish sold out / back on today, newest first. Eight rows, then «شوف الكل».
  * The server refuses staff; the screen only mounts this for the owner.
  */

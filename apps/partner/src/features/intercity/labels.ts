@@ -3,7 +3,7 @@ import { formatMinutes, formatRange, pluralCategory, type MessageKey } from '@dr
 import type { TFn } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { pluralForm } from '@/features/work/logic';
-import { clockBare, clockLabel, dayOffset, dayPeriod, minutesUntil, windowLabel, type DepartBlockerNote, type LegendState, type RiderStatus } from './logic';
+import { clockBare, clockLabel, dayOffset, dayPeriod, minutesUntil, publicPlaceName, windowLabel, type DepartBlockerNote, type LegendState, type RiderStatus } from './logic';
 
 /** Copy helpers for the intercity screens (every string from @driver/i18n). */
 
@@ -91,9 +91,20 @@ export function paymentLabel(t: TFn, b: Pick<DriverBookingRow, 'state' | 'prepay
 }
 
 export function pickupLabel(t: TFn, b: Pick<DriverBookingRow, 'pickup'>): string {
-  if (b.pickup.kind === 'meeting_point') return t('partner.ic_pickup_mp', { place: b.pickup.nameAr ?? '' });
+  if (b.pickup.kind === 'meeting_point') return t('partner.ic_pickup_mp', { place: publicPlaceName(b.pickup.nameAr ?? '') });
+  if (b.pickup.kind === 'pin') return t('partner.ic_pickup_pin', { price: agreedPrice(t, b.pickup.feeIqd) });
   if (b.pickup.kind === 'door') return t('partner.ic_pickup_door');
   return t('partner.ic_pickup_garage');
+}
+
+/** Step 4: an agreed door drop on the rider's line, or null. */
+export function dropLabel(t: TFn, b: Pick<DriverBookingRow, 'dropoff'>): string | null {
+  return b.dropoff ? t('partner.ic_drop_door', { price: agreedPrice(t, b.dropoff.feeIqd) }) : null;
+}
+
+/** An agreed price as the driver reads it: «+2,000» or «ببلاش». */
+export function agreedPrice(t: TFn, amountIqd: number): string {
+  return amountIqd === 0 ? t('partner.ic_agree_free') : amountParam(amountIqd, { sign: true });
 }
 
 export function seatsCount(t: TFn, n: number): string {
@@ -131,7 +142,8 @@ export function rideState(t: TFn, s: RequestState): string {
 }
 
 /** A counted rider-side key (`x`, `x_one`, `x_two`, `x_few`; `x` is the 11+ form). */
-function countedKey(base: string, n: number): MessageKey {
+/** The counted form of a shared `rajaa.*` key (`x_one`, `x_two`, `x_few`, or `x` for 11+ and 0). */
+export function countedKey(base: string, n: number): MessageKey {
   const c = pluralCategory(n);
   return (c === 'one' || c === 'two' || c === 'few' ? `${base}_${c}` : base) as MessageKey;
 }
@@ -145,6 +157,7 @@ const BAGHDAD_MS = 3 * 3_600_000;
  */
 export function requestDetailLabels(t: TFn, d: RequestDetails, when: Date): string[] {
   const out: string[] = [];
+  if (d.trip === 'fetch') out.push(t('rajaa.req_trip.fetch'));
   if (d.trip === 'wait_return' && d.waitHours !== null)
     out.push(`${t('rajaa.req_trip.wait_return')} · ${t('rajaa.req_sum.wait', { hours: t(countedKey('rajaa.req_hours', d.waitHours), { n: d.waitHours }) })}`);
   if (d.trip === 'two_days' && d.returnAt) {

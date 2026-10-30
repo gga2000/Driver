@@ -120,7 +120,8 @@ export const KIND_KEY: Record<Vertical, MessageKey> = {
 
 export const PAY_KEY: Record<PartnerPayKey, MessageKey> = {
   delivery: 'partner.pay_delivery',
-  fare: 'partner.pay_fare',
+  // Rides pay the fare after Driver's share: the line says so (the rider pays the whole fare).
+  fare: 'partner.pay_fare_net',
   distance: 'partner.pay_distance',
   wait: 'partner.pay_wait',
   batch_bonus: 'partner.pay_batch_bonus',
@@ -185,12 +186,13 @@ export interface JobAction {
 
 export function jobAction(stop: Pick<PartnerJobStop, 'type' | 'state' | 'collectIqd'>, vertical: Vertical): JobAction {
   const ride = isRide(vertical);
+  const errand = vertical === 'errand';
   const pickup = stop.type === 'pickup' || stop.type === 'shop';
   const arrived = stop.state === 'arrived';
   if (pickup) {
     return arrived
-      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : 'partner.action_picked_up', title: ride ? 'partner.task_wait_rider' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
-      : { kind: 'arrive', label: ride ? 'partner.action_arrived_rider' : 'partner.action_arrived_pickup', title: ride ? 'partner.task_go_rider' : 'partner.task_go_pickup', needsCash: false, wantsPhoto: false };
+      ? { kind: 'complete', label: ride ? 'partner.action_rider_in' : errand ? 'partner.action_bought_list' : 'partner.action_picked_up', title: ride ? 'partner.task_wait_rider' : errand ? 'partner.task_at_shops' : 'partner.task_at_pickup', needsCash: false, wantsPhoto: false }
+      : { kind: 'arrive', label: ride ? 'partner.action_arrived_rider' : errand ? 'partner.action_arrived_shop' : 'partner.action_arrived_pickup', title: ride ? 'partner.task_go_rider' : errand ? 'partner.task_go_shops' : 'partner.task_go_pickup', needsCash: false, wantsPhoto: false };
   }
   return arrived
     ? {

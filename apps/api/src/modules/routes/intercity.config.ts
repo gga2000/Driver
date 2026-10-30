@@ -71,8 +71,8 @@ export const GARAGES: GarageConfig[] = [
     cityId: 'aziziyah',
     nameAr: 'كراج البوابة 1',
     nameEn: 'Gate 1 garage',
-    lat: 32.9032,
-    lng: 45.0578,
+    lat: 32.91575,
+    lng: 45.0405,
     geofenceM: 150,
     draft: false,
   },
@@ -81,8 +81,8 @@ export const GARAGES: GarageConfig[] = [
     cityId: 'aziziyah',
     nameAr: 'كراج البوابة 2',
     nameEn: 'Gate 2 garage',
-    lat: 32.9088,
-    lng: 45.0648,
+    lat: 32.9155,
+    lng: 45.0641,
     geofenceM: 150,
     draft: false,
   },
@@ -91,8 +91,8 @@ export const GARAGES: GarageConfig[] = [
     cityId: 'aziziyah',
     nameAr: 'كراج السوق',
     nameEn: 'Souq garage',
-    lat: 32.9062,
-    lng: 45.0612,
+    lat: 32.9021,
+    lng: 45.0666,
     geofenceM: 150,
     draft: false,
   },
@@ -239,7 +239,7 @@ export interface IntercityRules {
   moveWindowMin: number;
   /** Driver cancel inside this many minutes before departure costs a fee (domain §2: 2 h). */
   driverCancelFeeWindowMin: number;
-  /** Fee per affected rider, paid to them as credit (review C-46: 2,000 per rider). */
+  /** Fee per affected rider, paid to them as credit (review C-46: 2,000 per rider; also the M-11 no-show fee). */
   driverCancelFeePerRiderIqd: number;
   /** Fee doubles for departures at or after this local hour (review C-46: 18:00). */
   cancelFeeDoublesFromHour: number;
@@ -273,6 +273,8 @@ export interface IntercityRules {
     riderNoShowWaitMin: number;
     driverNoShowAfterMin: number;
     arrivalGeofenceM: number;
+    /** Way C (Ali 2026-10-09): a friend's «صعدت» works within this of where the driver pressed «وصلت». */
+    shareBoardNearM: number;
   };
 }
 
@@ -289,7 +291,7 @@ export const INTERCITY_RULES: IntercityRules = {
   trustedAfterSeats: 3,
   moveWindowMin: 120,
   driverCancelFeeWindowMin: 120,
-  driverCancelFeePerRiderIqd: 2_000, // PLACEHOLDER (review C-46 figure)
+  driverCancelFeePerRiderIqd: 2_000, // review C-46; Ali confirmed it for garage no-shows (M-11, 2026-10-09)
   cancelFeeDoublesFromHour: 18,
   utcOffsetMin: 180,
   door: {
@@ -314,6 +316,7 @@ export const INTERCITY_RULES: IntercityRules = {
     riderNoShowWaitMin: 10,
     driverNoShowAfterMin: 20,
     arrivalGeofenceM: 300,
+    shareBoardNearM: 300,
   },
 };
 

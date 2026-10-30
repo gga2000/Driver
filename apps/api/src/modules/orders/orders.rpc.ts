@@ -33,6 +33,7 @@ import {
   type StaffChargeCourierInput,
   type StaffCloseOrderInput,
   type StaffCourierLostInput,
+  type StaffErrandReceiptInput,
   type StaffOpsSwitches,
   type StaffMarkDeliveredInput,
   type StuckOrder,
@@ -54,6 +55,8 @@ export interface OrgRoleChecker {
 export const ORDERS_ROLE_CHECKER = Symbol('ORDERS_ROLE_CHECKER');
 
 const OPS: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
+/** FOOD-04: how many of a person's newest orders `orders.mine` returns (a live order is always among them). */
+export const MY_ORDERS_LIMIT = 100;
 const MERCHANT: readonly RoleKind[] = ['merchant_staff', 'merchant_owner'];
 
 /**
@@ -92,6 +95,10 @@ export class OrdersRpc implements OrdersPort {
 
   opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult> {
     return this.staffOrThrow().markDelivered(actor, input);
+  }
+
+  opsErrandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult> {
+    return this.staffOrThrow().errandReceipt(actor, input);
   }
 
   opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult> {
@@ -165,8 +172,13 @@ export class OrdersRpc implements OrdersPort {
     return purpose ? (await this.orders.withRecipients([order!], actor.personId, purpose))[0]! : order!;
   }
 
+  /**
+   * FOOD-04: the newest `MY_ORDERS_LIMIT` only. The app polls this every 15 s while an order is live and
+   * reads it for the live pill, the active ride, the rider picker and saved people, all of which want the
+   * recent orders; the full list (طلباتي) is `tracking.history`.
+   */
   async mine(actor: Actor): Promise<Order[]> {
-    return this.orders.withRiders(await this.orders.listForPerson(actor.personId), actor.personId);
+    return this.orders.withRiders(await this.orders.listForPerson(actor.personId, { limit: MY_ORDERS_LIMIT }), actor.personId);
   }
 
   async listActive(actor: Actor, input: ListActiveOrdersInput): Promise<Order[]> {

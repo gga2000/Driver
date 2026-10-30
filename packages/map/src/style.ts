@@ -34,8 +34,12 @@ export const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyri
 
 /** Glyphs for vector labels once PMTiles land (Noto stacks carry Arabic). */
 export const DEFAULT_GLYPHS = 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf';
-/** MapLibre needs the RTL plugin to shape Arabic in vector labels. */
-export const RTL_TEXT_PLUGIN_URL = 'https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js';
+/**
+ * MapLibre needs the RTL plugin to shape Arabic in vector labels. Our own copy of
+ * @mapbox/mapbox-gl-rtl-text 0.3.0, next to the tiles in the Supabase `map` bucket (uploaded by the
+ * Map tiles workflow with a checksum check), so no third-party script host is needed.
+ */
+export const RTL_TEXT_PLUGIN_URL = 'https://lapigvjdsuapfexzdcvl.supabase.co/storage/v1/object/public/map/plugins/mapbox-gl-rtl-text-0.3.0.js';
 
 /** Arabic first, then the default name, then English (vector basemap labels). */
 export const ARABIC_FIRST_NAME = ['coalesce', ['get', 'name:ar'], ['get', 'name'], ['get', 'name:en']] as const;
@@ -62,6 +66,12 @@ export interface DriverStyleOptions {
    * bands as one ink hue, light → dark outwards (`TIER_RAMP`), split by a paper-coloured hairline.
    */
   zoneShading?: 'categorical' | 'wash' | 'sequential';
+  /**
+   * Draw the OSM street picture under the zones (default true). The public OSM tile servers allow dev
+   * and low-volume use only, so a build with our own map files configured passes false: if our map
+   * fails, the zones and the background still draw, and no request goes to tile.openstreetmap.org.
+   */
+  osmRaster?: boolean;
 }
 
 /** `['match', ['get', 'tier'], 'centre', c1, …, fallback]` for a theme's tier ramp. */
@@ -78,18 +88,13 @@ const hoverCase = (on: number, off: number) => ['case', ['boolean', ['feature-st
  */
 export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification {
   const vector = Boolean(opts.pmtilesUrl);
+  const raster = opts.osmRaster !== false;
   const light = opts.theme === 'light';
   const C = light ? MAP_COLORS_LIGHT : MAP_COLORS;
   const shading = opts.zoneShading ?? (light ? 'wash' : 'categorical');
   const ramp = light ? 'light' : 'dark';
   const sources: Record<string, SourceSpecification> = {
-    [SOURCE.osm]: {
-      type: 'raster',
-      tiles: OSM_RASTER_TILES,
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: OSM_ATTRIBUTION,
-    },
+    ...(raster ? { [SOURCE.osm]: { type: 'raster', tiles: OSM_RASTER_TILES, tileSize: 256, maxzoom: 19, attribution: OSM_ATTRIBUTION } as const } : {}),
     [SOURCE.zones]: { type: 'geojson', data: buildZonesGeoJSON() as never },
     [SOURCE.garages]: { type: 'geojson', data: buildGaragesGeoJSON({ onlyInCity: !opts.includeOutOfTownGarages }) as never },
     [SOURCE.trips]: { type: 'geojson', data: EMPTY as never },
@@ -113,7 +118,7 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
         paint: { 'line-color': C.road, 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 16, 4] },
       },
     );
-  } else {
+  } else if (raster) {
     // Light OSM tiles inverted (min > max), hue-rotated back and desaturated: a dark base whose
     // street names (Arabic in Iraq's OSM data) stay legible as light text.
     base.push({
@@ -220,7 +225,7 @@ export function buildMapStyle(opts: DriverStyleOptions = {}): StyleSpecification
   return {
     version: 8,
     name: light ? 'Driver light' : 'Driver dark',
-    metadata: { 'driver:basemap': vector ? 'pmtiles' : 'osm-raster-fallback', 'driver:labels': 'ar-first' },
+    metadata: { 'driver:basemap': vector ? 'pmtiles' : raster ? 'osm-raster-fallback' : 'zones-only', 'driver:labels': 'ar-first' },
     center: AZIZIYAH_CENTER,
     zoom: AZIZIYAH_DEFAULT_ZOOM,
     ...(vector ? { glyphs: opts.glyphs ?? DEFAULT_GLYPHS } : {}),

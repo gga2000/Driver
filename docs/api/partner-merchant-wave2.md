@@ -27,13 +27,13 @@ Roles: driving roles (`courier`, `shopper`, `driver`, `intercity_driver`, `khat_
 |---|---|---|---|
 | `earnings` | query | `{period: 'day'\|'week'\|'month' = 'day', anchor?: Date, driverId?}` | `EarningsView`: `{from, to, totals {grossIqd, takeIqd, tipsIqd, bonusesIqd, guaranteeTopUpsIqd, penaltiesIqd, netIqd, jobs}, jobs[] {key, tripId, orderId, at, components[] {type, label_ar, label_en, amountIqd (signed), memo}, netIqd, cashCollectedIqd}, cash {collectedIqd, toMerchantsIqd, settledIqd, heldIqd, owedIqd}, cap {role, tier, capIqd, owedIqd, remainingIqd, fill 0–1, overCap, byTier {bronze, silver, gold}}, payoutDueIqd}` |
 | `scorecard` | query | `{driverId?}` | `ScorecardView`: `{dayNumber, visibleFrom, visible, observation, learningMessage_ar, index\|null, tier\|null, completedTrips, windowDays: 14, metrics[] {key: acceptance\|completion\|on_time\|rating\|cash_return, label_ar, value, display, samples, fullAt, zeroAt, silverLine, score, weight, belowSilver}, nudges[] {key, message_ar, message_en}, consequencesFrom\|null}` — days 1–30: `visible=false`, metrics `[]`, index `null` for the driver (back office still sees them); from day 31 nudges for components under the Silver line and `consequencesFrom` = next Sunday |
-| `documents` | query | `{driverId?}` | `{driverId, documents[] DriverDocumentView, missing[] kind, blocksOnline}` |
+| `documents` | query | `{driverId?}` | `{driverId, documents[] DriverDocumentView, missing[] kind, blocksOnline}` — `missing`: kinds his driving roles need (ID front/back + photo; licence + registration for car roles) with no approved document yet |
 | `uploadDocument` | mutation | `{kind, uploadId, expiresAt?}` — kinds `national_id_front`, `national_id_back`, `licence`, `vehicle_registration`, `insurance`, `photo` | `DriverDocumentView {id, kind, kind_ar, status, status_ar, expiresAt, daysToExpiry, submittedAt, reviewedAt, rejectReason}`; status `pending → approved\|rejected`, derived `expiring` (≤ 30 days) / `expired`. A new upload of a kind supersedes the old one |
 | `reviewDocument` | mutation | `{documentId, decision: 'approve'\|'reject', reason? (required to reject), expiresAt?}` — roles `field_ops`, `support`, `admin` | `DriverDocumentView` |
 | `checkInChallenge` | mutation | — | `{challengeId, gesture: blink\|turn_left\|turn_right\|smile\|nod, gesture_ar, expiresAt (2 min)}` |
 | `submitCheckIn` | mutation | `{challengeId, uploadId (selfie), livenessScore? 0–1}` | `CheckInStatus & {checkInId, result: passed\|failed, reason}` |
 | `checkInStatus` | query | — | `{localDate, required, verifiedToday, verifiedAt, failuresToday, lockedOut, badge_ar ("متحقق اليوم ✓")}` |
-| `onlineGate` | query | — | `{canGoOnline, reasons[] {code: checkin_required\|checkin_locked\|document_expired, message_ar}, checkIn}` |
+| `onlineGate` | query | — | `{canGoOnline, reasons[] {code: checkin_required\|checkin_locked\|document_expired\|document_missing\|staff_paused, message_ar}, checkIn}` |
 | `handoverCode` | query | — | `{code: 4 digits, validUntil}` — read out to field ops for `ops.recordCashReceipt`; rotates at local midnight |
 | `shiftSummary` | query | `{from?: Date (partner.status.onlineSince), to?: Date}` — clamped: `to` ≤ now, window ≤ 24 h, `from` defaults to Baghdad midnight | `{from, to, onlineMinutes, jobs, netIqd, tipsIqd, perHourIqd\|null (net × 60 ÷ exact online minutes, to the nearest 50, shown as «تقريباً … لكل ساعة شغل»; null under 30 min online), bestHour {from, to, netIqd, jobs}\|null (Baghdad clock hour), day {netIqd, jobs}, cash {heldIqd, owedIqd, capIqd, overCap}, tomorrow {from, to, orders}\|null (busiest 2 h from the city's orders on the same weekday last week; null under 4 orders), nudge {key, message_ar, message_en}\|null (one, from day 31)}` — Partner audit S-4 |
 | `jobReceipt` | query | `{key, at}` (an `EarningsJobLine`) | `{key, tripId, orderId, ticket ("1284")\|null, at, lines[] (EarningsComponent & reason {code, params}\|null), grossIqd, takeIqd, takeRate 0–1\|null, tipsIqd, netIqd, cash {collectedIqd (the whole note: price, rounding change, change to wallet), toMerchantIqd (paid at pickup), keptIqd (his net pay for the job, netted at hand-over), toCompanyIqd (the rest); the three add up to collectedIqd}\|null, queryOpen}` — reason codes `delivery_full`, `night` {time}, `rain`, `peak`, `door_pickup`, `wait` {amount} (the customer's `quote.reason.*` sentences) and `fare`, `take` {rate}, `tip`, `batch`, `compensation`, `guarantee`, `incentive`, `penalty` (`partner.receipt_reason_*`). His own jobs only (`not_found`) — Partner audit S-7 |
@@ -135,8 +135,14 @@ dispatcher's "سكّر التنبيه" + reason ─► closed_at / closed_by_id 
                          audit khat.sweep_close + khat.sweep_alert_closed; the row leaves the strip
 ```
 
-The timer is armed by `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
-(`khat.child_tapped_out`, `khat.absence_reported`), one job id per run end; the check re-reads the
+A child still on board is caught too: from the first tap-in, while a tapped-in child has no tap-out,
+the timer is armed for the run's last planned drop-off (its window end) + `sweepAlertAfterMin`. If a
+child is still tapped in then, the same alert is raised (`khat.sweep_missed` `reason:
+child_still_on_board`, `runEndedAt` = the planned drop-off), so a driver who parks and never ends the
+run still pages the desk; the normal case carries `reason: sweep_missed`.
+
+The timer is armed by `tapIn` / `tapOut` / `reportAbsence` and by the outbox subscriber `khat:sweep-timer`
+(`khat.child_tapped_in`, `khat.child_tapped_out`, `khat.absence_reported`), one job id per due time; the check re-reads the
 run, so a redelivery or a second instance changes nothing (unique `trip_id`). The queue is BullMQ
 with `REDIS_URL` (survives restarts), otherwise in process (polled once a second). Runs where no
 child ever got in are left alone. Table `khat_sweep_alerts`, migration `20261006150000_khat_sweep_alerts`.
@@ -148,7 +154,7 @@ Console demo: `POST /demo/khat-sweep[?late=1]`.
 template `khat_sweep_dispatch_alert` (category safety, push + WhatsApp, the usual 60-s SMS twin, sent in
 quiet hours; no escalation). Params: the driver's short name (a logged vault read, `system:khat` /
 `khat_sweep_page`), the run's `#ticket`, the minutes since the run ended in their natural form via
-`t()`, and the Console link (`CONSOLE_BASE_URL` + `/safety`). Never a child's name. Once per alert: the
+`t()`, and the Console link (`CONSOLE_BASE_URL` + `/safety`; unset: the alert number, no link). Never a child's name. Once per alert: the
 event is once per run and notify dedupes event + person; nothing is sent when the driver confirmed, or
 a dispatcher closed it, before the outbox got there.
 
@@ -196,19 +202,22 @@ Roles: `field_ops`, `admin`.
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
 | `addLandmarkPhoto` | mutation | `{target {kind: place\|meeting_point\|landmark, id}, uploadId, caption?, localNames[] (≤ 5)}` | `{photoId, target, state: 'proposed', addedAt}` (`landmark.proposed`; Console approves) |
-| `recordCashReceipt` | mutation | `{courierId, amountIqd, code (courier's handover code), note?, idempotencyKey?}` | `{receiptId, courierId, amountIqd, reference (D-XXXX-XXXX), receivedAt, courierOwedIqd, courierCapRemainingIqd}` — posts ledger `driver_settlement` (channel `ops_round`) in the same unit of work; emits `ops.cash_received` (WhatsApp receipt) |
-| `merchantOnboarding` | mutation | `{cityId, name, type: restaurant\|grocer, contact {name, phone}, location {zoneKey, pin?}, menuPhotoUploadIds[], shopPhotoUploadId?, notes?, settlementMode? (nightly_courier\|on_demand\|daily_zaincash\|weekly_bulk)}` | `{onboardingId, merchantOrgId, state: 'draft', menuPhotos, taskId, createdAt}` — owner phone/name go to the vault |
+| `recordCashReceipt` | mutation | `{courierId, amountIqd, code (courier's handover code), note?, idempotencyKey?}` | `{receiptId, courierId, amountIqd, reference (D-XXXX-XXXX), receivedAt, courierOwedIqd, courierCapRemainingIqd}` — at most what he owes the company (`owedIqd`) and never more than he holds: the rest of his cash is his own pay. Posts ledger `driver_settlement` (channel `ops_round`) in the same unit of work; emits `ops.cash_received` (WhatsApp receipt). What he hands in pays the company's own part of his cash orders first; only the rest comes off the restaurants' cash he is shown holding (`ledger.merchantBalance` holders), oldest first across restaurants, and each hand-in is counted once however many restaurants he carried for |
+| `merchantOnboarding` | mutation | `{cityId, name, type: restaurant\|grocer, contact {name, phone}, location {zoneKey, pin} (pin required; the server reads the zone from it and refuses `outside_zone`), menuPhotoUploadIds[], shopPhotoUploadId?, notes?, settlementMode? (nightly_courier\|on_demand\|daily_zaincash\|weekly_bulk)}` | `{onboardingId, merchantOrgId, state: 'draft', menuPhotos, taskId, createdAt}` — owner phone/name go to the vault |
 | `myTasks` | query | `{cityId?}` | `[{taskId, kind: cash_collection\|merchant_followup\|landmark_photo\|document_check, title_ar, refId, amountIqd, dueAt, state, computed}]` — computed `cash:<driverId>` tasks for couriers owing ≥ 50 % of their cap (or over it) |
 | `completeTask` | mutation | `{taskId, note?}` | `OpsTask` (stored tasks only) |
 | `cashHolders` | query | `{cityId?}` | `[{courierId, name, phoneMasked, heldIqd, owedIqd, capIqd, tier, overCap}]` — couriers holding customers' cash, over-cap then most owed first; names are vault reads (purpose `ops_cash_round`) |
 | `landmarks` | query | `{cityId = 'aziziyah', zoneKey?}` | `[{placeId, name, zoneKey, pin, photos}]` — landmark places (fewest photos first); `photos` counts the place's photos plus ops proposals still pending. A new landmark is proposed with `addLandmarkPhoto` target `{kind: 'landmark', id: 'new:<zoneKey>'}` and its name first in `localNames` |
 
-Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the courier today), `cash_receipt_exceeds_held`, `task_not_found`, `upload_invalid`.
+Errors: `handover_code_invalid`, `handover_code_locked` (5 wrong codes for the courier today), `cash_receipt_exceeds_held`, `cash_receipt_exceeds_owed`, `task_not_found`, `upload_invalid`.
 
 ## `merchantAdmin.*` — Merchant app wave 2
 
 Roles: `merchant_owner` / `merchant_staff` **scoped to `merchantOrgId`** (every input carries it).
-Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deals.propose`, `deals.setActive`.
+Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*` (except `staff.myInvites` / `staff.respondInvite`, which need only a sign-in), `deals.project`, `deals.propose`, `deals.setActive`, and the menu's
+prices, dishes, options, sections and imports (MER-06: `menu.updatePrice`, `menu.upsertItem`, `menu.setModifiers`,
+`menu.upsertCategory`, `menu.reorderCategories`, `menu.importFromPhotos`, `menu.applyImport`). Staff keep the daily
+switches (`menu.setAvailability`, `menu.soldOutToday`) and photos (`menu.replacePhoto`).
 
 | Procedure | Kind | Input | Output |
 |---|---|---|---|
@@ -230,18 +239,20 @@ Owner-only (staff get `FORBIDDEN`): `money.*`, `staff.*`, `deals.project`, `deal
 | `deals.project` | query | same input as `deals.propose` | `{projected {ordersPerWeek, costPerOrderIqd, weeklyCostIqd, totalCostIqd, basisOrders}, basisDays: 28, requiresApproval}` — owner only; the draft's projected cost before submitting (validated like `propose`, nothing stored) |
 | `deals.propose` | mutation | `{merchantOrgId, type: percent\|fixed\|free_delivery\|bogo, value, nameAr, itemIds[], schedule {startsAt, endsAt, days[] 0–6, hours? {start, end}}, budgetCapIqd?, minOrderIqd}` | `DealView {dealId, …, projected {ordersPerWeek, costPerOrderIqd, weeklyCostIqd, totalCostIqd, basisOrders}, state: pending_approval\|approved\|rejected\|paused\|ended, state_ar, active, funder: 'merchant'}` — projection from the last 28 days of orders, server-side; city config `merchantDeals.requirePlatformApproval` (Aziziyah: true) |
 | `deals.setActive` | mutation | `{merchantOrgId, dealId, active}` | `DealView` |
-| `deals.review` | mutation | `{dealId, approve, reason?}` — roles `admin`, `support` | `DealView` |
 | `money.today` | query | `{merchantOrgId}` | `{localDate, orders, salesIqd, commissionIqd, commissionByTier[] {tier, pct, baseIqd, commissionIqd, orders}, dealsIqd, netIqd, cashHeldByCouriersIqd, holders[] {courierId, amountIqd}, payableBalanceIqd, settlementMode, overExposure}` |
 | `money.cash` | query | `{merchantOrgId}` | `MerchantCashAccount {balanceIqd, exposureCapIqd, overExposure, mode, holders[] {courierId, name (first name), amountIqd}, heldByPlatformIqd, request {reference, reason, requestedAt, amountIqd, state: requested\|on_the_way\|handed_over, channel, courierId, courierName, assignedAt, targetBy, handover} \| null, handovers[] {handoverId, at, courierId, courierName, amountIqd, balanceAfterIqd, confirmedBy: pin\|tablet}, lastSettledAt}` — the "اطلب فلوسك" timeline follows `merchant.settlement_requested` → `merchant.settlement_assigned` (same reference) → the courier's next hand-over (14 days of hand-overs, latest request within 24 h) |
 | `money.statement` | query | `{merchantOrgId, weekOf?}` | `{from, to, openingIqd, closingIqd, lines[] {orderId, at, payment, itemsIqd, commissionTier, commissionIqd, feesIqd, netIqd}, settlements[] {at, kind: courier_handover\|payout, amountIqd, reference}, totals}` |
+| `money.receiveCourierCash` | mutation | `{merchantOrgId, courierId, amountIqd, code (the courier's 4-digit daily hand-over code, read aloud from his app), idempotencyKey (8–128)}` | `MerchantCashAccount` after the hand-over — the owner (only) confirms on the tablet that a courier handed over the cash he holds for the restaurant (Money › «استلمت منه»). The code check shares field ops' lockout (`handover_code_invalid`, `handover_code_locked` after 5 wrong codes today); more than he holds for it is `handover_mismatch`. Posts the same hand-over as any other (`confirmedBy: tablet`); a retried or double-tapped sheet (same key) posts once and opens no incident (checked under the restaurant's lock); the same key with another amount or courier is `idempotency_key_reused` |
 | `money.disputes` | query | `{merchantOrgId}` | `[{orderId, kind, note, openedAt, evidence {acceptedAt, readyAt, pickedUpAt, deliveredAt, promisedReadyAt, lines[] {name, qty, participant}, itemsIqd}, defaultOutcome {code, text_ar, merchantImpactIqd}, response\|null}]` (last 30 days) |
 | `money.respondDispute` | mutation | `{merchantOrgId, orderId, decision: accept_default\|contest, note?, evidenceUploadIds[] ≤ 5}` | `MerchantDispute` (re-answering replaces; emits `merchant.dispute_responded`) |
 | `insights` | query | `{merchantOrgId, days = 30}` | `{prepHonesty {samples, quotedAvgMin, actualAvgMin, onTimeShare}, rejection {offered, rejected, rate}, itemRatings[] {itemId, nameAr, avg, count, reviews[] {score, note, at}}, peakHours[24]}` |
-| `staff.list` | query | `{merchantOrgId}` | `[{personId, name, phoneMasked, role, you}]` (vault reads logged, purpose `merchant_staff_view`) |
-| `staff.invite` | mutation | `{merchantOrgId, phone, role = 'merchant_staff'}` | `StaffMember` (grants the role scoped to the org) |
-| `staff.setRole` | mutation | `{merchantOrgId, personId, role}` | `StaffMember` |
-| `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` (also cancels a waiting invite) |
-| `staff.resendInvite` | mutation | `{merchantOrgId, personId}` | `StaffMember` — a waiting invite goes out again (`merchant.staff_invite_sent` on stream `merchant_staff/<org>`, also emitted by `invite`); within 10 min of the last send it is a no-op; `staff_invite_not_pending` once he signed in |
+| `staff.list` | query | `{merchantOrgId}` | `[{personId, name, phoneMasked, role, you, pending, phoneHint?, invitedAt?, inviteSentAt?, resendAfter?}]` — members (role holders, named; vault reads logged, purpose `merchant_staff_view`), then pending unexpired invites (`pending: true`, `name: null`, the invite's role, the typed number's 4+4 hint) |
+| `staff.invite` | mutation | `{merchantOrgId, phone, role = 'merchant_staff'}` | `StaffMember` — **accept-first (PRV-08, Ali 2026-10-10): grants no role.** Creates a pending invite (`merchant_staff_invites`, expires 7 days after it is made) and emits `merchant.staff_invite_sent`. Someone already at the store just gets the new role. A declined, cancelled or expired invite starts again as a fresh pending one; a waiting one takes the new role and goes out again only after the 10-min cooldown |
+| `staff.setRole` | mutation | `{merchantOrgId, personId, role}` | `StaffMember` (on a pending invite: changes the role it offers, grants nothing) |
+| `staff.remove` | mutation | `{merchantOrgId, personId}` | `{removed}` — a member loses his roles; a pending invite is set `cancelled` (`merchant.staff_invite_cancelled`) and can no longer be accepted |
+| `staff.resendInvite` | mutation | `{merchantOrgId, personId}` | `StaffMember` — a waiting invite goes out again (`merchant.staff_invite_sent` on stream `merchant_staff/<org>`, also emitted by `invite`); within 10 min of the last send it is a no-op; `staff_invite_not_pending` once he accepted |
+| `staff.myInvites` | query (**any signed-in user**) | — | `MyStaffInvite[]` `{merchantOrgId, storeName, role, invitedAt, expiresAt}` — the caller's own pending, unexpired invites (no owner name, no number); stores he already works at and invites whose inviter is no longer an owner are left out |
+| `staff.respondInvite` | mutation (**any signed-in user**) | `{merchantOrgId, accept}` | `MyStaffInvite[]` (his invites after) — only the invited person, only a pending, unexpired invite, else `staff_invite_not_found`. Accept grants the invite's role (granted by the inviting owner, other staff kind revoked, in one transaction) and emits `merchant.staff_invite_accepted`; decline grants nothing, `merchant.staff_invite_declined`. Both on stream `merchant_staff/<org>` |
 | `activity.today` | query | `{merchantOrgId, date?: YYYY-MM-DD}` (Baghdad day, default today) | `{merchantOrgId, localDate, entries[] {at, kind, orderId, orderNumber, dishName, until, who {personId, name, you}\|null, reason}}` newest first, ≤ 200. **Owner only** (staff `FORBIDDEN` on the server). «مين سوّى شنو» (2026-10-08) |
 | `activity.order` | query | `{merchantOrgId, orderId}` | `{orderId, entries[]}` oldest first (the order sheet's who-line). **Owner only**; another store's order `NOT_FOUND` |
 
@@ -267,7 +278,7 @@ batched vault read per call (purpose `merchant_activity_view`, logged), name onl
 missing name has `name: null` (the app shows «موظف سابق»). Board and order payloads never carry actor ids.
 
 Errors: `menu_item_not_found`, `import_job_not_found`, `import_state_conflict`, `deal_not_found`,
-`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `staff_invite_not_pending`, `upload_invalid`.
+`deal_invalid`, `deal_state_conflict`, `dispute_not_found`, `dispute_response_closed` (after `respondBy`), `staff_last_owner`, `staff_invite_not_pending`, `staff_invite_not_found`, `upload_invalid`.
 
 ## `merchant.hours` / `merchant.setHours` — opening hours (follow-ups 2026-10-04)
 
@@ -306,9 +317,10 @@ customer's door rule). Gone once he picked up.
 
 | Procedure | Roles | Input | Output |
 |---|---|---|---|
-| `ops.pickupSpots.stores` | `PICKUP_SPOT_CONSOLE_ROLES` (field_ops, admin; support `FORBIDDEN`) | `{cityId}` | `PickupStoreRow[] {merchantOrgId, name, type, note, photos (count), updatedAt}` by name |
-| `ops.pickupSpots.get` | same | `{merchantOrgId}` | `ConsolePickupSpotView` = `PickupSpotView` (canEdit true) + `storeName`, `consoleEdit {at, byName} \| null` |
+| `ops.pickupSpots.stores` | `PICKUP_SPOT_CONSOLE_ROLES` (field_ops, admin; support `FORBIDDEN`) | `{cityId}` | `PickupStoreRow[] {merchantOrgId, name, type, note, photos (count), updatedAt, shopPhoto, dishes, dishesNoPhoto}` by name (k6: `shopPhoto` = the storefront has a photo; `dishesNoPhoto` = menu items with neither the kitchen's photo nor a library one) |
+| `ops.pickupSpots.get` | same | `{merchantOrgId}` | `ConsolePickupSpotView` = `PickupSpotView` (canEdit true) + `storeName`, `consoleEdit {at, byName} \| null`, `kitchen {zoneKey, zoneName, pin \| null} \| null` |
 | `ops.pickupSpots.set` | same | `SetPickupSpotInput` (the owner's input) | `ConsolePickupSpotView` |
+| `ops.pickupSpots.moveKitchen` | same | `{merchantOrgId, pin}` | `ConsolePickupSpotView` — «حرّك مكان المطعم»: the zone is read from the pin (`outside_zone` past 2 km), audit row `store.kitchen_moved` with the zone and pin before and after |
 
 Console › المطاعم (`/stores`, `/stores/[id]`). `set` goes through `MerchantService.consoleSetPickupSpot`: the owner's rules
 unchanged (new photos must be the caller's own `places.photoUpload`, dropped photos deleted, empty clears) and the same
@@ -363,8 +375,10 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
 - **Liveness and face match are stubs** (device SDK score, default 1); OCR for menu import is a stub
   (empty draft, staff type the rows).
 - **Online gate enforcement**: `partner.goOnline` calls `DriverAccountService.onlineGateFor` and refuses with
-  `online_checkin_required` / `checkin_locked` / `online_document_expired`; `partner.status.gate` carries
-  the reasons. A refused heartbeat takes an online driver out of the index (lock-out, expired document).
+  `online_checkin_required` / `checkin_locked` / `online_document_expired` / `online_document_missing`;
+  `partner.status.gate` carries the reasons. `document_missing` is one reason per paper his driving roles
+  need that has no approved document (never sent, rejected or still under review); an approved paper
+  stays in force while its renewal is reviewed. A refused heartbeat takes an online driver out of the index (lock-out, expired document).
   Nothing pushes a driver offline the moment `driver.checkin_locked` fires or a document expires: it
   happens at his next heartbeat (≤ 30 s while the app is open).
 - **Registered vehicle and roles** (review 2026-10-04 #20): `partner.goOnline` puts him online on his
@@ -374,6 +388,22 @@ Migration `packages/db/prisma/migrations/20261004000000_partner_merchant_wave2`:
   parcel; `shopper` → grocery, errand; `driver` → taxi (car/SUV) or tuktuk rides (tuktuk); `khat_driver` →
   khat; `intercity_driver` → intercity — and dispatch skips candidates whose list lacks the job's
   vertical. A driving role with nothing to serve on his vehicle is refused the same way.
+- **Small heartbeat answer** (perf o4): `partner.goOnline` takes an optional `knownVersion` (the
+  `version` of the status the app holds; `""` when it holds none). Sent → the answer is
+  `{ changed: false, version }` while his work state (gate, roles, vehicle, presence zone/tier/since,
+  cash and cap, trips, ringing offer, climate question) still has that version — the status is not
+  built — else `{ changed: true, version, status }`. Left out → the full `PartnerStatus`, as before, so
+  older apps keep working. His position, the city's demand hint and today's earnings are not in the
+  version: the app keeps the position it sent, and `partner.status` (re-read on live events and by its
+  poll) brings the rest.
+- **Lighter heartbeat** (speed x2): the app's own reads (`partner.goOnline`, `partner.status`) keep his
+  cash-limit role and tier for 5 minutes (`KEPT_LIMIT_MS`),
+  while his cash and earnings are read on every beat, so what he holds is never stale. Dispatch's
+  over-cap check and the money desk always work the limit out fresh. His ringing offer is found from
+  his own open offers (one indexed read of `dispatch_offers` by driver and state) instead of reading
+  the offers of every live trip in the city. Seeded town: the small beat 14 → 13 statements with the
+  two event-history reads gone; the full status 15 → 13; the offer lookup stays at one read however
+  busy the board is (before: one per live trip).
 - Shift-guarantee top-ups are shown when the ledger has them (`driver_incentive`, memo `guarantee…`);
   no job posts them yet. Courier-waiting charges to merchants are not ledger lines yet.
 - The khat run is read from the driver's khat trips; spawning a day's trips from a khat `Route` /

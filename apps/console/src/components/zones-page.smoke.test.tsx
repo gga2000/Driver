@@ -86,9 +86,9 @@ describe('Zones page', () => {
     expect(flagged).toContain('سايق قال لا');
   });
 
-  it('«تم الفحص» shows on a flagged open zone for editors only, at 44 px', () => {
-    // The button whose label is «تم الفحص» (the flag chip's hint also names it, inside a title).
-    const markButton = /<button[^>]*class="([^"]*)"[^>]*>(?:<[^>]*>)*تم الفحص(?:<[^>]*>)*<\/button>/;
+  it('«انفحصت» shows on a flagged open zone for editors only, at 44 px', () => {
+    // The button whose label is «انفحصت» (the flag chip's hint also names it, inside a title).
+    const markButton = /<button[^>]*class="([^"]*)"[^>]*>(?:<[^>]*>)*انفحصت(?:<[^>]*>)*<\/button>/;
     const editor = editorReducer(closedEditor, { type: 'open', key: 'centre', ring: RING, centre: { lat: 32.903, lng: 45.06 } });
     const placedAt = new Date('2026-10-05T10:00:00Z');
     const flaggedZones = [zone('centre', 'العزيزية (مركز)', { placement: 'placed', placedAt, checks: { yes: 2, no: 1, drivers: 2, flaggedAt: new Date('2026-10-06T08:00:00Z') } })];

@@ -47,14 +47,15 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
+// SHOTS_GL=1: software WebGL, so the 3D Golden map draws in a container without a GPU.
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH, ...(process.env.SHOTS_GL ? { args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : {}) });
 const errors = [];
 const written = [];
 /** The page most recently opened: screenshotted as <group>-FAILED.png when a module throws. */
 let lastPage = null;
 
 /** Error noise from the sandbox, not from the app. */
-const IGNORED = /findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_CONNECTION_REFUSED.*tile|Failed to load resource: net::ERR_TUNNEL/;
+const IGNORED = /findDOMNode|DevTools|props\.pointerEvents|shadow\*|WebSocket connection|ERR_TUNNEL_CONNECTION_FAILED|ERR_CONNECTION_REFUSED.*tile|Failed to load resource: net::ERR_TUNNEL|mapbox-gl-rtl-text/;
 
 async function demoPost(path) {
   const r = await fetch(`${apiBase}${path}`, { method: 'POST' });
@@ -75,13 +76,18 @@ async function openPage(group, { prePrompt = false } = {}) {
   // The night look (n2) follows the clock; shots pin it so they don't change with the time they run.
   // SHOTS_LOOK=night shows every screen in the ember palette.
   await context.addInitScript((look) => localStorage.setItem('driver.partner.appearance', look), process.env.SHOTS_LOOK === 'night' ? 'night' : 'day');
+  // RTL_PLUGIN_FILE: a local copy of the map's Arabic shaping plugin, for containers that cannot reach its host.
+  if (process.env.RTL_PLUGIN_FILE) await context.route(/mapbox-gl-rtl-text/, (route) => route.fulfill({ path: process.env.RTL_PLUGIN_FILE, contentType: 'application/javascript' }));
   const page = await context.newPage();
   // A refusal the flow provokes on purpose (p.expectRefusal()): the browser's "400" line is not an error.
   let refusalExpected = false;
   page.on('console', (m) => {
     if (m.type() === 'error' && !IGNORED.test(m.text()) && !(refusalExpected && /status of 400/.test(m.text()))) errors.push(`[${group}] ${m.text()}`);
   });
-  page.on('pageerror', (e) => errors.push(`[${group}] ${e.stack ?? e.message}`));
+  // The Golden hour map's Arabic shaping plugin comes from unpkg, which this container cannot reach.
+  page.on('pageerror', (e) => {
+    if (!IGNORED.test(e.message)) errors.push(`[${group}] ${e.stack ?? e.message}`);
+  });
   page.on('response', (r) => {
     if (r.status() >= 400 && !r.url().includes('tile')) console.log(`[http ${r.status()}] ${r.request().method()} ${r.url()}`);
   });

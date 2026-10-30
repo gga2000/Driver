@@ -1,4 +1,5 @@
 import { PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { CLOSURE_EDIT_ROLES } from '@driver/contracts/closures';
 import type { MessageKey } from '@driver/i18n';
 import { INBOX_READ_ROLES, ON_CALL_READ_ROLES, PHONE_BOOKING_ROLES } from '@driver/contracts';
 
@@ -18,6 +19,7 @@ const GARAGE: readonly RoleKind[] = ['dispatcher', 'support', 'admin'];
 
 export type IconName =
   | 'today'
+  | 'glance'
   | 'map'
   | 'dispatch'
   | 'orders'
@@ -35,7 +37,10 @@ export type IconName =
   | 'phone'
   | 'oncall'
   | 'garage'
-  | 'system';
+  | 'system'
+  | 'audit'
+  | 'staff'
+  | 'customers';
 
 export interface NavItem {
   href: string;
@@ -66,6 +71,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // E1 (CON-12): the home page, one row per problem with its owner.
       { href: '/', key: 'console.nav_today', icon: 'today', roles: INBOX_READ_ROLES, jump: 't' },
       { href: '/map', key: 'console.nav_map', icon: 'map', roles: READ, jump: 'm' },
+      // h8: today on one phone screen, read only, for a check from home at night.
+      { href: '/glance', key: 'console.nav_glance', icon: 'glance', roles: READ, jump: 'h' },
     ],
   },
   {
@@ -92,6 +99,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
       { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
+      // «الناس» (Ali 2026-10-21): every customer with a profile; drivers' profiles open from السواق.
+      { href: '/customers', key: 'console.nav_customers', icon: 'customers', roles: READ, jump: 'i' },
       {
         href: '/approvals',
         key: 'console.nav_approvals',
@@ -110,6 +119,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { href: '/finance', key: 'console.nav_finance', icon: 'cash', roles: FINANCE, jump: 'f' },
       { href: '/pricing', key: 'console.nav_pricing', icon: 'pricing', roles: READ, jump: 'p' },
+      // b4: prices and the zones they are set by sit together.
+      { href: '/zones', key: 'console.nav_zones', icon: 'zones', roles: ZONE_READ_ROLES, jump: 'z' },
+      { href: '/closures', key: 'console.closures_nav', icon: 'map', roles: CLOSURE_EDIT_ROLES, jump: 'x' },
     ],
   },
   {
@@ -117,11 +129,14 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     folded: true,
     items: [
       { href: '/controls', key: 'console.nav_controls', icon: 'controls', roles: READ, jump: 'c' },
-      { href: '/zones', key: 'console.nav_zones', icon: 'zones', roles: ZONE_READ_ROLES, jump: 'z' },
       // E1 (CON-02): who is reached when an alert reaches nobody; every desk reads, admins edit.
       { href: '/on-call', key: 'console.nav_on_call', icon: 'oncall', roles: ON_CALL_READ_ROLES, jump: 'n' },
       { href: '/wall', key: 'console.nav_wall', icon: 'wall', roles: READ, jump: 'w' },
       { href: '/system', key: 'console.nav_system', icon: 'system', roles: READ, jump: 'y' },
+      // Who holds a Console role; «طلّعه من كل الأجهزة» for a lost staff phone (admins).
+      { href: '/staff', key: 'console.nav_staff', icon: 'staff', roles: ['admin'], jump: 'u' },
+      // v10 / p2: who did what in the Console; the money chip is why finance reads it too.
+      { href: '/audit', key: 'console.nav_audit', icon: 'audit', roles: ['admin', 'finance'], jump: 'l' },
     ],
   },
 ];

@@ -1,5 +1,4 @@
-import type { RoleKind } from '@driver/contracts';
-import { isWeakFixedCode } from './store-review.js';
+import { STAFF_ROLE_KINDS, type RoleKind } from '@driver/contracts';
 
 /**
  * Staging test numbers (docs/api/staging-test-numbers.md). Staging has no SMS gateway, so a small
@@ -16,11 +15,18 @@ export interface StagingTestConfig {
 
 export const STAGING_TEST_DAILY_CODES = 200;
 
+/** Codes a person could guess first; refused so a careless secret cannot open the test accounts. */
+const WEAK_CODES = new Set(['000000', '111111', '123456', '654321', '121212', '112233', '999999', '123123']);
+
+function isWeakFixedCode(code: string): boolean {
+  return WEAK_CODES.has(code) || /^(\d)\1{5}$/.test(code);
+}
+
 /** 0770 000 01xx in E.164. */
 const STAGING_TEST_NUMBER = /^\+96477000001\d{2}$/;
 
 /** The Console's roles: a test number never signs in as staff and is never made staff. */
-export const STAFF_ROLES: readonly RoleKind[] = ['field_ops', 'dispatcher', 'support', 'finance', 'admin'];
+export const STAFF_ROLES: readonly RoleKind[] = STAFF_ROLE_KINDS;
 
 /** Whether an E.164 number is in the staging test range (whether or not the range is switched on). */
 export function isStagingTestNumber(phoneE164: string): boolean {

@@ -3,13 +3,19 @@ import type { AdminMenu, AdminMenuItem } from '@driver/contracts';
 import { useApi, useApiClient } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
 import { patchMenuItem, withAvailability, withSoldOutToday } from './logic';
+import { keepPhotoDown } from './photo-down';
 import { uploadPhoto, type PickedPhoto } from './photo';
 
 /** The store's own menu (raw toggles, sold-out-today, modifiers). */
-export function useMenu(merchantOrgId: string | null) {
+export function useMenu(merchantOrgId: string | null, opts: { refetchMs?: number } = {}) {
   const api = useApi();
   const signedIn = useSignedIn();
-  return useQuery({ ...api.merchantAdmin.menu.get.queryOptions({ merchantOrgId: merchantOrgId ?? '' }), enabled: signedIn && !!merchantOrgId, staleTime: 10_000 });
+  return useQuery({
+    ...api.merchantAdmin.menu.get.queryOptions({ merchantOrgId: merchantOrgId ?? '' }),
+    enabled: signedIn && !!merchantOrgId,
+    staleTime: 10_000,
+    ...(opts.refetchMs ? { refetchInterval: opts.refetchMs } : {}),
+  });
 }
 
 /**
@@ -22,7 +28,7 @@ export function useMenuActions(merchantOrgId: string | null) {
   const qc = useQueryClient();
   const key = api.merchantAdmin.menu.get.queryKey({ merchantOrgId: merchantOrgId ?? '' });
   const refresh = () => void qc.invalidateQueries(api.merchantAdmin.menu.get.pathFilter());
-  const putItem = (item: AdminMenuItem) => qc.setQueryData<AdminMenu>(key, (m) => (m ? patchMenuItem(m, item.id, () => item) : m));
+  const putItem = (item: AdminMenuItem) => qc.setQueryData<AdminMenu>(key, (m) => (m ? patchMenuItem(m, item.id, (before) => keepPhotoDown(before as AdminMenuItem, item)) : m));
 
   /** Optimistic edit of one item; the previous menu comes back if the server refuses. */
   function optimistic<I extends { itemId: string }>(apply: (item: AdminMenuItem, input: I) => AdminMenuItem) {

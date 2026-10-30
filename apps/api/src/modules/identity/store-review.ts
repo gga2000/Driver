@@ -20,7 +20,7 @@ export const STORE_REVIEW_DAILY_SIGNINS = 10;
 /** Codes a person could guess first; refused so a careless secret cannot open the account. */
 const WEAK_CODES = new Set(['000000', '111111', '123456', '654321', '121212', '112233', '999999', '123123']);
 
-/** A fixed code from the host's secrets that is an obvious first guess (also used by `staging-test.ts`). */
+/** A fixed code from the host's secrets that is an obvious first guess. */
 export function isWeakFixedCode(code: string): boolean {
   return WEAK_CODES.has(code) || /^(\d)\1{5}$/.test(code);
 }

@@ -73,15 +73,16 @@ describe('domain event contracts: producers ↔ consumers', () => {
     expect(forLedger.map((e) => e.type)).toEqual(expect.arrayContaining(['order.cash_collected', 'order.closed', 'order.cancelled']));
     for (const e of forLedger) await l.bus.publish(e.type, asDelivered(e));
 
-    // food, worked example: platform 2,750 (+ the ride's 360 take), courier 1,000, merchant 12,750 (+ 15,000 cancellation)
+    // food, 15,000 from a restaurant with no tier on file (starter, 5 %): platform 750 + 500 service fee
+    // (+ the ride's 360 take), courier 1,000, merchant 14,250 (+ 15,000 cancellation)
     expect((await l.ledger.balance('driver:d1')).amount).toBe(1000);
     expect((await l.ledger.balance('cash:d1')).amount).toBe(-16500);
-    expect((await l.ledger.balance('merchant_cash:rest_1')).amount).toBe(12750 + 15000);
+    expect((await l.ledger.balance('merchant_cash:rest_1')).amount).toBe(14250 + 15000);
     // cancellation while preparing: 15,000 food to the merchant, 500 to the courier en route, owed by the customer
     expect((await l.ledger.balance('driver:d2')).amount).toBe(500);
     // ride, cash: car take 12 % of 3,000
     expect((await l.ledger.balance('driver:d3')).amount).toBe(3000 - 360);
-    expect((await l.ledger.balance('platform')).amount).toBe(2750 + 360);
+    expect((await l.ledger.balance('platform')).amount).toBe(1250 + 360);
     expect((await l.ledger.eventsFor('customer:c1')).filter((e) => e.type === 'cancellation_fee').map((e) => e.amount).sort((a, b) => a - b)).toEqual([500, 15000]);
     expect((await l.ledger.checkInvariant()).ok).toBe(true);
     expect(ids.free).toBeTruthy(); // the free cancel posted nothing (no third cancellation_fee line above)

@@ -1,0 +1,41 @@
+# The map: where it is hosted
+
+The apps draw Aziziyah and Wasit from our own vector map, built from Overture's open data by
+`tools/map-tiles/`. The built files are never committed. The **Map tiles** workflow builds them and
+publishes them to a public Supabase Storage bucket called `map`, on the same Supabase project as the
+environment's database. It runs by hand (Actions → Map tiles → pick `staging` or `production`) and on
+the 1st of every month, so the map follows Overture's monthly releases. A scheduled run waits for the
+same "Review deployments" approval as any other staging run.
+
+| File                                  | What it is                                                                         | URL the apps use                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `wasit.pmtiles` (about 11 MB)         | the vector map; the apps read only the parts on screen (HTTP Range requests)       | `https://<ref>.supabase.co/storage/v1/object/public/map/wasit.pmtiles`                                                                 |
+| `fonts/<fontstack>/<start>-<end>.pbf` | Arabic label glyphs: IBM Plex Sans Arabic Regular, Medium and Bold, 21 ranges each | `https://<ref>.supabase.co/storage/v1/object/public/map/fonts/{fontstack}/{range}.pbf`                                                 |
+| `plugins/mapbox-gl-rtl-text-0.3.0.js` | the plugin that joins Arabic letters on the map (pinned version, checksum checked) | `https://<ref>.supabase.co/storage/v1/object/public/map/plugins/mapbox-gl-rtl-text-0.3.0.js` (`RTL_TEXT_PLUGIN_URL` in `packages/map`) |
+
+`<ref>` is the Supabase project ref: staging is `lapigvjdsuapfexzdcvl`.
+
+Supabase serves these with CORS open to every site, answers Range requests, and caches them on its CDN.
+On the free plan this fits in the 1 GB of storage and 5 GB a month of downloads while only testers
+use it; Supabase Pro (approved for launch) raises both.
+
+## Settings
+
+- **GitHub environment** (`staging`, later `Production`):
+  - variable `DATABASE_REF`, the Supabase project ref (staging already has it);
+  - secret `SUPABASE_SECRET_KEY`, from Supabase → Project Settings → API Keys → a **secret** key. Paste it
+    only into GitHub, never into chat.
+  - optional secret `OUR_PLACES_JSON`: our own checked places (schools, mosques, bakeries, pharmacies,
+    fuel, clinics) from the names-and-places page, as the file `tools/map-tiles/data/our-places.json`
+    base64-encoded. The list stays out of this public repo; without it the map shows open-data places only.
+- **App builds**: the apps read the URLs at build time.
+  - Customer, partner and merchant: `EXPO_PUBLIC_MAP_TILES_URL` and `EXPO_PUBLIC_MAP_GLYPHS_URL`.
+  - Console: `NEXT_PUBLIC_MAP_TILES_URL` and `NEXT_PUBLIC_MAP_GLYPHS_URL`. The Console on Fly gets them from the
+    Deploy workflow, built from the environment's `DATABASE_REF`; nothing to set by hand.
+  - The web builds on Vercel need the same variables set there.
+  - Until they are set, the apps keep the OSM raster fallback, except the customer website: its production
+    build on Vercel refuses to start without both (`scripts/deploy/release-env.cjs`). Once they are set, a
+    map whose files fail draws the zones without streets instead of calling the OSM servers.
+
+Each run ends by checking, as the web app would, that the map answers a Range request with a CORS
+header and that a glyph file loads. The URLs to use are in the run's summary.

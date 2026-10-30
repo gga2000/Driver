@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
+  errandWontFetch,
+  SHOPPING_RULES,
   baghdadMonth,
   baghdadMonthRange,
   DriverError,
@@ -53,26 +55,29 @@ import {
   type Vertical,
   MERCHANT_BUSY_RULES,
   localClock,
+  type HomeTally,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { startOfLocalDay } from '../../shared/local-time.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import { advisoryXactLock } from '../../shared/db/advisory-lock.js';
+import { DistributedKeyedLock, advisoryXactLock } from '../../shared/db/advisory-lock.js';
 import { lockWallets } from '../ledger/index.js';
 import { ShopLoad, tabletOffline } from './shop-load.js';
 import { foodScheduleProblem } from './orders.config.js';
+import { homeOrderProblem, homeReservations, homeTally, homeTallySince } from './home-kitchen.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { newTestId } from '../../shared/test-scope.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
-import type { CancellationSubject } from '../pricing/index.js';
+import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
+import { arrivalCountsForFees, type CancellationSubject } from '../pricing/index.js';
 import { EtaService } from '../routing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { assertExpected, serverFees, verticalOf as orderVertical, type QuotePort, type ServerFees } from './fees.js';
 import { ORDERS_CONTROLS, THROTTLED_ORDER_TYPES, type OrdersControlsPort } from './controls.port.js';
 import { ACTIVE_ORDER_STATES, decodeCursor, encodeCursor, isLate, toSummary } from './history.js';
-import { ORDERS_CATALOG, priceLines, type CatalogPort, type CatalogStorefrontView } from './catalog.port.js';
+import { ORDERS_CATALOG, ORDERS_UPLOADS, ORDERS_WEIGHED_ITEMS, assertErrandUploads, priceLines, type CatalogPort, type CatalogStorefrontView, type OrdersUploadsPort, type WeighedItemsPort } from './catalog.port.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory, type MerchantProfile } from './merchants.port.js';
 import { DISPUTABLE_STATES, MERCHANT_ORDER_TYPES, canOrderTransition, orderEventType, vehicleRequirement } from './order.machine.js';
 import { CATERING_ABOVE_IQD, DEFAULT_TIMEZONE, ORDERS_RULES, commissionPctOf } from './orders.config.js';
@@ -99,6 +104,7 @@ import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type Promotion
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 import type { OrdersRidersPort, ResolvedRider } from './riders.js';
 import { publicLabel, recipientIds, rememberRecipients, withRecipientLabels } from './recipients.js';
+import { STOREFRONT_HOME, type StorefrontHome } from '../catalog/index.js';
 import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 /** A household member as placement reads them (role and limits). */
@@ -110,6 +116,14 @@ export function householdSpendKey(householdId: string, personId: string): string
 }
 
 /** The slice of trips the orders module drives (courier release, cancellations, rider completion, settlement). */
+/** What a «دوّرلي» receipt entry leaves: the receipt, the new total and what the door collects. */
+export interface ErrandReceiptResult {
+  receiptIqd: number;
+  totalIqd: number;
+  cashDueIqd: number;
+  overCeiling: boolean;
+}
+
 export interface OrdersTripsPort {
   activeForOrder(orderId: string): Promise<Trip | null>;
   detachOrder(tripId: string, orderId: string, actorId?: string, reason?: string): Promise<Trip>;
@@ -118,8 +132,16 @@ export interface OrdersTripsPort {
   /** «أني نازل» (J-D8): 2 more minutes before "فشل" at this order's door, once. */
   extendUnreachable(tripId: string, orderId: string, customerId: string): Promise<{ extended: boolean; trip: Trip }>;
   /** Who carried the order (for settlement on `closed`); null when no driver ever took it. */
-  courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null>;
+  /** `batchedSecond`: the trip rode along one the courier took first (money §2: the batch share of the fee). */
+  courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical; batchedSecond?: boolean } | null>;
+  /** A trip as it stands (a dropped ride's pickup and drop-off for its new search). */
+  get?(tripId: string): Promise<Trip>;
+  /** طرود «رفضت تستلم»: the hand-back stop at the sender's, then the receiver's door skipped (idempotent). */
+  returnStop?(tripId: string, orderId: string, courierId: string, back: { target: LatLng | null; zoneKey: string; placeId?: string | null }, reason?: string): Promise<Trip>;
 }
+
+/** A parcel's courier order is quoted with the door pickup (parcels' `orderInput`); its trip back the same way. */
+const PARCEL_LEG_OPTIONS = { doorPickup: true } as const;
 
 /**
  * Ledger's new-customer cash rule (decisions §4): the first three cash orders of an account are
@@ -127,6 +149,8 @@ export interface OrdersTripsPort {
  */
 export interface OrdersCashRiskPort {
   newCustomerCash(customerId: string, orderTotalIqd: number): Promise<{ allowed: boolean; requiresArrivingCall: boolean; priorCashOrders: number }>;
+  /** M-3 «ينضاف لطلبك الجاي»: the owed fees his next cash order collects (0 when switched off or none). */
+  debtToCollect?(customerId: string): Promise<number>;
 }
 
 export const ORDERS_CASH_RISK = Symbol('ORDERS_CASH_RISK');
@@ -236,6 +260,16 @@ type PlaceInput = z.input<typeof PlaceOrderInput>;
 /** Orders one ticket-number search reads before it pages (two busy days of a city fit easily). */
 export const TICKET_SCAN_LIMIT = 5_000;
 
+/** An order-number search with no `from` looks back to the start of yesterday (Baghdad). */
+function ticketWindowStart(now: Date): Date {
+  return new Date(startOfLocalDay(now).getTime() - 86_400_000);
+}
+
+/** The most orders placed in the live map's window read at once (a busy city's ten minutes). */
+const TOWN_PLACED_LIMIT = 500;
+/** The catalog's tag on a food cart (`catalog.service` FOOD_CART_TAG): carts stay off the live map. */
+const FOOD_CART_TAG = 'food_cart';
+
 @Injectable()
 export class OrdersService implements OnModuleInit {
   constructor(
@@ -243,7 +277,7 @@ export class OrdersService implements OnModuleInit {
     @Inject(ORDER_EVENTS) private readonly events: OrderEventEmitter,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(ORDERS_QUEUE) private readonly queue: Queue<OrderTimerJob>,
+    @Inject(ORDERS_QUEUE) queue: Queue<OrderTimerJob>,
     @Inject(ORDERS_TRIPS) private readonly trips: OrdersTripsPort,
     @Inject(ORDERS_PRICING) private readonly pricing: OrdersPricingPort,
     @Inject(MERCHANT_DIRECTORY) private readonly merchants: MerchantDirectory,
@@ -257,8 +291,24 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_HOUSEHOLDS) private readonly households?: OrdersHouseholdsPort,
     /** The one ETA (learned minutes) the honest-delay promise's ride is locked from at placement; absent = no lock. */
     @Optional() private readonly eta?: EtaService,
+    /** Kilo-sold shop items (shop-items module); absent = no line may be weighed. */
+    @Optional() @Inject(ORDERS_WEIGHED_ITEMS) private readonly weighed?: WeighedItemsPort,
+    /** «دوّرلي» photos and voice notes are checked against it; absent = an errand line may carry none. */
+    @Optional() @Inject(ORDERS_UPLOADS) private readonly uploads?: OrdersUploadsPort,
+    /** أكل بيت: whether home kitchens are open to customers in a city (`homeKitchens.launched`); absent = open. */
+    @Optional() @Inject(STOREFRONT_HOME) private readonly homeOpen?: StorefrontHome,
   ) {
     this.promotions = promotions ?? new NoPromotions();
+    this.parcelReturnLock = new DistributedKeyedLock(uow, 'orders.parcel_return');
+    this.timers = new DurableTimers(queue, clock, uow);
+  }
+
+  /** FLW-22: every order timer has a durable copy (written with the order), so a lost Redis job only delays it. */
+  private readonly timers: DurableTimers<OrderTimerJob>;
+
+  /** The module binds the durable timer table and the sweeper at start-up. */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers.bind(store, sweeper);
   }
 
   private readonly logger = new Logger(OrdersService.name);
@@ -280,8 +330,12 @@ export class OrdersService implements OnModuleInit {
   private readonly promotions: PromotionsPort;
   /** One placing at a time per (orderer, client request id) in this instance (no duplicate orders). */
   private readonly placeLock = new KeyedLock();
+  /** طرود: one refusal at a time per order, across instances (the trip back is priced and added once). */
+  private readonly parcelReturnLock: DistributedKeyedLock;
   /** Joy w4: one household-wallet placing at a time per member in this instance (the budget check). */
   private readonly householdLock = new KeyedLock();
+  /** أكل بيت: one order at a time per home kitchen while its plates are counted. */
+  private readonly homePlatesLock = new KeyedLock();
   /** l4 (Ali 2026-10-08): how many orders each kitchen has waiting, read at most every 20 s. */
   private readonly shopLoad = new ShopLoad(this.repoForLoad());
   /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
@@ -357,7 +411,7 @@ export class OrdersService implements OnModuleInit {
 
   /** How many orders a person has placed (any state): the referrals module asks before a claim. */
   async placedCount(personId: string): Promise<number> {
-    return (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId).length;
+    return this.repo.countPlacedBy(personId);
   }
 
   /** Partner redesign o10: rides the orderer of `orderId` finished before it (a count only); null when unknown. */
@@ -366,11 +420,11 @@ export class OrdersService implements OnModuleInit {
     // Booked for someone else (c9): the orderer's history says nothing about the rider in the car.
     if (!agg || agg.participants.some((p) => p.role === 'rider')) return null;
     const order = agg.order;
-    return (await this.repo.forPerson(order.ordererId)).filter((o) => o.id !== orderId && o.ordererId === order.ordererId && o.type === 'ride' && o.state === 'completed').length;
+    return this.repo.countPlacedBy(order.ordererId, { type: 'ride', states: ['completed'], exceptId: orderId });
   }
 
   onModuleInit(): void {
-    this.queue.process((job) => this.handleTimer(job.name, job.data));
+    this.timers.process((job) => this.handleTimer(job.name, job.data));
   }
 
   // ───────────────────────── placing ─────────────────────────
@@ -426,7 +480,11 @@ export class OrdersService implements OnModuleInit {
 
   /** `carried`: a ride switched to the other vehicle keeps the rider it was booked for (J-D7 × c9). */
   private async placeOnce(ordererId: string, raw: z.output<typeof PlaceOrderInput>, carried: { rider?: ResolvedRider } = {}): Promise<Order> {
-    const input = { ...raw, pickup: await this.placeLink(ordererId, raw.cityId, raw.pickup), dropoff: await this.placeLink(ordererId, raw.cityId, raw.dropoff) };
+    // SCALE-24: independent reads run together and are answered in their old order (`later`), so the
+    // same check still refuses first.
+    const pickupLink = later(this.placeLink(ordererId, raw.cityId, raw.pickup));
+    const dropoffLink = later(this.placeLink(ordererId, raw.cityId, raw.dropoff));
+    const input = { ...raw, pickup: await pickupLink(), dropoff: await dropoffLink() };
     const now = this.clock.now();
     // c9/s3: a ride for someone else is a ride, with one rider (the legacy `participants` rider or this, not both).
     if (input.rider || carried.rider) {
@@ -434,6 +492,9 @@ export class OrdersService implements OnModuleInit {
       if (!this.riders) throw new DriverError('internal');
     }
     const preferredDriverId = await this.rideBooking(ordererId, input, now);
+    assertNotScheduledCourierOrder(input);
+    assertErrandCash(input);
+    assertErrandItems(input);
     const p = await this.price(ordererId, input, now, { quote: false });
     const { merchantType, profile, newLines, itemsTotal, fees, caps } = p;
     // Launch controls (playbook §3): kill switches and the zone throttle refuse before anything is written.
@@ -446,6 +507,7 @@ export class OrdersService implements OnModuleInit {
         if (slotFull(this.slotCaps, merchantOrgId, input.scheduledFor, live.map((o) => o.scheduledFor))) throw new DriverError('slot_full');
       }
     }
+    const homeKitchen = merchantType && input.merchantOrgId ? await this.assertHomePlates(ordererId, input.householdOrgId ?? null, input.cityId, input.merchantOrgId, input.lines, input.scheduledFor ?? null, now) : false;
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
@@ -458,9 +520,19 @@ export class OrdersService implements OnModuleInit {
     // W-02: the points value the checkout showed; a different figure (balance spent elsewhere) is a refresh.
     assertExpected(input.pointsIqd, p.pointsIqd);
     const total = p.totalIqd;
+    // SCALE-24: the reads below (and the promise's routing call) start together; each is still checked
+    // in its old place. All are reads: one an earlier check refuses is simply dropped.
+    const debtRead = later(this.debtToCollect(ordererId, input, Boolean(merchantType)));
+    const riskRead = later(input.paymentMethod === 'cash' ? this.cashRisk.newCustomerCash(ordererId, total) : Promise.resolve(null));
+    const memberRead = later(input.householdOrgId ? this.householdMember(ordererId, input.householdOrgId, Boolean(merchantType)) : Promise.resolve(null));
+    const availableRead = later(input.paymentMethod === 'wallet' && this.wallet && total > 0 ? this.walletAvailable(ordererId, input.householdOrgId ?? null) : Promise.resolve(null));
+    const promisedRead = later(this.lockPromisedRide(input, profile?.location?.pin ?? null, caps?.minVehicleClass ?? null, now));
+    // M-3: the owed fees this order collects, as the checkout showed them (a change is a refresh).
+    const debt = await debtRead();
+    if (input.debtCollectIqd !== undefined && input.debtCollectIqd !== debt) throw new DriverError('price_changed');
     // "الخردة علينا": the note he says he will pay with is a hint for the courier, checked on the
-    // server's own cash total (≥ total, ≤ total + 50,000, in 250s) and only on a cash order.
-    if (input.statedTenderIqd !== undefined && (input.paymentMethod !== 'cash' || tenderProblem(input.statedTenderIqd, total, ORDERS_RULES.changeToWallet) !== null)) {
+    // server's own cash due (≥ total + owed fees, ≤ that + 50,000, in 250s) and only on a cash order.
+    if (input.statedTenderIqd !== undefined && (input.paymentMethod !== 'cash' || tenderProblem(input.statedTenderIqd, total + debt, ORDERS_RULES.changeToWallet) !== null)) {
       throw new DriverError('tender_invalid');
     }
     // «عزيمة» (joy g1): a gift goes to a recipient; hidden prices only when the sender pays from his wallet.
@@ -468,24 +540,22 @@ export class OrdersService implements OnModuleInit {
     if (giftCode) throw new DriverError(giftCode);
     // Decisions §4: a new account's first three cash orders are capped and get the arriving call —
     // on the server-computed total.
-    const risk = input.paymentMethod === 'cash' ? await this.cashRisk.newCustomerCash(ordererId, total) : null;
+    const risk = await riskRead();
     if (risk && !risk.allowed) throw new DriverError('new_customer_cash_cap');
     // Joy w4: the household wallet — only its payers and orderers, kitchen and shop orders only. Whether
     // the payer is asked is decided inside the transaction below, under the member's lock.
-    const member = input.householdOrgId ? await this.householdMember(ordererId, input.householdOrgId, Boolean(merchantType)) : null;
+    const member = await memberRead();
     const spendKey = input.householdOrgId ? householdSpendKey(input.householdOrgId, ordererId) : null;
     // C-04: a wallet order must be covered by what the wallet has left after his open wallet orders
     // (and, on his own wallet, everything else held on it). Checked again inside the transaction
     // below under his wallet lock (SEC-07); this early answer spares the routing call.
     const spendsOwnWallet = input.paymentMethod === 'wallet' && !input.householdOrgId && total > 0;
-    if (input.paymentMethod === 'wallet' && this.wallet && total > 0) {
-      const available = await this.walletAvailable(ordererId, input.householdOrgId ?? null);
-      if (available < total) throw new DriverError('wallet_insufficient');
-    }
+    const available = await availableRead();
+    if (available !== null && available < total) throw new DriverError('wallet_insufficient');
 
     // The honest-delay promise's ride, locked now (Ali, 2026-10-07): read before the transaction, it is
     // a routing call and a cached read of the learned corrections, never a write.
-    const promisedRideMin = await this.lockPromisedRide(input, profile?.location?.pin ?? null, caps?.minVehicleClass ?? null, now);
+    const promisedRideMin = await promisedRead();
 
     const write = () =>
       this.uow.run(async (tx) => {
@@ -499,6 +569,13 @@ export class OrdersService implements OnModuleInit {
           if (prior) return prior;
         }
         if (spendsOwnWallet && this.wallet && (await this.walletAvailable(ordererId, null, tx)) < total) throw new DriverError('wallet_insufficient');
+        // أكل بيت: two orders for the last plates are placed one after the other (this instance's lock
+        // below, every instance's advisory lock here), and the second counts the first.
+        if (homeKitchen && input.merchantOrgId) {
+          await advisoryXactLock(tx, `orders.home_plates:${input.merchantOrgId}`);
+          const late = await this.homePlatesProblem(input.merchantOrgId, input.lines, input.scheduledFor ?? null, this.clock.now(), tx);
+          if (late) throw new DriverError(late);
+        }
         // LOAD-01: one kept quote, one order (a retry of this order was answered by the replay above).
         if (input.quoteId && this.pricing.claimQuote && !(await this.pricing.claimQuote(input.quoteId, now, tx))) throw new DriverError('price_changed');
         // Joy w4: the member's month is read and this order written under one lock per household member
@@ -542,6 +619,7 @@ export class OrdersService implements OnModuleInit {
             courierNote: input.courierNote?.trim() ? input.courierNote.trim() : null,
             clientRequestId: input.clientRequestId ?? null,
             statedTenderIqd: input.statedTenderIqd ?? null,
+            debtCollectIqd: debt,
             gift: Boolean(input.gift),
             giftHidePrices: Boolean(input.gift?.hidePrices),
             scheduledFor: input.scheduledFor ?? null,
@@ -586,6 +664,10 @@ export class OrdersService implements OnModuleInit {
           // Rides: what dispatch needs to build the trip and find a driver (`dispatch:ride-request`).
           // Step 4 (o4): door pickup too, so ride habits can offer the same ride the same way.
           ...(order.type === 'ride' ? { ride: { vertical: input.rideVertical ?? 'taxi', pickup: input.pickup ?? null, dropoff: input.dropoff ?? null, quoteId: input.quoteId ?? null, preferDriverId: preferredDriverId, familyPreferred: input.familyPreferred === true, doorPickup: input.options?.doorPickup ?? false } } : {}),
+          // Errands and parcels: no merchant accepts them, so dispatch starts the courier on placement
+          // (`dispatch:courier-placed`) from the order's own pickup (the sender's door, the shop), the
+          // way `order.accepted` carries the merchant's point and the customer's.
+          ...(order.type === 'parcel' || order.type === 'errand' ? { pickup: input.pickup ?? null, dropoff: order.dropoff } : {}),
           ...(discount > 0 && p.discount ? { discountIqd: discount, promotionId: p.discount.promotionId, discountFunder: p.discount.meta.funder } : {}),
         });
         for (const l of agg.lines) if (l.participantId) await this.emit(tx, 'line.tagged', ordererId, order, { lineId: l.id, participantId: l.participantId });
@@ -595,7 +677,7 @@ export class OrdersService implements OnModuleInit {
           // Held: the kitchen sees nothing until the payer says yes; the request commits with the order.
           await this.households.requestApproval({ householdId: order.householdOrgId, orderId: order.id, requestedBy: ordererId, amountIqd: total, reason: askPayer });
           await this.emit(tx, 'order.awaiting_payer', ordererId, order, { householdId: order.householdOrgId, reason: askPayer, totalIqd: total, waitMin: HOUSEHOLD_RULES.approvalWaitMin });
-          await this.queue.add(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
+          await this.timers.schedule(ORDER_JOBS.payerTimeout, { orderId: order.id }, { delayMs: HOUSEHOLD_RULES.approvalWaitMin * 60_000, jobId: jobKey('order', order.id, 'payerTimeout') });
         } else if (merchantType && profile) {
           await this.scheduleOffer(order, profile, now, tx);
         }
@@ -603,11 +685,12 @@ export class OrdersService implements OnModuleInit {
         // it survives a restart like every order timer); booked closer than that, nothing to remind.
         const remindAt = order.type === 'ride' && order.scheduledFor ? rideReminderAt(order.scheduledFor, now) : null;
         if (remindAt && order.scheduledFor) {
-          await this.queue.add(ORDER_JOBS.rideReminder, { orderId: order.id, refMs: order.scheduledFor.getTime() }, { delayMs: remindAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'rideReminder') });
+          await this.timers.schedule(ORDER_JOBS.rideReminder, { orderId: order.id, refMs: order.scheduledFor.getTime() }, { delayMs: remindAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'rideReminder') });
         }
         return this.view(order.id, tx);
       });
-    return spendKey ? this.householdLock.run(spendKey, write) : write();
+    const run = () => (spendKey ? this.householdLock.run(spendKey, write) : write());
+    return homeKitchen && input.merchantOrgId ? this.homePlatesLock.run(input.merchantOrgId, run) : run();
   }
 
   /**
@@ -651,6 +734,42 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
+   * «المدينة حيّة» (Partner live map home): the city's kitchens with an order accepted, cooking or ready, and
+   * the drop-off areas of orders placed between `from` and `to`. Shops only: home-cook kitchens (private
+   * houses) and food carts are left out. No order ids, customers or pins leave here; the partner module
+   * builds one shared picture from it (`townPulseSnapshot`).
+   */
+  async townActivity(cityId: string, from: Date, to: Date): Promise<{
+    kitchens: Array<{ merchantOrgId: string; pin: LatLng | null; state: 'merchant_accepted' | 'preparing' | 'ready'; acceptedAt: Date | null; promisedReadyAt: Date | null }>;
+    placed: Array<{ zoneId: string | null; placedAt: Date }>;
+  }> {
+    const [cooking, placed] = await Promise.all([
+      this.repo.findMany({ cityId, states: ['merchant_accepted', 'preparing', 'ready'] }),
+      this.repo.search({ cityId, from, to, limit: TOWN_PLACED_LIMIT }),
+    ]);
+    const kitchens: Awaited<ReturnType<OrdersService['townActivity']>>['kitchens'] = [];
+    for (const o of cooking) {
+      if (o.type !== 'food' || !o.merchantOrgId) continue;
+      const shop = await this.townShop(o.merchantOrgId);
+      if (!shop) continue;
+      kitchens.push({ merchantOrgId: o.merchantOrgId, pin: shop.pin, state: o.state as 'merchant_accepted' | 'preparing' | 'ready', acceptedAt: o.acceptedAt, promisedReadyAt: o.promisedReadyAt });
+    }
+    return { kitchens, placed: placed.map((o) => ({ zoneId: o.dropoff?.zoneKey ?? null, placedAt: o.placedAt })) };
+  }
+
+  /** A shop's pin for the live map, or null for a home kitchen or a food cart (kept for ten minutes). */
+  private async townShop(merchantOrgId: string): Promise<{ pin: LatLng | null } | null> {
+    const now = this.clock.now().getTime();
+    const hit = this.townShops.get(merchantOrgId);
+    if (hit && hit.until > now) return hit.shop;
+    const [profile, front] = await Promise.all([this.merchants.profile(merchantOrgId), this.catalog.storefront?.(merchantOrgId) ?? Promise.resolve(null)]);
+    const shop = !profile || front?.home || front?.tags?.includes(FOOD_CART_TAG) ? null : { pin: profile.location?.pin ?? null };
+    this.townShops.set(merchantOrgId, { shop, until: now + 10 * 60_000 });
+    return shop;
+  }
+  private readonly townShops = new Map<string, { shop: { pin: LatLng | null } | null; until: number }>();
+
+  /**
    * Joy r6 («عشاك يوصل وياك»): how long before a delivery time a kitchen must hear of a pre-order —
    * its prep (with today's busy extra) and the scheduled lead `scheduleOffer` uses — and where it is.
    */
@@ -665,7 +784,7 @@ export class OrdersService implements OnModuleInit {
     const leadMin = profile.defaultPrepMin + (await this.busyExtra(profile, now)) + ORDERS_RULES.scheduledLeadMin;
     const offerAt = order.scheduledFor ? new Date(order.scheduledFor.getTime() - leadMin * 60_000) : now;
     if (offerAt.getTime() <= now.getTime()) await this.offerToMerchant(order, profile, tx);
-    else await this.queue.add(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
+    else await this.timers.schedule(ORDER_JOBS.offerToMerchant, { orderId: order.id }, { delayMs: offerAt.getTime() - now.getTime(), jobId: jobKey('order', order.id, 'offer') });
   }
 
   /**
@@ -744,10 +863,13 @@ export class OrdersService implements OnModuleInit {
    */
   async quote(ordererId: string, raw: PlaceInput): Promise<OrderQuote> {
     const input = PlaceOrderInput.parse(raw);
+    assertNotScheduledCourierOrder(input);
+    assertErrandItems(input);
     const now = this.clock.now();
     const p = await this.price(ordererId, input, now, { quote: true });
     await this.assertControls(input, p.merchantType, p.profile);
     const d = p.discount;
+    const debt = await this.debtToCollect(ordererId, input, Boolean(p.merchantType));
     const next = p.merchantType && !d && input.merchantOrgId ? await this.promotions.nextMerchantDeal(dealQuery(input.merchantOrgId, p.newLines, p.itemsTotal, p.fees.deliveryFeeIqd, now)) : null;
     return {
       itemsTotalIqd: p.itemsTotal,
@@ -780,7 +902,19 @@ export class OrdersService implements OnModuleInit {
             }),
           })
         : 0,
+      ...(debt > 0 ? { debtCollectIqd: debt } : {}),
     };
+  }
+
+  /**
+   * M-3 «ينضاف لطلبك الجاي» (`CASH_DEBT_COLLECT`): the owed fees a cash food or shop order on his own
+   * account collects; 0 otherwise. Read outside the placing transaction: two orders placed at the
+   * same instant could both carry the same fee, and then the second payment lands as wallet credit
+   * (`debt_settled` only ever adds to his wallet), never lost.
+   */
+  private async debtToCollect(ordererId: string, input: Pick<z.output<typeof PlaceOrderInput>, 'paymentMethod' | 'householdOrgId'>, merchantType: boolean): Promise<number> {
+    if (input.paymentMethod !== 'cash' || input.householdOrgId || !merchantType || !this.cashRisk.debtToCollect) return 0;
+    return this.cashRisk.debtToCollect(ordererId);
   }
 
   /**
@@ -789,20 +923,18 @@ export class OrdersService implements OnModuleInit {
    */
   /** What his open orders on his own wallet will still take at close (the tip after rating can't spend it). */
   async openWalletHoldIqd(customerId: string): Promise<number> {
-    const mine = await this.repo.forPerson(customerId);
-    return mine.filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && !o.householdOrgId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + o.totalIqd, 0);
+    const open = await this.repo.openPlacedBy(customerId);
+    return open.filter((o) => o.paymentMethod === 'wallet' && !o.householdOrgId).reduce((a, o) => a + o.totalIqd, 0);
   }
 
   private async walletAvailable(customerId: string, householdId: string | null, tx?: Tx): Promise<number> {
     if (!this.wallet) return Number.POSITIVE_INFINITY;
     const [balance, mine, elsewhere] = await Promise.all([
       this.wallet.balanceIqd({ customerId, householdId }),
-      this.repo.forPerson(customerId),
+      this.repo.openPlacedBy(customerId),
       householdId === null && this.wallet.heldElsewhere ? this.wallet.heldElsewhere(customerId, tx) : Promise.resolve(0),
     ]);
-    const held = mine
-      .filter((o) => o.ordererId === customerId && o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId && !TERMINAL_ORDER_STATES.includes(o.state))
-      .reduce((a, o) => a + o.totalIqd, 0);
+    const held = mine.filter((o) => o.paymentMethod === 'wallet' && (o.householdOrgId ?? null) === householdId).reduce((a, o) => a + o.totalIqd, 0);
     return balance - held - elsewhere;
   }
 
@@ -813,13 +945,49 @@ export class OrdersService implements OnModuleInit {
    */
   private async pointsOffer(customerId: string, fees: ServerFees, discount: OrderDiscount | null, priceIqd: number): Promise<{ balance: number; usable: number; valueIqd: number } | null> {
     if (!this.wallet?.pointsBalance) return null;
-    const [balance, mine] = await Promise.all([this.wallet.pointsBalance(customerId), this.repo.forPerson(customerId)]);
-    const held = mine.filter((o) => o.ordererId === customerId && !TERMINAL_ORDER_STATES.includes(o.state)).reduce((a, o) => a + (o.pointsRedeemed ?? 0), 0);
+    const [balance, open] = await Promise.all([this.wallet.pointsBalance(customerId), this.repo.openPlacedBy(customerId)]);
+    const held = open.reduce((a, o) => a + (o.pointsRedeemed ?? 0), 0);
     const available = Math.max(0, balance - held);
     const deliveryDeal = discount?.meta.funder === 'merchant' && discount.meta.target === 'delivery' ? discount.amountIqd : 0;
     const usable = redeemablePoints({ availablePoints: available, serviceFeeIqd: fees.serviceFeeIqd, deliveryFeeIqd: fees.deliveryFeeIqd - deliveryDeal, priceIqd }, ORDERS_RULES.pointValueIqd);
     if (available <= 0 || usable <= 0) return null;
     return { balance: available, usable, valueIqd: usable * ORDERS_RULES.pointValueIqd };
+  }
+
+  /** A food order reserved at a home kitchen (أكل بيت), with the no-show rule bound. */
+  private async isHomeReservation(order: OrderRecord): Promise<boolean> {
+    if (order.type !== 'food' || !order.scheduledFor || !order.merchantOrgId || !this.platformFailure?.homeNoShow) return false;
+    return Boolean((await this.catalog.storefront?.(order.merchantOrgId))?.home);
+  }
+
+  /**
+   * أكل بيت at placement: the city switch, an owed reservation, then ready plates still free today and
+   * reserved plates within what she takes at that pickup time (`homeOrderProblem`). Other kitchens pass
+   * untouched; true when the kitchen is a home kitchen.
+   */
+  private async assertHomePlates(ordererId: string, householdId: string | null, cityId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<boolean> {
+    if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return false;
+    // A home kitchen takes no orders until أكل بيت opens in the city, even by a direct link.
+    if (this.homeOpen && !this.homeOpen.open(cityId)) throw new DriverError('service_paused');
+    // A reservation he never took is owed first (Ali, 2026-10-11): no new one until his wallet is back at 0.
+    // A no-show paid from a household is owed by that household: its own reservations wait on it too.
+    if (scheduledFor && this.wallet) {
+      const owing = [{ customerId: ordererId, householdId: null }, ...(householdId ? [{ customerId: ordererId, householdId }] : [])];
+      for (const p of owing) if ((await this.wallet.balanceIqd(p)) < 0) throw new DriverError('home_reservation_owed');
+    }
+    const problem = await this.homePlatesProblem(merchantOrgId, lines, scheduledFor, now);
+    if (problem) throw new DriverError(problem);
+    return true;
+  }
+
+  /** The plates check alone; inside the placing transaction it runs again under the kitchen's lock. */
+  private async homePlatesProblem(merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date, tx?: Tx) {
+    const ids = [...new Set(lines.map((l) => l.catalogItemId).filter((id): id is string => Boolean(id)))];
+    const items = new Map((await this.catalog.itemsOf(merchantOrgId, ids)).map((i) => [i.id, i]));
+    // Up to and including this millisecond: an order placed in the same instant counts too.
+    const tally = homeTally(await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), new Date(now.getTime() + 1), tx), now);
+    const home = lines.filter((l) => l.catalogItemId).map((l) => ({ itemId: l.catalogItemId!, qty: l.qty, sale: items.get(l.catalogItemId!)?.homeSale ?? null, stock: items.get(l.catalogItemId!)?.stock ?? null }));
+    return homeOrderProblem(home, scheduledFor, now, tally);
   }
 
   /**
@@ -852,7 +1020,8 @@ export class OrdersService implements OnModuleInit {
         // pause windows at that instant, then an early close (now only). Busy mode only adds prep.
         // FOOD-03: a pre-order is for a real slot — from the kitchen's scheduling lead to the end of
         // «باچر» — never a past time (that dodged the hours, the hand-close and the night fee).
-        if (input.scheduledFor && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
+        // أكل بيت: a home kitchen's reserved dish books up to a week ahead at its own times (`homeOrderProblem`).
+        if (input.scheduledFor && !storefront?.home && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
         const at = input.scheduledFor ?? now;
         if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
         if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
@@ -872,7 +1041,10 @@ export class OrdersService implements OnModuleInit {
       merchantOrder: merchantType,
       branchKey: input.branchKey ?? null,
       now: input.scheduledFor ?? now,
+      errandOrder: input.type === 'errand',
+      weighed: this.weighed,
     });
+    await assertErrandUploads(newLines, ordererId, this.uploads);
     const itemsTotal = newLines.reduce((a, l) => a + lineValue(l), 0);
     const itemCount = newLines.reduce((a, l) => a + l.qty, 0);
     // J-D6 (Ali, 2026-10-05; replaces apps review #11's refusal): below the restaurant minimum — on the
@@ -903,7 +1075,8 @@ export class OrdersService implements OnModuleInit {
     const pointsIqd = pointsRedeemed * ORDERS_RULES.pointValueIqd;
     const priceIqd = Math.max(0, beforePoints - pointsIqd);
     const { totalIqd, changeIqd } = payable(input.type, input.paymentMethod, priceIqd);
-    const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount) : null;
+    // «دوّرلي» on a bike takes up to 15 pieces (Ali 2026-10-12); a food or grocery bike still 6. Same value cap.
+    const caps = merchantType || input.type === 'errand' ? vehicleRequirement(itemsTotal, itemCount, input.type === 'errand' ? SHOPPING_RULES.errandBikeMaxPieces : undefined) : null;
     return { merchantType, profile, newLines, itemsTotal, fees, discount, minOrderIqd, smallOrderFee, points, pointsRedeemed, pointsIqd, totalIqd, changeIqd, caps };
   }
 
@@ -998,7 +1171,7 @@ export class OrdersService implements OnModuleInit {
       await this.accept(offered, profile.defaultPrepMin, SYSTEM, tx, { auto: true });
       return;
     }
-    await this.queue.add(ORDER_JOBS.autoReject, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.merchantAcceptSec * 1000, jobId: jobKey('order', order.id, 'autoReject', now.getTime()) });
+    await this.timers.schedule(ORDER_JOBS.autoReject, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.merchantAcceptSec * 1000, jobId: jobKey('order', order.id, 'autoReject', now.getTime()) });
   }
 
   // ───────────────────────── merchant side ─────────────────────────
@@ -1034,7 +1207,7 @@ export class OrdersService implements OnModuleInit {
         deadline: deadline.toISOString(),
         prepMinutes: input.prepMinutes,
       });
-      await this.queue.add(ORDER_JOBS.partialTimeout, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.partialApprovalSec * 1000, jobId: jobKey('order', order.id, 'partial', now.getTime()) });
+      await this.timers.schedule(ORDER_JOBS.partialTimeout, { orderId: order.id, refMs: now.getTime() }, { delayMs: ORDERS_RULES.partialApprovalSec * 1000, jobId: jobKey('order', order.id, 'partial', now.getTime()) });
       return this.view(order.id, tx);
     });
   }
@@ -1102,8 +1275,8 @@ export class OrdersService implements OnModuleInit {
       // The old checks carry the old promise as their ref and turn into no-ops; these replace them.
       const ref = promisedReadyAt.getTime();
       const untilReady = Math.max(0, ref - now.getTime());
-      await this.queue.add(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.readyOverdueMin * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
-      await this.queue.add(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.courierReleaseMin * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
+      await this.timers.schedule(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.readyOverdueMin * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
+      await this.timers.schedule(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: untilReady + ORDERS_RULES.courierReleaseMin * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
       await this.emit(tx, 'order.prep_extended', actorId, next, {
         merchantOrgId: order.merchantOrgId,
         minutes,
@@ -1149,6 +1322,81 @@ export class OrdersService implements OnModuleInit {
 
   async merchantHeartbeat(merchantOrgId: string): Promise<void> {
     await this.merchants.heartbeat(merchantOrgId, this.clock.now());
+  }
+
+  // ───────────────────────── «دوّرلي» shopper ─────────────────────────
+
+  /**
+   * «دوّرلي»: what the shopper paid at the shops, typed from the receipt with its photo, at the shops
+   * stop (arrived, not yet completed). The goods become the receipt: the customer pays it plus the
+   * errand's fees and tip (cash rounds up to 250 as everywhere), and the ledger's `actualCostIqd`
+   * reads it. A second entry before the pickup replaces the first (both stay on the history); after
+   * the pickup it is locked. Over the customer's list ceiling it still records, flagged for the desk.
+   */
+  async recordErrandReceipt(courierId: string, input: { orderId: string; totalIqd: number; photoUploadId: string }): Promise<ErrandReceiptResult> {
+    const r = await this.uow.run((tx) => this.applyErrandReceipt(tx, { kind: 'courier', courierId }, input));
+    return { receiptIqd: r.receiptIqd, totalIqd: r.totalIqd, cashDueIqd: r.cashDueIqd, overCeiling: r.overCeiling };
+  }
+
+  /**
+   * «دوّرلي» staff way-out: the shopper's receipt photo would not send, so ops record the receipt for
+   * him with the amount he reads out. The same rules as his own entry (`applyErrandReceipt`), except
+   * that the photo is optional (when given it must be a stored upload of the courier's or of this
+   * staff member's) and the shops stop may still be on its way (his phone may not have sent «وصلت»
+   * either); after the pickup it is locked as always. `OrdersStaffService.errandReceipt` wraps this
+   * with its Console audit row in the same unit of work.
+   */
+  async opsErrandReceipt(staffId: string, input: { orderId: string; totalIqd: number; photoUploadId?: string | null | undefined }): Promise<ErrandReceiptResult & { order: OrderRecord }> {
+    return this.uow.run((tx) => this.applyErrandReceipt(tx, { kind: 'staff', staffId }, { orderId: input.orderId, totalIqd: input.totalIqd, photoUploadId: input.photoUploadId ?? null }));
+  }
+
+  /** The one copy of the receipt rules, for the courier's entry and the staff way-out alike. */
+  private async applyErrandReceipt(
+    tx: Tx,
+    by: { kind: 'courier'; courierId: string } | { kind: 'staff'; staffId: string },
+    input: { orderId: string; totalIqd: number; photoUploadId: string | null },
+  ): Promise<ErrandReceiptResult & { order: OrderRecord }> {
+    if (!Number.isInteger(input.totalIqd) || input.totalIqd <= 0) throw new DriverError('invalid_input');
+    const { order, lines } = await this.load(input.orderId, tx);
+    if (order.type !== 'errand') throw new DriverError('order_state_conflict');
+    const trip = await this.trips.activeForOrder(order.id);
+    if (by.kind === 'courier' && (!trip || trip.courierId !== by.courierId)) throw new DriverError('forbidden');
+    if (!trip?.courierId) throw new DriverError('order_state_conflict');
+    const courierId = trip.courierId;
+    // Staff never record a receipt on their own errand or on one they carry (as refunds and payouts refuse).
+    if (by.kind === 'staff' && (by.staffId === order.ordererId || by.staffId === courierId)) throw new DriverError('staff_own_account');
+    const pickup = trip.stops.find((st) => st.orderId === order.id && st.type === 'pickup') ?? null;
+    const open = by.kind === 'courier' ? pickup?.state === 'arrived' : pickup?.state === 'arrived' || pickup?.state === 'pending';
+    if (!pickup || !open) throw new DriverError('order_state_conflict');
+    if (input.photoUploadId !== null || by.kind === 'courier') {
+      const photo = input.photoUploadId !== null && this.uploads ? await this.uploads.get(input.photoUploadId) : null;
+      const owners = by.kind === 'courier' ? [courierId] : [courierId, by.staffId];
+      if (!photo || !owners.includes(photo.ownerId) || photo.state !== 'stored') throw new DriverError('upload_invalid');
+    }
+    const priced = { ...order, itemsTotalIqd: input.totalIqd };
+    const { totalIqd } = payable(order.type, order.paymentMethod, orderPriceIqd(priced));
+    const next = await this.repo.updateIf(order.id, order.state, { receiptTotalIqd: input.totalIqd, itemsTotalIqd: input.totalIqd, totalIqd }, tx);
+    if (!next) throw new DriverError('order_state_conflict');
+    const ceiling = lines.find((l) => l.errandItem?.listMaxIqd != null)?.errandItem?.listMaxIqd ?? null;
+    const overCeiling = ceiling !== null && input.totalIqd > ceiling;
+    await this.emit(tx, 'order.errand_receipt', by.kind === 'courier' ? courierId : by.staffId, next, {
+      orderId: order.id,
+      tripId: trip.id,
+      courierId,
+      receiptIqd: input.totalIqd,
+      previousIqd: order.receiptTotalIqd,
+      photoUploadId: input.photoUploadId,
+      overCeiling,
+      ...(overCeiling ? { ceilingIqd: ceiling, dispatcherCard: true } : {}),
+      ...(by.kind === 'staff' ? { byStaff: true, staffId: by.staffId } : {}),
+    });
+    return { receiptIqd: input.totalIqd, totalIqd: next.totalIqd, cashDueIqd: next.paymentMethod === 'cash' ? cashDueIqd(next) : 0, overCeiling, order: next };
+  }
+
+  /** Trips' pickup guard: an errand's shops stop completes only once its receipt is recorded; anything else passes. */
+  async errandPickupProblem(orderId: string): Promise<'errand_receipt_missing' | null> {
+    const agg = await this.repo.find(orderId);
+    return agg?.order.type === 'errand' && agg.order.receiptTotalIqd === null ? 'errand_receipt_missing' : null;
   }
 
   // ───────────────────────── customer side ─────────────────────────
@@ -1274,7 +1522,16 @@ export class OrdersService implements OnModuleInit {
       // Rate the courier (before-launch §6): his own row, one per order, for his scorecard and his card.
       if (rating?.delivery) await this.recordCourierRating(order, rating, tx);
       // The Console's "Today" list: the first scored rating, in its own transaction.
-      if (rating) await this.emit(tx, 'order.rated', actorId, order, { orderId: order.id, stars: rating.delivery ?? rating.food, cityId: order.cityId });
+      if (rating) {
+        await this.emit(tx, 'order.rated', actorId, order, {
+          orderId: order.id,
+          stars: rating.delivery ?? rating.food,
+          cityId: order.cityId,
+          ...(rating.food != null ? { food: rating.food } : {}),
+          ...(rating.delivery != null ? { delivery: rating.delivery } : {}),
+          orderType: order.type,
+        });
+      }
       // A closed order still takes its rating; so does one under dispute (the low-rating flow opens
       // the complaint first, audit C-12) — stored without closing it, the case stays with support.
       if (order.state === 'closed' || order.state === 'disputed') {
@@ -1290,7 +1547,7 @@ export class OrdersService implements OnModuleInit {
 
   /**
    * The courier/driver who carried the order gets the delivery score as his own rating row (unique per
-   * order: a concurrent second rating fails the insert and its transaction). No driver ever took it
+   * order: a concurrent second rating writes nothing and rolls its transaction back). No driver ever took it
    * (a pickup that never left) → nothing to record.
    */
   private async recordCourierRating(order: OrderRecord, rating: OrderRating, tx: Tx): Promise<void> {
@@ -1298,10 +1555,12 @@ export class OrdersService implements OnModuleInit {
     const carrier = await this.trips.courierOf(order.id);
     if (!carrier) return;
     if (await this.repo.courierRatingOf(order.id, tx)) return;
-    await this.repo.addCourierRating(
+    const added = await this.repo.addCourierRating(
       { orderId: order.id, tripId: carrier.tripId, driverId: carrier.courierId, customerId: order.ordererId, score: rating.delivery, reasons: [...(rating.courierReasons ?? [])], ratedAt: rating.ratedAt },
       tx,
     );
+    // A concurrent rating stored it first: roll this one back; `rate` answers with the winner's order.
+    if (!added) throw new DriverError('order_state_conflict');
   }
 
   /**
@@ -1381,6 +1640,62 @@ export class OrdersService implements OnModuleInit {
     const pickup: DeliveryPoint = { zoneKey: p.zoneKey, ...(p.target ? { pin: p.target } : {}) };
     const dropoff: DeliveryPoint = order.dropoff ?? (d ? { zoneKey: d.zoneKey, ...(d.target ? { pin: d.target } : {}) } : pickup);
     return { order, to: from === 'taxi' ? 'tuktuk' : 'taxi', pickup, dropoff, availableAt, rider };
+  }
+
+  /**
+   * طرود «رفضت تستلم» (Ali, 2026-10-12): the receiver refused the parcel at the door, so the courier
+   * brings it back to the sender and the SENDER pays both trips (the receiver is never charged). The
+   * trip back is priced here on the server, exactly as the parcels preview quotes it (door → sender,
+   * `parcelLeg`), and added to the order's total, delivery fee and service fee so the breakdown still
+   * sums; `returnFareIqd` keeps it. Nothing posts now: at the hand-back the ordinary drop-off
+   * (delivered → cash collected → closed) posts one parcel fee for both trips from the sender, with
+   * the parcel take, to the courier who carried both. One order, one trip: trips adds the hand-back stop
+   * and skips the door. Only the trip's courier, only a picked-up parcel. Idempotent: once priced, a
+   * repeat only makes sure the trip has its hand-back stop.
+   */
+  async returnParcel(courierId: string, orderId: string): Promise<void> {
+    if (!this.trips.returnStop) throw new DriverError('order_type_not_supported');
+    const returnStop = this.trips.returnStop.bind(this.trips);
+    await this.parcelReturnLock.run(orderId, async (tx) => {
+      const order = (await this.load(orderId, tx)).order;
+      if (order.type !== 'parcel') throw new DriverError('parcel_not_found');
+      const trip = await this.trips.activeForOrder(orderId);
+      if (trip && trip.courierId !== courierId) throw new DriverError('not_trip_courier');
+      if (order.returnFareIqd != null) {
+        // Already priced: the trip back exists (make sure of its stop), or is over (no active trip); nothing else changes.
+        if (trip) await returnStop(trip.id, orderId, courierId, backOf(trip, orderId));
+        return;
+      }
+      if (order.state !== 'picked_up' || !trip) throw new DriverError('order_state_conflict');
+      const back = backOf(trip, orderId);
+      const leg = this.parcelLeg(order.cityId, order.dropoff, { zoneKey: back.zoneKey, ...(back.target ? { pin: back.target } : {}) }, order.paymentMethod, this.clock.now());
+      const next = await this.repo.updateIf(
+        order.id,
+        'picked_up',
+        {
+          returnFareIqd: leg.totalIqd,
+          totalIqd: order.totalIqd + leg.totalIqd,
+          deliveryFeeIqd: order.deliveryFeeIqd + leg.fees.deliveryFeeIqd,
+          serviceFeeIqd: order.serviceFeeIqd + leg.fees.serviceFeeIqd,
+        },
+        tx,
+      );
+      if (!next) throw new DriverError('order_state_conflict');
+      // Ids and amounts only: no names or numbers.
+      await this.emit(tx, 'order.parcel_returning', courierId, next, { tripId: trip.id, courierId, outFareIqd: order.totalIqd, returnFareIqd: leg.totalIqd });
+      await returnStop(trip.id, orderId, courierId, back);
+    });
+  }
+
+  /**
+   * One parcel leg as the server charges it: the quote's fees for the parcel vertical with the door
+   * pickup, and what that costs paid this way (cash rounds up to 250). Parcels take no discount, points
+   * or tip, so this is exactly the `quote` total of a parcel from `pickup` to `dropoff` — the preview
+   * parcels shows the courier before the refusal (`orders.quote`, door → sender) and the charge agree.
+   */
+  private parcelLeg(cityId: string, pickup: DeliveryPoint | null, dropoff: DeliveryPoint | null, paymentMethod: OrderRecord['paymentMethod'], at: Date): { fees: ServerFees; totalIqd: number } {
+    const fees = serverFees(this.pricing, { cityId, type: 'parcel', pickup, dropoff, options: PARCEL_LEG_OPTIONS, at });
+    return { fees, totalIqd: payable('parcel', paymentMethod, fees.deliveryFeeIqd + fees.serviceFeeIqd).totalIqd };
   }
 
   /** `orders.rideSwitchQuote`: the other vehicle's fare for the same journey, now (nothing stored). */
@@ -1471,22 +1786,32 @@ export class OrdersService implements OnModuleInit {
 
   // ───────────────────────── reads ─────────────────────────
 
+  /** أكل بيت (the cook's side): the plates her live orders hold and the pickup times she cooks for. */
+  async homeKitchenOrders(merchantOrgId: string, now: Date): Promise<{ tally: HomeTally; reservations: ReturnType<typeof homeReservations> }> {
+    const live = await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), now);
+    return { tally: homeTally(live, now), reservations: homeReservations(live, now) };
+  }
+
   async get(orderId: string): Promise<Order> {
     return this.view(orderId);
   }
 
   async listActive(filter: { cityId?: string | undefined; merchantOrgId?: string | undefined }): Promise<Order[]> {
     // The state filter goes to the query: the honest-delay sweep and the Console poll this every few seconds.
-    const live = await this.repo.findMany({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
+    // SCALE-12: one batched read with lines and participants, not a read per order.
+    const live = await this.repo.findManyAggregates({ ...(filter.cityId ? { cityId: filter.cityId } : {}), ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}), states: ACTIVE_ORDER_STATES });
     // BENCH-04: the store reviewers' test orders stay out of the Console and the city's sweeps; only
     // the test kitchen's own list (asked by its merchant id) shows them.
-    const shown = filter.merchantOrgId ? live : live.filter((o) => !o.isTest);
-    return Promise.all(shown.map((o) => this.view(o.id)));
+    const shown = filter.merchantOrgId ? live : live.filter((a) => !a.order.isTest);
+    return shown.map(toOrderView);
   }
 
-  async listForPerson(personId: string): Promise<Order[]> {
-    const orders = await this.repo.forPerson(personId);
-    return Promise.all(orders.map((o) => this.view(o.id)));
+  /**
+   * The orders a person placed or takes part in, newest first; at most `limit` (all when omitted).
+   * FOOD-04: two reads whatever the history's length, never a read per order.
+   */
+  async listForPerson(personId: string, opts: { limit?: number } = {}): Promise<Order[]> {
+    return (await this.repo.aggregatesForPerson(personId, opts)).map(toOrderView);
   }
 
   /**
@@ -1571,6 +1896,19 @@ export class OrdersService implements OnModuleInit {
   }
 
   /**
+   * The store's orders placed in `[from, to)` that left without its answer (`MISSED_STATES`), oldest
+   * first: the board's «طلبات فاتتك» (perf z5) reads only these few, not the whole day.
+   */
+  async merchantMissedOrders(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Order[]> {
+    return (await this.repo.merchantMissedBetween(merchantOrgId, range.from, range.to)).map(toOrderView);
+  }
+
+  /** Orders the store had accepted that were cancelled since `since`, newest first (the board's red cards). */
+  async merchantCancelledAfterAccept(merchantOrgId: string, since: Date): Promise<Order[]> {
+    return (await this.repo.merchantCancelledAfterAcceptSince(merchantOrgId, since)).map(toOrderView);
+  }
+
+  /**
    * «منين زبائنك» (maps program r6): the store's delivered orders placed in `[from, to)` per drop-off
    * zone. Counts only, from one grouped read; the merchant module hides the small zones (D7).
    */
@@ -1578,11 +1916,18 @@ export class OrdersService implements OnModuleInit {
     return this.repo.deliveredByDropoffZone(merchantOrgId, range.from, range.to);
   }
 
+  /** Zone outline dry run (admin): recent delivered drop-off pins as bare coordinates, newest first. */
+  recentDropoffPins(limit: number): Promise<Array<{ lat: number; lng: number }>> {
+    return this.repo.recentDropoffPins(limit);
+  }
+
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
-  async search(input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined }): Promise<OrderSearchPage> {
-    const { cursor, late, ...filter } = input;
+  async search(
+    input: Omit<OrderSearchFilter, 'after'> & { cursor?: string | undefined; late?: boolean | undefined; alsoOrdererIds?: readonly string[] | undefined },
+  ): Promise<OrderSearchPage> {
+    const { cursor, late, alsoOrdererIds, ...filter } = input;
     const ticket = filter.text ? parseOrderTicket(filter.text) : null;
-    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor, late);
+    if (ticket) return this.searchTicket(ticket, { ...filter, text: undefined }, cursor, late, alsoOrdererIds);
     if (late) return this.searchLate(filter, cursor);
     const rows = await this.repo.search({ ...filter, after: decodeCursor(cursor), limit: input.limit + 1 });
     const page = rows.slice(0, input.limit);
@@ -1598,14 +1943,37 @@ export class OrdersService implements OnModuleInit {
    * Console shows each with its time and restaurant). Other filters still apply. Pages by the same
    * keyset cursor; a scan that hit its bound continues from where it stopped.
    */
-  private async searchTicket(ticket: string, filter: Omit<OrderSearchFilter, 'after'>, cursor: string | undefined, late?: boolean): Promise<OrderSearchPage> {
+  private async searchTicket(
+    ticket: string,
+    filter: Omit<OrderSearchFilter, 'after'>,
+    cursor: string | undefined,
+    late?: boolean,
+    alsoOrdererIds?: readonly string[],
+  ): Promise<OrderSearchPage> {
     const now = this.clock.now();
-    const from = filter.from ?? new Date(startOfLocalDay(now).getTime() - 86_400_000);
+    const from = filter.from ?? ticketWindowStart(now);
+    const also = new Set(alsoOrdererIds);
     const scanned = await this.repo.search({ ...filter, from, after: decodeCursor(cursor), limit: TICKET_SCAN_LIMIT });
-    const hits = scanned.filter((o) => orderTicketNumber(o.id) === ticket && (!late || isLate(o, now)));
+    const hits = scanned.filter((o) => (orderTicketNumber(o.id) === ticket || also.has(o.ordererId)) && (!late || isLate(o, now)));
     const page = hits.slice(0, filter.limit);
     const more = hits.length > filter.limit ? page.at(-1)! : scanned.length === TICKET_SCAN_LIMIT ? scanned.at(-1)! : null;
     return { rows: page.map((o) => toSummary(o, now)), nextCursor: more ? encodeCursor(more) : null };
+  }
+
+  /** Where an order-number search with no `from` starts: the start of yesterday (Baghdad). */
+  ticketWindowFrom(): Date {
+    return ticketWindowStart(this.clock.now());
+  }
+
+  /**
+   * v7: who ordered in the city over the filter's window — the people a phone-tail or name search
+   * looks among. The same bounded scan as an order number; `recent` defaults the window to today
+   * and yesterday (Baghdad) like `searchTicket`, else an open window is the newest scan's worth.
+   */
+  async ordererIdsIn(filter: Omit<OrderSearchFilter, 'after' | 'limit' | 'text' | 'ordererIds'>, recent: boolean): Promise<string[]> {
+    const from = filter.from ?? (recent ? ticketWindowStart(this.clock.now()) : undefined);
+    const rows = await this.repo.search({ ...filter, from, limit: TICKET_SCAN_LIMIT });
+    return [...new Set(rows.map((o) => o.ordererId))];
   }
 
   /**
@@ -1694,6 +2062,11 @@ export class OrdersService implements OnModuleInit {
     return this.repo.householdOrdersBetween(householdId, memberIds, from, to);
   }
 
+  /** The orders that closed in `[from, to)`: the ledger's nightly check that each settled once. */
+  closedBetween(from: Date, to: Date): Promise<string[]> {
+    return this.repo.closedBetween(from, to);
+  }
+
   /** Joy w6: who had orders served in `[from, to)` (the month-start card's audience). */
   orderersServedBetween(from: Date, to: Date): Promise<string[]> {
     return this.repo.orderersServedBetween(from, to);
@@ -1701,13 +2074,9 @@ export class OrdersService implements OnModuleInit {
 
   /** Joy w6: the orders a person placed in `[from, to)` with their lines, oldest first. */
   async placedByBetween(personId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
-    const mine = (await this.repo.forPerson(personId)).filter((o) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
-    const out: OrderAggregate[] = [];
-    for (const o of mine.sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))) {
-      const agg = await this.repo.find(o.id);
-      if (agg) out.push(agg);
-    }
-    return out;
+    // FOOD-04: one batched read with the lines, not a read per order.
+    const mine = (await this.repo.aggregatesForPerson(personId)).filter(({ order: o }) => o.ordererId === personId && o.placedAt >= from && o.placedAt < to);
+    return mine.reverse();
   }
 
   // ───────────────────────── timers ─────────────────────────
@@ -1761,7 +2130,7 @@ export class OrdersService implements OnModuleInit {
           const present = profile?.lastHeartbeatAt && now.getTime() - profile.lastHeartbeatAt.getTime() <= ORDERS_RULES.heartbeatStaleMs;
           if (present) return;
           if (name === ORDER_JOBS.readyOverdue) {
-            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { cityId: order.cityId, merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true });
+            await this.emit(tx, 'order.merchant_unresponsive', SYSTEM, order, { cityId: order.cityId, merchantOrgId: order.merchantOrgId, promisedReadyAt: order.promisedReadyAt?.toISOString() ?? null, lastHeartbeatAt: profile?.lastHeartbeatAt?.toISOString() ?? null, dispatcherCard: true, call: true }, jobKey('order.merchant_unresponsive', order.id, job.refMs ?? 0));
             return;
           }
           const trip = await this.trips.activeForOrder(order.id);
@@ -1783,7 +2152,7 @@ export class OrdersService implements OnModuleInit {
         case ORDER_JOBS.rideReminder: {
           // Only the booking it was set for, still waiting for its search (not cancelled, not taken).
           if (order.type !== 'ride' || order.state !== 'placed' || !order.scheduledFor || order.scheduledFor.getTime() !== job.refMs) return;
-          await this.emit(tx, 'order.ride_reminder', SYSTEM, order, { customerId: order.ordererId, scheduledFor: order.scheduledFor.toISOString(), searchAt: rideSearchStartsAt(order.scheduledFor).toISOString() });
+          await this.emit(tx, 'order.ride_reminder', SYSTEM, order, { customerId: order.ordererId, scheduledFor: order.scheduledFor.toISOString(), searchAt: rideSearchStartsAt(order.scheduledFor).toISOString() }, jobKey('order.ride_reminder', order.id, job.refMs));
           return;
         }
         default:
@@ -1832,8 +2201,8 @@ export class OrdersService implements OnModuleInit {
     };
     const next = await this.move(order, 'merchant_accepted', actorId, tx, { acceptedAt: now, promisedReadyAt }, accepted, opts.auto ? 'order.auto_accepted' : 'order.accepted');
     const ref = promisedReadyAt.getTime();
-    await this.queue.add(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.readyOverdueMin) * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
-    await this.queue.add(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.courierReleaseMin) * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
+    await this.timers.schedule(ORDER_JOBS.readyOverdue, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.readyOverdueMin) * 60_000, jobId: jobKey('order', order.id, 'readyOverdue', ref) });
+    await this.timers.schedule(ORDER_JOBS.courierRelease, { orderId: order.id, refMs: ref }, { delayMs: (prepMinutes + ORDERS_RULES.courierReleaseMin) * 60_000, jobId: jobKey('order', order.id, 'courierRelease', ref) });
     return next;
   }
 
@@ -1859,7 +2228,12 @@ export class OrdersService implements OnModuleInit {
     if (order.state !== 'picked_up') return;
     const now = this.clock.now();
     const next = await this.move(order, 'delivered', e.actorId, tx, { deliveredAt: now, ...(extra > 0 ? { changeToWalletIqd: extra } : {}) }, { tripId: e.tripId, courierId: e.actorId });
-    if (order.paymentMethod === 'cash') await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e) }, cash ?? order.totalIqd, tx, extra);
+    if (order.paymentMethod === 'cash') {
+      // The money posts with the cash: it must carry the same batch rate `closed` will (money §2).
+      const carrier = await this.trips.courierOf(order.id);
+      const batchedSecond = carrier?.tripId === e.tripId && carrier.batchedSecond === true;
+      await this.cashCollected(next, { tripId: e.tripId, courierId: e.actorId, vertical: verticalOf(e), batchedSecond }, cash ?? cashDueIqd(order), tx, extra);
+    }
     await this.scheduleClose(next, now);
     return next;
   }
@@ -1886,8 +2260,8 @@ export class OrdersService implements OnModuleInit {
     const agg = await this.repo.find(orderId);
     if (!agg) return extra === undefined ? null : 'change_to_wallet_not_cash';
     const order = agg.order;
-    if (extra === undefined) return order.paymentMethod === 'cash' && collected !== undefined && collected > order.totalIqd ? 'change_to_wallet_mismatch' : null;
-    const problem = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: order.totalIqd, collectedIqd: collected ?? Number.NaN, changeToWalletIqd: extra }, ORDERS_RULES.changeToWallet);
+    if (extra === undefined) return order.paymentMethod === 'cash' && collected !== undefined && collected > cashDueIqd(order) ? 'change_to_wallet_mismatch' : null;
+    const problem = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: cashDueIqd(order), collectedIqd: collected ?? Number.NaN, changeToWalletIqd: extra }, ORDERS_RULES.changeToWallet);
     if (problem === null) return null;
     if (problem === 'not_cash') return 'change_to_wallet_not_cash';
     if (problem === 'above_cap') return 'change_to_wallet_above_cap';
@@ -1906,8 +2280,8 @@ export class OrdersService implements OnModuleInit {
       tripId: courier.tripId,
       courierId: courier.courierId,
       amountIqd,
-      expectedIqd: order.totalIqd,
-      discrepancyIqd: amountIqd - order.totalIqd,
+      expectedIqd: cashDueIqd(order),
+      discrepancyIqd: amountIqd - cashDueIqd(order),
       changeToWalletIqd,
     };
     await this.emit(tx, 'order.cash_collected', courier.courierId, order, collected);
@@ -1953,6 +2327,7 @@ export class OrdersService implements OnModuleInit {
       payment: order.paymentMethod === 'cash' ? ('cash' as const) : ('wallet' as const),
       ...(cashCollectedIqd !== undefined ? { cashCollectedIqd } : {}),
       ...(changeToWalletIqd > 0 && order.paymentMethod === 'cash' ? { changeToWalletIqd } : {}),
+      ...(order.paymentMethod === 'cash' && (order.debtCollectIqd ?? 0) > 0 ? { debtCollectIqd: order.debtCollectIqd } : {}),
     };
     if (order.type === 'food' || order.type === 'grocery_catalog') {
       const agg = (await this.repo.find(order.id, tx))!;
@@ -1962,6 +2337,8 @@ export class OrdersService implements OnModuleInit {
         order: {
           orderId: order.id,
           ...(courier ? { tripId: courier.tripId, courierId: courier.courierId } : {}),
+          // The batch rate his offer showed when this trip rode along another (money §2).
+          ...(courier?.batchedSecond ? { batchedSecond: true } : {}),
           orderType: order.type,
           occurredAt: now,
           ...payer,
@@ -1984,6 +2361,8 @@ export class OrdersService implements OnModuleInit {
         errand: {
           orderId: order.id,
           ...(courier ? { tripId: courier.tripId } : {}),
+          // The batch rate his offer showed when this errand rode along another job (money §2, Ali 2026-10-12).
+          ...(courier?.batchedSecond ? { batchedSecond: true } : {}),
           occurredAt: now,
           ...payer,
           shopperId: courier?.courierId ?? '',
@@ -2016,14 +2395,14 @@ export class OrdersService implements OnModuleInit {
     if (order.paymentMethod === 'cash') {
       // The driver took the fare at the door: his cash cap moves now; the money posts once more, idempotently, on closed.
       const courier = await this.trips.courierOf(order.id);
-      if (courier) await this.cashCollected(next, courier, cashCollectedIqd ?? order.totalIqd, tx, changeToWalletIqd);
+      if (courier) await this.cashCollected(next, courier, cashCollectedIqd ?? cashDueIqd(order), tx, changeToWalletIqd);
     }
     await this.scheduleClose(next, now);
     return next;
   }
 
   private async scheduleClose(order: OrderRecord, from: Date): Promise<void> {
-    await this.queue.add(ORDER_JOBS.autoClose, { orderId: order.id, refMs: from.getTime() }, { delayMs: ORDERS_RULES.autoCloseMs, jobId: jobKey('order', order.id, 'autoClose') });
+    await this.timers.schedule(ORDER_JOBS.autoClose, { orderId: order.id, refMs: from.getTime() }, { delayMs: ORDERS_RULES.autoCloseMs, jobId: jobKey('order', order.id, 'autoClose') });
   }
 
   /** `closed`: money settles (ledger subscribes) and points are allocated to participants. */
@@ -2034,7 +2413,7 @@ export class OrdersService implements OnModuleInit {
     // A no-change credit was posted with the cash; the close fact carries the same note so the
     // posting is identical whichever of the two events the ledger sees first.
     const extra = agg.order.paymentMethod === 'cash' ? (agg.order.changeToWalletIqd ?? 0) : 0;
-    const fact = await this.moneyFact(agg.order, await this.trips.courierOf(order.id), extra > 0 ? agg.order.totalIqd + extra : undefined, tx, extra);
+    const fact = await this.moneyFact(agg.order, await this.trips.courierOf(order.id), extra > 0 ? cashDueIqd(agg.order) + extra : undefined, tx, extra);
     const closedPayload: DistributiveOmit<DomainEventInput<'order.closed'>, 'from' | 'to'> = { ...fact, reason, totalIqd: agg.order.totalIqd };
     const closed = await this.move(agg.order, 'closed', actorId, tx, { closedAt: now }, closedPayload);
     const profile = closed.merchantOrgId ? await this.merchants.profile(closed.merchantOrgId) : null;
@@ -2062,6 +2441,16 @@ export class OrdersService implements OnModuleInit {
 
   private async unreachableDispute(order: OrderRecord, e: TripEventEnvelope, tx: Tx): Promise<unknown> {
     if (order.state !== 'picked_up' && order.state !== 'matched') return;
+    if (await this.isHomeReservation(order)) {
+      // أكل بيت: nothing to dispute — the cook and the courier are paid and he owes both (Ali, 2026-10-11/12).
+      // The courier is the one this order's trip is linked to, and only for the trip that gave up.
+      const carrier = await this.trips.courierOf(order.id);
+      const courier = carrier && carrier.tripId === e.tripId ? { courierId: carrier.courierId, tripId: carrier.tripId, ...(carrier.batchedSecond ? { batchedSecond: true } : {}) } : null;
+      const owedIqd = homeNoShowOwedIqd(order, courier !== null);
+      const failed = await this.move(order, 'failed', SYSTEM, tx, {}, { kind: 'home_no_show', tripId: e.tripId, owedIqd });
+      await this.platformFailure!.homeNoShow!(failed, tx, courier);
+      return failed;
+    }
     // Domain §2/§9: food — the customer owes the cost; ride — the cancellation fee. Support may override.
     const defaultOutcome = order.type === 'ride' ? 'customer_owes_cancellation_fee' : 'customer_owes_cost';
     return this.move(order, 'disputed', SYSTEM, tx, {}, { kind: 'unreachable', openedBy: 'system', defaultOutcome, tripId: e.tripId, evidence: { ...e.payload, tripId: e.tripId } });
@@ -2072,6 +2461,8 @@ export class OrdersService implements OnModuleInit {
     const by = String(p['by'] ?? 'platform');
     const orderIds = Array.isArray(p['orderIds']) ? (p['orderIds'] as string[]) : [];
     const pickedUp = new Set(Array.isArray(p['pickedUpOrderIds']) ? (p['pickedUpOrderIds'] as string[]) : []);
+    // A ride's new search needs its pickup and drop-off, which live on the trip.
+    const trip = e.tripId && this.trips.get ? await this.trips.get(e.tripId).catch(() => null) : null;
     for (const id of orderIds) {
       await this.whenOrder(id, async (o, tx) => {
         if (TERMINAL_ORDER_STATES.includes(o.state) || o.state === 'disputed') return;
@@ -2080,6 +2471,8 @@ export class OrdersService implements OnModuleInit {
           return this.move(o, 'disputed', SYSTEM, tx, {}, { kind: 'courier_cancelled_after_pickup', openedBy: 'system', defaultOutcome: 'courier_pays_food_cost', tripId: e.tripId, courierId: p['courierId'] ?? null });
         }
         if (o.type === 'ride' && o.state === 'matched') {
+          // The rider was already picked up: never search for a driver again (staff settle it from the stuck list).
+          if (pickedUp.has(o.id)) return undefined;
           if (by === 'driver') {
             // Spec §4: driver cancel after accept = scoring hit; after arrival also 500 credit to the customer from the driver.
             const arrivedPickupAt = dateOrNull(p['arrivedPickupAt']);
@@ -2101,23 +2494,30 @@ export class OrdersService implements OnModuleInit {
               creditFundedBy: creditIqd > 0 ? 'driver' : null,
             });
           }
-          // The ride goes back to dispatch.
-          return this.move(o, 'placed', SYSTEM, tx, {}, { tripId: e.tripId, reason: `trip_cancelled_by_${by}`, redispatch: true }, 'order.rematch_needed');
+          // The ride goes back to dispatch: a new trip and a new search, without the driver who dropped it.
+          const ride = trip ? rideRematch(o, trip, typeof p['courierId'] === 'string' ? p['courierId'] : null) : {};
+          return this.move(o, 'placed', SYSTEM, tx, {}, { tripId: e.tripId, reason: `trip_cancelled_by_${by}`, redispatch: true, ...ride }, 'order.rematch_needed');
         }
         if (by !== 'customer') {
           // Dispatch requests a new courier from this (it used to go nowhere and the order waited forever).
           const profile = o.merchantOrgId ? await this.merchants.profile(o.merchantOrgId) : null;
+          // Errands and parcels have no merchant: the new courier starts at the order's own pickup (the
+          // sender's door, the shop), the point the placed courier trip was built from. One already
+          // picked up is never searched again: staff settle it at the courier-lost desk.
+          const courierOrder = o.type === 'parcel' || o.type === 'errand';
+          const ownPickup = courierOrder && trip ? courierPickupOf(o.id, trip) : null;
+          const redispatch = !courierOrder || (o.state === 'placed' && !pickedUp.has(o.id) && ownPickup !== null);
           const unassigned: DomainEventInput<'order.courier_unassigned'> = {
             tripId: e.tripId,
             by,
             reason: typeof p['reason'] === 'string' ? p['reason'] : null,
-            redispatch: true,
+            redispatch,
             orderType: o.type,
             cityId: o.cityId,
             merchantOrgId: o.merchantOrgId,
             promisedReadyAt: o.promisedReadyAt,
             minVehicleClass: o.minVehicleClass,
-            pickup: profile?.location ?? null,
+            pickup: courierOrder ? ownPickup : (profile?.location ?? null),
             dropoff: o.dropoff,
             paymentMethod: o.paymentMethod,
             totalIqd: o.totalIqd,
@@ -2145,7 +2545,8 @@ export class OrdersService implements OnModuleInit {
     const trip = await this.trips.activeForOrder(order.id);
     const now = this.clock.now();
     if (order.type === 'ride' && trip && trip.acceptedAt) {
-      const arrivedPickupAt = trip.stops.find((s) => s.type === 'pickup' && s.arrivedAt)?.arrivedAt ?? null;
+      // Only an arrival near the pickup counts (`arrivalCountsForFees`; a far tap is the driver's word, not the fact).
+      const arrivedPickupAt = trip.stops.find((s) => s.type === 'pickup' && arrivalCountsForFees(s))?.arrivedAt ?? null;
       return { fee: this.pricing.cancellationFee({ kind: 'trip', by: 'customer', state: trip.state, acceptedAt: trip.acceptedAt, arrivedPickupAt, fareIqd: order.totalIqd }, now, order.cityId), trip };
     }
     const fee = this.pricing.cancellationFee(
@@ -2232,9 +2633,10 @@ export class OrdersService implements OnModuleInit {
   }
 
   /** Cross-module events (contracts `DOMAIN_EVENT_PAYLOADS`) are validated against their shared contract here. */
-  private async emit(tx: Tx | undefined, type: string, actorId: string, order: OrderRecord, payload: object): Promise<void> {
+  /** `idempotencyKey`: a timer's announcement, said once however often its timer runs (FLW-22). */
+  private async emit(tx: Tx | undefined, type: string, actorId: string, order: OrderRecord, payload: object, idempotencyKey?: string): Promise<void> {
     const wire = isDomainEventType(type) ? encodeDomainEvent(type, payload as never) : (payload as Record<string, unknown>);
-    await this.events.emit(tx, { type, actorId, occurredAt: this.clock.now(), orderId: order.id, payload: wire }, { name: 'order', id: order.id });
+    await this.events.emit(tx, { type, actorId, occurredAt: this.clock.now(), orderId: order.id, payload: wire, ...(idempotencyKey ? { idempotencyKey } : {}) }, { name: 'order', id: order.id });
   }
 
   private async view(orderId: string, tx?: Tx): Promise<Order> {
@@ -2244,8 +2646,37 @@ export class OrdersService implements OnModuleInit {
 
 // ───────────────────────── helpers ─────────────────────────
 
+/** Where a refused parcel goes back to: the sender's door, as the courier's completed pickup stop has it. */
+function backOf(trip: Trip, orderId: string): { target: LatLng | null; zoneKey: string; placeId: string | null } {
+  const pickup = trip.stops.find((s) => s.orderId === orderId && s.type === 'pickup' && s.state === 'completed');
+  if (!pickup) throw new DriverError('order_state_conflict');
+  return { target: pickup.target, zoneKey: pickup.zoneKey, placeId: pickup.placeId };
+}
+
 /** The receipt line of a platform promo code (money §5 launch package). */
 const PLATFORM_PROMO_LABEL = { ar: 'خصم درايفر', en: 'Driver discount' } as const;
+
+/**
+ * Errands and parcels start their courier search when placed (`dispatch:courier-placed`) and nothing
+ * searches for one booked for later yet, so a scheduled one is refused rather than left waiting.
+ */
+function assertNotScheduledCourierOrder(input: { type: OrderType; scheduledFor?: Date | undefined }): void {
+  if ((input.type === 'parcel' || input.type === 'errand') && input.scheduledFor) throw new DriverError('invalid_input');
+}
+
+/**
+ * «دوّرلي» is cash only for now: the shopper's receipt sets the goods' price after placement, and a
+ * wallet hold placed on the list's estimate could then outgrow the balance (docs/api/errand-receipt.md).
+ */
+function assertErrandCash(input: { type: OrderType; paymentMethod: string }): void {
+  if (input.type === 'errand' && input.paymentMethod !== 'cash') throw new DriverError('errand_cash_only');
+}
+
+/** «دوّرلي» (Ali 2026-10-12): no medicines, cigarettes or gas cylinders on the list, refused before any pricing. */
+function assertErrandItems(input: { type: OrderType; lines: ReadonlyArray<{ freeText?: string | null | undefined }> }): void {
+  if (input.type !== 'errand') return;
+  if (input.lines.some((l) => l.freeText && errandWontFetch(l.freeText) !== null)) throw new DriverError('errand_item_not_allowed');
+}
 
 /** "سلّمته" (S-M4) is recorded on a ready order, or right after the courier confirmed the pickup himself. */
 const HAND_OVER_STATES: readonly OrderState[] = ['ready', 'picked_up'];
@@ -2296,6 +2727,12 @@ function dealQuery(merchantOrgId: string, lines: ReadonlyArray<Pick<NewLine, 'ca
 }
 
 /** The merchant-funded part of an order's discount by what it comes off (G-87 commission base, ledger lines). */
+/** What a home no-show leaves him owing: the dishes, plus the delivery fee he saw at checkout when a courier made the trip. */
+export function homeNoShowOwedIqd(order: Pick<OrderRecord, 'itemsTotalIqd' | 'deliveryFeeIqd' | 'discountIqd' | 'promotionId' | 'discountMeta'>, carried: boolean): number {
+  const deal = merchantDealOf(order);
+  return order.itemsTotalIqd + (carried ? Math.max(0, order.deliveryFeeIqd - (deal?.target === 'delivery' ? deal.amountIqd : 0)) : 0);
+}
+
 export function merchantDealOf(order: Pick<OrderRecord, 'discountIqd' | 'promotionId' | 'discountMeta'>): { promotionId: string; target: 'items' | 'delivery'; amountIqd: number } | null {
   if (!order.promotionId || order.discountIqd <= 0 || order.discountMeta?.funder !== 'merchant') return null;
   return { promotionId: order.promotionId, target: order.discountMeta.target === 'delivery' ? 'delivery' : 'items', amountIqd: order.discountIqd };
@@ -2446,6 +2883,7 @@ interface Courier {
   tripId: string;
   courierId: string;
   vertical: Vertical;
+  batchedSecond?: boolean | undefined;
 }
 
 /** The kind-tagged money fact shared by `order.cash_collected` and `order.closed`. */
@@ -2459,8 +2897,13 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
  */
 function noChangeExtra(order: OrderRecord, cash: number | null, raw: unknown): number {
   if (typeof raw !== 'number' || raw <= 0 || cash === null) return 0;
-  const ok = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: order.totalIqd, collectedIqd: cash, changeToWalletIqd: raw }, ORDERS_RULES.changeToWallet) === null;
+  const ok = changeToWalletProblem({ paymentMethod: order.paymentMethod, totalIqd: cashDueIqd(order), collectedIqd: cash, changeToWalletIqd: raw }, ORDERS_RULES.changeToWallet) === null;
   return ok ? raw : 0;
+}
+
+/** What the courier takes at the door on a cash order: its total plus the owed fees it collects (M-3). */
+export function cashDueIqd(order: Pick<OrderRecord, 'totalIqd' | 'debtCollectIqd'>): number {
+  return order.totalIqd + (order.debtCollectIqd ?? 0);
 }
 
 function verticalOf(e: TripEventEnvelope): Vertical {
@@ -2540,6 +2983,9 @@ export function toOrderView(agg: OrderAggregate): Order {
       note: l.note,
       pointsEligible: l.pointsEligible,
       availability: l.substitution?.state === 'proposed' ? 'unavailable' : l.substitution?.state === 'removed' ? 'removed' : 'available',
+      weightG: l.weightG ?? null,
+      perKgIqd: l.perKgIqd ?? null,
+      errandItem: l.errandItem ?? null,
     })),
     participants: participants.map((p) => ({ id: p.id, role: p.role, personId: p.personId, phoneOnly: p.personId === null && p.phoneHash !== null, label: p.label, note: p.note })),
     partial: proposal
@@ -2574,7 +3020,9 @@ export function toOrderView(agg: OrderAggregate): Order {
     rating: order.rating ?? null,
     discount: discountView(order),
     statedTenderIqd: order.statedTenderIqd ?? null,
+    ...((order.debtCollectIqd ?? 0) > 0 ? { debtCollectIqd: order.debtCollectIqd } : {}),
     changeToWalletIqd: order.changeToWalletIqd ?? null,
+    ...(order.returnFareIqd != null ? { returnFareIqd: order.returnFareIqd } : {}),
     gift: giftView(order),
   };
 }
@@ -2591,4 +3039,49 @@ export function latePromiseOf(
   if (type !== 'food' && type !== 'grocery_catalog') return null;
   const terms = latePromiseTerms({ deliveryFeeIqd, discount: discount ? { target: discount.meta.target, amountIqd: discount.amountIqd } : null });
   return terms ? { afterMin: AZIZIYAH_MONEY_RULES.latePromise.afterMin, ...terms } : null;
+}
+
+/**
+ * SCALE-24: starts a read now and hands back a function that answers it later, throwing its error
+ * only when asked, so reads can run together while their checks keep their order (and a read nobody
+ * asks for never becomes an unhandled rejection).
+ */
+export function later<T>(promise: Promise<T>): () => Promise<T> {
+  const settled = promise.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  return async () => {
+    const r = await settled;
+    if (!r.ok) throw r.error;
+    return r.value;
+  };
+}
+
+/** An errand's or parcel's own pickup point, read from its courier trip's pickup stop (null when it has none). */
+function courierPickupOf(orderId: string, trip: Trip): DeliveryPoint | null {
+  const stop = trip.stops.find((s) => s.type === 'pickup' && s.orderId === orderId);
+  return stop ? { zoneKey: stop.zoneKey, ...(stop.target ? { pin: stop.target } : {}) } : null;
+}
+
+/**
+ * What dispatch needs to search again for a ride whose driver dropped it before pickup (the same
+ * shape as the ride part of `order.placed`): the trip's own pickup and drop-off, searched now.
+ */
+function rideRematch(o: OrderRecord, trip: Trip, droppedDriverId: string | null): Record<string, unknown> {
+  const stop = (type: 'pickup' | 'dropoff') => trip.stops.find((s) => s.type === type && s.orderId === o.id);
+  const p = stop('pickup');
+  const d = stop('dropoff');
+  if (!p || (trip.vertical !== 'taxi' && trip.vertical !== 'tuktuk')) return {};
+  const pickup: DeliveryPoint = { zoneKey: p.zoneKey, ...(p.target ? { pin: p.target } : {}) };
+  const dropoff: DeliveryPoint = o.dropoff ?? (d ? { zoneKey: d.zoneKey, ...(d.target ? { pin: d.target } : {}) } : pickup);
+  return {
+    type: 'ride',
+    cityId: o.cityId,
+    paymentMethod: o.paymentMethod,
+    totalIqd: o.totalIqd,
+    riderId: o.ordererId,
+    ride: { vertical: trip.vertical, pickup, dropoff, quoteId: o.quoteId },
+    avoidDriverIds: droppedDriverId ? [droppedDriverId] : [],
+  };
 }

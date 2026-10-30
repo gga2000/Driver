@@ -7,6 +7,7 @@ import { Badge, Button, Icon, ModalSheet, Text, useTheme, type IconName } from '
 import { useFullBrightness } from '@/lib/brightness';
 import { useT } from '@/lib/i18n';
 import { RAIL_KEYS, waitClock, type RailStage } from './job-steps';
+import { ReportClosedRow } from './ReportClosed';
 
 /**
  * The job screen's parts (partner redesign j1–j9, r6): the step rail, the place as a headline, the big
@@ -14,10 +15,10 @@ import { RAIL_KEYS, waitClock, type RailStage } from './job-steps';
  */
 
 /** j1: four places in a row — done ones ticked, the current one lit in the accent, the rest waiting. */
-export function ProgressRail({ stage, ride }: { stage: RailStage; ride: boolean }) {
+export function ProgressRail({ stage, ride, errand = false }: { stage: RailStage; ride: boolean; errand?: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const keys = RAIL_KEYS[ride ? 'ride' : 'food'];
+  const keys = RAIL_KEYS[ride ? 'ride' : errand ? 'errand' : 'food'];
   return (
     <View testID="job-rail" accessible accessibilityRole="progressbar" accessibilityLabel={t('partner.rail_a11y', { n: stage + 1, name: t(keys[stage]) })} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
       {keys.map((k, i) => {
@@ -310,6 +311,7 @@ export function ProblemSheet({ visible, items, onClose }: { visible: boolean; it
             <Icon name="chevron-forward" size={18} color="textMuted" />
           </Pressable>
         ))}
+        <ReportClosedRow onDone={onClose} />
       </Animated.View>
     </ModalSheet>
   );

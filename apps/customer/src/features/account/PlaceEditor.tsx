@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLiveZones } from '@/lib/zones-live';
 import { Platform, Pressable, View } from 'react-native';
-import { AZIZIYAH_ZONES, PLACE_MAX_PHOTOS, type LatLng, type PlacePhotoRef, type SavedPlaceLabel, type SavePlaceInput } from '@driver/contracts';
+import { PLACE_MAX_PHOTOS, type LatLng, type PlacePhotoRef, type SavedPlaceLabel, type SavePlaceInput } from '@driver/contracts';
 import { Button, Chip, ChipGroup, Icon, PhotoImage, Skeleton, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { zoneName } from '@/lib/profile';
 import { isRoughFix } from './place-fix';
-import { currentFix, photoUri, pickGatePhoto, uploadPhoto, type PhotoSource, locationDeniedToast } from './device';
+import { currentFix, photoUri, pickGatePhoto, uploadPhoto, type PhotoSource, locationDeniedToast, locationWeakToast } from './device';
 import { nearestZone, zoneCentre } from './geo';
 import { PLACE_CITY_ID, useLandmarksNear } from './queries';
 import { LANDMARK_NONE, landmarkChips, landmarkLeftBehind, landmarkName } from '@/features/places/landmark-chips';
@@ -57,8 +58,8 @@ export function toSaveInput(v: PlaceEditorValue, t: TFn): SavePlaceInput | null 
   };
 }
 
-/** Centre and near zones first (most orders); "كل المناطق" shows all 34. */
-const COMMON_ZONES = AZIZIYAH_ZONES.filter((z) => z.tier === 'centre' || z.tier === 'near');
+/** Centre and near zones first (most orders); "كل المناطق" shows them all. */
+const isCommon = (z: { tier: string }) => z.tier === 'centre' || z.tier === 'near';
 /** Where the map opens for a new place with no zone yet: the middle of the town. */
 const AZIZIYAH_CENTRE: LatLng = { lat: 32.9085, lng: 45.0655 };
 
@@ -96,11 +97,12 @@ export function PlaceEditor({
   const [recentre, setRecentre] = useState<{ pin: LatLng; seq: number; accuracyM?: number } | null>(null);
   const moveTo = (pin: LatLng, accuracyM?: number | null) => setRecentre((r) => ({ pin, seq: (r?.seq ?? 0) + 1, ...(accuracyM ? { accuracyM } : {}) }));
 
+  const all = useLiveZones();
   const zones = useMemo(() => {
-    const list = allZones ? AZIZIYAH_ZONES : COMMON_ZONES;
-    const chosen = AZIZIYAH_ZONES.find((z) => z.id === value.zoneId);
+    const list = allZones ? all : all.filter(isCommon);
+    const chosen = all.find((z) => z.id === value.zoneId);
     return chosen && !list.includes(chosen) ? [...list, chosen] : list;
-  }, [allZones, value.zoneId]);
+  }, [all, allZones, value.zoneId]);
 
   const setPin = (pin: LatLng) => onChange({ ...value, pin, zoneId: nearestZone(pin) });
 
@@ -113,12 +115,12 @@ export function PlaceEditor({
     setLocating(true);
     const fix = await currentFix();
     setLocating(false);
-    if (fix === 'denied') toast.show(locationDeniedToast(t));
-    else if (!fix) toast.show({ message: t('error.location_weak'), tone: 'danger' });
+    if (fix === 'denied') toast.show({ ...locationDeniedToast(t), placement: 'top' });
+    else if (!fix) toast.show({ ...locationWeakToast(t), placement: 'top' });
     else {
       moveTo(fix.pin, fix.accuracyM);
       // A rough fix puts the pin near, not on, the door: ask for the last step by hand (HUNT-04).
-      if (isRoughFix(fix.accuracyM)) toast.show({ message: t('place.fix_rough_move'), tone: 'info' }, 6000);
+      if (isRoughFix(fix.accuracyM)) toast.show({ message: t('place.fix_rough_move'), tone: 'info', placement: 'top' }, 6000);
     }
   };
 

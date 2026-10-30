@@ -6,12 +6,15 @@ import { CommissionTier, SettlementMode } from './ledger-rules.js';
 import { DisputeKind, PaymentMethod } from './order.js';
 import { DealType } from './deals.js';
 import { DISH_LABELS, DishLabel } from './catalog-io.js';
+import { DishKind } from './dish-kind.js';
+import type { HomeKitchenDish, HomeKitchenView, SaveHomeDishInput, SetHomeTodayInput } from './home-kitchen-admin-io.js';
 import type { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from './habits-io.js';
 
 /**
  * `merchantAdmin.*` — the Merchant app's second wave (partner & merchant apps spec): menu, deals,
  * money, insights and staff. Every call names the merchant org; the caller must hold
- * `merchant_owner` or `merchant_staff` scoped to it. Owner-only: money, staff and changing deals
+ * `merchant_owner` or `merchant_staff` scoped to it (except `staffMyInvites` / `staffRespondInvite`,
+ * the invitee's own: he holds no role there yet). Owner-only: money, staff and changing deals
  * ("roles gate money views"). Menu edits go through the catalog module; deals through the
  * promotions module (discounts reach an order only via `PromotionsPort`); money from the ledger.
  */
@@ -68,6 +71,21 @@ export const AdminMenuItem = z.object({
   servesMax: z.number().int().nullable().optional(),
   /** The kitchen's dish labels (joy o8). */
   labels: z.array(DishLabel).optional(),
+  /** The owner's ticket kind (k4/j6 override); null or absent = the app guesses it from the name. */
+  kind: DishKind.nullable().optional(),
+  /** «جهّز محلك»: the photo is Driver's library photo (its slug), «صورة توضيحية» to customers; null = his own. */
+  photoLibrary: z.string().nullable().optional(),
+  /**
+   * p4 (Ali 2026-10-08): a photo the shop uploaded shows to customers at once and Driver's team checks
+   * it the same day; true while it waits for that look («ينتظر المراجعة»). Absent = false.
+   */
+  photoReviewPending: z.boolean().optional(),
+  /**
+   * p4: Driver's team took the shop's photo down (`catalog.photo_taken_down`, last 14 days) and the dish
+   * has no photo since. `reason` is `blurry` | `wrong_dish` | `people` | `other` (an unknown one reads
+   * as `other`). Absent or null = nothing to tell.
+   */
+  photoTakenDown: z.object({ reason: z.string(), at: z.coerce.date() }).nullable().optional(),
 });
 export type AdminMenuItem = z.infer<typeof AdminMenuItem>;
 
@@ -102,6 +120,8 @@ export const UpsertItemInput = MerchantScope.extend({
   servesMax: z.number().int().min(1).max(50).nullable().optional(),
   /** The kitchen's dish labels (joy o8). */
   labels: z.array(DishLabel).max(DISH_LABELS.length).optional(),
+  /** The ticket kind (k4/j6 override); null hands it back to the guess from the name, absent keeps it. */
+  kind: DishKind.nullable().optional(),
 });
 export type UpsertItemInput = z.infer<typeof UpsertItemInput>;
 
@@ -250,7 +270,6 @@ export type DealView = z.infer<typeof DealView>;
 export const DealIdInput = MerchantScope.extend({ dealId: z.string().min(1) });
 export const SetDealActiveInput = DealIdInput.extend({ active: z.boolean() });
 /** Platform approval switch (city config `merchantDeals.requirePlatformApproval`): admin / support. */
-export const ReviewDealInput = z.object({ dealId: z.string().min(1), approve: z.boolean(), reason: z.string().trim().max(200).optional() });
 
 // ───────────────────────── money ─────────────────────────
 
@@ -380,6 +399,11 @@ export const StatementOrderLine = z.object({
   /** Courier-waiting / cancellation fees paid to the merchant on this order. */
   feesIqd: Iqd,
   netIqd: Iqd,
+  /**
+   * A cart («عربانة») walk-over ticket, not an order: `orderId` is the ticket id; the customer paid
+   * the cart in hand, so only the pickup commission he owes on it is in the ledger (`itemsIqd` 0).
+   */
+  walkup: z.boolean().optional(),
 });
 export type StatementOrderLine = z.infer<typeof StatementOrderLine>;
 
@@ -405,6 +429,11 @@ export const WeeklyStatement = z.object({
      */
     adjustmentsIqd: Iqd.default(0),
   }),
+  /**
+   * The restaurant's commission now (money §1): its tier, the rate in percent and, on `starter`, the day
+   * its starter period began (its onboarding). Null from an older server.
+   */
+  rate: z.object({ tier: CommissionTier, pct: z.number(), starterSince: z.coerce.date().nullable() }).nullable().default(null),
 });
 export type WeeklyStatement = z.infer<typeof WeeklyStatement>;
 
@@ -449,6 +478,19 @@ export const MerchantDispute = z.object({
 });
 export type MerchantDispute = z.infer<typeof MerchantDispute>;
 
+/**
+ * `money.receiveCourierCash`: the restaurant takes its cash from a courier on its own tablet. The owner
+ * types what he counted, the courier reads his daily hand-over code from his app (his confirmation).
+ */
+export const ReceiveCourierCashInput = MerchantScope.extend({
+  courierId: z.string().min(1),
+  amountIqd: Iqd.positive(),
+  code: z.string().regex(/^\d{4}$/),
+  /** One per opened sheet: a retry posts once. */
+  idempotencyKey: z.string().min(8).max(128),
+});
+export type ReceiveCourierCashInput = z.input<typeof ReceiveCourierCashInput>;
+
 export const RespondDisputeInput = MerchantScope.extend({
   orderId: z.string().min(1),
   decision: z.enum(['accept_default', 'contest']),
@@ -485,6 +527,17 @@ export const MerchantInsights = z.object({
   bestSellers: z.array(z.object({ itemId: z.string(), nameAr: z.string().nullable(), qty: z.number().int(), orders: z.number().int(), salesIqd: Iqd.nullable() })).default([]),
   /** Orders placed in the window (any outcome). */
   orders: z.number().int().default(0),
+  /**
+   * The customers' food score over the window, every rated order (x6 «وضعك»): avg 1–5 to one decimal,
+   * null with no ratings. Absent on an older API.
+   */
+  foodRating: z.object({ avg: z.number().nullable(), count: z.number().int() }).optional(),
+  /**
+   * m4 (Ali, 2026-10-09 "yes build them"): dishes that ran out («خلص اليوم») on 3 or more days of the
+   * window, most days first (at most 3), with the usual Baghdad time they ran out (minutes since
+   * midnight, the median), so the kitchen can prepare more. Absent on an older API.
+   */
+  soldOutHabits: z.array(z.object({ itemId: z.string(), nameAr: z.string().nullable(), days: z.number().int(), usualMinute: z.number().int().min(0).max(1439) })).optional(),
 });
 export type MerchantInsights = z.infer<typeof MerchantInsights>;
 
@@ -537,17 +590,22 @@ export type MerchantDaySummary = z.infer<typeof MerchantDaySummary>;
 export const StaffMember = z.object({
   personId: z.string(),
   name: z.string().nullable(),
+  /** The 4+4 form the owner saw on the invite («0770 ••• 4567»): 8 of 11 digits, shown only to the store's owner (who added the number). */
   phoneMasked: z.string().nullable(),
   role: MerchantStaffRole,
   you: z.boolean(),
-  /** Invited but has not signed in yet (the invite is waiting). */
+  /**
+   * Invited, has not accepted yet (PRV-08, Ali 2026-10-10: a person joins a store only by accepting
+   * its invite in the Merchant app). A pending row holds no role at the store: `role` is the one the
+   * invite offers, `name` is null.
+   */
   pending: z.boolean().default(false),
   /**
    * Pending rows only: the invited number as "0770 ••• 4567" (the owner typed it; the name stays
-   * hidden until the invitee signs in). Additive (2026-10-04 follow-up).
+   * hidden: the invitee has not accepted). Additive (2026-10-04 follow-up).
    */
   phoneHint: z.string().nullable().optional(),
-  /** Pending rows only: when the role was given (the invite). */
+  /** Pending rows only: when the invite was made (or made again after a decline, cancel or expiry). */
   invitedAt: z.coerce.date().nullable().optional(),
   /** Pending rows only: when the invite link last went out (the invite, or the latest resend). */
   inviteSentAt: z.coerce.date().nullable().optional(),
@@ -556,8 +614,11 @@ export const StaffMember = z.object({
 });
 export type StaffMember = z.infer<typeof StaffMember>;
 
-/** Re-sending a staff invite (WhatsApp link with the store name): at most once per cooldown. */
-export const STAFF_INVITE_RULES = { resendCooldownMin: 10 } as const;
+/**
+ * Re-sending a staff invite (WhatsApp link with the store name): at most once per cooldown. An invite
+ * the person has not answered within `expiresAfterDays` of being made can no longer be accepted.
+ */
+export const STAFF_INVITE_RULES = { resendCooldownMin: 10, expiresAfterDays: 7 } as const;
 
 export const InviteStaffInput = MerchantScope.extend({
   phone: z.string().min(7).max(20),
@@ -568,8 +629,26 @@ export const SetStaffRoleInput = MerchantScope.extend({
   role: MerchantStaffRole,
 });
 export const RemoveStaffInput = MerchantScope.extend({ personId: z.string().min(1) });
-/** Sends a pending invite again (`staff_invite_not_pending` once he signed in; within the cooldown it is a no-op). */
+/** Sends a pending invite again (`staff_invite_not_pending` once he is a member; within the cooldown it is a no-op). */
 export const ResendStaffInviteInput = MerchantScope.extend({ personId: z.string().min(1) });
+
+/**
+ * PRV-08: an invite waiting for the signed-in person (his own, across stores). The store's name only:
+ * no owner name, no number.
+ */
+export const MyStaffInvite = z.object({
+  merchantOrgId: z.string(),
+  storeName: z.string(),
+  /** The role he gets at the store when he accepts. */
+  role: MerchantStaffRole,
+  invitedAt: z.coerce.date(),
+  /** After this the invite can no longer be accepted (the owner can invite him again). */
+  expiresAt: z.coerce.date(),
+});
+export type MyStaffInvite = z.infer<typeof MyStaffInvite>;
+
+/** The invitee answers: `accept` joins the store with the invite's role; false declines it. */
+export const RespondStaffInviteInput = MerchantScope.extend({ accept: z.boolean() });
 
 export interface MerchantAdminPort {
   myMerchants(actor: Actor): Promise<Array<z.infer<typeof MyMerchant>>>;
@@ -590,12 +669,12 @@ export interface MerchantAdminPort {
   dealsProject(actor: Actor, input: z.output<typeof ProposeDealInput>): Promise<DealProjectionView>;
   dealsPropose(actor: Actor, input: z.output<typeof ProposeDealInput>): Promise<DealView>;
   dealsSetActive(actor: Actor, input: z.infer<typeof SetDealActiveInput>): Promise<DealView>;
-  dealsReview(actor: Actor, input: z.infer<typeof ReviewDealInput>): Promise<DealView>;
   moneyToday(actor: Actor, input: MerchantScope): Promise<MoneyToday>;
   moneyCash(actor: Actor, input: MerchantScope): Promise<MerchantCashAccount>;
   moneyStatement(actor: Actor, input: z.infer<typeof StatementInput>): Promise<WeeklyStatement>;
   moneyDisputes(actor: Actor, input: MerchantScope): Promise<MerchantDispute[]>;
   moneyRespondDispute(actor: Actor, input: z.output<typeof RespondDisputeInput>): Promise<MerchantDispute>;
+  moneyReceiveCourierCash(actor: Actor, input: z.output<typeof ReceiveCourierCashInput>): Promise<MerchantCashAccount>;
   insights(actor: Actor, input: z.output<typeof InsightsInput>): Promise<MerchantInsights>;
   /** S-M6: the end-of-day card (owner and staff; the net is the owner's). */
   daySummary(actor: Actor, input: z.output<typeof DaySummaryInput>): Promise<MerchantDaySummary>;
@@ -607,6 +686,10 @@ export interface MerchantAdminPort {
     actor: Actor,
     input: z.infer<typeof ResendStaffInviteInput>,
   ): Promise<StaffMember>;
+  /** PRV-08: the caller's own pending, unexpired invites across stores (no merchant role needed). */
+  staffMyInvites(actor: Actor): Promise<MyStaffInvite[]>;
+  /** PRV-08: the invitee accepts (joins the store) or declines; his invites after. */
+  staffRespondInvite(actor: Actor, input: z.infer<typeof RespondStaffInviteInput>): Promise<MyStaffInvite[]>;
   /** Joy h2 «قدر اليوم»: today's pot, last week's and the recent ones (owner and staff). */
   potGet(actor: Actor, input: MerchantScope): Promise<MerchantPotView>;
   potSet(actor: Actor, input: z.output<typeof SetPotInput>): Promise<MerchantPotView>;
@@ -614,6 +697,12 @@ export interface MerchantAdminPort {
   /** Joy h5 «مطاعمنا»: the kitchen's story (staff read; the owner writes and decides if it shows). */
   storyGet(actor: Actor, input: MerchantScope): Promise<KitchenStoryView>;
   storySet(actor: Actor, input: z.output<typeof SetKitchenStoryInput>): Promise<KitchenStoryView>;
+  /** أكل بيت: the cook's dishes, today's plates and coming reservations (owner and staff). */
+  homeGet(actor: Actor, input: MerchantScope): Promise<HomeKitchenView>;
+  /** أكل بيت: a new dish or an edit, with how it sells (owner). */
+  homeSaveDish(actor: Actor, input: SaveHomeDishInput): Promise<HomeKitchenDish>;
+  /** أكل بيت: today's plates of a ready dish (owner and staff). */
+  homeSetToday(actor: Actor, input: SetHomeTodayInput): Promise<HomeKitchenDish>;
   /** «مين سوّى شنو»: the day's kitchen actions with who did each (owner only; staff FORBIDDEN). */
   activityToday(actor: Actor, input: z.output<typeof ActivityTodayInput>): Promise<MerchantActivity>;
   /** One order's kitchen actions with who did each (owner only; staff FORBIDDEN). */

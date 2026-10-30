@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { linkSecretFromEnv } from '../../shared/secrets.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { consoleBaseFromEnv } from '../../shared/console-link.js';
 import { DevCallBridge, isDevEnvironment, ProxyCallBridge } from '../chat/index.js';
 import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
@@ -14,7 +15,7 @@ import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '
 import { TripsModule, TripsService } from '../trips/index.js';
 import { InMemorySafetyRepository, PrismaSafetyRepository, SAFETY_REPOSITORY, type SafetyRepository } from './safety.repository.js';
 import { SAFETY_CALLS, SAFETY_CONFIG, SAFETY_SOURCES, SafetyService, type SafetyCallPort, type SafetyConfig } from './safety.service.js';
-import type { SafetySources } from './safety.subjects.js';
+import { rideRiderOf, requestPassengers, type SafetySources } from './safety.subjects.js';
 
 async function orNull<T>(fn: () => Promise<T>): Promise<T | null> {
   try {
@@ -38,11 +39,18 @@ function envInt(name: string, fallback: number): number {
  * Console hears it on the live `safety` channel. Masked calls use the chat module's bridge classes
  * (development: the real number, logged; otherwise the platform's proxy number).
  *
- * Env: SAFETY_LINK_BASE_URL (the emergency contact's page, default https://driver.iq/sos/),
- * CONSOLE_BASE_URL (dispatcher WhatsApp link), SAFETY_LINK_SECRET (required in production; elsewhere it falls
+ * Env: SAFETY_LINK_BASE_URL (the emergency contact's page, the customer web's `/sos/`; no default:
+ * unset, the message carries where the phone last was as text instead of a link),
+ * CONSOLE_BASE_URL (dispatcher WhatsApp link; unset: no link, `shared/console-link.ts`), SAFETY_LINK_SECRET (required in production; elsewhere it falls
  * back to SHARE_LINK_SECRET / JWT_SECRET),
  * SAFETY_SWEEP_MS (default 5000; 0 turns the sweep off), SAFETY_TIMERS=0 turns the in-process timers off.
  */
+/** `SAFETY_LINK_BASE_URL` with one trailing slash (the token follows it); null when unset. */
+export function safetyLinkBaseFromEnv(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env['SAFETY_LINK_BASE_URL']?.trim();
+  return raw ? raw.replace(/\/*$/, '/') : null;
+}
+
 @Module({
   imports: [ControlsModule, EventsModule, IdentityModule, LiveModule, NotifyModule, OnCallModule, OrdersModule, RoutesModule, TrackingModule, TripsModule],
   providers: [
@@ -54,7 +62,11 @@ function envInt(name: string, fallback: number): number {
     {
       provide: SAFETY_SOURCES,
       useFactory: (orders: OrdersService, trips: TripsService, departures: DeparturesService, requests: RequestBoardService, vehicles: CourierVehicleDirectory): SafetySources => ({
-        order: (id) => orNull(() => orders.get(id)),
+        order: (id) =>
+          orNull(async () => {
+            const o = await orders.get(id);
+            return { ...o, riderId: rideRiderOf(o.participants) };
+          }),
         courierOf: (orderId) => orNull(() => trips.courierOf(orderId)),
         trip: (id) => orNull(() => trips.get(id)),
         departure: (id) =>
@@ -84,7 +96,7 @@ function envInt(name: string, fallback: number): number {
             const r = await requests.get(id);
             if (!r) return null;
             const picked = r.offers.find((o) => o.id === r.pickedOfferId) ?? null;
-            return { id: r.id, riderId: r.riderId, cityId: r.cityId, state: r.state, pickedDriverId: picked?.driverId ?? null, from: r.from.label, to: r.to.label, closedAt: r.closedAt };
+            return { id: r.id, riderId: r.riderId, cityId: r.cityId, state: r.state, pickedDriverId: picked?.driverId ?? null, passengerIds: requestPassengers(r), from: r.from.label, to: r.to.label, closedAt: r.closedAt };
           }),
         vehicle: (courierId, vehicleId) => orNull(async () => await vehicles.forCourier(courierId, vehicleId)),
         tripFix: (tripId) =>
@@ -115,8 +127,8 @@ function envInt(name: string, fallback: number): number {
       useFactory: (): SafetyConfig => ({
         // SEC-15: production needs its own SAFETY_LINK_SECRET (not JWT_SECRET's, not SHARE_LINK_SECRET's).
         secret: linkSecretFromEnv(process.env, 'SAFETY_LINK_SECRET', { fallbacks: ['SHARE_LINK_SECRET', 'JWT_SECRET'], distinctFrom: ['SHARE_LINK_SECRET'] }),
-        linkBase: process.env['SAFETY_LINK_BASE_URL'] ?? 'https://driver.iq/sos/',
-        consoleBase: process.env['CONSOLE_BASE_URL'] ?? 'https://console.driver.iq',
+        linkBase: safetyLinkBaseFromEnv(),
+        consoleBase: consoleBaseFromEnv(),
         timers: process.env['SAFETY_TIMERS'] !== '0',
         sweepMs: envInt('SAFETY_SWEEP_MS', 5_000),
       }),

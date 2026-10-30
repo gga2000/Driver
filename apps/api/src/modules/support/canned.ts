@@ -60,7 +60,7 @@ export const DISPUTE_SUBJECT_AR: Record<DisputeKind, string> = {
   other: 'مشكلة بالطلب',
 };
 
-export const KIND_AR: Record<TicketKind, string> = { dispute: 'نزاع', complaint: 'شكوى', incident: 'حادثة', question: 'استفسار' };
+export const KIND_AR: Record<TicketKind, string> = { dispute: 'نزاع', complaint: 'شكوى', incident: 'حادثة', question: 'استفسار', deletion: 'حذف حساب' };
 export const STATUS_AR: Record<TicketStatus, string> = { open: 'مفتوحة', waiting: 'بانتظار الزبون', escalated: 'مصعّدة', resolved: 'محلولة' };
 
 /** Words that rank a ticket up as hostile in tone (support spec §3 queue by urgency). */

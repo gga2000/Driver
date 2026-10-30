@@ -51,3 +51,31 @@ export function formatPhoneInput(raw: string): string {
 export function displayPhone(e164: string): string {
   return formatPhoneInput(e164);
 }
+
+const NBSP = ' ';
+const DOT = '•';
+
+/**
+ * d16 · a staff phone the same way everywhere: «0780 ••• 4455» — the local head, three dots, the last
+ * four — from whatever the API sends: an invite's hint («0780 ••• 4455»), the masked member form
+ * («+96477*****67»), or a whole number. The groups are joined by no-break spaces so the number never
+ * breaks across lines. A digit the API hid stays a dot: the member form keeps only «077» and the last
+ * two, so a member reads «077• ••• ••67» (same shape, nothing invented). Null when it isn't a phone.
+ */
+export function maskedPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = toWesternDigits(raw).replace(/[\s\u00A0⁦-⁩-]/g, '').replace(/[*•xX·]/g, '?');
+  let rest = s;
+  if (rest.startsWith('+964')) rest = rest.slice(4);
+  else if (rest.startsWith('00964')) rest = rest.slice(5);
+  else if (rest.startsWith('964')) rest = rest.slice(3);
+  else if (rest.startsWith('0')) rest = rest.slice(1);
+  if (!/^[\d?]+$/.test(rest) || !/^7/.test(rest)) return null;
+  // Head digits, the hidden run, tail digits; the national number is always 10 long.
+  const m = /^(\d*)(\?*)(\d*)$/.exec(rest);
+  if (!m) return null;
+  const [, head = '', , tail = ''] = m;
+  if (head.length + tail.length > 10) return null;
+  const local = `0${head}${'?'.repeat(10 - head.length - tail.length)}${tail}`.replace(/\?/g, DOT);
+  return [local.slice(0, 4), DOT.repeat(3), local.slice(7, 11)].join(NBSP);
+}

@@ -67,7 +67,7 @@ export interface PhoneBookingSources {
   vehicle(driverId: string, vehicleId: string | null): Promise<PhoneBookingVehicle | null>;
   /** Where the driver is now: the trip's last trail point, else his online position. */
   driverPin(tripId: string, driverId: string): Promise<LatLng | null>;
-  /** The live trip page for the caller (`https://driver.iq/share/…`), made for the caller as his own «شارك». */
+  /** The live trip page for the caller (`<SHARE_LINK_BASE_URL>/share/…`; null when unset), made for the caller as his own «شارك». */
   shareLink(personId: string, orderId: string): Promise<string | null>;
 }
 

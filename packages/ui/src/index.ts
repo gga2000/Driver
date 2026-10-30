@@ -60,6 +60,7 @@ export { Skeleton, type SkeletonProps } from './components/Skeleton';
 export { Toast, ToastProvider, useToast, type ToastProps, type ToastData } from './components/Toast';
 export { StatusBanner, bannerDismissible, type StatusBannerProps, type BannerSeverity } from './components/StatusBanner';
 export { OfflineBanner, type OfflineBannerProps, type OfflineBannerLabels } from './components/OfflineBanner';
+export { WaitClock, waitClockState, WAIT_CLOCK_REMINDER_MIN, type WaitClockProps, type WaitClockState, type WaitClockValue, type WaitPhase } from './components/WaitClock';
 export { QueryBoundary, queryPhase, type QueryBoundaryProps, type QueryLike, type QueryStateCopy } from './components/QueryBoundary';
 export { RetryState, type RetryStateProps, type RetryKind } from './components/RetryState';
 export { CrashBoundary, CrashScreen, type CrashBoundaryProps, type CrashScreenProps } from './components/CrashBoundary';
@@ -82,6 +83,7 @@ export {
   type ChatVoicePlayer,
   type ChatVoiceRecorder,
 } from './components/ChatThread';
+export { TripCard, TripDealStrip, tripCardTitle, tripCardTurn, tripPrice, type TripChatSide } from './components/TripChatParts';
 export { MicHoldButton, VoiceNotePlayer, VoiceRecorderBar, type MicHoldButtonProps, type VoiceNotePlayerProps, type VoicePlayState, type VoiceRecorderBarProps } from './components/VoiceNote';
 export { DriverChip, PlateChip, type DriverChipProps, type PlateChipProps } from './components/DriverChip';
 export { SosButton, SosSheet, type SosButtonProps, type SosSheetProps, type SosSheetPhase } from './components/SosButton';

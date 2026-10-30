@@ -320,6 +320,35 @@ describe('InboxService — the Today list (CON-12)', () => {
     expect(JSON.stringify(audit.map((a) => a.detail))).not.toContain('اتصلت');
   });
 
+  it('every bad rating (food or courier at 2 stars or under) opens a case that closes only with a note', async () => {
+    const h = harness();
+    await h.emit('order.rated', { orderId: 'ord_good', actorId: 'p_c' }, { orderId: 'ord_good', stars: 5, food: 4, delivery: 5, orderType: 'food' });
+    await h.emit('order.rated', { orderId: 'ord_3', actorId: 'p_c' }, { orderId: 'ord_3', stars: 3, food: 3, delivery: 3, orderType: 'food' });
+    expect(await h.list()).toEqual([]);
+    // Good courier, bad food: still a case. A ride rated 1 (courier score only) too.
+    await h.emit('order.rated', { orderId: 'ord_food', actorId: 'p_c' }, { orderId: 'ord_food', stars: 5, food: 2, delivery: 5, orderType: 'food' });
+    await h.emit('order.rated', { orderId: 'ord_ride', actorId: 'p_c' }, { orderId: 'ord_ride', stars: 1, food: null, delivery: 1, orderType: 'ride' });
+    // An older event with only `stars`.
+    await h.emit('order.rated', { orderId: 'ord_old', actorId: 'p_c' }, { orderId: 'ord_old', stars: 2 });
+    const rows = await h.list();
+    expect(rows.map((r) => [r.kind, r.subjectId, r.facts]).sort()).toEqual([
+      ['low_rating', 'ord_food', { food: 2, delivery: 5, orderType: 'food' }],
+      ['low_rating', 'ord_old', { stars: 2 }],
+      ['low_rating', 'ord_ride', { delivery: 1, orderType: 'ride' }],
+    ]);
+    // The order closing (2-h window) does not close the case: staff do, after hearing all sides.
+    await h.emit('order.closed', { orderId: 'ord_food' });
+    expect(await h.list()).toHaveLength(3);
+    const food = rows.find((r) => r.subjectId === 'ord_food')!;
+    await expect(h.svc.done(SARA, InboxDoneInput.parse({ id: food.id, outcome: 'fixed' }))).rejects.toMatchObject({ code: 'invalid_input' });
+    const closed = await h.svc.done(SARA, InboxDoneInput.parse({ id: food.id, outcome: 'called', note: 'الزبون: بارد. المطعم: تأخر الدليفري. الدليفري: انتظر 15 دقيقة' }));
+    expect(closed).toMatchObject({ state: 'done', outcome: 'called' });
+    // A note written earlier is enough.
+    const ride = rows.find((r) => r.subjectId === 'ord_ride')!;
+    await h.svc.note(SARA, { id: ride.id, note: 'السايق اعتذر، الزبون راضي' });
+    await expect(h.svc.done(SARA, InboxDoneInput.parse({ id: ride.id, outcome: 'fixed' }))).resolves.toMatchObject({ state: 'done' });
+  });
+
   it('an SOS row is taken when the SOS is taken, and closes only on the SOS desk', async () => {
     const h = harness();
     await h.emit(
@@ -359,8 +388,6 @@ describe('InboxService — the Today list (CON-12)', () => {
       { courierId: 'p_d', cashIqd: 52_000, capIqd: 50_000, cityId: 'aziziyah' },
     );
     await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
-    // A low rating opens nothing while the "case only on repeat" rule (s3) waits on Ali.
-    await h.emit('order.rated', { orderId: 'ord_r' }, { orderId: 'ord_r', stars: 1, cityId: 'aziziyah' });
 
     const rows = await h.list();
     expect(rows.map((r) => r.kind)).toEqual(['stuck', 'late', 'cash_cap']);
@@ -404,6 +431,51 @@ describe('InboxService — the Today list (CON-12)', () => {
       times: 2,
       facts: { cashIqd: 51_000 },
     });
+  });
+
+  it('a late الرجعة car opens one row right after the safety rows, and closes when it leaves the late list', async () => {
+    const h = harness();
+    await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
+    const late = { garageId: 'g_bawaba1', corridorId: 'aziziyah_baghdad', cityId: 'aziziyah', since: new Date(T0).toISOString() };
+    await h.emit('departure.overdue', { aggregateId: 'departures' }, { ...late, departureId: 'dep_1', reason: 'driver_no_show', riders: 4 });
+    await h.emit('departure.overdue', { aggregateId: 'departures' }, { ...late, departureId: 'dep_2', reason: 'not_arrived', riders: 3 });
+    await h.emit('departure.overdue', { aggregateId: 'departures' }, { ...late, reason: 'not_arrived' });
+
+    const rows = await h.list();
+    expect(rows.map((r) => [r.kind, r.subjectId])).toEqual([
+      ['late_departure', 'dep_1'],
+      ['late_departure', 'dep_2'],
+      ['late', 'ord_l'],
+    ]);
+    expect(rows[0]).toMatchObject({ subjectKind: 'departure', orderId: null, facts: { reason: 'driver_no_show', riders: 4, garageId: 'g_bawaba1', corridorId: 'aziziyah_baghdad' } });
+
+    h.later(60);
+    await h.emit('departure.overdue_cleared', { aggregateId: 'departures' }, { departureId: 'dep_1', cityId: 'aziziyah', by: 'p_haider' });
+    expect((await h.list()).map((r) => r.subjectId)).toEqual(['dep_2', 'ord_l']);
+    expect((await h.list('done')).map((r) => [r.subjectId, r.outcome])).toEqual([['dep_1', 'auto']]);
+  });
+
+  it('a «دوّرلي» receipt over the customer\'s ceiling opens one row; a receipt back under it, or the order ending, closes it', async () => {
+    const h = harness();
+    await h.emit('order.late_apology', { orderId: 'ord_l' }, { customerId: 'p_c' });
+    await h.emit('order.errand_receipt', { orderId: 'ord_ok', tripId: 'trp_ok' }, { orderId: 'ord_ok', receiptIqd: 9000, overCeiling: false });
+    await h.emit('order.errand_receipt', { orderId: 'ord_desk', tripId: 'trp_d' }, { orderId: 'ord_desk', receiptIqd: 30000, overCeiling: true, ceilingIqd: 20000, byStaff: true });
+    await h.emit('order.errand_receipt', { orderId: 'ord_e', tripId: 'trp_e' }, { orderId: 'ord_e', receiptIqd: 31000, overCeiling: true, ceilingIqd: 25000, dispatcherCard: true });
+    await h.emit('order.errand_receipt', { orderId: 'ord_e2', tripId: 'trp_e2' }, { orderId: 'ord_e2', receiptIqd: 12000, overCeiling: true, ceilingIqd: 10000, dispatcherCard: true });
+
+    const rows = await h.list();
+    expect(rows.map((r) => [r.kind, r.subjectId])).toEqual([
+      ['over_ceiling', 'ord_e'],
+      ['over_ceiling', 'ord_e2'],
+      ['late', 'ord_l'],
+    ]);
+    expect(rows[0]).toMatchObject({ subjectKind: 'order', orderId: 'ord_e', facts: { receiptIqd: 31000, ceilingIqd: 25000 } });
+
+    h.later(60);
+    await h.emit('order.errand_receipt', { orderId: 'ord_e', tripId: 'trp_e' }, { orderId: 'ord_e', receiptIqd: 24000, overCeiling: false });
+    await h.emit('order.cancelled', { orderId: 'ord_e2' });
+    expect((await h.list()).map((r) => r.subjectId)).toEqual(['ord_l']);
+    expect((await h.list('done')).map((r) => [r.subjectId, r.outcome]).sort()).toEqual([['ord_e', 'auto'], ['ord_e2', 'auto']]);
   });
 
   it('keeps the event lists apart and in step with the handlers', () => {

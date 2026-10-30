@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Platform } from 'react-native';
 import type { ChatThreadKind } from '@driver/contracts';
 import { ChatThread, useToast } from '@driver/ui';
+import { LostItemResolve } from '@driver/ui/lost-item';
 import { absoluteUrl, pickPhoto, uploadPhoto } from '@/features/account/photo';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -47,7 +48,8 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
       // G0-10 «Chat first»: the call shows greyed «قريباً»; a tap says the chat is the way for now.
       call={() => (CALLS_LIVE ? void call() : toast.show({ message: t('partner.call_soon_toast'), tone: 'info', icon: 'chat' }))}
       calling={busy}
-      orderReplies={(keys) => stepReplies(keys, kind, ride, stage)}
+      // After the job (a «نسيت غرض» chat, the half hour after a delivery) none of the on-the-way lines are true.
+      orderReplies={(keys) => (job !== undefined && !job?.stops.some((s) => s.orderId === orderId) ? [] : stepReplies(keys, kind, ride, stage))}
       wrapQuickReplies
       callSoon={!CALLS_LIVE}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/job'))}
@@ -61,6 +63,12 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         return { uploadId, localUri: picked.uri };
       }}
       voice={voice}
+      // s7 «انحلّت»: while a lost-item ask keeps this chat open, he can close it.
+      pinned={
+        kind === 'customer_courier' && thread.data?.lostItem === 'open' ? (
+          <LostItemResolve t={t} resolve={() => actions.resolveLostItem.mutateAsync({ orderId })} errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)} />
+        ) : undefined
+      }
       currentLocation={async () => {
         const fix = await currentFix();
         return fix ? { lat: fix.lat, lng: fix.lng } : null;

@@ -36,7 +36,6 @@ import {
 import type { ActionPrefill } from './actions';
 import { ContextPane, type SupportAction } from './context';
 import { Conversation, type CannedIntent, type ComposerHandle } from './conversation';
-import { NewTicketDialog } from './new-ticket';
 import { SupportQueue } from './queue';
 
 const POLL_MS = 10_000;
@@ -45,6 +44,8 @@ const POLL_MS = 10_000;
 const SupportActionDialogs = dynamic(() => import('./actions').then((m) => m.SupportActionDialogs), {
   ssr: false,
 });
+// «قضية جديدة» loads the first time it opens too.
+const NewTicketDialog = dynamic(() => import('./new-ticket').then((m) => m.NewTicketDialog), { ssr: false });
 
 /**
  * The support desk (flagship): queue · conversation · context, one screen, keyboard first.
@@ -304,7 +305,7 @@ export function SupportDesk() {
           </Sheet>
         </>
       ) : null}
-      <NewTicketDialog open={newTicket} onClose={() => setNewTicket(false)} />
+      {newTicket ? <NewTicketDialog open onClose={() => setNewTicket(false)} /> : null}
     </div>
   );
 }

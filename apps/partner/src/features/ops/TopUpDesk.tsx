@@ -153,12 +153,16 @@ export function TopUpDesk({
               label={t('partner.ops_rcpt_time')}
               value={`${baghdadDate(done.confirmedAt)} · ${baghdadClock(done.confirmedAt, locale)}`}
             />
-            <View style={{ height: 1, backgroundColor: theme.colors.border }} />
-            <Row
-              label={t('partner.ops_topup_balance')}
-              value={iqd(done.walletBalanceIqd, { locale })}
-              strong
-            />
+            {done.walletBalanceIqd != null ? (
+              <>
+                <View style={{ height: 1, backgroundColor: theme.colors.border }} />
+                <Row
+                  label={t('partner.ops_topup_balance')}
+                  value={iqd(done.walletBalanceIqd, { locale })}
+                  strong
+                />
+              </>
+            ) : null}
           </View>
         </Card>
         {after ? (

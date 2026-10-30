@@ -8,7 +8,7 @@ photos are seen only by that child's خطوط driver.** Decision recorded at the
 
 | What | Stored | Who reads it |
 |---|---|---|
-| Driver main photo | `identity_vault.person_identities.main_photo_ref` (+ `main_photo_at`): the upload of his latest **approved** `photo` driver document | Customers on his card, the driver himself, Console reviewers |
+| Driver main photo | `identity_vault.person_identities.main_photo_ref` (+ `main_photo_at`): the upload of his latest **approved** `photo` driver document | Customers on his card, the restaurant's board while he is on the way to its own order (N16), the driver himself, Console reviewers |
 | A driver's photo under review | the vault's `document_refs` entry of that `photo` document (as for every paper) | The driver himself, Console reviewers |
 | A child's photo | `identity_vault.child_identities.photo_ref` | The guardian; the driver of the child's run (and the substitute once the run is his) |
 
@@ -54,6 +54,12 @@ reviewer never decides on his own photo (`forbidden` / `approval_own_item`).
 - `routes.driverCards` (الرجعة board, seat sheet, boarding pass, claimed seat) and the request board's
   offers (`RequestOfferDriver`)
 - `tracking.shared` → `driverPhotoUrl` (the public share page)
+
+### Where the restaurant sees it
+
+`merchant.board` → each order's `courier.photoUrl` (N16, Ali 2026-10-11), only for the store's own orders
+while the courier is `on_the_way` to it (the same window as his radar); one logged `courier_card` vault
+read per courier. A photo revoked mid-trip keeps showing until that trip ends.
 
 ## خطوط child photos
 

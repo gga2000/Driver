@@ -7,7 +7,7 @@ import { writeConsoleLocales } from './scripts/locale-subset.mjs';
 // CI's `next build`): the normal output.
 const standalone = process.env['NEXT_OUTPUT'] === 'standalone';
 
-let locales: { arPath: string; enPath: string } | undefined;
+let locales: { arPath: string; wordsPath: string; enPath: string } | undefined;
 /** Written once per build (the server, client and edge compiles share it). */
 function consoleLocales() {
   locales ??= writeConsoleLocales({
@@ -23,15 +23,22 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000/trpc',
   },
-  // Production builds ship only the Arabic strings the Console uses (scripts/locale-subset.mjs);
-  // `next dev` keeps the full tables so a newly added key shows without a restart.
+  // Production builds ship only the Arabic strings the Console uses, each page only its own screens'
+  // (scripts/locale-subset.mjs); `next dev` keeps the full tables so a newly added key shows at once.
   webpack(config, { dev, webpack }) {
     if (dev) return config;
     // The shared packages have no import-time side effects, so a page keeps only the modules it uses
     // (the contracts barrel was 55 KB of schemas on every page). Scoped here, not in their package.json,
     // because Metro and the API load them differently.
     config.module.rules.push({ test: /[\\/]packages[\\/](contracts|i18n|map)[\\/]dist[\\/]/, sideEffects: false });
-    const { arPath, enPath } = consoleLocales();
+    const { arPath, wordsPath, enPath } = consoleLocales();
+    // Each Console screen brings its own words: the shared table holds only what the shared packages name.
+    config.module.rules.push({
+      test: /\.(ts|tsx)$/,
+      include: path.resolve(process.cwd(), 'src'),
+      enforce: 'pre',
+      use: [{ loader: path.resolve(process.cwd(), 'scripts/words-loader.cjs'), options: { wordsPath, arPath } }],
+    });
     const swap = (file: RegExp, to: string) =>
       new webpack.NormalModuleReplacementPlugin(file, (res: { request: string; context: string }) => {
         if (/[\\/]i18n[\\/]/.test(res.context)) res.request = to;

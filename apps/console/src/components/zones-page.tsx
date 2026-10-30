@@ -6,12 +6,16 @@ import {
   formatAreaKm2,
   ZONE_CHECK_RULES,
   ZONE_EDIT_ROLES,
+  ZONE_TIER_ROLES,
   zoneProblemText,
   zoneServiceBounds,
   zoneShapeProblem,
+  MovableZoneTier,
   type ZonePlacement,
   type ZonePlacementView,
   type ZoneShapeProblem,
+  type ZoneTier,
+  type ZoneTierFare,
 } from '@driver/contracts';
 import { t } from '@driver/i18n';
 import { TIERS_IN_ORDER } from '@driver/map';
@@ -20,12 +24,16 @@ import { isTypingTarget } from '@/lib/hotkeys';
 import { tierLabel } from '@/lib/labels';
 import { CITY_ID, queryRetry } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
+import { formatIqd } from '@/lib/format';
 import { errorText } from '@/lib/network';
 import { useTheme } from '@/lib/prefs';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
+import { MAP_LAYERS, type MapLayer } from '@/lib/map-editor';
 import { closedEditor, editorReducer, isDirty, type EditorState } from '@/lib/zone-editor';
-import { Button, Chip, cx, Dialog, Field, Input, NeedLogin, PageHeader, QueryError, Skeleton, useToast, type ChipTone } from './ui';
+import { useMapEditor } from './map-editor';
+import { ZonePinCheckPanel } from './zone-pin-check-panel';
+import { Button, Chip, cx, Dialog, Field, Input, NeedLogin, PageHeader, QueryError, Skeleton, Tabs, useToast, type ChipTone } from './ui';
 
 const ZonesMapCanvas = dynamic(() => import('./zones-map-canvas'), {
   ssr: false,
@@ -73,7 +81,11 @@ export function ZonesPage() {
   const theme = useTheme();
   const { roles } = useMyRoles();
   const canEdit = hasAny(roles, ZONE_EDIT_ROLES);
-  const [nameForm, setNameForm] = useState<{ key?: string; name_ar: string; name_en: string } | null>(null);
+  const canMoveGroup = hasAny(roles, ZONE_TIER_ROLES);
+  const [nameForm, setNameForm] = useState<{ key?: string; name_ar: string; name_en: string; tier: ZoneTier; was?: ZoneTier; centre?: { lat: number; lng: number } } | null>(null);
+  const [layer, setLayer] = useState<MapLayer>('zones');
+  const [tilt, setTilt] = useState(false);
+  const fares = useQuery(trpc.ops.zones.tierFares.queryOptions({ cityId: CITY_ID }, { enabled: signedIn && nameForm !== null, retry: queryRetry }));
   const list = useQuery(trpc.ops.zones.list.queryOptions({ cityId: CITY_ID }, { enabled: signedIn, retry: queryRetry }));
   const [editor, dispatch] = useReducer(editorReducer, closedEditor);
 
@@ -104,6 +116,12 @@ export function ZonesPage() {
   );
   const create = useMutation(trpc.ops.zones.create.mutationOptions({ onSuccess: (z) => { refresh(); dispatch({ type: 'open', key: z.key, ring: z.ring, centre: z.centre }); toast({ title: t('console.zones_created_toast', { name: z.name_ar }), tone: 'ok' }); } }));
   const rename = useMutation(trpc.ops.zones.rename.mutationOptions({ onSuccess: (z) => { refresh(); toast({ title: t('console.zones_renamed_toast', { name: z.name_ar }), tone: 'ok' }); } }));
+  const setTier = useMutation(
+    trpc.ops.zones.setTier.mutationOptions({
+      onSuccess: (z) => { refresh(); toast({ title: t('console.zones_group_toast', { name: z.name_ar, group: tierLabel(z.tier) }), tone: 'ok' }); },
+      onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
+    }),
+  );
   const remove = useMutation(trpc.ops.zones.remove.mutationOptions({ onSuccess: () => { refresh(); dispatch({ type: 'close' }); toast({ title: t('console.zones_removed_toast'), tone: 'ok' }); } }));
   const clearFlag = useMutation(
     trpc.ops.zones.clearCheckFlag.mutationOptions({
@@ -115,22 +133,35 @@ export function ZonesPage() {
     }),
   );
 
-  const addZone = useCallback(() => setNameForm({ name_ar: '', name_en: '' }), []);
+  const addZone = useCallback((centre?: { lat: number; lng: number }) => setNameForm({ name_ar: '', name_en: '', tier: 'near', ...(centre ? { centre } : {}) }), []);
+  const mapEd = useMapEditor({
+    layer,
+    setLayer,
+    canEdit,
+    onAddZone: (at) => {
+      setLayer('zones');
+      addZone(at);
+    },
+  });
 
   const submitNames = useCallback(() => {
     const name_ar = nameForm?.name_ar.trim();
     const name_en = nameForm?.name_en.trim();
     if (!nameForm || !name_ar || !name_en) return;
     if (nameForm.key) {
-      rename.mutate({ cityId: CITY_ID, key: nameForm.key, name_ar, name_en }, { onSuccess: () => setNameForm(null) });
+      const key = nameForm.key;
+      const zone = byKey.get(key);
+      const moveGroup = () => (nameForm.was !== nameForm.tier && MovableZoneTier.safeParse(nameForm.tier).success ? setTier.mutateAsync({ cityId: CITY_ID, key, tier: nameForm.tier as MovableZoneTier }) : Promise.resolve(null));
+      const renamed = zone && (zone.name_ar !== name_ar || zone.name_en !== name_en) ? rename.mutateAsync({ cityId: CITY_ID, key, name_ar, name_en }) : Promise.resolve(null);
+      void renamed.then(moveGroup).then(() => setNameForm(null)).catch(() => undefined);
       return;
     }
     const key = name_en.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50);
     if (key.length < 2) return;
-    create.mutate({ cityId: CITY_ID, key, name_ar, name_en, tier: 'near', centre: { lat: 32.905, lng: 45.06 } }, { onSuccess: () => setNameForm(null) });
-  }, [create, nameForm, rename]);
+    create.mutate({ cityId: CITY_ID, key, name_ar, name_en, tier: nameForm.tier, centre: nameForm.centre ?? { lat: 32.905, lng: 45.06 } }, { onSuccess: () => setNameForm(null) });
+  }, [byKey, create, nameForm, rename, setTier]);
 
-  const renameZone = useCallback((z: ZonePlacementView) => setNameForm({ key: z.key, name_ar: z.name_ar, name_en: z.name_en }), []);
+  const renameZone = useCallback((z: ZonePlacementView) => setNameForm({ key: z.key, name_ar: z.name_ar, name_en: z.name_en, tier: z.tier, was: z.tier }), []);
 
   const removeZone = useCallback((z: ZonePlacementView) => {
     if (!window.confirm(t('console.zones_confirm_remove', { name: z.name_ar }))) return;
@@ -157,7 +188,7 @@ export function ZonesPage() {
 
   // Ctrl/⌘+Z undoes, Delete removes the selected corner, Esc deselects.
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canEdit || layer !== 'zones') return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isTypingTarget(e.target) || !editor.key) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -172,7 +203,18 @@ export function ZonesPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canEdit, editor.key, editor.selected]);
+  }, [canEdit, layer, editor.key, editor.selected]);
+
+  // Leaving the areas closes the open one (its handles would sit under the pins).
+  const switchLayer = useCallback(
+    (next: MapLayer) => {
+      if (next === layer) return;
+      if (layer === 'zones' && dirty && open && !window.confirm(t('console.zones_discard', { name: open.name_ar }))) return;
+      if (layer === 'zones') dispatch({ type: 'close' });
+      setLayer(next);
+    },
+    [layer, dirty, open],
+  );
 
   if (!signedIn) {
     return (
@@ -202,21 +244,91 @@ export function ZonesPage() {
       onRemoveCorner={() => editor.selected !== null && dispatch({ type: 'removeVertex', index: editor.selected })}
       onSave={() => editor.key && save.mutate({ cityId: CITY_ID, key: editor.key, ring: editor.ring, centre: editor.centre })}
       canManage={canEdit}
-      mutating={create.isPending || rename.isPending || remove.isPending}
-      onCreate={addZone}
+      mutating={create.isPending || rename.isPending || remove.isPending || setTier.isPending}
+      onCreate={() => addZone()}
+      layer={layer}
+      onLayer={switchLayer}
+      reviewCount={mapEd.reviewCount}
+      tilt={tilt}
+      onTilt={() => setTilt((x) => !x)}
+      tools={mapEd.tools}
+      aside={layer === 'zones' ? undefined : mapEd.aside}
+      footer={layer === 'zones' ? undefined : mapEd.footer}
+      overlay={mapEd.overlay}
       onRename={renameZone}
       onRemove={removeZone}
       onMarkChecked={markChecked}
       markingChecked={clearFlag.isPending}
-      map={<ZonesMapCanvas theme={theme} zones={zones} editor={editor} editable={canEdit} invalid={problem !== null} dispatch={dispatch} onPick={pick} />}
+      map={
+        <ZonesMapCanvas
+          theme={theme}
+          zones={zones}
+          editor={editor}
+          editable={canEdit && layer === 'zones'}
+          invalid={problem !== null}
+          dispatch={dispatch}
+          onPick={(key) => layer === 'zones' && pick(key)}
+          zoneLabels={layer === 'zones'}
+          tilt={tilt}
+          pins={mapEd.pins}
+          selectedPins={mapEd.selectedPins}
+          link={mapEd.link}
+          focus={mapEd.focus}
+          placing={mapEd.placing}
+          onPinPick={mapEd.onPinPick}
+          onPinDrop={mapEd.onPinDrop}
+          onRename={mapEd.onRename}
+          onAddAt={canEdit ? mapEd.onAddAt : undefined}
+          onMapClick={mapEd.onMapClick}
+          onBoxSelect={mapEd.onBoxSelect}
+        />
+      }
     />
-    <Dialog open={nameForm !== null} onClose={() => setNameForm(null)} title={t(nameForm?.key ? 'console.zones_rename' : 'console.zones_add')} footer={<><Button variant="ghost" onClick={() => setNameForm(null)}>{t('console.cancel')}</Button><Button variant="primary" onClick={submitNames} loading={create.isPending || rename.isPending} disabled={!nameForm?.name_ar.trim() || !nameForm?.name_en.trim()}>{t('console.save')}</Button></>}>
+    <Dialog open={nameForm !== null} onClose={() => setNameForm(null)} title={t(nameForm?.key ? 'console.zones_edit' : 'console.zones_add')} footer={<><Button variant="ghost" onClick={() => setNameForm(null)}>{t('console.cancel')}</Button><Button variant="primary" onClick={submitNames} loading={create.isPending || rename.isPending || setTier.isPending} disabled={!nameForm?.name_ar.trim() || !nameForm?.name_en.trim()}>{t('console.save')}</Button></>}>
       <div className="space-y-4">
         <Field label={t('console.zones_new_name_ar')}><Input autoFocus value={nameForm?.name_ar ?? ''} onChange={(e) => setNameForm((prev) => prev ? { ...prev, name_ar: e.target.value } : prev)} /></Field>
         <Field label={t('console.zones_new_name_en')}><Input value={nameForm?.name_en ?? ''} onChange={(e) => setNameForm((prev) => prev ? { ...prev, name_en: e.target.value } : prev)} /></Field>
+        {nameForm ? <ZoneGroupPicker tier={nameForm.tier} was={nameForm.was} fares={fares.data} locked={!canMoveGroup} onPick={(tier) => setNameForm((prev) => (prev ? { ...prev, tier } : prev))} /> : null}
       </div>
     </Dialog>
+    <ZonePinCheckPanel nameOf={nameOf} />
     </>
+  );
+}
+
+/**
+ * «المجموعة» (Ali, 2026-10-20): which band an area is in. The band prices every trip to and from it
+ * when no exact pair is set, so each choice shows what a trip from the centre costs in it, and a
+ * change says plainly that prices move from the next order on.
+ */
+export function ZoneGroupPicker({ tier, was, fares, locked = false, onPick }: { tier: ZoneTier; was?: ZoneTier; fares?: readonly ZoneTierFare[]; /** Only the admin moves an existing area between groups. */ locked?: boolean; onPick: (tier: MovableZoneTier) => void }) {
+  if (was === 'edge') return <p className="rounded-md bg-surface-2 px-3 py-2 text-sm text-muted">{t('console.zones_group_edge')}</p>;
+  const fareOf = (x: ZoneTier) => fares?.find((f) => f.tier === x);
+  return (
+    <div>
+      <p className="text-sm font-medium">{t('console.zones_group')}</p>
+      <p className="mb-2 text-xs text-muted">{t(locked ? 'console.zones_group_admin_only' : 'console.zones_group_hint')}</p>
+      <div role="radiogroup" aria-label={t('console.zones_group')} className="grid grid-cols-2 gap-2">
+        {MovableZoneTier.options.map((x) => {
+          const f = fareOf(x);
+          return (
+            <button
+              key={x}
+              type="button"
+              role="radio"
+              aria-checked={tier === x}
+              disabled={locked}
+              onClick={() => onPick(x)}
+              className={cx('min-h-11 rounded-md border px-3 py-2 text-start transition-colors duration-fast disabled:cursor-not-allowed', tier === x ? 'border-accent bg-accent-tint' : 'border-line bg-surface enabled:hover:border-line-strong enabled:hover:bg-surface-2', locked && tier !== x && 'opacity-60')}
+            >
+              <span className="block text-sm font-semibold">{tierLabel(x)}</span>
+              <span className="block text-xs text-muted">{f ? t('console.zones_group_fares', { delivery: formatIqd(f.deliveryIqd), taxi: formatIqd(f.taxiIqd), tuktuk: formatIqd(f.tuktukIqd) }) : '\u00a0'}</span>
+            </button>
+          );
+        })}
+      </div>
+      {was && was !== tier ? <p role="status" className="mt-2 text-sm text-warn">{t('console.zones_group_changed', { from: tierLabel(was), to: tierLabel(tier) })}</p> : null}
+    </div>
   );
 }
 
@@ -241,32 +353,64 @@ export interface ZonesBoardProps {
   onCreate?: () => void;
   onRename?: (zone: ZonePlacementView) => void;
   onRemove?: (zone: ZonePlacementView) => void;
-  /** «تم الفحص» on a flagged zone (Ali, 2026-10-06): the team looked and the outline is right. */
+  /** «انفحصت» on a flagged zone (Ali, 2026-10-06): the team looked and the outline is right. */
   onMarkChecked?: (zone: ZonePlacementView) => void;
   markingChecked?: boolean;
   map: ReactNode;
+  /** Map editor (Ali, 2026-10-20): which layer is edited; absent = the areas only. */
+  layer?: MapLayer;
+  onLayer?: (layer: MapLayer) => void;
+  reviewCount?: number;
+  tilt?: boolean;
+  onTilt?: () => void;
+  tools?: ReactNode;
+  /** A layer's own list and bottom bar, in place of the areas'. */
+  aside?: ReactNode;
+  footer?: ReactNode;
+  /** Floating cards over the map (a place's card, the add ring). */
+  overlay?: ReactNode;
 }
 
 /** The page without data fetching: header, zone list, map slot and the edit toolbar. */
 export function ZonesBoard(p: ZonesBoardProps) {
   const placed = p.zones.filter((z) => z.placement !== 'draft').length;
   const open = p.editor.key ? p.zones.find((z) => z.key === p.editor.key) : undefined;
+  const layer = p.layer ?? 'zones';
   return (
     <div className="flex h-full min-h-0 flex-col bg-canvas">
       <header className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line px-4 py-2.5 lg:px-5">
         <div className="min-w-0">
-          <h1 className="text-lg font-bold leading-7">{t('console.zones_title')}</h1>
-          <p className="max-w-[68ch] text-sm text-muted">{t('console.zones_subtitle')}</p>
+          <h1 className="text-lg font-bold leading-7">{t(p.onLayer ? 'console.mapedit_title' : 'console.zones_title')}</h1>
+          <p className="max-w-[68ch] text-sm text-muted">{t(layer === 'zones' ? 'console.zones_subtitle' : 'console.mapedit_subtitle')}</p>
         </div>
-        {p.zones.length > 0 ? (
+        {layer === 'zones' && p.zones.length > 0 ? (
           <Chip tone={placed === p.zones.length ? 'done' : 'warn'} dot>
             {t('console.zones_progress', { n: placed, total: p.zones.length })}
           </Chip>
         ) : null}
-        {!p.canEdit ? <Chip>{t('console.zones_read_only')}</Chip> : p.canManage ? <Button size="sm" variant="primary" onClick={() => p.onCreate?.()} loading={p.mutating}>{t('console.zones_add')}</Button> : null}
+        <div className="ms-auto flex flex-wrap items-center gap-2">
+          {p.onTilt ? (
+            <Button size="sm" variant="secondary" aria-pressed={p.tilt ?? false} onClick={p.onTilt} title={t('console.mapedit_tilt_hint')}>
+              {t('console.mapedit_tilt')}
+            </Button>
+          ) : null}
+          {p.tools ?? null}
+          {!p.canEdit ? <Chip>{t('console.zones_read_only')}</Chip> : p.canManage && layer === 'zones' ? <Button size="sm" variant="primary" onClick={() => p.onCreate?.()} loading={p.mutating}>{t('console.zones_add')}</Button> : null}
+        </div>
       </header>
+      {p.onLayer ? (
+        <div className="border-b border-line px-3 lg:px-4">
+          <Tabs
+            label={t('console.mapedit_title')}
+            value={layer}
+            onChange={p.onLayer}
+            options={MAP_LAYERS.map((value) => ({ value, label: t(`console.mapedit_layer_${value}`), ...(value === 'review' && p.reviewCount ? { count: p.reviewCount } : {}) }))}
+          />
+        </div>
+      ) : null}
       <div className="flex min-h-0 flex-1">
-        <aside className="w-72 shrink-0 overflow-y-auto border-e border-line bg-surface" aria-label={t('console.zones_title')}>
+        <aside className="w-72 shrink-0 overflow-y-auto border-e border-line bg-surface" aria-label={t(layer === 'zones' ? 'console.zones_title' : `console.mapedit_layer_${layer}`)}>
+          {p.aside !== undefined ? p.aside : <>
           {p.error ?? null}
           {p.loading ? (
             <div className="space-y-2 p-3">
@@ -301,11 +445,15 @@ export function ZonesBoard(p: ZonesBoardProps) {
               );
             })
           )}
+          </>}
         </aside>
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className="relative min-h-0 flex-1">{p.map}</div>
-          <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line bg-surface px-4 py-2.5">
-            {open ? (
+          <div className="relative min-h-0 flex-1">
+            {p.map}
+            {p.overlay ?? null}
+          </div>
+          <footer className="flex min-h-[3.75rem] flex-wrap items-center gap-x-4 gap-y-2 border-t border-line bg-surface px-4 py-2.5">
+            {p.footer !== undefined ? p.footer : open ? (
               <>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">

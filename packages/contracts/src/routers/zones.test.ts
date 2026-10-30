@@ -13,7 +13,7 @@ const VIEW: ZonePlacementView = {
 const RING = VIEW.ring;
 
 function caller(roles: readonly RoleKind[] | null) {
-  const zones: ZonesPort = { list: vi.fn(async () => [VIEW]), place: vi.fn(async () => VIEW), clearCheckFlag: vi.fn(async () => VIEW) };
+  const zones: ZonesPort = { list: vi.fn(async () => [VIEW]), place: vi.fn(async () => VIEW), create: vi.fn(async () => VIEW), clearCheckFlag: vi.fn(async () => VIEW), setTier: vi.fn(async () => VIEW), tierFares: vi.fn(async () => []) };
   const zoneChecks: ZoneChecksPort = { open: vi.fn(async () => null), answer: vi.fn(async () => undefined) };
   const ctx = {
     auth: roles ? { sub: 'p_staff', sid: 's1', iss: 'driver-api', iat: 0, exp: 0 } : null,
@@ -38,6 +38,9 @@ const MATRIX: Array<[string, readonly RoleKind[], (c: Call) => Promise<unknown>]
   ['ops.zones.list', ['dispatcher', 'support', 'finance', 'admin', 'field_ops'], (c) => c.ops.zones.list({})],
   ['ops.zones.place', ['admin', 'field_ops'], (c) => c.ops.zones.place({ key: 'centre', ring: RING, centre: VIEW.centre })],
   ['ops.zones.clearCheckFlag', ['admin', 'field_ops'], (c) => c.ops.zones.clearCheckFlag({ key: 'centre' })],
+  // Moving an area between groups reprices delivery, taxi and tuktuk: Ali only (field ops still draws outlines).
+  ['ops.zones.setTier', ['admin'], (c) => c.ops.zones.setTier({ key: 'hashimi', tier: 'mid' })],
+  ['ops.zones.tierFares', ['dispatcher', 'support', 'finance', 'admin', 'field_ops'], (c) => c.ops.zones.tierFares({})],
   ['partner.zoneCheck', ['courier', 'driver'], (c) => c.partner.zoneCheck()],
   ['partner.answerZoneCheck', ['courier', 'driver'], (c) => c.partner.answerZoneCheck({ checkId: 'zc_1', answer: 'yes' })],
 ];
@@ -61,6 +64,20 @@ describe('ops.zones: input', () => {
     const c = caller(['admin']);
     expect(await codeOf(c.call.ops.zones.place({ key: 'centre', ring: RING.slice(0, 2), centre: VIEW.centre }))).toBe('BAD_REQUEST');
     expect(c.zones.place).not.toHaveBeenCalled();
+  });
+});
+
+describe('ops.zones.create: the group', () => {
+  const NEW = { key: 'new_area', name_ar: 'حي جديد', name_en: 'New area', tier: 'centre' as const, centre: { lat: 32.905, lng: 45.06 } };
+  it('keeps the group an admin picks', async () => {
+    const { call, zones } = caller(['admin']);
+    await call.ops.zones.create(NEW);
+    expect(zones.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ tier: 'centre' }));
+  });
+  it('puts a field-ops area in «قريب» whatever was sent, since the group sets its fees', async () => {
+    const { call, zones } = caller(['field_ops']);
+    await call.ops.zones.create(NEW);
+    expect(zones.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ tier: 'near' }));
   });
 });
 

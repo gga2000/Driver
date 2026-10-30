@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DriverDocumentView, EarningsJobLine, MainPhotoView } from '@driver/contracts';
 import { createT } from '@driver/i18n';
 import {
+  cashCarriedIqd,
   memberSpan,
   papersReminder,
   papersPill,
@@ -56,8 +57,8 @@ describe('Baghdad calendar', () => {
   it('reads local parts at UTC+3 and cuts days at local midnight', () => {
     expect(local(NOW)).toMatchObject({ year: 2026, month: 10, day: 3, hour: 14, minute: 20, weekday: 6 });
     expect(startOfLocalDay(new Date('2026-10-02T22:30:00Z')).toISOString()).toBe('2026-10-02T21:00:00.000Z');
-    expect(clockTime(NOW)).toBe('2:20');
-    expect(clockTime(new Date('2026-10-02T21:05:00Z'))).toBe('12:05');
+    expect(clockTime(NOW)).toBe('2:20 م');
+    expect(clockTime(new Date('2026-10-02T21:05:00Z'))).toBe('12:05 ص');
   });
 
   it('names periods the way he says them', () => {
@@ -207,6 +208,9 @@ describe('documents', () => {
     expect(docsSummary({ documents: [doc('licence', 'expiring')], missing: [], blocksOnline: false })).toBe('action');
     expect(docsSummary({ documents: [doc('photo', 'pending')], missing: [], blocksOnline: false })).toBe('review');
     expect(docsSummary({ documents: [doc('photo', 'approved')], missing: [], blocksOnline: false })).toBe('ok');
+    // A required kind under review is listed as missing (not approved yet) but he has nothing to send.
+    expect(docsSummary({ documents: [doc('photo', 'pending')], missing: ['photo'], blocksOnline: false })).toBe('review');
+    expect(docsSummary({ documents: [doc('photo', 'pending')], missing: ['photo', 'licence'], blocksOnline: false })).toBe('action');
   });
 
   it('says the days left and what to do', () => {
@@ -228,6 +232,11 @@ describe('online gate', () => {
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }] })).toBe('checkin');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }, { code: 'document_expired', message_ar: '' }] })).toBe('document');
     expect(gateKind({ canGoOnline: false, reasons: [{ code: 'document_expired', message_ar: '' }, { code: 'checkin_locked', message_ar: '' }] })).toBe('locked');
+    // Papers not on file or not approved yet: over the check-in, under an expired one.
+    expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_required', message_ar: '' }, { code: 'document_missing', message_ar: '' }] })).toBe('missing');
+    expect(gateKind({ canGoOnline: false, reasons: [{ code: 'document_missing', message_ar: '' }, { code: 'document_expired', message_ar: '' }] })).toBe('document');
+    // A pause after a safety report comes before everything else.
+    expect(gateKind({ canGoOnline: false, reasons: [{ code: 'checkin_locked', message_ar: '' }, { code: 'staff_paused', message_ar: '' }] })).toBe('paused');
   });
 });
 
@@ -324,5 +333,12 @@ describe('account hub and home papers (partner redesign a1 / a3)', () => {
     expect(checkInPill({ verifiedToday: true, lockedOut: false, required: true }, t)?.tone).toBe('success');
     expect(checkInPill({ verifiedToday: false, lockedOut: true, required: true }, t)?.tone).toBe('danger');
     expect(checkInPill({ verifiedToday: false, lockedOut: false, required: false }, t)).toBeNull();
+  });
+});
+
+describe('cash card rows add up (check-up 2026-10-09)', () => {
+  it('puts what he held before the period first', () => {
+    expect(cashCarriedIqd({ heldIqd: 68_500, collectedIqd: 87_000, toMerchantsIqd: 18_500, settledIqd: 9_000 })).toBe(9_000);
+    expect(cashCarriedIqd({ heldIqd: 10_000, collectedIqd: 10_000, toMerchantsIqd: 0, settledIqd: 0 })).toBe(0);
   });
 });

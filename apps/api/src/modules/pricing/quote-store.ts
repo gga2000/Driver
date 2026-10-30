@@ -17,6 +17,11 @@ export interface QuoteStore {
    */
   claim(quoteId: string, at: Date, tx?: Tx): Promise<boolean>;
   /**
+   * Perf z3: whether `quoteId` could still be booked at `until` — kept, not taken by an order, and not
+   * expired by then. One primary-key read; lets `pricing.quote` hand back a quote it already kept.
+   */
+  isOpen(quoteId: string, until: Date): Promise<boolean>;
+  /**
    * Deletes up to `limit` quotes (and their components) that expired before `before` and that no order
    * or trip took. Returns how many quotes went. Safe with several workers (SKIP LOCKED).
    */
@@ -34,6 +39,13 @@ export const QUOTE_TTL_MIN = 30;
  * screen, every re-quote) does not grow the table without bound.
  */
 export const QUOTE_PURGE_GRACE_MIN = 60;
+
+/**
+ * Perf z3: a kept quote is handed out again (no new rows) while it still has this many minutes to be
+ * booked; below that, the next `pricing.quote` keeps a new one. Checkout re-quotes every minute, so a
+ * shown quote always has at least this long, less a minute, left at booking.
+ */
+export const QUOTE_REUSE_MIN_LEFT_MIN = 15;
 
 /** Without a database (demo API, unit tests): the same rules in memory, rollbacks included. */
 export class InMemoryQuoteStore implements QuoteStore {
@@ -53,6 +65,11 @@ export class InMemoryQuoteStore implements QuoteStore {
 
   async save(quote: Quote, _req: PriceRequest, expiresAt: Date): Promise<void> {
     this.quotes.set(quote.id, { expiresAt, acceptedAt: null, totalIqd: quote.total });
+  }
+
+  async isOpen(quoteId: string, until: Date): Promise<boolean> {
+    const q = this.quotes.get(quoteId);
+    return q !== undefined && q.acceptedAt === null && q.expiresAt.getTime() > until.getTime();
   }
 
   async claim(quoteId: string, at: Date, tx?: Tx): Promise<boolean> {
@@ -121,6 +138,14 @@ export class PrismaQuoteStore implements QuoteStore {
       await tx.$executeRaw`DELETE FROM "public"."quote_components" WHERE "quote_id" = ANY(${ids}::text[])`;
       return tx.$executeRaw`DELETE FROM "public"."quotes" WHERE "id" = ANY(${ids}::text[])`;
     });
+  }
+
+  async isOpen(quoteId: string, until: Date): Promise<boolean> {
+    const row = await this.db().quote.findFirst({
+      where: { id: quoteId, acceptedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: until } }] },
+      select: { id: true },
+    });
+    return row !== null;
   }
 
   async claim(quoteId: string, at: Date, tx?: Tx): Promise<boolean> {

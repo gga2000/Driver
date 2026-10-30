@@ -3,7 +3,7 @@ import { color } from '@driver/design-tokens';
 import { fitProjection, SVG_FIT_PADDING_PX, type GeoPoint, type SvgProjection } from '@driver/map';
 
 /**
- * «منطقة التوصيل» and «منين زبائنك» (maps program r5, r6), free of React Native so they are unit-tested:
+ * «منطقة التوصيل» and «منين زباينك» (maps program r5, r6), free of React Native so they are unit-tested:
  * which colour a fee band gets, the legend, the zone list, and the customers' ranking. Every amount
  * here is the server's; nothing is priced or rounded on the device.
  */

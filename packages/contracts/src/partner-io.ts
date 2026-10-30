@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import type { CustomerTownNow, PartnerMyDay, PartnerTownPulse } from './town-pulse-io.js';
 import { RoleKind } from './auth.js';
 import { AnswerClimateCheckInput, ClimateFeature, PartnerClimateCheck } from './climate-check.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
 import type { Actor } from './identity-io.js';
 import { RideCargo } from './ride-cargo.js';
+import { ErrandUnit, IfMissing } from './shop-lines.js';
 import type { OrderRoute } from './tracking.js';
 import { StopState, StopType, TripState, UnreachableStatus, VehicleClass } from './trip.js';
 
@@ -97,7 +99,7 @@ export function capState(owedIqd: number, capIqd: number, overCap = false): { sh
 }
 
 /** Why he may not go online now (same codes as `driverAccount.onlineGate`): scoring §2. */
-export const PartnerGateCode = z.enum(['checkin_required', 'checkin_locked', 'document_expired']);
+export const PartnerGateCode = z.enum(['checkin_required', 'checkin_locked', 'document_expired', 'document_missing', 'staff_paused']);
 export type PartnerGateCode = z.infer<typeof PartnerGateCode>;
 
 /** The online gate as `partner.status` carries it: `partner.goOnline` refuses while `canGoOnline` is false. */
@@ -139,8 +141,30 @@ export const PartnerGoOnlineInput = z.object({
   at: LatLng,
   /** The vehicle he is on today; defaults to the registered one, else a bike. */
   vehicleClass: VehicleClass.optional(),
+  /**
+   * Perf o4: the `version` of the status the app last holds (from an earlier ack; "" when it has none).
+   * Sent → the answer is a `PartnerHeartbeatAck`; left out → the full `PartnerStatus`, as older apps expect.
+   */
+  knownVersion: z.string().max(64).optional(),
 });
 export type PartnerGoOnlineInput = z.infer<typeof PartnerGoOnlineInput>;
+
+/**
+ * Perf o4: the heartbeat's small answer when the app sent `knownVersion`. `changed: false` — his work
+ * state (gate, presence, cash, trips, offer) is the one the app holds: keep the status, with the position
+ * it just sent; `changed: true` — here is the new status. `version` is opaque: send it back as
+ * `knownVersion` on the next beat. The city's demand hint and today's earnings are not in it; they come
+ * with `partner.status`.
+ */
+export const PartnerHeartbeatAck = z.discriminatedUnion('changed', [
+  z.object({ changed: z.literal(false), version: z.string() }),
+  z.object({ changed: z.literal(true), version: z.string(), status: PartnerStatus }),
+]);
+export type PartnerHeartbeatAck = z.infer<typeof PartnerHeartbeatAck>;
+
+/** `partner.goOnline`'s answer: the ack when `knownVersion` was sent, else the full status. */
+export const PartnerGoOnlineResult = z.union([PartnerHeartbeatAck, PartnerStatus]);
+export type PartnerGoOnlineResult = z.infer<typeof PartnerGoOnlineResult>;
 
 /**
  * Named pay components (money & ops §2: "Driver earnings live in Partner with every component
@@ -206,6 +230,11 @@ export const PartnerOffer = z.object({
   wave: z.number().int(),
   sentAt: z.coerce.date(),
   expiresAt: z.coerce.date(),
+  /**
+   * The server's clock when it answered. The phone counts the ring as `expiresAt - serverNow` from when
+   * the answer arrived, so a phone whose clock is wrong still shows the right time left.
+   */
+  serverNow: z.coerce.date(),
   /** The full ring: 15 s food, 20 s rides (dispatch spec §3). */
   ringSec: z.number().int().min(1),
   /** Counted as seen (3 s in the foreground, edge-case §6). */
@@ -323,6 +352,43 @@ export const PartnerPickupSpot = z.object({
 });
 export type PartnerPickupSpot = z.infer<typeof PartnerPickupSpot>;
 
+/**
+ * «الليستة» (دوّرلي, 2026-10-11): one item the shopper buys — the customer's words, how many and in
+ * what, where (near the customer, a shop in the app or a shop he named and pinned; never a person or an
+ * address), what to do if there is none, the top price as the customer gave it, and his photo or voice
+ * note as links signed for minutes. The bill is the server's; the app does no price maths.
+ */
+export const PartnerShopItem = z.object({
+  what: z.string(),
+  qty: z.number().int().positive(),
+  unit: ErrandUnit,
+  where: z.object({ kind: z.enum(['near', 'app', 'known']), name: z.string().nullable(), pin: LatLng.nullable() }),
+  ifMissing: IfMissing,
+  maxIqd: Iqd.nullable(),
+  photoUrl: z.string().nullable(),
+  voice: z.object({ url: z.string(), sec: z.number().int().positive() }).nullable(),
+});
+export type PartnerShopItem = z.infer<typeof PartnerShopItem>;
+
+export const PartnerShopList = z.object({
+  items: z.array(PartnerShopItem),
+  /** The whole list's ceiling as the customer gave it: over it the shopper calls first. */
+  listMaxIqd: Iqd.nullable(),
+});
+export type PartnerShopList = z.infer<typeof PartnerShopList>;
+
+/** «دوّرلي»: the receipt total he paid at the shops and its photo (his own upload), at the shops stop before «اشتريت الليستة». */
+export const PartnerErrandReceiptInput = z.object({
+  tripId: z.string().min(1),
+  stopId: z.string().min(1),
+  totalIqd: Iqd.positive().max(10_000_000),
+  photoUploadId: z.string().regex(/^[A-Za-z0-9_-]{8,80}$/),
+});
+export type PartnerErrandReceiptInput = z.infer<typeof PartnerErrandReceiptInput>;
+/** What the customer now owes at the door, and whether the receipt is over the list's ceiling (he should have called; never blocked). */
+export const PartnerErrandReceipt = z.object({ receiptIqd: Iqd, cashDueIqd: Iqd, overCeiling: z.boolean() });
+export type PartnerErrandReceipt = z.infer<typeof PartnerErrandReceipt>;
+
 export const PartnerJobStop = z.object({
   stopId: z.string(),
   seq: z.number().int(),
@@ -332,6 +398,8 @@ export const PartnerJobStop = z.object({
   pin: LatLng.nullable(),
   /** Merchant name at a pickup, null at the customer's door. */
   label: z.string().nullable(),
+  /** The kitchen's org at a pickup from one of our merchants, so «الخريطة غلط» names the right restaurant; absent otherwise. */
+  merchantOrgId: z.string().nullable().optional(),
   orderId: z.string().nullable(),
   /** The customer's courier note ("باب أخضر، يم الجامع"). */
   note: z.string().nullable(),
@@ -342,6 +410,8 @@ export const PartnerJobStop = z.object({
    * street near the pin; the courier calls when close instead of going to the door. Absent = the door.
    */
   streetHandover: z.boolean().optional(),
+  /** M-3 «ينضاف لطلبك الجاي»: of `collectIqd`, the cancellation fees the customer owed and pays with this order; absent = none. */
+  owedFeesIqd: Iqd.positive().optional(),
   /** "الخردة علينا": the note the customer said he will pay with ("الزبون يدفع بـ 25,000"); null/absent = none. */
   tenderIqd: Iqd.nullable().optional(),
   arrivedAt: z.coerce.date().nullable(),
@@ -378,6 +448,11 @@ export const PartnerJobStop = z.object({
    * directions — a town place from the landmark list, never a person's door; null when none is close.
    */
   landmark: z.string().nullable().default(null),
+  /**
+   * «الليستة»: a دوّرلي pickup not yet done, for the assigned courier only (never in offers or history).
+   * Null/absent otherwise.
+   */
+  shopList: PartnerShopList.nullable().optional(),
 });
 export type PartnerJobStop = z.infer<typeof PartnerJobStop>;
 
@@ -405,7 +480,7 @@ export function partnerCurrentStop<T extends { seq: number; state: string; stopI
 /** What the API supplies to the partner router (implemented by `modules/partner`). */
 export interface PartnerPort {
   status(actor: Actor): Promise<PartnerStatus>;
-  goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerStatus>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult>;
   goOffline(actor: Actor): Promise<PartnerStatus>;
   currentOffer(actor: Actor): Promise<PartnerOffer | null>;
   activeJob(actor: Actor): Promise<PartnerJob | null>;
@@ -417,9 +492,14 @@ export interface PartnerPort {
   /** The road from his last fix through the job's remaining stops, in order (maps program d2). */
   jobRoute(actor: Actor): Promise<OrderRoute>;
   /** Where the orders are now and in the coming hour, against the drivers there (maps program d5). */
-  demandMap(actor: Actor): Promise<PartnerDemandMap>;
+  demandGlow(actor: Actor): Promise<PartnerDemandGlow>;
+  townPulse(actor: Actor): Promise<PartnerTownPulse>;
+  /** The customer's live map: the same city picture, cut around a customer's place (`catalog.townNow`). */
+  townNow(at: LatLng): Promise<CustomerTownNow>;
+  myDay(actor: Actor): Promise<PartnerMyDay>;
   /** «المكيّفة شغالة اليوم؟» نعم / لا for this shift (ride idea x1); `climate_check_none` when nothing is asked. */
   answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus>;
+  errandReceipt(actor: Actor, input: PartnerErrandReceiptInput): Promise<PartnerErrandReceipt>;
   /** «مشاوير باچر» (review #28): rides booked for later he confirmed, and the ones he may confirm. */
   bookedJobs(actor: Actor): Promise<PartnerBookedJobs>;
   /** Confirm / pass on an open booked job, release or start his own; answers with the fresh list. */
@@ -454,6 +534,39 @@ export const PartnerDemandMap = z.object({
   at: z.coerce.date(),
 });
 export type PartnerDemandMap = z.infer<typeof PartnerDemandMap>;
+
+/**
+ * N17 «وين الطلبات» (map next-ideas #8): what a waiting courier's map glows with. Advice only, it never
+ * changes dispatch. No single order can be traced from it: no counts, a zone lights only with at least
+ * `minDemand` jobs (waiting plus usually expected), and the picture is taken every `snapshotMs`, so it
+ * is a few minutes old on purpose. Fair: a busy zone is "for you" for only as many free couriers as it
+ * is short of, the nearest first; everyone else sees it warm, so nobody is pulled to the same street.
+ */
+export const DEMAND_GLOW_RULES = {
+  /** One picture per city this often; the app reads it at the same pace. */
+  snapshotMs: 180_000,
+  /** Fewer jobs than this in a zone (waiting + expected) never light it. */
+  minDemand: 2,
+  /** A courier is offered a busy zone only within this distance of it. */
+  maxKm: 4,
+} as const;
+
+export const DemandGlowLevel = z.enum(['hot', 'warm']);
+export type DemandGlowLevel = z.infer<typeof DemandGlowLevel>;
+
+export const PartnerDemandGlow = z.object({
+  zones: z.array(
+    z.object({
+      zoneId: z.string(),
+      level: DemandGlowLevel,
+      /** The one busy zone picked for him (at most one), nearest first among the free couriers. */
+      forYou: z.boolean(),
+    }),
+  ),
+  /** When the picture was taken (a few minutes old on purpose). */
+  at: z.coerce.date(),
+});
+export type PartnerDemandGlow = z.infer<typeof PartnerDemandGlow>;
 
 export const PartnerOfferRouteInput = z.object({ offerId: z.string().min(1) });
 export type PartnerOfferRouteInput = z.infer<typeof PartnerOfferRouteInput>;

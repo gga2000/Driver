@@ -57,7 +57,7 @@ export class OtpService {
     tx?: Tx,
     asked?: OtpChannel,
     origin: OtpRequestOrigin = {},
-  ): Promise<{ expiresAt: Date; resendAfterSec: number; channel: OtpChannel }> {
+  ): Promise<{ expiresAt: Date; resendAfterSec: number; channel: OtpChannel; whatsappAvailable: boolean }> {
     const reviewer = this.storeReview?.phoneE164 === phoneE164;
     // Nothing is ever texted to the reviewer number: its only code is the fixed sign-in code.
     if (reviewer && purpose !== 'login') throw new DriverError('otp_channel_unavailable');
@@ -78,13 +78,13 @@ export class OtpService {
       // The store reviewer: the fixed code from the host's secrets, no SMS, no budget, no guard
       // count (its sign-ins are capped and alerted at verify instead). Same resend, expiry and
       // 5-try lock as everyone else.
-      return this.fixed(this.storeReview!.code, phoneHash, purpose, latest, now, tx);
+      return this.fixed(this.storeReview!.code, phoneHash, purpose, latest, now, whatsappAvailable, tx);
     }
     if (this.stagingTest && isStagingTestNumber(phoneE164)) {
       // A staging test number: the fixed code from the host's secret, never sent. The guard's
       // limits still count it, plus a cap across the whole range.
       await this.guard.admitFixed({ phoneE164, phoneHash, origin }, this.stagingTest.dailyCodes);
-      return this.fixed(this.stagingTest.code, phoneHash, purpose, latest, now, tx);
+      return this.fixed(this.stagingTest.code, phoneHash, purpose, latest, now, whatsappAvailable, tx);
     }
     const knownNumber = async () => (await this.repo.findPersonByPhoneHash(phoneHash, tx)) !== null;
     const send = { phoneE164, phoneHash, purpose, channel: asked, whatsappAvailable, knownNumber, origin };
@@ -111,14 +111,14 @@ export class OtpService {
       if (channel === 'whatsapp') this.devChannel.set(phoneE164, 'whatsapp');
       else this.devChannel.delete(phoneE164);
     }
-    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel };
+    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel, whatsappAvailable };
   }
 
   /** A challenge whose code is a fixed one from the host's secrets: nothing is sent. */
-  private async fixed(code: string, phoneHash: string, purpose: OtpPurpose, latest: OtpRecord | null, now: Date, tx?: Tx) {
+  private async fixed(code: string, phoneHash: string, purpose: OtpPurpose, latest: OtpRecord | null, now: Date, whatsappAvailable: boolean, tx?: Tx) {
     const expiresAt = new Date(now.getTime() + OTP_TTL_SEC * 1000);
     await this.repo.createOtp({ phoneHash, codeHash: this.hash(code, phoneHash), purpose, expiresAt, now, attempts: carriedMisses(latest, now) }, tx);
-    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel: 'sms' as const };
+    return { expiresAt, resendAfterSec: OTP_RESEND_SEC, channel: 'sms' as const, whatsappAvailable };
   }
 
   /**

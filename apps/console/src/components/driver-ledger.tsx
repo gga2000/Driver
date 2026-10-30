@@ -12,13 +12,17 @@ import { balanceWords, groupByDay, isHandover, lineSide, memoWords, newestFirst,
 import { queryRetry } from '@/lib/live';
 import { useNames } from '@/lib/names';
 import { dayHeading, dayKey, dayStart, periodRange, rangeWords, type Period, type PeriodPreset } from '@/lib/periods';
+import { driverPayable } from '@/lib/money-out';
 import { countText } from '@/lib/plural';
 import { useSignedIn } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { CashCapBar } from './cash-cap';
+import { AccountClose } from './account-close';
+import { DriverPause } from './driver-pause';
 import { PeriodPicker } from './period-picker';
+import { PayDialog, useCanPayOut } from './money-out';
 import { AccountName, CopyId, OrderRef } from './named';
-import { Avatar, cx, EmptyState, IconBack, IconCheckCircle, Mono, NeedLogin, QueryError, Skeleton, Tabs, useNow } from './ui';
+import { Avatar, Button, cx, EmptyState, IconBack, IconCheckCircle, Mono, NeedLogin, QueryError, Skeleton, Tabs, useNow } from './ui';
 
 const PRESETS: readonly PeriodPreset[] = ['today', 'yesterday', 'week', 'month', 'custom'];
 
@@ -45,6 +49,9 @@ export function DriverLedger({ driverId }: { driverId: string }) {
   const v = ledger.data;
   const names = useNames({ people: [driverId] });
   const p = names.person(driverId);
+  const canPay = useCanPayOut();
+  const [paying, setPaying] = useState(false);
+  const payable = v ? driverPayable(v) : 0;
 
   return (
     <div className="mx-auto max-w-[1180px]">
@@ -73,6 +80,7 @@ export function DriverLedger({ driverId }: { driverId: string }) {
       </header>
 
       {!signedIn ? <NeedLogin /> : null}
+      <DriverPause personId={driverId} className="mb-5" />
       {ledger.error ? <QueryError error={ledger.error} onRetry={() => void ledger.refetch()} /> : null}
       {signedIn && !v && ledger.isPending ? (
         <div className="space-y-5" aria-busy>
@@ -81,6 +89,10 @@ export function DriverLedger({ driverId }: { driverId: string }) {
         </div>
       ) : null}
 
+      <PayDialog
+        target={paying && v ? { kind: 'driver', id: driverId, name: p?.displayName ?? driverId, maxIqd: payable, suggestIqd: Math.min(payable, v.payoutDueIqd || payable) } : null}
+        onClose={() => setPaying(false)}
+      />
       {v ? (
         <div className="space-y-5">
           {/* Now: cash in his hands against the cap, and what we owe him. */}
@@ -115,6 +127,11 @@ export function DriverLedger({ driverId }: { driverId: string }) {
               <p className={cx('num mt-0.5 text-sm', v.payoutDueIqd > 0 ? 'font-semibold text-accent-text' : 'text-muted')}>
                 {v.payoutDueIqd > 0 ? t('console.ledger_payout_now', { amount: formatIqd(v.payoutDueIqd) }) : t('console.ledger_payout_none')}
               </p>
+              {canPay && payable > 0 ? (
+                <Button variant="secondary" className="mt-4" needsNet onClick={() => setPaying(true)} data-testid="pay-driver">
+                  {t('console.pay_driver_button', { amount: formatIqd(payable) })}
+                </Button>
+              ) : null}
             </div>
           </section>
 
@@ -144,6 +161,7 @@ export function DriverLedger({ driverId }: { driverId: string }) {
           </section>
         </div>
       ) : null}
+      <AccountClose personId={driverId} className="mt-6" />
     </div>
   );
 }

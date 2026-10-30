@@ -41,6 +41,16 @@ describe('shop load (Ali 2026-10-08: h5 tablet offline, l4 15 waiting orders)', 
     expect((await fresh.profile('org_1', 'aziziyah', at)).closed).toBe(false);
   });
 
+  it('h5: a quick pause shows its return time only while the tablet is online', async () => {
+    const paused = (hb: Date) => ({ ...profile(hb), closed: true, reopensAt: new Date(at.getTime() + 20 * 60_000) }) as unknown as MerchantProfile;
+    const offline = await new OrdersStorefrontMerchants({ profile: async () => paused(ago(6)) }).profile('org_1', 'aziziyah', at);
+    expect(offline.closed).toBe(true);
+    expect(offline.reopensAt).toBeUndefined();
+    const online = await new OrdersStorefrontMerchants({ profile: async () => paused(ago(1)) }).profile('org_1', 'aziziyah', at);
+    expect(online.closed).toBe(true);
+    expect(online.reopensAt).toEqual(new Date(at.getTime() + 20 * 60_000));
+  });
+
   it('l4: the card shows busy from 15 waiting orders, not counting scheduled ones not yet due', async () => {
     let rows: Array<{ scheduledFor: Date | null }> = waiting(14);
     const repo = { merchantOrdersBetween: async () => [], findMany: async () => rows as never };

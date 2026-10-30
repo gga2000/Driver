@@ -10,6 +10,10 @@ import { ZONE_MAX_POINTS, ZONE_MIN_POINTS, type ZoneShapeProblem } from './zone-
 export const ZONE_READ_ROLES: readonly RoleKind[] = ['dispatcher', 'support', 'finance', 'admin', 'field_ops'];
 /** Who draws outlines: Ali (admin) and field ops. Outlines don't move fees until the switch-over (SP3b). */
 export const ZONE_EDIT_ROLES: readonly RoleKind[] = ['admin', 'field_ops'];
+/** Who moves an area between groups (it changes delivery, taxi and tuktuk prices): Ali only (2026-10-20). */
+export const ZONE_TIER_ROLES: readonly RoleKind[] = ['admin'];
+/** The group a new area gets when someone outside `ZONE_TIER_ROLES` adds it. */
+export const NEW_ZONE_TIER = 'near' as const;
 
 /** draft = the AI guess; placed = drawn on a real map in the Console; confirmed = drivers agreed on the ground. */
 export const ZonePlacement = z.enum(['draft', 'placed', 'confirmed']);
@@ -73,6 +77,53 @@ export const RenameZoneInput = z.object({
   name_ar: z.string().trim().min(1).max(100),
   name_en: z.string().trim().min(1).max(100),
 });
+/**
+ * The group an area belongs to (Ali, 2026-10-20). The group sets the fee between two areas when no
+ * exact pair is priced, so moving one changes delivery, taxi and tuktuk prices to and from it.
+ * «حافة» stays out: drivers opt in to those trips, so it is set with dispatch, not here.
+ */
+export const MovableZoneTier = z.enum(['centre', 'near', 'mid', 'far']);
+export type MovableZoneTier = z.infer<typeof MovableZoneTier>;
+export const SetZoneTierInput = z.object({ cityId: CityId.default('aziziyah'), key: z.string().trim().min(1).max(60), tier: MovableZoneTier });
+/** What a trip from the town centre costs to an area in each group, so the Console shows the fee before saving. */
+export const ZoneTierFare = z.object({
+  tier: ZoneTier,
+  deliveryIqd: z.number().int().min(0),
+  taxiIqd: z.number().int().min(0),
+  tuktukIqd: z.number().int().min(0),
+});
+export type ZoneTierFare = z.infer<typeof ZoneTierFare>;
+/**
+ * «شنو يتغير؟» (read-only dry run, Ali 2026-10-27): recent real delivery pins placed in an area by the
+ * built-in circles versus by the drawn outlines. Counts and fee differences only, never a pin or a customer.
+ * Nothing here moves a fee; it is the numbers Ali sees before pricing follows the outlines.
+ */
+export const ZonePinCheckMove = z.object({
+  /** null = the circles served no area here (outside the service area). */
+  fromKey: z.string().nullable(),
+  toKey: z.string(),
+  pins: z.number().int().min(0),
+  /** Delivery fee change per trip (town centre → area, by group), IQD; negative = cheaper. null = the circles priced no area here. */
+  feeChangeIqd: z.number().int().nullable(),
+});
+export type ZonePinCheckMove = z.infer<typeof ZonePinCheckMove>;
+export const ZonePinCheck = z.object({
+  cityId: CityId,
+  /** Delivery pins looked at (most recent first, at most `ZONE_PIN_CHECK_MAX`). */
+  pins: z.number().int().min(0),
+  drawnZones: z.number().int().min(0),
+  /** Pins whose area differs between the two rules. */
+  changed: z.number().int().min(0),
+  /** Of those, pins the circles left outside the service area that an outline now covers. */
+  newlyServed: z.number().int().min(0),
+  dearer: z.number().int().min(0),
+  cheaper: z.number().int().min(0),
+  /** Average delivery fee change over all pins looked at, IQD. */
+  avgFeeChangeIqd: z.number(),
+  moves: z.array(ZonePinCheckMove),
+});
+export type ZonePinCheck = z.infer<typeof ZonePinCheck>;
+export const ZONE_PIN_CHECK_MAX = 2000;
 export const RemoveZoneInput = z.object({ cityId: CityId.default('aziziyah'), key: z.string().trim().min(1).max(60) });
 /**
  * «تم الفحص» (Ali, 2026-10-06): the team looked at a flagged zone and the outline is right, so the
@@ -137,6 +188,10 @@ export interface ZonesPort {
   create?(actor: Actor, input: z.output<typeof CreateZoneInput>): Promise<ZonePlacementView>;
   rename?(actor: Actor, input: z.output<typeof RenameZoneInput>): Promise<ZonePlacementView>;
   remove?(actor: Actor, input: z.output<typeof RemoveZoneInput>): Promise<void>;
+  setTier?(actor: Actor, input: z.output<typeof SetZoneTierInput>): Promise<ZonePlacementView>;
+  tierFares?(cityId: string): ZoneTierFare[];
+  /** Admin dry run: where recent delivery pins land by circle vs outline, and what the fee would do. Moves no fee. */
+  pinCheck?(cityId: string): Promise<ZonePinCheck>;
   /** The zone as it reads after the check: no flag, and `confirmed` if the drivers' "إي" already add up. */
   clearCheckFlag(actor: Actor, input: z.output<typeof ClearZoneCheckFlagInput>): Promise<ZonePlacementView>;
 }

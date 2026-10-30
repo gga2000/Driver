@@ -1,7 +1,7 @@
 export { ControlsModule } from './controls.module.js';
 /**
- * `ControlsService.assertOrderAllowed` / `assertCorridorOpen` are the gates new work passes (orders,
- * routes); `dispatchHeld` is dispatch's hold check; `bindActiveOrders` / `registerCorridors` are how
+ * `ControlsService.assertOrderAllowed` / `assertCorridorOpen` / `assertLaunched` are the gates new work
+ * passes (orders, routes, khat); `dispatchHeld` is dispatch's hold check; `bindActiveOrders` / `registerCorridors` are how
  * the orders and routes modules feed it without a cycle.
  */
 export { ControlsService, daysBetween, VERTICAL_AR, DEFAULT_THROTTLE_ETA_MIN, BUSY_LOAD, BANNER_MAX_MS, throttleMessage, loadState } from './controls.service.js';

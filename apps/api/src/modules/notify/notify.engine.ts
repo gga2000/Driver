@@ -20,9 +20,12 @@ import type { Clock } from '../../shared/clock.js';
 import type { PromoHold } from '../controls/index.js';
 import { afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
 import { localHour, startOfLocalDay } from '../../shared/local-time.js';
-import { isProviderError } from '../../shared/messaging/http.js';
+import { isAccountProblem, isProviderError } from '../../shared/messaging/http.js';
 import type { SmsPort } from '../../shared/messaging/sms.js';
+import { notifyDeliveries } from '../../shared/metrics.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { SMS_DAY_KEY, SMS_DAY_MS, smsBudgetAlertKey, smsBudgetLevelsReached, type SmsBudgetLevel } from '../../shared/sms-budget.js';
+import type { WindowCounter } from '../../shared/window-counter.js';
 import type { PushMessage, PushPorts, PushTicket } from './providers/push.js';
 import type { WhatsAppPort } from './providers/whatsapp.js';
 import type { DeliveryPayload, DeliveryRecord, NewDelivery, NotifyRepository, TicketRecord } from './notify.repository.js';
@@ -55,7 +58,23 @@ export interface NotifyContacts {
 export interface NotifyProviders {
   push: PushPorts;
   sms: SmsPort;
-  whatsapp: WhatsAppPort;
+  /** Null when WhatsApp is not set up (no WHATSAPP_TOKEN outside development): its rows are skipped. */
+  whatsapp: WhatsAppPort | null;
+}
+
+/**
+ * The day's SMS budget, shared with sign-in codes (`shared/sms-budget.ts`): every notification SMS the
+ * provider took is counted in the same window counter; ops hear at 50/80/100 %; past 100 % (with
+ * `throttle`) SMS twins are skipped (`sms_budget`) unless they are safety messages. SMS-first messages
+ * (a ride booked by phone) always go: SMS is their only way.
+ */
+export interface NotifySmsBudget {
+  counter: WindowCounter;
+  dailyBudget: number;
+  /** False with OTP_BUDGET_MODE=alert: count and alert, never skip. */
+  throttle: boolean;
+  /** Called once per level per window (the marker is shared with the OTP guard's own budget alert). */
+  alert(alert: { level: SmsBudgetLevel; count: number; limit: number }): Promise<void>;
 }
 
 export type NotifyJob =
@@ -115,6 +134,13 @@ export class NotifyEngine {
      * with offers off; offers wait from 20 minutes before iftar until after it (J6).
      */
     private readonly promoHold: (at: Date) => Promise<PromoHold | null> = async () => null,
+    /**
+     * Whether a message's SMS twin still means something when it is due (`twinStillWanted` in the
+     * subscribers): a new-order text for an order the kitchen already answered does not.
+     */
+    private readonly twinWanted: (row: DeliveryRecord) => Promise<boolean> = async () => true,
+    /** The shared daily SMS budget; absent = SMS are neither counted nor capped (unit tests). */
+    private readonly smsBudget?: NotifySmsBudget,
   ) {}
 
   // ───────────────────────── routing ─────────────────────────
@@ -156,6 +182,7 @@ export class NotifyEngine {
       else if (pref && !prefs[pref]) [status, reason] = ['suppressed', `preference:${pref}`];
       else if (hold && hold.reason !== 'iftar') [status, reason] = ['suppressed', hold.reason];
       else if (capped) [status, reason] = ['suppressed', 'weekly_cap'];
+      else if (channel === 'whatsapp' && !this.providers.whatsapp) [status, reason] = ['skipped', 'not_configured'];
       else if (hold?.reason === 'iftar') [status, reason, notBefore] = ['deferred', 'iftar', hold.until];
       else if (deferred) [status, reason, notBefore] = ['deferred', 'quiet_hours', quietHoursEnd(now)];
       return { dedupeKey, eventId: req.eventId, template: req.template, personId: req.to, orderId: req.orderId ?? null, channel, status, reason, twin: false, payload: channel === 'whatsapp' && preview.whatsapp ? { ...payload, body: preview.whatsapp.text } : payload, notBefore };
@@ -167,16 +194,21 @@ export class NotifyEngine {
         if (row.status === 'queued') await this.enqueue({ kind: 'send', deliveryId: row.id }, jobKey('send', row.id, 0));
         else if (row.status === 'deferred' && row.notBefore) await this.enqueue({ kind: 'send', deliveryId: row.id }, jobKey('send', row.id, 'deferred'), row.notBefore.getTime() - now.getTime());
       }
-      if (def.smsTwinAfterSec !== undefined && inserted.some((r) => r.status === 'queued')) {
+      // A channel that is not set up counts as tried and failed: the twin still goes (at once when
+      // nothing else was tried, else at the deadline).
+      const unconfigured = inserted.filter((r) => r.status === 'skipped' && r.reason === 'not_configured');
+      if (def.smsTwinAfterSec !== undefined && inserted.some((r) => r.status === 'queued' || unconfigured.includes(r))) {
         await this.enqueue({ kind: 'twin', dedupeKey, final: true }, jobKey('twin', inserted[0]!.id, 'final'), def.smsTwinAfterSec * 1000);
       }
+      for (const row of unconfigured) await this.earlyTwin(row);
     };
     if (!afterCommit(tx, schedule)) await schedule();
     return inserted;
   }
 
   private async enqueue(job: NotifyJob, jobId: string, delayMs = 0): Promise<void> {
-    await this.queue.add(job.kind, job, { jobId, ...(delayMs > 0 ? { delayMs } : {}) });
+    // One attempt: a failed send retries through `failed()` with its own backoff and a fresh job.
+    await this.queue.add(job.kind, job, { jobId, attempts: 1, ...(delayMs > 0 ? { delayMs } : {}) });
   }
 
   // ───────────────────────── jobs ─────────────────────────
@@ -216,12 +248,26 @@ export class NotifyEngine {
       await this.repo.updateDelivery(row.id, { status: 'suppressed', reason: hold.reason }, now);
       return;
     }
+    // The claim (sentAt set while unset) comes before the provider call, so a rerun of this job never
+    // sends twice. Every outcome that allows another try clears sentAt again.
+    if (!(await this.repo.claimSend(row.id, now))) return;
     try {
       if (row.channel === 'push') await this.sendPush(row, def);
       else if (row.channel === 'sms') await this.sendSms(row);
       else await this.sendWhatsApp(row, def);
     } catch (err) {
+      // The message already went out: fail the job (logged) and leave the row claimed, never send again.
+      if (err instanceof AfterSendError) throw err.cause;
       await this.failed(row, err);
+    }
+  }
+
+  /** Bookkeeping after a provider accepted the message: its failure must not lead to a second send. */
+  private async afterSend<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      throw new AfterSendError(err);
     }
   }
 
@@ -233,13 +279,23 @@ export class NotifyEngine {
     const reason = isProviderError(err) ? err.code : (err as Error).message.slice(0, 200);
     if (!permanent && attempts < this.opts.maxAttempts) {
       const delay = Math.min(this.opts.retryBaseMs * 2 ** (attempts - 1), 10 * 60_000);
-      await this.repo.updateDelivery(row.id, { status: 'queued', attempts, reason: `retry:${reason}` }, now);
+      await this.repo.updateDelivery(row.id, { status: 'queued', attempts, reason: `retry:${reason}`, sentAt: null }, now);
       await this.enqueue({ kind: 'send', deliveryId: row.id }, jobKey('send', row.id, attempts), delay);
       return;
     }
-    this.logger.warn(`${row.template} ${row.channel} to ${row.personId} failed: ${reason}`);
-    await this.repo.updateDelivery(row.id, { status: 'failed', attempts, reason }, now);
+    // Our own account refused it (credentials, permission, balance): every send fails until someone
+    // fixes it, so it goes to the error reporter, not just the log.
+    const account = isProviderError(err) && isAccountProblem(err.code, err.message);
+    this.count(row.channel, account ? 'account' : 'failed');
+    if (account) this.logger.error(`${row.channel} provider refused our account (${reason}): ${row.template} to ${row.personId} not sent`);
+    else this.logger.warn(`${row.template} ${row.channel} to ${row.personId} failed: ${reason}`);
+    await this.repo.updateDelivery(row.id, { status: 'failed', attempts, reason, sentAt: null }, now);
     await this.earlyTwin(row);
+  }
+
+  /** `driver_notify_delivery_total{channel,result}` (shared/metrics.ts). */
+  private count(channel: NotifyChannel, result: 'sent' | 'failed' | 'account'): void {
+    notifyDeliveries.inc({ channel, result });
   }
 
   private async locale(personId: string, purpose: string): Promise<Locale> {
@@ -251,7 +307,7 @@ export class NotifyEngine {
     const app = row.payload.app === 'any' ? undefined : row.payload.app;
     const tokens = await this.repo.tokensOf(row.personId, app);
     if (tokens.length === 0) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_device', attempts: row.attempts + 1 }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_device', attempts: row.attempts + 1, sentAt: null }, now);
       await this.earlyTwin(row);
       return;
     }
@@ -277,56 +333,105 @@ export class NotifyEngine {
       const sent: PushTicket[] = await this.providers.push[kind].send(messages);
       for (const t of sent) tickets.push({ token: t.token, kind, id: t.id, ok: t.ok, ...(t.error ? { error: t.error } : {}) });
       const dead = sent.filter((t) => t.invalidToken).map((t) => t.token);
-      if (dead.length > 0) await this.repo.deleteTokens(dead);
+      if (dead.length > 0) await this.afterSend(() => this.repo.deleteTokens(dead));
     }
     const ok = tickets.filter((t) => t.ok);
     const provider = [...new Set(tokens.map((t) => this.providers.push[t.kind].name))].join('+');
     if (ok.length === 0) {
       const allDead = tickets.every((t) => t.error === 'DeviceNotRegistered' || t.error === 'UNREGISTERED' || t.error === 'NOT_FOUND');
-      await this.repo.updateDelivery(row.id, { status: 'failed', reason: allDead ? 'invalid_token' : (tickets[0]?.error ?? 'push_failed'), provider, tickets, attempts: row.attempts + 1, payload: { ...row.payload, title: r.title, body: r.body } }, now);
+      const account = tickets.some((t) => t.error && isAccountProblem(t.error));
+      this.count('push', account ? 'account' : 'failed');
+      if (account) this.logger.error(`push provider refused our account (${tickets.find((t) => t.error && isAccountProblem(t.error))?.error}): ${row.template} to ${row.personId} not sent`);
+      await this.repo.updateDelivery(row.id, { status: 'failed', reason: allDead ? 'invalid_token' : (tickets[0]?.error ?? 'push_failed'), provider, tickets, attempts: row.attempts + 1, sentAt: null, payload: { ...row.payload, title: r.title, body: r.body } }, now);
       await this.earlyTwin(row);
       return;
     }
-    await this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider, providerRef: ok[0]!.id, tickets, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: r.title, body: r.body } }, now);
-    // With a twin, the twin check polls the receipts at its deadline; otherwise poll later to prune.
-    if (def.smsTwinAfterSec === undefined && ok.some((t) => this.providers.push[t.kind].hasReceipts)) {
-      await this.enqueue({ kind: 'receipts', deliveryId: row.id }, jobKey('receipts', row.id), this.opts.receiptDelaySec * 1000);
-    }
+    this.count('push', 'sent');
+    await this.afterSend(async () => {
+      await this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider, providerRef: ok[0]!.id, tickets, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: r.title, body: r.body } }, now);
+      // With a twin, the twin check polls the receipts at its deadline; otherwise poll later to prune.
+      if (def.smsTwinAfterSec === undefined && ok.some((t) => this.providers.push[t.kind].hasReceipts)) {
+        await this.enqueue({ kind: 'receipts', deliveryId: row.id }, jobKey('receipts', row.id), this.opts.receiptDelaySec * 1000);
+      }
+    });
   }
 
   private async sendSms(row: DeliveryRecord): Promise<void> {
     const now = this.clock.now();
+    if (row.twin && NOTIFY_TEMPLATES[row.template].category !== 'safety' && (await this.smsBudgetSpent())) {
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'sms_budget', attempts: row.attempts + 1, sentAt: null }, now);
+      return;
+    }
     const contact = await this.contacts.contact(row.personId, { phone: true, purpose: `notify:${row.template}` });
     if (!contact?.phoneE164) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1 }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1, sentAt: null }, now);
       return;
     }
     const r = render(row.template, row.payload.params, contact.locale, row.payload.content ?? null);
     const res = await this.providers.sms.send({ to: contact.phoneE164, body: r.sms });
-    await this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: null, body: r.sms } }, now);
+    this.count('sms', 'sent');
+    await this.countSms();
+    await this.afterSend(() => this.repo.updateDelivery(row.id, { status: 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, payload: { ...row.payload, title: null, body: r.sms } }, now));
+  }
+
+  /** Is the day's shared SMS budget spent (and throttling)? A counter that can't be read never stops a text. */
+  private async smsBudgetSpent(): Promise<boolean> {
+    const b = this.smsBudget;
+    if (!b?.throttle) return false;
+    try {
+      return (await b.counter.count(SMS_DAY_KEY, SMS_DAY_MS)) >= b.dailyBudget;
+    } catch (err) {
+      this.logger.warn(`sms budget unreadable, sending anyway: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  /** Counts one sent SMS in the shared day counter and tells ops at 50/80/100 % (once per level per window). */
+  private async countSms(): Promise<void> {
+    const b = this.smsBudget;
+    if (!b) return;
+    try {
+      const { count } = await b.counter.hit(SMS_DAY_KEY, SMS_DAY_MS, Number.MAX_SAFE_INTEGER);
+      for (const level of smsBudgetLevelsReached(count, b.dailyBudget)) {
+        if (!(await b.counter.hit(smsBudgetAlertKey(level), SMS_DAY_MS, 1)).allowed) continue;
+        this.logger.warn(JSON.stringify({ event: 'sms.budget', level, count, limit: b.dailyBudget }));
+        await b.alert({ level, count, limit: b.dailyBudget });
+      }
+    } catch (err) {
+      // The text already went out: a counter or alert that fails must not fail the job (or resend it).
+      this.logger.error(`sms budget not counted: ${(err as Error).message}`);
+    }
   }
 
   private async sendWhatsApp(row: DeliveryRecord, def: NotifyTemplateDef): Promise<void> {
     const now = this.clock.now();
     const contact = await this.contacts.contact(row.personId, { phone: true, purpose: `notify:${row.template}` });
     if (!contact?.phoneE164) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1 }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_phone', attempts: row.attempts + 1, sentAt: null }, now);
       await this.earlyTwin(row);
       return;
     }
     const r = render(row.template, row.payload.params, contact.locale, null);
     if (!r.whatsapp || !def.whatsapp) {
-      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_template' }, now);
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'no_template', sentAt: null }, now);
       return;
     }
-    const res = await this.providers.whatsapp.send({ to: contact.phoneE164, template: r.whatsapp.template, language: r.whatsapp.language, params: r.whatsapp.params, preview: r.whatsapp.text });
+    const whatsapp = this.providers.whatsapp;
+    if (!whatsapp) {
+      await this.repo.updateDelivery(row.id, { status: 'skipped', reason: 'not_configured', attempts: row.attempts + 1, sentAt: null }, now);
+      await this.earlyTwin(row);
+      return;
+    }
+    const res = await whatsapp.send({ to: contact.phoneE164, template: r.whatsapp.template, language: r.whatsapp.language, params: r.whatsapp.params, preview: r.whatsapp.text });
+    this.count('whatsapp', 'sent');
     // Without status callbacks Meta's acceptance is all we will hear: count it as delivered.
-    const delivered = !this.providers.whatsapp.statusCallbacks;
-    await this.repo.updateDelivery(
+    const delivered = !whatsapp.statusCallbacks;
+    const wa = r.whatsapp;
+    await this.afterSend(() => this.repo.updateDelivery(
       row.id,
-      { status: delivered ? 'delivered' : 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, ...(delivered ? { deliveredAt: now } : {}), payload: { ...row.payload, title: r.whatsapp.template, body: r.whatsapp.text } },
+      { status: delivered ? 'delivered' : 'sent', reason: null, provider: res.provider, providerRef: res.messageId, attempts: row.attempts + 1, sentAt: now, ...(delivered ? { deliveredAt: now } : {}), payload: { ...row.payload, title: wa.template, body: wa.text } },
       now,
-    );
+    ));
   }
 
   // ───────────────────────── receipts and the SMS twin ─────────────────────────
@@ -379,7 +484,7 @@ export class NotifyEngine {
   private delivered(row: DeliveryRecord): boolean {
     if (row.status === 'delivered' || row.status === 'read') return true;
     if (row.status !== 'sent') return false;
-    if (row.channel === 'whatsapp') return !this.providers.whatsapp.statusCallbacks;
+    if (row.channel === 'whatsapp') return !!this.providers.whatsapp && !this.providers.whatsapp.statusCallbacks;
     if (row.channel === 'push') return (row.tickets ?? []).some((t) => t.ok && !this.providers.push[t.kind].hasReceipts);
     return true;
   }
@@ -405,9 +510,11 @@ export class NotifyEngine {
     const now = this.clock.now();
     const prefs = await this.preferencesOf(first.personId);
     const pref = preferenceFor(def.category, 'sms');
-    const allowed = ALWAYS_TWIN.has(def.category) || pref === null || prefs[pref];
+    const wanted = await this.twinWanted(first);
+    const allowed = wanted && (ALWAYS_TWIN.has(def.category) || pref === null || prefs[pref]);
+    const reason = allowed ? null : wanted ? `preference:${pref}` : 'no_longer_needed';
     const [created] = await this.repo.insertDeliveries(
-      [{ dedupeKey, eventId: first.eventId, template: first.template, personId: first.personId, orderId: first.orderId, channel: 'sms', status: allowed ? 'queued' : 'suppressed', reason: allowed ? null : `preference:${pref}`, twin: true, payload: { ...first.payload }, notBefore: null }],
+      [{ dedupeKey, eventId: first.eventId, template: first.template, personId: first.personId, orderId: first.orderId, channel: 'sms', status: allowed ? 'queued' : 'suppressed', reason, twin: true, payload: { ...first.payload }, notBefore: null }],
       now,
     );
     if (created?.status === 'queued') await this.enqueue({ kind: 'send', deliveryId: created.id }, jobKey('send', created.id, 0));
@@ -435,5 +542,12 @@ export class NotifyEngine {
     const updated = await this.repo.updateDelivery(row.id, { status, ...(status === 'delivered' || status === 'read' ? { deliveredAt: row.deliveredAt ?? at } : {}), ...(error ? { reason: error } : {}) }, now);
     if (status === 'failed') await this.earlyTwin(updated);
     return true;
+  }
+}
+
+/** Wraps an error raised after a provider accepted a message (see `NotifyEngine.afterSend`). */
+class AfterSendError extends Error {
+  constructor(override readonly cause: unknown) {
+    super((cause as Error)?.message ?? String(cause));
   }
 }

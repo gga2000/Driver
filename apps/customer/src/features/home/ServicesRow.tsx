@@ -1,8 +1,9 @@
 import { useCallback, useEffect, type ComponentProps, type ReactNode } from 'react';
+import { liveZones } from '@/lib/zones-state';
 import { Pressable, StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
-import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
+import { type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import { lift, type ServiceCard } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
 import { CornerFill, Icon, LocalPhoto, Skeleton, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
@@ -10,9 +11,11 @@ import { boardSummary, clockLabel, PRIMARY_CORRIDOR } from '@/features/rajaa/log
 import { useBoard } from '@/features/rajaa/queries';
 import { useNearestMinutes } from '@/features/ride/queries';
 import { useT } from '@/lib/i18n';
+import { useSeason } from '@/lib/use-season';
 import { selectedPlace, useProfile, type SavedPlace } from '@/lib/profile';
 import { useSignedIn } from '@/lib/session';
 import { useAmbient } from './ambient';
+import { tileLaunched } from './launched';
 import { backFact, rideFact, tripsFact, type Fact } from './service-facts';
 import { MOMENT_LEAD_MS, MOMENT_MS, nudge, steamWisp, tuktukHop } from './tile-moments';
 import { TILE_PICTURES, type TilePicture } from './tile-pictures';
@@ -44,8 +47,8 @@ export const SERVICES: readonly ServiceDef[] = [
 const def = (id: ServiceId): ServiceDef => SERVICES.find((s) => s.id === id)!;
 
 /** The bento's measures (soft tint, at phone size and normal text; `grownTileHeight` adds large text). */
-const GAP = 10;
-const SMALL_H = 96;
+export const GAP = 10;
+export const SMALL_H = 96;
 const TRIP_H = 84;
 /** How far a tile's name or fact may shrink to fit its width (phones only; the web keeps the size). */
 const FIT_MIN = 0.8;
@@ -96,7 +99,7 @@ function useMoment() {
 export function homePin(place: SavedPlace | null): LatLng | null {
   if (!place) return null;
   if (place.pin) return place.pin;
-  const z = AZIZIYAH_ZONES.find((x) => x.id === place.zoneId);
+  const z = liveZones().find((x) => x.id === place.zoneId);
   return z ? { lat: z.lat, lng: z.lng } : null;
 }
 
@@ -128,6 +131,8 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
   const out = useNextCar('from_aziziyah', signedIn);
   const back = useNextCar('to_aziziyah', signedIn);
   const ridesOff = !online;
+  // Baghdad/Kut and الرجعة show only once the city has launched intercity (city config, via the season read).
+  const intercity = tileLaunched('trips', useSeason().launched);
   const facts = {
     taxi: rideFact('taxi', { online, signedIn, loading: taxi.loading, nearestMinutes: taxi.minutes }),
     tuktuk: rideFact('tuktuk', { online, signedIn, loading: tuktuk.loading, nearestMinutes: tuktuk.minutes }),
@@ -200,46 +205,50 @@ export function ServicesRow({ onPress, foodFact, foodOff, scrollY }: { onPress: 
       </View>
       {/* Out to Baghdad and Kut and back home: two cards with the there-and-back sign between them
           (Ali picked it over the torn ticket and one two-colour card, 2026-10-08). */}
-      <View testID="home-round-trip" style={{ flexDirection: 'row', height: tripH }}>
-        <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
-          <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
-          <SideWords text={PLACE.trips.text}>
-            <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
-          </SideWords>
-        </Tile>
-        <View pointerEvents="none" style={{ width: GAP, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
-          <RoundTripSign card={ride(s.trips.card)} />
+      {intercity && (
+        <View testID="home-round-trip" style={{ flexDirection: 'row', height: tripH }}>
+          <Tile id="trips" card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} disabled={ridesOff} style={{ flex: TRIPS_FLEX }} onPress={() => press('trips')}>
+            <Picture picture={TILE_PICTURES.intercity} place={PLACE.trips} facing="end" off={ridesOff} style={tripsPull} />
+            <SideWords text={PLACE.trips.text}>
+              <Words card={ride(s.trips.card)} label={t(def('trips').label)} fact={say(facts.trips)} live={live.trips} beat={beat} />
+            </SideWords>
+          </Tile>
+          <View pointerEvents="none" style={{ width: GAP, alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+            <RoundTripSign card={ride(s.trips.card)} />
+          </View>
+          <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1 }} onPress={() => press('rajaa')}>
+            <Picture picture={TILE_PICTURES.van} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
+            <SideWords text={PLACE.rajaa.text}>
+              <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
+            </SideWords>
+          </Tile>
         </View>
-        <Tile id="rajaa" card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} disabled={ridesOff} style={{ flex: 1 }} onPress={() => press('rajaa')}>
-          <Picture picture={TILE_PICTURES.van} place={PLACE.rajaa} facing="start" off={ridesOff} style={backPull} />
-          <SideWords text={PLACE.rajaa.text}>
-            <Words card={ride(s.back.card)} label={t(def('rajaa').label)} fact={say(facts.rajaa)} live={live.rajaa} beat={beat} />
-          </SideWords>
-        </Tile>
-      </View>
+      )}
     </View>
   );
 }
 
 /**
- * One card: its wash with the light falling on its top corner and a fine edge, the picture and words
- * clipped inside; it sinks a little under the finger.
+ * One card: its wash with the light falling on its top corner and a fine edge (`edge` colours it, for a
+ * service with no wash), the picture and words clipped inside; it sinks a little under the finger.
  */
-function Tile({
+export function Tile({
   id,
   card,
   label,
   fact,
   disabled,
+  edge,
   style,
   onPress,
   children,
 }: {
-  id: ServiceId;
+  id: string;
   card: ServiceCard;
   label: string;
   fact: string | null;
   disabled?: boolean;
+  edge?: string;
   style: StyleProp<ViewStyle>;
   onPress: () => void;
   children: ReactNode;
@@ -264,7 +273,7 @@ function Tile({
         onPressOut={() => {
           p.value = withSpring(0, theme.motion.spring.select);
         }}
-        style={{ flex: 1, backgroundColor: card.bg, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: withAlpha(card.on, 0.07), overflow: 'hidden' }}
+        style={{ flex: 1, backgroundColor: card.bg, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: edge ?? withAlpha(card.on, 0.07), overflow: 'hidden' }}
       >
         {card.top ? <CornerFill base={card.bg} light={card.top} /> : null}
         {children}
@@ -344,7 +353,7 @@ function SteamCurl({ d, i, a, color }: { d: string; i: number; a: SharedValue<nu
 }
 
 /** The name and fact column at a card's start side, beside its picture, centred top to bottom. */
-function SideWords({ text, children }: { text: DimensionValue; children: ReactNode }) {
+export function SideWords({ text, children }: { text: DimensionValue; children: ReactNode }) {
   const theme = useTheme();
   return <View style={{ position: 'absolute', top: 0, bottom: 0, start: theme.space[3], width: text, justifyContent: 'center' }}>{children}</View>;
 }
@@ -384,7 +393,7 @@ function RoundTripSign({ card }: { card: ServiceCard }) {
  * The service's name and its live fact (two lines at most, beside a picture; one in the tall food
  * card), with the beating dot while the fact is live. A shimmer holds the fact's place while it loads.
  */
-function Words({ card, label, fact, live, beat, big }: { card: ServiceCard; label: string; fact: string | null; live: boolean; beat: boolean; big?: boolean }) {
+export function Words({ card, label, fact, live, beat, big }: { card: ServiceCard; label: string; fact: string | null; live: boolean; beat: boolean; big?: boolean }) {
   const theme = useTheme();
   const factType = big ? 'footnote' : 'caption';
   const line = theme.type[factType].lineHeight;

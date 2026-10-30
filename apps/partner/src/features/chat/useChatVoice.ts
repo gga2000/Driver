@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AudioQuality, IOSOutputFormat, setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, type RecordingOptions } from 'expo-audio';
-import { VOICE_RULES, type ChatThreadKind } from '@driver/contracts';
+import { VOICE_RULES, type ChatThreadKind, type VoiceContentType, type VoiceUploadTicket } from '@driver/contracts';
 import { useToast, type ChatVoice, type VoiceClip, type VoicePlayState } from '@driver/ui';
 import { absoluteUrl } from '@/features/account/photo';
 import { useApiClient } from '@/lib/api';
@@ -29,7 +29,10 @@ const LOAD_TIMEOUT_MS = 10_000;
  * browser) and one player for the whole thread, wired to `chat.voiceUpload`. The recording mode is on
  * only while he holds the mic; the silent switch never mutes a note (nor the offer alert).
  */
-export function useChatVoice(orderId: string, kind: ChatThreadKind): ChatVoice {
+/** Where a note's upload ticket comes from: the order chat's `chat.voiceUpload` unless a screen names another (step 4c's `chat.trip.voiceUpload`). */
+export type VoiceTicket = (input: { contentType: VoiceContentType; sizeBytes: number }) => Promise<VoiceUploadTicket>;
+
+export function useChatVoice(orderId: string, kind: ChatThreadKind, ticketFor?: VoiceTicket): ChatVoice {
   const t = useT();
   const toast = useToast();
   const client = useApiClient();
@@ -131,7 +134,8 @@ export function useChatVoice(orderId: string, kind: ChatThreadKind): ChatVoice {
       upload: async (clip) => {
         const blob = await (await fetch(clip.uri)).blob();
         if (blob.size === 0 || blob.size > VOICE_RULES.maxBytes) throw new Error('voice_size');
-        const ticket = await client.chat.voiceUpload.mutate({ orderId, kind, contentType: clip.contentType, sizeBytes: blob.size });
+        const input = { contentType: clip.contentType, sizeBytes: blob.size };
+        const ticket = ticketFor ? await ticketFor(input) : await client.chat.voiceUpload.mutate({ orderId, kind, ...input });
         const put = await fetch(absoluteUrl(ticket.uploadUrl), { method: ticket.method, headers: ticket.headers, body: blob });
         countData(blob.size + HEADERS_BYTES);
         if (!put.ok) throw new Error(`upload_${put.status}`);

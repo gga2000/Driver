@@ -2,15 +2,24 @@ import type { RoleKind } from '../auth.js';
 import {
   ConsoleNames,
   ConsoleNamesInput,
+  CustomerHistory,
+  CustomerHistoryInput,
   DriversListInput,
   DriversPage,
   MerchantList,
   MerchantsListInput,
+  MONEY_ALARM_ROLES,
+  MoneyAlarm,
+  NotifyStuck,
+  OUTBOX_REQUEUE_ROLES,
+  OutboxRequeueInput,
+  OutboxRequeueResult,
   OutboxView,
   RightNow,
   RightNowInput,
   SimulatorStartInput,
   SimulatorStatus,
+  SmsDayView,
 } from '../console-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -30,6 +39,11 @@ export const consoleRouter = router({
     .input(ConsoleNamesInput)
     .output(ConsoleNames)
     .query(({ ctx, input }) => ctx.console.names(input, ctx.actor.personId)),
+  /** s5: the support card's last orders and this month's credits of one customer. */
+  customerHistory: protectedProcedure(CONSOLE_READ_ROLES)
+    .input(CustomerHistoryInput)
+    .output(CustomerHistory)
+    .query(({ ctx, input }) => ctx.console.customerHistory(input)),
 });
 
 /** `drivers.list`: everyone with a driving role, joined with presence and scorecard tier. */
@@ -48,11 +62,24 @@ export const merchantsRouter = router({
     .query(({ ctx, input }) => ctx.console.merchants(input.cityId)),
 });
 
-/** `system.*`: outbox health and simulator controls (stubbed until the simulator is rebuilt). */
+/** `system.*`: outbox health (and the admin's requeue of failed rows), the money alarm, stuck outgoing messages, the day's SMS count and simulator controls. */
 export const systemRouter = router({
   outbox: protectedProcedure(CONSOLE_READ_ROLES)
     .output(OutboxView)
     .query(({ ctx }) => ctx.console.outbox()),
+  requeueOutbox: protectedProcedure(OUTBOX_REQUEUE_ROLES)
+    .input(OutboxRequeueInput)
+    .output(OutboxRequeueResult)
+    .mutation(({ ctx, input }) => ctx.console.requeueOutbox(input, ctx.actor.personId)),
+  moneyAlarm: protectedProcedure(MONEY_ALARM_ROLES)
+    .output(MoneyAlarm)
+    .query(({ ctx }) => ctx.console.moneyAlarm()),
+  notifyStuck: protectedProcedure(CONSOLE_READ_ROLES)
+    .output(NotifyStuck)
+    .query(({ ctx }) => ctx.console.notifyStuck()),
+  smsDay: protectedProcedure(CONSOLE_READ_ROLES)
+    .output(SmsDayView)
+    .query(({ ctx }) => ctx.console.smsDay()),
   simulator: router({
     status: protectedProcedure(CONSOLE_READ_ROLES)
       .output(SimulatorStatus)

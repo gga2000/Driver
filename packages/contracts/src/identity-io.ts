@@ -109,6 +109,8 @@ export const RequestOtpOutput = z.object({
   phoneMasked: z.string(),
   /** The channel the code went out on (absent from older APIs = SMS). */
   channel: OtpChannel.optional(),
+  /** Whether a code can go by WhatsApp: the code screen offers «دزلي على واتساب» only when true (absent from older APIs = offered). */
+  whatsapp: z.boolean().optional(),
   expiresAt: z.coerce.date(),
   resendAfterSec: z.number().int(),
 });
@@ -132,6 +134,10 @@ export const LogoutInput = z.object({ refreshToken: z.string().min(16).optional(
 
 export const GrantRoleInput = z.object({ personId: z.string(), kind: RoleKind, orgId: z.string().optional() });
 export const RevokeRoleInput = GrantRoleInput;
+
+/** Admins: «طلّعه من كل الأجهزة», every session of one person, on every device. */
+export const EndAllSessionsInput = z.object({ personId: z.string().min(1) });
+export const EndAllSessionsOutput = z.object({ ended: z.number().int().nonnegative() });
 
 export const LinkGuardianInput = z.object({
   wardPhone: z.string().min(7).max(20).optional(),
@@ -158,6 +164,10 @@ export type ChildView = z.infer<typeof ChildView>;
 export const DevLastOtpInput = z.object({ phone: z.string().min(7).max(20) });
 export const DevLastOtpOutput = z.object({ phoneMasked: z.string(), code: z.string().nullable() });
 
+/** Staging only: the fixed code of a staging test number (0770 000 01xx); null anywhere else. */
+export const StagingTestCodeInput = z.object({ phone: z.string().min(7).max(20) });
+export const StagingTestCodeOutput = z.object({ code: z.string().nullable() });
+
 export type Actor = { personId: string; sessionId: string; deviceId?: string };
 
 /** What the identity module exposes to the transport. Implemented by apps/api, consumed by the router. */
@@ -179,6 +189,7 @@ export interface IdentityPort {
   changePhoneStart(actor: Actor, input: z.infer<typeof ChangePhoneStartInput>): Promise<z.infer<typeof ChangePhoneStartOutput>>;
   changePhoneConfirm(actor: Actor, input: z.infer<typeof ChangePhoneConfirmInput>): Promise<MeView>;
   devLastOtp(phone: string): Promise<z.infer<typeof DevLastOtpOutput>>;
+  stagingTestCode(phone: string): Promise<z.infer<typeof StagingTestCodeOutput>>;
   registerChild(actor: Actor, input: z.infer<typeof RegisterChildInput>): Promise<z.infer<typeof RegisterChildOutput>>;
   /** The guardian's own children with their names (each read logged in the vault access log). */
   myChildren(actor: Actor): Promise<ChildView[]>;

@@ -89,8 +89,11 @@ export const TopUpConfirmation = z.object({
   reference: z.string(),
   channel: TopUpChannel,
   confirmedAt: z.coerce.date(),
-  /** The customer's wallet balance after the credit. */
-  walletBalanceIqd: Iqd,
+  /**
+   * The customer's wallet balance after the credit: field ops agents only. A courier never gets a
+   * customer's balance (the field is left out on the `partner.confirmTopUp` path).
+   */
+  walletBalanceIqd: Iqd.optional(),
   customerName: z.string().nullable(),
   customerPhoneMasked: z.string().nullable(),
 });

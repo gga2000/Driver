@@ -3,7 +3,9 @@
 Date: 2026-10-02 · Status: approved — Plan 2 complete, Q1–Q6. All amounts IQD; every figure here is config per city/zone, not code.
 
 ## 1. Restaurant commission
-Tiered by what the merchant receives: 12% base listing · 15% featured placement · 18% marketing deals. 5% on pickup orders. Lower tiers conditional on price parity (in-app price = in-store price). Customer service fee: fixed 500 per order, shown as its own line.
+Tiered by what the merchant receives: 12% base listing · 15% featured placement · 18% marketing deals. 5% on pickup orders.
+
+**Starter tier (Ali, 2026-10-11): 5% for a new restaurant's first two months** ("make it 5% in the first couple of months for us, and 15% for featured placement"; "two months then decide later"). Every new restaurant starts on `starter`, as does any restaurant with no tier on file. The period counts from the day the restaurant was added (onboarding, `orgs.created_at`). Nothing switches automatically: after 7 weeks (49 days) the Console finance desk and the store page show a reminder, and finance or an admin picks the next tier (audited). `featured` is a rate tier only; it does not change list order (no paid ranking). Base, marketing and pickup rates are unchanged. Lower tiers conditional on price parity (in-app price = in-store price). Customer service fee: fixed 500 per order, shown as its own line.
 
 ## 2. Delivery fees and courier pay (food, grocery)
 Delivery fees pass through to the courier in full.
@@ -16,7 +18,7 @@ Delivery fees pass through to the courier in full.
 | Street-point handover | −250 | −250 | 0 |
 | Door pickup (errands, parcels) | +500 | +500 | 0 |
 
-Rules: small-order fee +500 on orders under 5,000 (own line); batched second order pays the courier 70% of its fee, customer pays full; night +250 (food: 00:00–05:00, Ali 2026-10-07), rain +250 as named components; pickup compensation when pickup is more than 2 km from the courier; cars doing food +500. Launch guarantee: 10,000 per 4-hour peak shift at ≥ 85% acceptance, topped up by platform; switches off per zone when average shift earnings exceed it.
+Rules: small-order fee +500 on orders under 5,000 (own line); batched second order pays the courier 70% of its fee, customer pays full (errands too: 70% of the errand fee, the receipt in full to whoever paid at the shop — Ali 2026-10-12); night +250 (food: 00:00–05:00, Ali 2026-10-07), rain +250 as named components; pickup compensation when pickup is more than 2 km from the courier; cars doing food +500. Launch guarantee: 10,000 per 4-hour peak shift at ≥ 85% acceptance, topped up by platform; switches off per zone when average shift earnings exceed it.
 
 Worked example, 15,000 order across town: commission 2,250 + service fee 500 = 2,750 to platform; courier 1,000; restaurant 12,750.
 

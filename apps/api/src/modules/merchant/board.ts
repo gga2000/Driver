@@ -1,10 +1,13 @@
 import {
   orderTicketNumber,
+  type BoardBill,
   type BoardColumn,
   type BoardCourier,
   type BoardGroup,
   type BoardLine,
   type BoardOrder,
+  type CancelledOrder,
+  type DishKind,
   type LatLng,
   type MissedOrder,
   type MissedReason,
@@ -14,6 +17,7 @@ import {
   type Trip,
 } from '@driver/contracts';
 import { bearingDeg, haversineKm } from '../dispatch/index.js';
+import { MISSED_STATES } from '../orders/index.js';
 
 /**
  * The kitchen's view of its live orders (Driver Merchant spec): pure, so the column rules, the
@@ -65,9 +69,10 @@ function modifiersValue(modifiers: readonly unknown[]): number {
  * "صاحب الطلب"), then each tagged person in the order the customer added them. People with nothing
  * left on the order (every line removed by a partial accept) are dropped.
  */
-export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNames: ReadonlyMap<string, string>): BoardGroup[] {
+export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNames: ReadonlyMap<string, string>, itemKinds?: ReadonlyMap<string, DishKind>): BoardGroup[] {
   const toLine = (l: Order['lines'][number]): BoardLine => {
     const unit = l.unitPriceIqd + modifiersValue(l.modifiers);
+    const kind = l.catalogItemId ? itemKinds?.get(l.catalogItemId) : undefined;
     return {
       lineId: l.id,
       name: (l.catalogItemId ? itemNames.get(l.catalogItemId) : null) ?? l.freeText ?? '—',
@@ -77,6 +82,10 @@ export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNam
       unitPriceIqd: unit,
       totalIqd: unit * l.qty,
       availability: l.availability,
+      menuItemId: l.catalogItemId ?? null,
+      // k4/j6: the owner's own ticket kind for the dish; without one the app guesses from the name.
+      ...(kind ? { kind } : {}),
+      ...(l.weightG ? { weightG: l.weightG } : {}),
     };
   };
   const count = (lines: BoardLine[]) => lines.filter((l) => l.availability !== 'removed').reduce((a, l) => a + l.qty, 0);
@@ -95,6 +104,8 @@ export function groupLines(order: Pick<Order, 'lines' | 'participants'>, itemNam
 export interface CourierFacts {
   trip: Pick<Trip, 'state' | 'courierId' | 'stops'> | null;
   firstName: string | null;
+  /** N16: his approved main photo, a signed URL; absent/null without one. */
+  photoUrl?: string | null;
   vehicleClass: BoardCourier['vehicleClass'];
   /** Minutes from his last fix to the counter (the ETA service), when on his way; null when unknown. */
   etaMinutes: number | null;
@@ -129,7 +140,7 @@ export function courierView(orderId: string, f: CourierFacts): BoardCourier {
   if (!t) return none;
   if (!t.courierId || t.state === 'created' || t.state === 'offered' || t.state === 'declined' || t.state === 'timed_out') return { ...none, state: 'searching' };
   const pickup = t.stops.find((s) => s.orderId === orderId && s.type === 'pickup');
-  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass, plate: f.plate ?? null };
+  const who = { firstName: f.firstName, vehicleClass: f.vehicleClass, plate: f.plate ?? null, ...(f.photoUrl ? { photoUrl: f.photoUrl } : {}) };
   if (pickup?.state === 'completed' || t.state === 'in_transit' || t.state === 'arrived_dropoff' || t.state === 'completed') {
     return { ...none, ...who, state: 'picked_up' };
   }
@@ -142,18 +153,25 @@ export function courierView(orderId: string, f: CourierFacts): BoardCourier {
 export interface BoardOrderFacts {
   order: Order;
   itemNames: ReadonlyMap<string, string>;
+  /** k4/j6: the owner's ticket kinds by dish id (only dishes he set). */
+  itemKinds?: ReadonlyMap<string, DishKind>;
   courier: BoardCourier;
   acceptWindowSec: number;
   now: Date;
+  /** Whether the store was closed at a given moment (out of hours, or closed by hand since then). */
+  closedAt?: (at: Date) => boolean;
 }
 
 /** One card on the board, or null when the order is not the kitchen's business any more. */
-export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, now }: BoardOrderFacts): BoardOrder | null {
+export function toBoardOrder({ order: o, itemNames, itemKinds, courier, acceptWindowSec, now, closedAt }: BoardOrderFacts): BoardOrder | null {
   const column = boardColumn(o.state);
   if (!column) return null;
   // Joy w4: a household order waiting for the payer's yes is not the kitchen's business yet.
   if (o.heldForPayer && o.state === 'placed') return null;
-  const groups = groupLines(o, itemNames);
+  // A pre-order is not the kitchen's business until it is offered (T − prep − lead): it cannot be
+  // accepted before then, and the offer re-sends it to the board with its 90-s countdown.
+  if (o.state === 'placed' && !o.merchantOfferedAt) return null;
+  const groups = groupLines(o, itemNames, itemKinds);
   const itemCount = groups.reduce((a, g) => a + g.itemCount, 0);
   const acceptBy = column === 'new' && o.merchantOfferedAt ? new Date(o.merchantOfferedAt.getTime() + acceptWindowSec * 1000) : null;
   const prepMinutes = o.acceptedAt && o.promisedReadyAt ? Math.max(1, Math.round((o.promisedReadyAt.getTime() - o.acceptedAt.getTime()) / 60_000)) : null;
@@ -166,6 +184,7 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     placedAt: o.placedAt,
     offeredAt: o.merchantOfferedAt,
     acceptBy,
+    offeredWhileClosed: acceptBy !== null && o.merchantOfferedAt !== null && closedAt !== undefined && closedAt(o.merchantOfferedAt),
     acceptedAt: o.acceptedAt,
     promisedReadyAt: o.promisedReadyAt,
     readyAt: o.readyAt,
@@ -187,6 +206,22 @@ export function toBoardOrder({ order: o, itemNames, courier, acceptWindowSec, no
     handedOverAt: o.handedOverAt ?? null,
     // «عزيمة» (joy g1): the ticket prints no amounts when the sender hid the prices.
     gift: o.gift ?? null,
+    // Print redesign k2: the customer slip's amounts, never added up on the tablet; none for a hidden-price gift.
+    ...(o.gift?.hidePrices ? {} : { bill: billOf(o) }),
+  };
+}
+
+/** The order's money as the slip prints it (`BoardBill`): copied from the order, nothing recomputed. */
+export function billOf(o: Order): BoardBill {
+  return {
+    itemsIqd: o.itemsTotalIqd,
+    deliveryFeeIqd: o.deliveryFeeIqd,
+    serviceFeeIqd: o.serviceFeeIqd,
+    smallOrderFeeIqd: o.smallOrderFeeIqd ?? 0,
+    discountIqd: o.discountIqd,
+    pointsIqd: o.pointsIqd ?? 0,
+    changeIqd: o.changeIqd ?? 0,
+    totalIqd: o.totalIqd,
   };
 }
 
@@ -195,9 +230,7 @@ export const MISSED_LIST_MAX = 10;
 
 /** Why an order left without the kitchen's answer, or null when it didn't (M-01). */
 export function missedReason(o: Pick<Order, 'state' | 'cancellationReason'>): MissedReason | null {
-  if (o.state === 'merchant_rejected' && o.cancellationReason === 'merchant_timeout') return 'merchant_timeout';
-  if (o.state === 'platform_cancelled' && o.cancellationReason === 'partial_timeout') return 'partial_timeout';
-  return null;
+  return MISSED_STATES.find((m) => m.state === o.state && m.reason === o.cancellationReason)?.reason ?? null;
 }
 
 /**
@@ -217,6 +250,21 @@ export function missedSummary(orders: readonly Order[], inPause: (at: Date) => b
   }
   missed.sort((a, b) => b.missedAt.getTime() - a.missedAt.getTime() || b.orderId.localeCompare(a.orderId));
   return { today: missed.filter((m) => m.reason === 'merchant_timeout').length, orders: missed.slice(0, MISSED_LIST_MAX) };
+}
+
+/**
+ * The board's red «انلغى، لا تكمل» cards: orders the kitchen had accepted that were then cancelled,
+ * newest first. Only ones it really held (accepted, not handed to the courier) — the read already
+ * keeps to accepted orders; this drops anything without a cancel time.
+ */
+export function cancelledCards(orders: readonly Order[]): CancelledOrder[] {
+  const out: CancelledOrder[] = [];
+  for (const o of orders) {
+    if (!o.cancelledAt || !o.acceptedAt || o.pickedUpAt) continue;
+    const itemCount = o.lines.filter((l) => l.availability !== 'removed').reduce((a, l) => a + l.qty, 0);
+    out.push({ orderId: o.id, number: ticketNumber(o.id), wasReady: o.readyAt != null, cancelledAt: o.cancelledAt, itemCount, totalIqd: o.totalIqd });
+  }
+  return out.sort((a, b) => b.cancelledAt.getTime() - a.cancelledAt.getTime() || a.orderId.localeCompare(b.orderId));
 }
 
 /**

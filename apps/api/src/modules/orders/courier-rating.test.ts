@@ -40,6 +40,15 @@ describe('rate the courier', () => {
     expect((await h.repo.courierRatingsOf('d1', 10)).map((r) => r.score)).toEqual([2]);
   });
 
+  it('a second row for the same order is not written (the double tap that lost the race reads the first)', async () => {
+    const h = ordersHarness();
+    const { o, t } = await delivered(h);
+    await h.orders.rate('c1', { orderId: o.id, delivery: 4 });
+    const late = { orderId: o.id, tripId: t.id, driverId: 'd1', customerId: 'c1', score: 1, reasons: [], ratedAt: h.clock.now() };
+    expect(await h.repo.addCourierRating(late)).toBeNull();
+    expect((await h.repo.courierRatingsOf('d1', 10)).map((r) => r.score)).toEqual([4]);
+  });
+
   it('only the order’s customer may rate', async () => {
     const h = ordersHarness();
     const { o } = await delivered(h);

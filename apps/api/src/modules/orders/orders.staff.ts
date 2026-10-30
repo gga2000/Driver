@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DriverError,
   encodeDomainEvent,
   orderTicketNumber,
@@ -14,6 +15,7 @@ import {
   type StaffChargeCourierInput,
   type StaffCloseOrderInput,
   type StaffCourierLostInput,
+  type StaffErrandReceiptInput,
   type MerchantRemakeInput,
   type MerchantRemakeResult,
   type MerchantRemakeRule,
@@ -26,14 +28,15 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
-import type { PostingGroup } from '../ledger/index.js';
+import { courierDeliveryIqd, type PostingGroup } from '../ledger/index.js';
 import type { OrderDomainEvent } from './events.adapter.js';
 import { MERCHANT_DIRECTORY, type MerchantDirectory } from './merchants.port.js';
 import { MERCHANT_ORDER_TYPES } from './order.machine.js';
 import { ORDERS_RULES } from './orders.config.js';
 import { ORDERS_REPOSITORY, type OrderRecord, type OrdersRepository } from './orders.repository.js';
-import { ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
+import { homeNoShowOwedIqd, ORDERS_TRIPS, OrdersService, type OrdersTripsPort } from './orders.service.js';
 import { ORDER_OUTCOME_RULES, type DisputeOutcome, type OrderOutcomeRules } from './outcomes.config.js';
+import type { RefundApprovalRecord, RefundApprovalsService } from './refund-approvals.js';
 import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 const SYSTEM = 'system';
@@ -79,6 +82,8 @@ export interface OrdersStaffPorts {
   eventLog: OrderEventLog;
   /** Without it the watchdog emits no stuck/unstuck events. */
   stuckBoard?: StuckBoardPort;
+  /** Complaint refunds over the limit wait here for a second OK; without it they need an admin, as before. */
+  approvals?: Pick<RefundApprovalsService, 'request' | 'pendingFor' | 'register'>;
 }
 
 export const ORDERS_STAFF_PORTS = Symbol('ORDERS_STAFF_PORTS');
@@ -93,6 +98,8 @@ const PICKED_UP_STUCK_MIN = 60;
 const NOT_CLOSED_GRACE_MIN = 10;
 /** A complaint nobody answered for this long is overdue (the Console's red queue). */
 const DISPUTE_OVERDUE_H = 24;
+/** Dispute outcomes that move no money beyond the normal sale, so no switch gates them (see `resolveDispute`). */
+const ALWAYS_ALLOWED_OUTCOMES: ReadonlySet<DisputeOutcome> = new Set(['void', 'stands']);
 
 /** States an order can be stuck in (the stuck list reads only these). */
 const STUCK_WATCH_STATES: readonly OrderState[] = ['placed', 'merchant_accepted', 'preparing', 'ready', 'picked_up', 'delivered', 'matched', 'completed', 'disputed'];
@@ -145,7 +152,10 @@ export class OrdersStaffService implements PlatformFailurePort {
     @Inject(MERCHANT_DIRECTORY) private readonly merchants: MerchantDirectory,
     @Inject(ORDER_OUTCOME_RULES) readonly rules: OrderOutcomeRules,
     @Inject(ORDERS_STAFF_PORTS) private readonly ports: OrdersStaffPorts,
-  ) {}
+  ) {
+    // An approved complaint refund over the limit posts here, in the approval's transaction.
+    ports.approvals?.register('dispute', (row, approverId, tx) => this.postApproved(row, approverId, tx));
+  }
 
   private get bridge(): OrdersStaffBridge {
     return this.orders.staffBridge();
@@ -223,6 +233,28 @@ export class OrdersStaffService implements PlatformFailurePort {
     });
   }
 
+  /**
+   * «دوّرلي»: the shopper's receipt photo would not send from the shops, so ops record the receipt
+   * for him with the amount he reads out (`OrdersService.opsErrandReceipt`: the same rules and server
+   * recompute as his own entry). Every entry changes the total, so each one is audited; the order's
+   * state does not move (the shops pickup is still the courier's tap).
+   */
+  async errandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult> {
+    return this.uow.run(async (tx) => {
+      const r = await this.orders.opsErrandReceipt(actor.personId, { orderId: input.orderId, totalIqd: input.totalIqd, photoUploadId: input.photoUploadId ?? null });
+      const summary = `سجّل وصل «دوّرلي» بدل المتسوّق: ${iqd(r.receiptIqd)} دينار، والمطلوب من الزبون ${iqd(r.totalIqd)} دينار. السبب: ${input.reason}`;
+      const audit = await this.audit(tx, actor, r.order, 'order.errand_receipt_by_staff', summary, {
+        receiptIqd: r.receiptIqd,
+        totalIqd: r.totalIqd,
+        cashDueIqd: r.cashDueIqd,
+        overCeiling: r.overCeiling,
+        photoUploadId: input.photoUploadId ?? null,
+        reason: input.reason,
+      });
+      return this.result(r.order, true, 0, audit);
+    });
+  }
+
   /** NTF-10: close a delivered order (or completed ride) now; money settles as on the auto-close. Disputes go through `resolveDispute`. */
   async close(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult> {
     return this.uow.run(async (tx) => {
@@ -246,7 +278,7 @@ export class OrdersStaffService implements PlatformFailurePort {
   switches(): StaffOpsSwitches {
     const r = this.rules;
     return {
-      disputeOutcomes: [...new Set([...r.disputes.outcomes, 'void' as const])],
+      disputeOutcomes: [...new Set([...r.disputes.outcomes, ...ALWAYS_ALLOWED_OUTCOMES])],
       agentLimitIqd: r.disputes.agentLimitIqd,
       courierLostRefund: r.courierLost.refund,
       courierLostCharge: r.courierLost.chargeCourier,
@@ -336,12 +368,13 @@ export class OrdersStaffService implements PlatformFailurePort {
    * or the platform — back to the payer's wallet; full ends in `refunded`), `redelivery` (closed;
    * support arranges the resend). On one that never reached him (unreachable at the door, courier
    * cancelled after pickup, courier lost): `void` — `refunded`, nothing charged, nobody paid.
-   * Each outcome needs its switch (`DISPUTE_OUTCOMES`), except `void`, which moves no money and is
-   * the only way out of a dispute that never reached the customer (courier lost with the switches
-   * off); a refund above the agent limit needs admin.
+   * Each outcome needs its switch (`DISPUTE_OUTCOMES`), except the two that move no money beyond the
+   * normal sale: `void` (the only way out of a dispute that never reached the customer, courier lost
+   * with the switches off) and `stands` (complaint rejected: the order closes as delivered). A refund
+   * above the agent limit needs admin.
    */
   async resolveDispute(actor: Actor, input: ResolveDisputeInput): Promise<StaffActionResult> {
-    if (input.outcome !== 'void' && !this.rules.disputes.outcomes.includes(input.outcome)) throw new DriverError('money_rule_off');
+    if (!ALWAYS_ALLOWED_OUTCOMES.has(input.outcome) && !this.rules.disputes.outcomes.includes(input.outcome)) throw new DriverError('money_rule_off');
     const order = await this.load(input.orderId);
     if (order.state !== 'disputed') {
       if ((order.state === 'closed' || order.state === 'refunded') && (await this.resolvedEvent(order.id))) return this.result(order, false, 0, null);
@@ -349,10 +382,46 @@ export class OrdersStaffService implements PlatformFailurePort {
     }
     const amount = input.outcome === 'refund_full' ? await this.refundable(order) : input.outcome === 'refund_partial' ? (input.amountIqd ?? 0) : 0;
     if (amount > (await this.refundable(order))) throw new DriverError('refund_exceeds_order');
-    if (amount > this.rules.disputes.agentLimitIqd && !(await this.ports.roles.hasRole(actor.personId, 'admin'))) throw new DriverError('refund_needs_escalation');
+    if (amount > this.rules.disputes.agentLimitIqd) {
+      // Over the limit: a second staff member (finance or admin, admins too) approves before it posts.
+      if (this.ports.approvals) return this.askSecondOk(actor.personId, order, input, amount);
+      if (!(await this.ports.roles.hasRole(actor.personId, 'admin'))) throw new DriverError('refund_needs_escalation');
+    }
     const funder = amount > 0 ? await this.funderFor(input.faultParty, order) : null;
     const episode = amount > 0 ? await this.disputeEpisode(order.id) : '';
     return this.uow.run((tx) => this.applyOutcome(order.id, input.outcome, amount, funder, actor.personId, input.reason, tx, false, episode));
+  }
+
+  /** A complaint refund over the limit: one pending request per complaint; the order stays disputed. */
+  private async askSecondOk(actorId: string, order: OrderRecord, input: ResolveDisputeInput, amount: number): Promise<StaffActionResult> {
+    const approvals = this.ports.approvals!;
+    return this.uow.run(async (tx) => {
+      const open = (await approvals.pendingFor({ orderId: order.id }, tx)).find((r) => r.kind === 'dispute');
+      if (open) return { ...this.result(order, false, 0, null), pendingApprovalId: open.id };
+      const episode = await this.disputeEpisode(order.id);
+      const base = { kind: 'dispute' as const, cityId: order.cityId, ticketId: null, orderId: order.id, amountIqd: amount, limitKind: 'dispute' as const, payload: { outcome: input.outcome, faultParty: input.faultParty, reason: input.reason, episode }, requestedBy: actorId };
+      // A double click is one request; asking again after a decline is a new one.
+      let row = await approvals.request({ ...base, idempotencyKey: `dispute:${order.id}:${episode}:${input.outcome}:${amount}` }, tx);
+      if (row.state !== 'pending') row = await approvals.request({ ...base, idempotencyKey: `dispute:${order.id}:${episode}:${input.outcome}:${amount}:${this.clock.now().getTime()}` }, tx);
+      const audit = await this.ports.audit.record(
+        { cityId: order.cityId, actorId, action: 'order.refund_requested', subjectKind: 'order', subjectId: order.id, summaryAr: `ترجيع ${iqd(amount)} دينار ينتظر موافقة ثانية — ${input.reason}`, detail: { refundApprovalId: row.id, outcome: input.outcome, amountIqd: amount, faultParty: input.faultParty } },
+        tx,
+      );
+      return { ...this.result(order, false, 0, audit.id), pendingApprovalId: row.id };
+    });
+  }
+
+  /** An approved complaint refund: the outcome the agent picked, posted now with the approver as actor. */
+  private async postApproved(row: RefundApprovalRecord, approverId: string, tx: Tx): Promise<void> {
+    const p = row.payload as { outcome: DisputeOutcome; faultParty: FaultParty; reason: string; episode?: string };
+    const order = await this.load(row.orderId!, tx);
+    if (order.state !== 'disputed') throw new DriverError('order_state_conflict');
+    const refundable = await this.refundable(order);
+    const amount = p.outcome === 'refund_full' ? refundable : row.amountIqd;
+    if (amount > refundable) throw new DriverError('refund_exceeds_order');
+    const funder = await this.funderFor(p.faultParty, order);
+    const episode = p.episode ?? (await this.disputeEpisode(order.id));
+    await this.applyOutcome(order.id, p.outcome, amount, funder, approverId, `${p.reason} (موافقة ثانية)`, tx, false, episode);
   }
 
   private async applyOutcome(orderId: string, outcome: DisputeOutcome, amount: number, funder: Funder | null, actorId: string, reason: string, tx: Tx, auto: boolean, episode = ''): Promise<StaffActionResult> {
@@ -460,6 +529,52 @@ export class OrdersStaffService implements PlatformFailurePort {
     const to = `merchant_cash:${order.merchantOrgId}`;
     await this.ports.ledger.recordAll({ id: groupId, kind: 'money', occurredAt: this.clock.now(), refs: { orderId: order.id }, lines: [{ type: 'credit_issued', amount: order.itemsTotalIqd, fromAccount: 'platform', toAccount: to, memo }], controls: [{ account: to, net: order.itemsTotalIqd }] }, tx);
     return order.itemsTotalIqd;
+  }
+
+  /**
+   * أكل بيت no-show (Ali, 2026-10-11): a reserved home dish was cooked for him and he never took it at
+   * the door. Driver pays the cook the dish price in full, and the same amount goes on his wallet as
+   * owed — collected with his next cash order (M-3 «ينضاف لطلبك الجاي»); until it is paid he can't
+   * reserve again (`home_reservation_owed`). He also owes the delivery fee he saw at checkout, and the
+   * courier who made the trip is paid for it (Ali, 2026-10-12 «Customer pays»): his part goes to his
+   * earnings (`driver:`, never `cash:`: no cash changed hands), the batch margin to the platform, and
+   * a merchant free-delivery deal's gap is paid by the platform so the courier still gets all his part.
+   * One idempotent group per order; returns what the customer owes.
+   */
+  async homeNoShow(order: OrderRecord, tx: Tx, courier: { courierId: string; tripId?: string | null; batchedSecond?: boolean } | null = null): Promise<number> {
+    if (!order.merchantOrgId || order.itemsTotalIqd <= 0) return 0;
+    const groupId = `order:${order.id}:home_no_show`;
+    if (await this.ports.ledger.hasGroup(groupId, tx)) return 0;
+    const cook = `merchant_cash:${order.merchantOrgId}`;
+    const payer = payerAccount(order);
+    const fee = courier ? order.deliveryFeeIqd : 0;
+    // The same sum the order event's owedIqd carries, so the two never drift.
+    const owed = homeNoShowOwedIqd(order, courier !== null);
+    const owedFee = owed - order.itemsTotalIqd;
+    const courierPart = courier ? courierDeliveryIqd({ deliveryFeeIqd: fee, batchedSecond: courier.batchedSecond }, AZIZIYAH_MONEY_RULES) : 0;
+    const fromPayer = Math.min(courierPart, owedFee);
+    const driver = courier ? `driver:${courier.courierId}` : '';
+    // One line each, as a cancellation fee is (postings.ts): Driver owes the cook and the courier now, he owes Driver.
+    const lines: PostingGroup['lines'] = [{ type: 'cancellation_fee', amount: order.itemsTotalIqd, fromAccount: payer, toAccount: cook, memo: 'home_no_show' }];
+    if (fromPayer > 0) lines.push({ type: 'delivery_fee', amount: fromPayer, fromAccount: payer, toAccount: driver, memo: 'home_no_show' });
+    if (courierPart > fromPayer) lines.push({ type: 'delivery_fee', amount: courierPart - fromPayer, fromAccount: 'platform', toAccount: driver, memo: 'home_no_show:delivery_deal' });
+    if (owedFee > fromPayer) lines.push({ type: 'delivery_fee', amount: owedFee - fromPayer, fromAccount: payer, toAccount: 'platform', memo: courier?.batchedSecond ? 'batched_margin' : 'delivery_margin' });
+    await this.ports.ledger.recordAll(
+      {
+        id: groupId,
+        kind: 'money',
+        occurredAt: this.clock.now(),
+        refs: { orderId: order.id, ...(courier?.tripId ? { tripId: courier.tripId } : {}) },
+        lines,
+        controls: [
+          { account: cook, net: order.itemsTotalIqd },
+          { account: payer, net: -owed },
+          ...(courier ? [{ account: driver, net: courierPart }] : []),
+        ],
+      },
+      tx,
+    );
+    return owed;
   }
 
   // ───────────────────────── the stuck list and the watchdog ─────────────────────────

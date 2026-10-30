@@ -243,6 +243,7 @@ describe('ChatThread', () => {
     kind: 'customer_courier',
     status: 'open',
     closesAt: null,
+    lostItem: null,
     myRole: 'customer',
     ride: false,
     participants: [

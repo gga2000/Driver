@@ -83,6 +83,7 @@ function fakePort(): ConsolePort {
     orderEvents: vi.fn(async () => [event]),
     orderLedger: vi.fn(async () => [{ id: 'l1', at: AT, type: 'merchant_payable', label_ar: 'مستحق المطعم', amountIqd: 12_000, fromAccount: 'platform', toAccount: 'merchant_cash:org_1', memo: null }]),
     tripEvents: vi.fn(async () => [event]),
+    customerHistory: vi.fn(async () => ({ recentOrders: [summary], credits: { from: AT, totalIqd: 1_000, lines: [{ id: 'l2', at: AT, type: 'refund' as const, label_ar: 'استرجاع', amountIqd: 1_000, orderId: null }] } })),
     rightNow: vi.fn(async (cityId: string) => ({
       cityId,
       at: AT,
@@ -106,6 +107,8 @@ function fakePort(): ConsolePort {
       orgs: { org_1: { name: 'مطعم الكبة', type: 'restaurant' } },
       items: {},
     })),
+    requeueOutbox: vi.fn(async () => ({ requeued: 1 })),
+    moneyAlarm: vi.fn(async () => ({ ledgerFailed: 0, oldestPendingSec: 0, alarm: false })),
     simulatorStatus: vi.fn(async () => ({ available: false })),
     simulatorStart: vi.fn(async () => ({ available: false })),
     simulatorStop: vi.fn(async () => ({ available: false })),
@@ -159,6 +162,21 @@ describe('console read procedures: role gating', () => {
     for (const role of CONSOLE_READ_ROLES) await expect(run(caller([role]).call)).resolves.toBeDefined();
   });
 
+  it('outbox requeue: admin only, by ids or by type and time range, against the admin', async () => {
+    for (const role of ['dispatcher', 'support', 'finance'] as const) expect(await codeOf(caller([role]).call.system.requeueOutbox({ ids: ['ob_1'] }))).toBe('FORBIDDEN');
+    const { call, port } = caller(['admin']);
+    await expect(call.system.requeueOutbox({ ids: ['ob_1'] })).resolves.toEqual({ requeued: 1 });
+    expect(port.requeueOutbox).toHaveBeenCalledWith({ ids: ['ob_1'] }, 'p_staff');
+    await expect(call.system.requeueOutbox({ type: 'order.closed', from: AT, to: new Date(AT.getTime() + 60_000) })).resolves.toEqual({ requeued: 1 });
+    expect(await codeOf(call.system.requeueOutbox({ type: 'order.closed', from: AT, to: AT }))).toBe('BAD_REQUEST');
+    expect(await codeOf(call.system.requeueOutbox({ ids: [] }))).toBe('BAD_REQUEST');
+  });
+
+  it('money alarm: finance and admin', async () => {
+    expect(await codeOf(caller(['dispatcher', 'support']).call.system.moneyAlarm())).toBe('FORBIDDEN');
+    await expect(caller(['finance']).call.system.moneyAlarm()).resolves.toMatchObject({ alarm: false });
+  });
+
   it('simulator start/stop: admin and dispatcher only', async () => {
     expect(await codeOf(caller(['support', 'finance']).call.system.simulator.start({ cityId: 'aziziyah' }))).toBe('FORBIDDEN');
     expect(await codeOf(caller(['finance']).call.system.simulator.stop())).toBe('FORBIDDEN');
@@ -188,12 +206,22 @@ describe('console read procedures: shapes', () => {
   it('orders.search coerces dates, defaults the limit and rejects bad states', async () => {
     const { call, port } = caller(['finance']);
     const res = await call.orders.search({ cityId: 'aziziyah', states: ['delivered'], from: '2026-10-01T00:00:00Z' as unknown as Date, text: '  kebab ' });
-    expect(port.searchOrders).toHaveBeenCalledWith({ cityId: 'aziziyah', states: ['delivered'], from: new Date('2026-10-01T00:00:00Z'), text: 'kebab', limit: 50 });
+    expect(port.searchOrders).toHaveBeenCalledWith({ cityId: 'aziziyah', states: ['delivered'], from: new Date('2026-10-01T00:00:00Z'), text: 'kebab', limit: 50 }, 'p_staff');
     expect(res).toEqual({ rows: [summary], nextCursor: 'c1' });
     expect(await codeOf(call.orders.search({ cityId: 'aziziyah', states: ['teleported' as never] }))).toBe('BAD_REQUEST');
     await call.orders.search({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: ' zakur ', late: true });
-    expect(port.searchOrders).toHaveBeenLastCalledWith({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: 'zakur', late: true, limit: 50 });
+    expect(port.searchOrders).toHaveBeenLastCalledWith({ cityId: 'aziziyah', paymentMethod: 'cash', zoneKey: 'zakur', late: true, limit: 50 }, 'p_staff');
     expect(await codeOf(call.orders.search({ cityId: 'aziziyah', paymentMethod: 'card' as never }))).toBe('BAD_REQUEST');
+  });
+
+  it('console.customerHistory: support may read it, the city defaults, a customer id is required', async () => {
+    const { call, port } = caller(['support']);
+    const h = await call.console.customerHistory({ customerId: 'p_cust' });
+    expect(port.customerHistory).toHaveBeenCalledWith({ cityId: 'aziziyah', customerId: 'p_cust' });
+    expect(h.recentOrders).toHaveLength(1);
+    expect(h.credits.totalIqd).toBe(1_000);
+    expect(await codeOf(call.console.customerHistory({ customerId: '' }))).toBe('BAD_REQUEST');
+    expect(await codeOf(caller(['field_ops']).call.console.customerHistory({ customerId: 'p_cust' }))).toBe('FORBIDDEN');
   });
 
   it('orders.ledger returns the order lines with dates', async () => {

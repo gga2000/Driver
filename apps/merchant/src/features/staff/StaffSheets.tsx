@@ -8,7 +8,6 @@ import { apiErrorCode, apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { formatPhoneInput, normalizeIraqiPhone } from '@/lib/phone';
 import { useServerTime } from '@/features/board/clock';
-import { useDates } from '@/lib/dates';
 import { invitePhone, isLastOwner, resendWaitMinutes } from './logic';
 import { useStaffActions } from './queries';
 
@@ -130,7 +129,6 @@ export function MemberSheet({ merchantOrgId, member, all, onClose }: { merchantO
   const locale = useLocale();
   const toast = useCounterToast();
   const { setRole, remove, resend } = useStaffActions();
-  const dates = useDates();
   const now = useServerTime(15_000);
   const [role, setRoleState] = useState<MerchantStaffRole>('merchant_staff');
   const [confirm, setConfirm] = useState(false);
@@ -246,15 +244,7 @@ export function MemberSheet({ merchantOrgId, member, all, onClose }: { merchantO
       onClose={onClose}
       testID="member-sheet"
       title={name}
-      subtitle={
-        member.pending
-          ? member.inviteSentAt
-            ? t('merchant.staff.invite_sent_at', { when: dates.when(member.inviteSentAt, now) })
-            : undefined
-          : member.phoneMasked
-            ? `⁦${member.phoneMasked}⁩`
-            : undefined
-      }
+      subtitle={invitePhone(member) ?? undefined}
       footer={
         member.you ? undefined : (
           <View style={{ gap: theme.space[2] }}>

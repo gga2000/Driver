@@ -56,6 +56,8 @@ export interface SupportRepository {
   forTrip(tripId: string, tx?: Tx): Promise<TicketRecord[]>;
   /** A customer's tickets opened since `since` (dispute count, monthly credit). */
   forCustomer(customerId: string, since: Date, tx?: Tx): Promise<TicketRecord[]>;
+  /** Tickets on any of these orders («الناس»: a driver's complaints come through his jobs). */
+  forOrders(orderIds: readonly string[], tx?: Tx): Promise<TicketRecord[]>;
   addEntry(input: Omit<EntryRecord, 'id'>, tx?: Tx): Promise<EntryRecord>;
   entries(ticketId: string, tx?: Tx): Promise<EntryRecord[]>;
   entryByKey(idempotencyKey: string, tx?: Tx): Promise<EntryRecord | null>;
@@ -122,6 +124,11 @@ export class InMemorySupportRepository implements SupportRepository {
 
   async forCustomer(customerId: string, since: Date): Promise<TicketRecord[]> {
     return [...this.tickets.values()].filter((t) => t.customerId === customerId && t.openedAt >= since).map((t) => ({ ...t }));
+  }
+
+  async forOrders(orderIds: readonly string[]): Promise<TicketRecord[]> {
+    const ids = new Set(orderIds);
+    return [...this.tickets.values()].filter((t) => t.orderId !== null && ids.has(t.orderId)).map((t) => ({ ...t }));
   }
 
   async addEntry(input: Omit<EntryRecord, 'id'>): Promise<EntryRecord> {
@@ -238,6 +245,11 @@ export class PrismaSupportRepository implements SupportRepository {
 
   async forCustomer(customerId: string, since: Date, tx?: Tx): Promise<TicketRecord[]> {
     return (await this.db(tx).supportTicket.findMany({ where: { customerId, openedAt: { gte: since } } })).map(ticketFrom);
+  }
+
+  async forOrders(orderIds: readonly string[], tx?: Tx): Promise<TicketRecord[]> {
+    if (orderIds.length === 0) return [];
+    return (await this.db(tx).supportTicket.findMany({ where: { orderId: { in: [...orderIds] } } })).map(ticketFrom);
   }
 
   async addEntry(input: Omit<EntryRecord, 'id'>, tx?: Tx): Promise<EntryRecord> {

@@ -55,6 +55,17 @@ export class SubscriberRegistry {
   names(): string[] {
     return [...this.subs.keys()];
   }
+
+  /** Every event type (exact or `x.*` pattern) the subscribers named `prefix…` take; `'*'` when one takes all. */
+  typesFor(prefix: string): readonly string[] | '*' {
+    const types = new Set<string>();
+    for (const s of this.subs.values()) {
+      if (!s.name.startsWith(prefix)) continue;
+      if (s.types === '*' || s.types.includes('*')) return '*';
+      for (const t of s.types) types.add(t);
+    }
+    return [...types];
+  }
 }
 
 export function matchesType(types: readonly string[] | '*', type: string): boolean {

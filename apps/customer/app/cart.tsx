@@ -15,7 +15,7 @@ import { FoodArt, artOf } from '@/features/food/FoodArt';
 import { minOrderProgress } from '@/features/food/min-order';
 import { MinOrderStrip } from '@/features/food/MinOrderStrip';
 import { priceItems } from '@/features/food/price-lines';
-import { quoteStop } from '@/features/food/stopped';
+import { closedLine, quoteStop } from '@/features/food/stopped';
 import { useCartQuote, useDeliverTo, useMenu, useOrderQuote } from '@/features/food/queries';
 import { upsellItems } from '@/features/food/upsell';
 import { useLocale, useT } from '@/lib/i18n';
@@ -124,7 +124,7 @@ export default function CartScreen() {
         </View>
         {closed && menu.data ? (
           <Text variant="footnote" color="warningText">
-            {t('error.merchant_closed', { time: menu.data.restaurant.opensAt ?? '' })}
+            {closedLine(menu.data.restaurant, t)}
           </Text>
         ) : null}
         <DealBadges deals={deals} compact testID="cart-deals" />

@@ -1,6 +1,6 @@
 import { DEFAULT_REQUEST_DETAILS, type IntercityVehicle, type RequestDetails } from '@driver/contracts';
 import { describe, expect, it } from 'vitest';
-import { offerMismatches, offerWinners, sortOffers, type RequestOffer } from './request-offers';
+import { offerMismatches, offerWinners, placeIdFor, sortOffers, type RequestOffer } from './request-offers';
 
 const car = (over: Partial<IntercityVehicle> = {}): IntercityVehicle => ({ kind: 'saloon', layout: 4, plate: '1234', modelKey: 'elantra', model: null, color: null, noSmoking: false, bigBags: false, ac: true, ...over });
 
@@ -10,8 +10,10 @@ function offer(id: string, priceIqd: number, rating: number | null, vehicle: Int
     id,
     driverId: `d_${id}`,
     priceIqd,
+    wait: null,
     at: new Date(1_000 + at++),
     state: 'open',
+    cash: null,
     driver: {
       firstName: id,
       verifiedTodayAt: null,
@@ -65,5 +67,14 @@ describe('sorting offers (y6)', () => {
   it('no «الأعلى تقييم» when nobody has a rating yet', () => {
     const w = offerWinners([offer('x', 90_000, null), offer('y', 95_000, null)], asks());
     expect([...w.values()].flat()).not.toContain('top_rated');
+  });
+});
+
+describe('a destination chip names a known place (p1)', () => {
+  const label = (id: string) => ({ karbala: 'كربلاء', kut: 'الكوت' })[id] ?? id;
+  it('matches the chip label, ignoring spaces around it; a typed place has none', () => {
+    expect(placeIdFor(' كربلاء ', label)).toBe('karbala');
+    expect(placeIdFor('كربلاء المقدسة', label)).toBeNull();
+    expect(placeIdFor('', label)).toBeNull();
   });
 });

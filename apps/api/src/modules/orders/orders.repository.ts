@@ -1,9 +1,21 @@
-import { RideCargo, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass } from '@driver/contracts';
+import { RideCargo, TERMINAL_ORDER_STATES, sortCargo, type AppliedDiscount, type CourierRatingReason, type DeliveryPoint, type OrderRating, type OrderState, type OrderType, type ParticipantRole, type PaymentMethod, type RefundState, type VehicleClass, type ErrandItemSpec } from '@driver/contracts';
 import { Prisma } from '@driver/db';
 import { isAfterCursor, newestFirst } from './history.js';
 import type { PrismaService } from '../../shared/db/prisma.service.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { isTestId } from '../../shared/test-scope.js';
+
+/** An order that ended by cancellation (the customer's, or ours). */
+const CANCELLED_STATES = ['customer_cancelled', 'platform_cancelled'] as const satisfies readonly OrderState[];
+
+/**
+ * How an order leaves without the kitchen's answer (M-01): nobody accepted in time, or the customer let
+ * a partial accept lapse. The merchant board's «طلبات فاتتك» reads these, and only these (perf z5).
+ */
+export const MISSED_STATES = [
+  { state: 'merchant_rejected', reason: 'merchant_timeout' },
+  { state: 'platform_cancelled', reason: 'partial_timeout' },
+] as const satisfies ReadonlyArray<{ state: OrderState; reason: string }>;
 
 /**
  * The orders module's persistence port: `orders`, `order_lines`, `participants` — its own tables
@@ -47,6 +59,8 @@ export interface OrderRecord {
   clientRequestId?: string | null;
   /** "الخردة علينا": the note the customer said he will pay with (`orders.stated_tender_iqd`); absent/null = none. */
   statedTenderIqd?: number | null;
+  /** M-3: the owed cancellation fees collected in cash with this order (`orders.debt_collect_iqd`); absent = 0. */
+  debtCollectIqd?: number;
   /** «عزيمة» (joy g1): a gift for the recipient participant (`orders.gift`); absent = false. */
   gift?: boolean;
   /** «عزيمة»: prices kept off the ticket and out of the courier's mouth (`orders.gift_hide_prices`); absent = false. */
@@ -63,6 +77,12 @@ export interface OrderRecord {
    * (rides, unknown pins), or placed before it — tracking then uses the router's own minutes.
    */
   promisedRideMin?: number | null;
+  /**
+   * طرود (Ali, 2026-10-12): a refused parcel's trip back to the sender (`orders.return_fare_iqd`), priced by
+   * the server at the refusal and already added to `totalIqd` (and its delivery and service fees), so the
+   * sender pays both trips at the hand-back. Absent/null = no trip back.
+   */
+  returnFareIqd?: number | null;
   /**
    * s1 «رمز المشوار» (`orders.start_code`): the 4 digits a ride placed for the night starts with. Never
    * on the `Order` view: tracking shows it to the orderer and the rider only, trips checks it.
@@ -125,6 +145,11 @@ export interface OrderLineRecord {
   note: string | null;
   pointsEligible: boolean;
   substitution: LineUnavailability | null;
+  /** A weighed shop line (2026-10-11): grams and the kilo price snapshotted at placement; `unitPriceIqd` is the weighed price. */
+  weightG?: number | null;
+  perKgIqd?: number | null;
+  /** A «دوّرلي» item's details (errand orders). */
+  errandItem?: ErrandItemSpec | null;
 }
 
 export interface ParticipantRecord {
@@ -185,19 +210,46 @@ export interface OrdersRepository {
   updateIf(id: string, expectState: OrderState, patch: OrderPatch, tx?: Tx): Promise<OrderRecord | null>;
   updateLine(id: string, patch: { substitution: LineUnavailability | null }, tx?: Tx): Promise<OrderLineRecord>;
   findMany(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderRecord[]>;
+  /** SCALE-12: the same orders as `findMany`, with their lines and participants, in one batched read. */
+  findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderAggregate[]>;
   /**
    * One merchant's orders placed in `[from, to)`, with their lines and participants, oldest first
    * (placedAt, id) — one bounded read on `(merchant_org_id, placed_at)` (review 2026-10-04 #11).
    */
   merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
   /**
+   * Perf z5: only the merchant's orders placed in `[from, to)` that left without the kitchen's answer
+   * (`MISSED_STATES`), same order and shape as `merchantOrdersBetween`. On `(merchant_org_id,
+   * placed_at)`, and only the few missed rows (with their lines) leave the database.
+   */
+  merchantMissedBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]>;
+  /**
+   * The merchant's orders it had accepted that were cancelled (customer or platform) at or after
+   * `since`, with their lines: the board's red «انلغى، لا تكمل» cards. On `(merchant_org_id, state)`.
+   */
+  merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date, tx?: Tx): Promise<OrderAggregate[]>;
+  /**
    * One merchant's delivered orders placed in `[from, to)`, counted per drop-off zone (`dropoff.zoneKey`,
    * null when none): one grouped read on `(merchant_org_id, placed_at)` that returns counts only, never
    * an order, a customer or a pin (maps program r6).
    */
   deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<DropoffZoneCount[]>;
+  /**
+   * Admin dry run for the zone outlines: the most recent delivered orders' drop-off pins (lat, lng only,
+   * no order, customer or time leaves), newest first. One bounded read ordered on `placed_at`.
+   */
+  recentDropoffPins(limit: number, tx?: Tx): Promise<Array<{ lat: number; lng: number }>>;
   /** Orders a person placed or takes part in. */
   forPerson(personId: string, tx?: Tx): Promise<OrderRecord[]>;
+  /**
+   * FOOD-04: the same orders with their lines and participants, newest first (placedAt, id), at most
+   * `limit` of them when given: one id read on the two indexes and one batched load, never a read per order.
+   */
+  aggregatesForPerson(personId: string, opts?: { limit?: number }, tx?: Tx): Promise<OrderAggregate[]>;
+  /** FOOD-04: the orders `ordererId` placed that are not finished yet (the few that hold wallet money or points). */
+  openPlacedBy(ordererId: string, tx?: Tx): Promise<OrderRecord[]>;
+  /** FOOD-04: how many orders `ordererId` placed, optionally only of one type and some states, leaving one order out. */
+  countPlacedBy(ordererId: string, filter?: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string }, tx?: Tx): Promise<number>;
   /**
    * Joy w4: a household's orders placed in `[from, to)` — on its wallet, or «للسفرة» orders of the
    * given members — oldest first. One bounded read on `(household_org_id, placed_at)` plus the members'
@@ -206,12 +258,17 @@ export interface OrdersRepository {
   householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]>;
   /** Joy w6: everyone who placed an order in `[from, to)` that was delivered or completed (distinct). */
   orderersServedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]>;
+  /** Ids of the orders that reached `closed` in `[from, to)` (the nightly money-group check). */
+  closedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]>;
   /** Console history: newest first (placedAt, id descending), strictly after `after`, at most `limit`. */
   search(filter: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]>;
   /** Orders placed in the city at or after `since`. */
   countPlacedSince(cityId: string, since: Date, tx?: Tx): Promise<number>;
-  /** Rate the courier: stores the order's one courier rating (unique per order; a second insert throws). */
-  addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord>;
+  /**
+   * Rate the courier: stores the order's one courier rating. Unique per order: when the order already
+   * has one (a concurrent second rating, waiting on the first) nothing is written and it returns null.
+   */
+  addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord | null>;
   courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null>;
   /** A driver's newest courier ratings (ratedAt descending), at most `limit`. */
   courierRatingsOf(driverId: string, limit: number, tx?: Tx): Promise<CourierRatingRecord[]>;
@@ -243,6 +300,8 @@ export interface OrderSearchFilter {
   paymentMethod?: PaymentMethod | undefined;
   /** The customer's drop-off zone (`dropoff.zoneKey`). */
   zoneKey?: string | undefined;
+  /** Only these orderers (Console phone/name search); empty matches nothing. */
+  ordererIds?: readonly string[] | undefined;
   /** Case-insensitive substring of the order, orderer or merchant id, or the note. */
   text?: string | undefined;
   from?: Date | undefined;
@@ -297,6 +356,7 @@ function orderFromRow(r: any): OrderRecord {
     courierNote: r.courierNote ?? null,
     clientRequestId: r.clientRequestId ?? null,
     statedTenderIqd: r.statedTenderIqd ?? null,
+    debtCollectIqd: r.debtCollectIqd ?? 0,
     gift: r.gift ?? false,
     giftHidePrices: r.giftHidePrices ?? false,
     smallOrderFeeIqd: r.smallOrderFeeIqd ?? 0,
@@ -307,6 +367,7 @@ function orderFromRow(r: any): OrderRecord {
     merchantOfferedAt: r.merchantOfferedAt,
     promisedReadyAt: r.promisedReadyAt,
     promisedRideMin: r.promisedRideMin ?? null,
+    returnFareIqd: r.returnFareIqd ?? null,
     startCode: r.startCode ?? null,
     prepExtendedAt: r.prepExtendedAt ?? null,
     handedOverAt: r.handedOverAt ?? null,
@@ -350,6 +411,9 @@ function lineFromRow(r: any): OrderLineRecord {
     note: r.note,
     pointsEligible: r.pointsEligible,
     substitution: (r.substitution as LineUnavailability | null) ?? null,
+    weightG: r.weightG ?? null,
+    perKgIqd: r.perKgIqd ?? null,
+    errandItem: (r.errandItem as ErrandItemSpec | null) ?? null,
   };
 }
 
@@ -396,14 +460,21 @@ export class PrismaOrdersRepository implements OrdersRepository {
       if (order.clientRequestId && isUniqueViolation(err)) throw new DuplicateClientRequest(order.ordererId, order.clientRequestId, err);
       throw err;
     }
+    // SCALE-24: participants and lines go in one statement each. `find` reads them back by `created_at`,
+    // so each row gets the order's time plus its position in ms: the order they were given in is kept.
+    const base = row.createdAt.getTime();
     const byRef = new Map<string, string>();
-    for (const p of participants) {
-      const created = await db.participant.create({ data: { orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note } });
-      byRef.set(p.ref, created.id);
+    if (participants.length > 0) {
+      const created = await db.participant.createManyAndReturn({
+        data: participants.map((p, i) => ({ orderId: row.id, role: p.role, personId: p.personId, phoneHash: p.phoneHash, label: p.label, note: p.note, createdAt: new Date(base + i) })),
+        select: { id: true, createdAt: true },
+      });
+      const ids = [...created].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((c) => c.id);
+      participants.forEach((p, i) => byRef.set(p.ref, ids[i]!));
     }
-    for (const l of lines) {
-      await db.orderLine.create({
-        data: {
+    if (lines.length > 0) {
+      await db.orderLine.createMany({
+        data: lines.map((l, i) => ({
           orderId: row.id,
           catalogItemId: l.catalogItemId,
           freeText: l.freeText,
@@ -413,7 +484,11 @@ export class PrismaOrdersRepository implements OrdersRepository {
           participantId: l.participantRef ? (byRef.get(l.participantRef) ?? null) : null,
           note: l.note,
           pointsEligible: l.pointsEligible,
-        },
+          weightG: l.weightG ?? null,
+          perKgIqd: l.perKgIqd ?? null,
+          errandItem: l.errandItem ? (l.errandItem as unknown as Prisma.InputJsonObject) : Prisma.DbNull,
+          createdAt: new Date(base + i),
+        })),
       });
     }
     return (await this.find(row.id, tx))!;
@@ -457,11 +532,42 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map(orderFromRow);
   }
 
+  async findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: {
+        ...(filter.cityId ? { cityId: filter.cityId } : {}),
+        ...(filter.merchantOrgId ? { merchantOrgId: filter.merchantOrgId } : {}),
+        ...(filter.states ? { state: { in: [...filter.states] } } : {}),
+      },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: { placedAt: 'asc' },
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
   async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]> {
     const rows = await this.db(tx).order.findMany({
       where: { merchantOrgId, placedAt: { gte: from, lt: to } },
       include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
       orderBy: [{ placedAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
+  async merchantMissedBetween(merchantOrgId: string, from: Date, to: Date, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { merchantOrgId, placedAt: { gte: from, lt: to }, OR: MISSED_STATES.map((m) => ({ state: m.state, cancellationReason: m.reason })) },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ placedAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
+  async merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date, tx?: Tx): Promise<OrderAggregate[]> {
+    const rows = await this.db(tx).order.findMany({
+      where: { merchantOrgId, state: { in: [...CANCELLED_STATES] }, acceptedAt: { not: null }, cancelledAt: { gte: since } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ cancelledAt: 'desc' }, { id: 'asc' }],
     });
     return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
   }
@@ -477,6 +583,16 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map((r) => ({ zoneKey: r.zone_key, orders: Number(r.orders) }));
   }
 
+  async recentDropoffPins(limit: number, tx?: Tx): Promise<Array<{ lat: number; lng: number }>> {
+    const rows = await this.db(tx).$queryRaw<Array<{ lat: string | null; lng: string | null }>>`
+      SELECT "dropoff"->'pin'->>'lat' AS "lat", "dropoff"->'pin'->>'lng' AS "lng"
+      FROM "public"."orders"
+      WHERE "delivered_at" IS NOT NULL AND "dropoff"->'pin' IS NOT NULL
+      ORDER BY "placed_at" DESC
+      LIMIT ${limit}`;
+    return rows.flatMap((r) => (r.lat !== null && r.lng !== null && Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng)) ? [{ lat: Number(r.lat), lng: Number(r.lng) }] : []));
+  }
+
   async orderersServedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]> {
     const rows = await this.db(tx).order.findMany({
       where: { placedAt: { gte: from, lt: to }, OR: [{ deliveredAt: { not: null } }, { state: { in: ['completed', 'closed'] } }] },
@@ -484,6 +600,11 @@ export class PrismaOrdersRepository implements OrdersRepository {
       select: { ordererId: true },
     });
     return rows.map((r) => r.ordererId);
+  }
+
+  async closedBetween(from: Date, to: Date, tx?: Tx): Promise<string[]> {
+    const rows = await this.db(tx).order.findMany({ where: { state: 'closed', closedAt: { gte: from, lt: to } }, orderBy: [{ closedAt: 'asc' }, { id: 'asc' }], select: { id: true } });
+    return rows.map((r) => r.id);
   }
 
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date, tx?: Tx): Promise<OrderRecord[]> {
@@ -509,6 +630,38 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return rows.map(orderFromRow);
   }
 
+  async aggregatesForPerson(personId: string, opts: { limit?: number } = {}, tx?: Tx): Promise<OrderAggregate[]> {
+    // The same UNION as `forPerson` (each half on its own index); the newest `limit` ids are picked by
+    // `(placed_at, id)` before any row leaves the database, then all of them load in one batched read.
+    const limit = opts.limit ?? null;
+    const ids = await this.db(tx).$queryRaw<Array<{ id: string }>>`
+      SELECT o."id" FROM "public"."orders" o
+      WHERE o."id" IN (
+        SELECT "id" FROM "public"."orders" WHERE "orderer_id" = ${personId}
+        UNION
+        SELECT "order_id" FROM "public"."participants" WHERE "person_id" = ${personId})
+      ORDER BY o."placed_at" DESC, o."id" DESC
+      LIMIT ${limit}`;
+    if (ids.length === 0) return [];
+    const rows = await this.db(tx).order.findMany({
+      where: { id: { in: ids.map((r) => r.id) } },
+      include: { lines: { orderBy: { createdAt: 'asc' } }, participants: { orderBy: { createdAt: 'asc' } } },
+      orderBy: [{ placedAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map((row) => ({ order: orderFromRow(row), lines: row.lines.map(lineFromRow), participants: row.participants.map(participantFromRow) }));
+  }
+
+  async openPlacedBy(ordererId: string, tx?: Tx): Promise<OrderRecord[]> {
+    const rows = await this.db(tx).order.findMany({ where: { ordererId, state: { notIn: [...TERMINAL_ORDER_STATES] } }, orderBy: [{ placedAt: 'desc' }, { id: 'desc' }] });
+    return rows.map(orderFromRow);
+  }
+
+  countPlacedBy(ordererId: string, filter: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string } = {}, tx?: Tx): Promise<number> {
+    return this.db(tx).order.count({
+      where: { ordererId, ...(filter.type ? { type: filter.type } : {}), ...(filter.states ? { state: { in: [...filter.states] } } : {}), ...(filter.exceptId ? { id: { not: filter.exceptId } } : {}) },
+    });
+  }
+
   async search(f: OrderSearchFilter, tx?: Tx): Promise<OrderRecord[]> {
     const and: Prisma.OrderWhereInput[] = [{ cityId: f.cityId }];
     if (f.states && f.states.length > 0) and.push({ state: { in: [...f.states] } });
@@ -516,6 +669,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
     if (f.merchantOrgId) and.push({ merchantOrgId: f.merchantOrgId });
     if (f.paymentMethod) and.push({ paymentMethod: f.paymentMethod });
     if (f.zoneKey) and.push({ dropoff: { path: ['zoneKey'], equals: f.zoneKey } });
+    if (f.ordererIds) and.push({ ordererId: { in: [...f.ordererIds] } });
     if (f.from || f.to) and.push({ placedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) } });
     if (f.text) {
       const contains = { contains: f.text, mode: 'insensitive' as const };
@@ -530,8 +684,12 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return this.db(tx).order.count({ where: { cityId, placedAt: { gte: since } } });
   }
 
-  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord> {
-    return courierRatingFrom(await this.db(tx).courierRating.create({ data: { ...row, reasons: [...row.reasons] } }));
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>, tx?: Tx): Promise<CourierRatingRecord | null> {
+    // ON CONFLICT DO NOTHING: the loser of a double tap is told, not left with a failed query (RDB-04).
+    const { count } = await this.db(tx).courierRating.createMany({ data: [{ ...row, reasons: [...row.reasons] }], skipDuplicates: true });
+    if (count === 0) return null;
+    const r = await this.db(tx).courierRating.findUnique({ where: { orderId: row.orderId } });
+    return r ? courierRatingFrom(r) : null;
   }
 
   async courierRatingOf(orderId: string, tx?: Tx): Promise<CourierRatingRecord | null> {
@@ -653,6 +811,10 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .map((o) => ({ ...o }));
   }
 
+  async findManyAggregates(filter: { cityId?: string; merchantOrgId?: string; states?: readonly OrderState[] }): Promise<OrderAggregate[]> {
+    return Promise.all((await this.findMany(filter)).map(async (o) => (await this.find(o.id))!));
+  }
+
   async merchantOrdersBetween(merchantOrgId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
     const out: OrderAggregate[] = [];
     for (const o of this.orders.values()) {
@@ -666,6 +828,20 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return out.sort((a, b) => a.order.placedAt.getTime() - b.order.placedAt.getTime() || a.order.id.localeCompare(b.order.id));
   }
 
+  async merchantMissedBetween(merchantOrgId: string, from: Date, to: Date): Promise<OrderAggregate[]> {
+    const missed = (o: OrderRecord) => MISSED_STATES.some((m) => m.state === o.state && m.reason === o.cancellationReason);
+    return (await this.merchantOrdersBetween(merchantOrgId, from, to)).filter((a) => missed(a.order));
+  }
+
+  async merchantCancelledAfterAcceptSince(merchantOrgId: string, since: Date): Promise<OrderAggregate[]> {
+    const out: OrderAggregate[] = [];
+    for (const o of this.orders.values()) {
+      if (o.merchantOrgId !== merchantOrgId || !(CANCELLED_STATES as readonly string[]).includes(o.state) || !o.acceptedAt || !o.cancelledAt || o.cancelledAt < since) continue;
+      out.push({ order: { ...o }, lines: (this.linesByOrder.get(o.id) ?? []).map((l) => ({ ...l })), participants: (this.participantsByOrder.get(o.id) ?? []).map((p) => ({ ...p })) });
+    }
+    return out.sort((a, b) => b.order.cancelledAt!.getTime() - a.order.cancelledAt!.getTime() || a.order.id.localeCompare(b.order.id));
+  }
+
   async deliveredByDropoffZone(merchantOrgId: string, from: Date, to: Date): Promise<DropoffZoneCount[]> {
     const counts = new Map<string | null, number>();
     for (const o of this.orders.values()) {
@@ -676,6 +852,14 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return [...counts.entries()].map(([zoneKey, orders]) => ({ zoneKey, orders }));
   }
 
+  async recentDropoffPins(limit: number): Promise<Array<{ lat: number; lng: number }>> {
+    return [...this.orders.values()]
+      .filter((o) => o.deliveredAt && o.dropoff?.pin)
+      .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
+      .slice(0, limit)
+      .map((o) => ({ lat: o.dropoff!.pin!.lat, lng: o.dropoff!.pin!.lng }));
+  }
+
   async orderersServedBetween(from: Date, to: Date): Promise<string[]> {
     const out = new Set<string>();
     for (const o of this.orders.values()) {
@@ -684,11 +868,32 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return [...out];
   }
 
+  async closedBetween(from: Date, to: Date): Promise<string[]> {
+    return [...this.orders.values()]
+      .filter((o) => o.state === 'closed' && o.closedAt !== null && o.closedAt >= from && o.closedAt < to)
+      .sort((a, b) => a.closedAt!.getTime() - b.closedAt!.getTime() || a.id.localeCompare(b.id))
+      .map((o) => o.id);
+  }
+
   async householdOrdersBetween(householdOrgId: string, memberIds: readonly string[], from: Date, to: Date): Promise<OrderRecord[]> {
     return [...this.orders.values()]
       .filter((o) => o.placedAt >= from && o.placedAt < to && (o.householdOrgId === householdOrgId || (o.familyTable === true && memberIds.includes(o.ordererId))))
       .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime() || a.id.localeCompare(b.id))
       .map((o) => ({ ...o }));
+  }
+
+  async openPlacedBy(ordererId: string): Promise<OrderRecord[]> {
+    return (await this.forPerson(ordererId)).filter((o) => o.ordererId === ordererId && !TERMINAL_ORDER_STATES.includes(o.state));
+  }
+
+  async countPlacedBy(ordererId: string, filter: { type?: OrderType; states?: readonly OrderState[]; exceptId?: string } = {}): Promise<number> {
+    return [...this.orders.values()].filter((o) => o.ordererId === ordererId && (!filter.type || o.type === filter.type) && (!filter.states || filter.states.includes(o.state)) && o.id !== filter.exceptId).length;
+  }
+
+  async aggregatesForPerson(personId: string, opts: { limit?: number } = {}): Promise<OrderAggregate[]> {
+    const mine = await this.forPerson(personId);
+    const picked = opts.limit === undefined ? mine : mine.slice(0, opts.limit);
+    return Promise.all(picked.map(async (o) => (await this.find(o.id))!));
   }
 
   async forPerson(personId: string): Promise<OrderRecord[]> {
@@ -708,6 +913,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       .filter((o) => !f.merchantOrgId || o.merchantOrgId === f.merchantOrgId)
       .filter((o) => !f.paymentMethod || o.paymentMethod === f.paymentMethod)
       .filter((o) => !f.zoneKey || o.dropoff?.zoneKey === f.zoneKey)
+      .filter((o) => !f.ordererIds || f.ordererIds.includes(o.ordererId))
       .filter((o) => (!f.from || o.placedAt >= f.from) && (!f.to || o.placedAt < f.to))
       .filter((o) => !text || [o.id, o.ordererId, o.merchantOrgId ?? '', o.note ?? ''].some((v) => v.toLowerCase().includes(text)))
       .filter((o) => !f.after || isAfterCursor(o, f.after))
@@ -722,8 +928,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
   readonly courierRatings = new Map<string, CourierRatingRecord>();
 
-  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>): Promise<CourierRatingRecord> {
-    if (this.courierRatings.has(row.orderId)) throw new Error('unique violation: courier_ratings.order_id');
+  async addCourierRating(row: Omit<CourierRatingRecord, 'id'>): Promise<CourierRatingRecord | null> {
+    if (this.courierRatings.has(row.orderId)) return null;
     const rec = { ...row, reasons: [...row.reasons], id: `cr_${this.courierRatings.size + 1}` };
     this.courierRatings.set(row.orderId, rec);
     return { ...rec, reasons: [...rec.reasons] };

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   INBOX_CLOSE_AT_SOURCE,
@@ -14,15 +15,23 @@ import {
   type InboxView,
 } from '@driver/contracts';
 import { t } from '@driver/i18n';
-import { useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { formatClock } from '@/lib/format';
-import { detailText, KIND_KEY, OUTCOME_KEY, OUTCOMES, rowHref, rowTone } from '@/lib/inbox';
+import { useHotkeys } from '@/lib/hotkeys';
+import { detailText, holdRows, inService, KIND_KEY, noteRequired, OUTCOME_KEY, OUTCOMES, rowHref, rowTone, type Service, SERVICE_KEY, serviceOf, SERVICES } from '@/lib/inbox';
 import { CITY_ID, queryRetry, useRightNow } from '@/lib/live';
 import { hasAny, useMyRoles } from '@/lib/me';
+import { PREF_KEYS, readJson, writeJson } from '@/lib/prefs';
+import { countText } from '@/lib/plural';
 import { errorText } from '@/lib/network';
 import { ageText } from '@/lib/safety';
+import { useRowKeys } from '@/lib/row-keys';
 import { useSignedIn } from '@/lib/session';
+import { useLinkedFilters } from '@/lib/url-state';
 import { useTRPC } from '@/lib/trpc';
+import { CopyLinkButton } from './copy-link';
+import { HandoverCard, HandoverWriteButton } from './handover';
+import { ErrandReceiptAction } from './errand/receipt-action';
 import { StuckRowActions } from './stuck/row-actions';
 import {
   Button,
@@ -35,6 +44,7 @@ import {
   IconAlert,
   IconCheckCircle,
   IconClock,
+  LiveBadge,
   NeedLogin,
   PageHeader,
   Popover,
@@ -52,6 +62,8 @@ import {
 /** The list and its counts refresh this often (the plan's freshness bar: Today within 3 s). */
 const TODAY_POLL_MS = 3_000;
 const VIEWS: readonly InboxView[] = ['open', 'mine', 'snoozed', 'done'];
+const LINK_DEFAULTS = { view: 'open', kind: '', svc: '' };
+const LINK_ALLOWED = { view: VIEWS, kind: INBOX_KINDS, svc: SERVICES };
 const VIEW_KEY = {
   open: 'console.today.view_open',
   mine: 'console.today.view_mine',
@@ -69,7 +81,9 @@ export function TodayPage() {
   const signedIn = useSignedIn();
   return (
     <div className="mx-auto max-w-[1180px]">
-      <PageHeader title={t('console.today.title')} subtitle={t('console.today.subtitle')} />
+      <PageHeader title={t('console.today.title')} subtitle={t('console.today.subtitle')}>
+        {signedIn ? <HandoverWriteButton /> : null}
+      </PageHeader>
       {!signedIn ? <NeedLogin /> : <Today />}
     </div>
   );
@@ -81,6 +95,26 @@ function Today() {
   const canWork = loaded && hasAny(roles, INBOX_WORK_ROLES);
   const [view, setView] = useState<InboxView>('open');
   const [kind, setKind] = useState<InboxKind | null>(null);
+  // h7: the service chip is remembered on this browser (a خطوط-only person picks it once); a link wins.
+  const [service, setServiceState] = useState<Service | null>(null);
+  useEffect(() => {
+    const saved = readJson<string | null>(PREF_KEYS.todayService, null);
+    if (saved && (SERVICES as readonly string[]).includes(saved)) setServiceState(saved as Service);
+  }, []);
+  const setService = (s: Service | null) => {
+    setServiceState(s);
+    writeJson(PREF_KEYS.todayService, s);
+  };
+  useLinkedFilters(
+    { view, kind: kind ?? '', svc: service ?? '' },
+    LINK_DEFAULTS,
+    (got) => {
+      if (got['view']) setView(got['view'] as InboxView);
+      if (got['kind']) setKind(got['kind'] as InboxKind);
+      if (got['svc']) setServiceState(got['svc'] as Service);
+    },
+    LINK_ALLOWED,
+  );
   const counts = useQuery(
     trpc.inbox.counts.queryOptions(
       { cityId: CITY_ID },
@@ -100,10 +134,13 @@ function Today() {
     snoozed: c?.snoozed,
     done: c?.doneToday,
   };
+  const rows = useMemo(() => (list.data ? list.data.filter((r) => inService(r, service)) : undefined), [list.data, service]);
   return (
     <div className="space-y-5">
+      <ServiceBar rows={list.data} value={service} onChange={setService} />
       <Pulse counts={c} />
       <NobodyOnCall />
+      <HandoverCard />
       <section
         className="rounded-lg border border-line bg-surface shadow-card"
         data-testid="today-list"
@@ -119,9 +156,18 @@ function Today() {
               ...(viewCount[v] !== undefined ? { count: viewCount[v] } : {}),
             }))}
           />
-          {c?.oldestOpenAt && view === 'open' ? <OldestLine at={c.oldestOpenAt} /> : null}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {c?.oldestOpenAt && view === 'open' ? <OldestLine at={c.oldestOpenAt} /> : null}
+            <LiveBadge
+              seconds={TODAY_POLL_MS / 1000}
+              updatedAt={list.dataUpdatedAt || undefined}
+              fetching={list.isFetching}
+              error={list.isError}
+            />
+            <CopyLinkButton />
+          </div>
         </div>
-        {view === 'open' && c ? <KindFilter counts={c} value={kind} onChange={setKind} /> : null}
+        {view === 'open' && c ? <KindFilter counts={service && rows && !kind ? { ...c, byKind: countByKind(rows) } : c} value={kind} onChange={setKind} /> : null}
         {list.isError ? (
           <div className="p-5">
             <QueryError error={list.error} onRetry={() => void list.refetch()} />
@@ -132,7 +178,7 @@ function Today() {
             <SkeletonBlock className="h-16" />
             <SkeletonBlock className="h-16" />
           </div>
-        ) : list.data.length === 0 ? (
+        ) : !rows || rows.length === 0 ? (
           <EmptyState
             icon={<IconCheckCircle size={28} />}
             title={t(
@@ -148,16 +194,66 @@ function Today() {
             className="py-12"
           />
         ) : (
-          <ul className="divide-y divide-line/70">
-            {list.data.map((row) => (
-              <InboxLine key={row.id} row={row} canWork={canWork} />
-            ))}
-          </ul>
+          <Rows rows={rows} listKey={`${view}:${kind ?? ''}:${service ?? ''}`} canWork={canWork} />
         )}
       </section>
       {loaded && !canWork ? (
         <p className="text-dense text-muted">{t('console.today.read_only')}</p>
       ) : null}
+    </div>
+  );
+}
+
+/** Under a service chip the type filter counts only the rows that chip shows. */
+function countByKind(rows: readonly InboxRow[]): InboxCounts['byKind'] {
+  const out: Partial<Record<InboxKind, number>> = {};
+  for (const r of rows) out[r.kind] = (out[r.kind] ?? 0) + 1;
+  return out as InboxCounts['byKind'];
+}
+
+// ───────────────────────── h7: the service chips ─────────────────────────
+
+/**
+ * One chip per service with how many of the shown rows are its own; picking one narrows the list.
+ * SOS, safety and approvals stay under every chip (the line under the chips says so).
+ */
+function ServiceBar({
+  rows,
+  value,
+  onChange,
+}: {
+  rows: InboxRow[] | undefined;
+  value: Service | null;
+  onChange: (s: Service | null) => void;
+}) {
+  const own = (s: Service) => (rows ? rows.filter((r) => serviceOf(r) === s).length : null);
+  const chip = (active: boolean) =>
+    cx(
+      'inline-flex h-11 shrink-0 items-center gap-2 rounded-pill border px-4 text-sm font-medium transition-colors duration-fast',
+      active ? 'border-accent bg-accent-wash text-text' : 'border-line bg-surface text-muted shadow-card hover:border-line-strong hover:text-text',
+    );
+  return (
+    <div>
+      <div
+        className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:flex-wrap"
+        role="group"
+        aria-label={t('console.today.svc_label')}
+        data-testid="today-services"
+      >
+        <button type="button" className={chip(value === null)} aria-pressed={value === null} onClick={() => onChange(null)}>
+          {t('console.today.svc_all')}
+        </button>
+        {SERVICES.map((s) => {
+          const n = own(s);
+          return (
+            <button key={s} type="button" className={chip(value === s)} aria-pressed={value === s} onClick={() => onChange(value === s ? null : s)}>
+              {t(SERVICE_KEY[s])}
+              {n ? <span className="num rounded-pill bg-warn-tint px-1.5 text-xs font-semibold text-warn">{n}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      {value ? <p className="mt-1 text-xs text-muted">{t('console.today.svc_shared')}</p> : null}
     </div>
   );
 }
@@ -289,9 +385,85 @@ function KindFilter({
   );
 }
 
+// ───────────────────────── the rows ─────────────────────────
+
+/**
+ * The list with its keys (J/K move, Enter opens, A takes, S snoozes, E closes) and, while someone
+ * works it, new rows held behind «N جديد · اعرضها» so nothing jumps under their hand.
+ */
+function Rows({ rows, listKey, canWork }: { rows: InboxRow[]; listKey: string; canWork: boolean }) {
+  const router = useRouter();
+  const [hovering, setHovering] = useState(false);
+  const [onScreen, setOnScreen] = useState<{ key: string; ids: ReadonlySet<string> } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const known = onScreen?.key === listKey ? onScreen.ids : null;
+  const [active, setActive] = useRowKeys(rows, (r) => r.id, (r) => router.push(rowHref(r)), !busy);
+  const holding = hovering || active !== null || busy;
+  const { shown, held } = useMemo(() => holdRows(rows, known, holding), [rows, known, holding]);
+  // What is on screen while nobody holds the list becomes the list to hold.
+  // Keeps the same object when nothing changed, or each new set would run this effect again.
+  useEffect(() => {
+    if (holding && known !== null) return;
+    setOnScreen((prev) =>
+      prev?.key === listKey && prev.ids.size === rows.length && rows.every((r) => prev.ids.has(r.id))
+        ? prev
+        : { key: listKey, ids: new Set(rows.map((r) => r.id)) },
+    );
+  }, [holding, known, listKey, rows]);
+  // The highlight follows the visible rows only.
+  useEffect(() => {
+    if (active !== null && !shown.some((r) => r.id === active)) setActive(null);
+  }, [active, shown, setActive]);
+  const showAll = () => setOnScreen({ key: listKey, ids: new Set(rows.map((r) => r.id)) });
+  return (
+    <div
+      className="relative"
+      onPointerEnter={() => setHovering(true)}
+      onPointerLeave={() => setHovering(false)}
+    >
+      {held > 0 ? (
+        // Floats over the list so showing it doesn't push the rows down either.
+        <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center px-5">
+          <button
+            type="button"
+            onClick={showAll}
+            className="num pointer-events-auto inline-flex min-h-11 animate-pop-in items-center gap-2 rounded-pill border border-accent/50 bg-raised px-4 text-sm font-semibold text-text shadow-pop hover:bg-accent-wash"
+            data-testid="today-held"
+          >
+            {countText('console.today.new_rows', held)}
+            <span className="text-muted">·</span>
+            <span className="underline underline-offset-4">{t('console.today.show_new')}</span>
+          </button>
+        </div>
+      ) : null}
+      <ul className="divide-y divide-line/70">
+        {shown.map((row) => (
+          <InboxLine
+            key={row.id}
+            row={row}
+            canWork={canWork}
+            active={row.id === active}
+            onBusy={setBusy}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ───────────────────────── one row ─────────────────────────
 
-function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
+function InboxLine({
+  row,
+  canWork,
+  active,
+  onBusy,
+}: {
+  row: InboxRow;
+  canWork: boolean;
+  active: boolean;
+  onBusy: (busy: boolean) => void;
+}) {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const toast = useToast();
@@ -319,14 +491,45 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
   );
   const done = row.state === 'done';
   const closeHere = !INBOX_CLOSE_AT_SOURCE.includes(row.kind);
+  const workable = canWork && !done && closeHere;
+  // While the snooze menu or the close dialog is open, the list's own keys rest.
+  useEffect(() => {
+    if (!snoozing && !closing) return;
+    onBusy(true);
+    return () => onBusy(false);
+  }, [snoozing, closing, onBusy]);
+  useHotkeys(
+    {
+      a: () => {
+        if (!row.mine && !take.isPending) take.mutate({ id: row.id });
+      },
+      s: () => setSnoozing(true),
+      e: () => setClosing(true),
+    },
+    { enabled: active && workable && !snoozing && !closing },
+  );
+  useHotkeys(
+    Object.fromEntries(
+      INBOX_RULES.snoozeMinutes.map((m, i) => [
+        String(i + 1),
+        () => {
+          if (!snooze.isPending) snooze.mutate({ id: row.id, minutes: m });
+        },
+      ]),
+    ),
+    { enabled: snoozing },
+  );
   return (
     <li
       className={cx(
-        'flex flex-wrap items-start gap-x-4 gap-y-2 px-5 py-3.5',
+        'relative flex flex-wrap items-start gap-x-4 gap-y-2 px-5 py-3.5',
         row.kind === 'sos' && !done ? 'bg-bad-tint/40' : '',
+        active ? 'bg-accent-wash/50 before:absolute before:inset-y-0 before:start-0 before:w-1 before:bg-accent' : '',
       )}
       data-testid="today-row"
       data-kind={row.kind}
+      data-active={active || undefined}
+      aria-current={active || undefined}
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -375,7 +578,7 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
         >
           {t(closeHere || done ? 'console.today.open' : 'console.today.open_at_source')}
         </Link>
-        {canWork && !done && closeHere ? (
+        {workable ? (
           <>
             {!row.mine ? (
               <Button
@@ -400,13 +603,14 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
               </Button>
               <Popover open={snoozing} onClose={() => setSnoozing(false)} align="end">
                 <div className="flex gap-1.5 p-2">
-                  {INBOX_RULES.snoozeMinutes.map((m) => (
+                  {INBOX_RULES.snoozeMinutes.map((m, i) => (
                     <Button
                       key={m}
                       size="sm"
                       variant="ghost"
                       loading={snooze.isPending && snooze.variables?.minutes === m}
                       onClick={() => snooze.mutate({ id: row.id, minutes: m })}
+                      aria-keyshortcuts={String(i + 1)}
                     >
                       <span className="num">{t('console.today.snooze_min', { minutes: m })}</span>
                     </Button>
@@ -422,6 +626,9 @@ function InboxLine({ row, canWork }: { row: InboxRow; canWork: boolean }) {
       </div>
       {row.kind === 'stuck' && row.subjectKind === 'order' && row.mine && !done ? (
         <StuckRowActions orderId={row.subjectId} />
+      ) : null}
+      {row.kind === 'over_ceiling' && row.subjectKind === 'order' && !done ? (
+        <ErrandReceiptAction orderId={row.subjectId} ceilingIqd={typeof row.facts['ceilingIqd'] === 'number' ? row.facts['ceilingIqd'] : null} />
       ) : null}
       {closing ? (
         <CloseDialog row={row} onClose={() => setClosing(false)} onDone={refresh} />
@@ -444,6 +651,7 @@ function CloseDialog({
   const noteId = useId();
   const [outcome, setOutcome] = useState<InboxStaffOutcome>('fixed');
   const [note, setNote] = useState(row.note ?? '');
+  const needsNote = noteRequired(row);
   const close = useMutation(
     trpc.inbox.done.mutationOptions({
       onSuccess: () => {
@@ -481,12 +689,18 @@ function CloseDialog({
             options={OUTCOMES.map((o) => ({ value: o, label: t(OUTCOME_KEY[o]) }))}
           />
         </Field>
-        <Field label={t('console.today.note')} htmlFor={noteId} hint={t('console.today.note_hint')}>
+        <Field
+          label={t('console.today.note')}
+          htmlFor={noteId}
+          hint={t(needsNote ? 'console.today.note_hint_low_rating' : 'console.today.note_hint')}
+        >
           <Textarea
             id={noteId}
             rows={3}
             maxLength={INBOX_RULES.noteMax}
             value={note}
+            required={needsNote}
+            aria-required={needsNote || undefined}
             onChange={(e) => setNote(e.target.value)}
           />
         </Field>
@@ -494,7 +708,13 @@ function CloseDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('console.today.cancel')}
           </Button>
-          <Button type="submit" variant="primary" loading={close.isPending} needsNet>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={close.isPending}
+            disabled={needsNote && !note.trim()}
+            needsNet
+          >
             {t('console.today.close_confirm')}
           </Button>
         </div>

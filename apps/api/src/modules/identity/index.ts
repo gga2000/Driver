@@ -1,8 +1,9 @@
 export { IdentityModule } from './identity.module.js';
-export { IdentityService, STORE_REVIEW, shortDisplayName } from './identity.service.js';
+export { IdentityService, PHONE_REVEAL_LIMIT_EVENT, STAFF_PHONE_REVEAL_PURPOSE, STAFF_REVEAL_PER_HOUR, STORE_REVIEW, shortDisplayName } from './identity.service.js';
 export type { RosterRow, RosterResult } from './identity.service.js';
 export { normalizeIraqiPhone, maskPhone, invitePhoneHint } from './phone.js';
 export { OTP_WHATSAPP_TEMPLATE } from './otp.service.js';
+export { OTP_ALERT_EVENT } from './events.adapter.js';
 export type { SmsProvider } from './sms/provider.js';
 export { ROLE_READER } from './role-reader.js';
 export type { RoleReader } from './role-reader.js';

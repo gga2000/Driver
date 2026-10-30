@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { EtaService, RoutingModule } from '../routing/index.js';
+import { avoidedStreets, EtaService, RouteClosures, RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES, type RoleKind, type Vertical } from '@driver/contracts';
 import { ClimateChecks, DispatchModule, DispatchService, type BookedJobInfo } from '../dispatch/index.js';
 import { DriverAccountModule, DriverAccountService } from '../driver-account/index.js';
@@ -14,14 +14,19 @@ import { COURIER_VEHICLES, TrackingModule, type CourierVehicleDirectory } from '
 import { TripsModule, TripsService } from '../trips/index.js';
 import { WAITING_STATUSES, type TakeRule } from './logic.js';
 import { PartnerService } from './partner.service.js';
-import { PlacesModule, SavedPlacesService } from '../places/index.js';
+import { BLOB_STORE, PlacesModule, SavedPlacesService, type BlobStore } from '../places/index.js';
 import { PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps } from './ports.js';
 
-/** Ride take rules by vertical (money & ops §3); deliveries pass through and have none. */
+/** «الليستة» photo and voice links last 15 minutes from each fetch of the job (lane A). */
+const ERRAND_MEDIA_VALID_MS = 15 * 60_000;
+
+/** Take rules by vertical (money & ops §3): rides and parcels; food, grocery and errand fees pass through. */
 function takeFor(vertical: Vertical): TakeRule | null {
   const take = AZIZIYAH_MONEY_RULES.take;
   if (vertical === 'tuktuk') return take.tuktuk;
   if (vertical === 'taxi') return take.car;
+  // The ledger books a parcel as its fare less the parcel take (`postRideCompleted`), so the offer shows the same.
+  if (vertical === 'parcel') return take.parcel;
   return null;
 }
 
@@ -52,13 +57,22 @@ function takeFor(vertical: Vertical): TakeRule | null {
         places: SavedPlacesService,
         merchant: MerchantService,
         climate: ClimateChecks,
+        blobs: BlobStore,
+        closures: RouteClosures,
       ): PartnerDeps => ({
-        roads: { path: (points) => eta.path(points) },
+        roads: {
+          path: async (points) => {
+            const r = await eta.path(points);
+            return { ...r, closures: avoidedStreets(closures, r.avoided) };
+          },
+        },
         presence: {
           get: (id) => dispatch.presence.get(id),
           online: (id, input) => dispatch.presence.online(id, input),
           offline: (id) => dispatch.presence.offline(id),
           zones: async (cityId) => (await dispatch.presence.list(cityId)).map((p) => p.zoneId),
+          live: async (cityId) =>
+            (await dispatch.liveDrivers(cityId, new Date())).map((d) => ({ driverId: d.presence.driverId, zoneId: d.presence.zoneId, lat: d.presence.lat, lng: d.presence.lng, free: d.state === 'free' })),
         },
         dispatch: {
           openOffer: (id, cityId) => dispatch.openOffer(id, cityId),
@@ -76,6 +90,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
             return { online: found.online, mine: found.mine.map(record), open: found.open.map(record) };
           },
           answerBookedJob: (id, tripId, answer) => dispatch.answerBookedJob(id, tripId, answer),
+          retryUnassigned: (cityId) => dispatch.retryUnassigned(cityId),
           waitingZones: async (cityId) => {
             try {
               return (await dispatch.board(cityId)).cards.filter((c) => WAITING_STATUSES.has(c.status)).map((c) => c.zoneId);
@@ -87,6 +102,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         trips: { forDriver: (id) => trips.forDriver(id), get: (tripId) => trips.get(tripId), lastPosition: (tripId) => trips.lastPosition(tripId), pickupsByZone: (cityId, from, to) => trips.pickupsByZone(cityId, from, to) },
         orders: {
           get: (orderId) => orders.get(orderId).catch(() => null),
+          errandReceipt: (courierId, input) => orders.recordErrandReceipt(courierId, input),
           startCodeRequired: async (orderId) => (await orders.startCodeOf(orderId)) !== null,
           // c9/s3: who he picks up when the ride was booked for someone else (a logged vault read).
           riderName: async (orderId, driverId) => (await orders.riderOf(orderId, driverId, 'partner_rider'))?.name ?? null,
@@ -105,11 +121,14 @@ function takeFor(vertical: Vertical): TakeRule | null {
             pricing.quote({ cityId, vertical, stops: [{ zoneId: pickupZone, type: 'pickup' }, { zoneId: dropoffZone, type: 'dropoff' }], options: { frontSeat: false, doorPickup: false, streetHandover: false, waitMinutes: 0, promoIqd: 0 }, at }),
         },
         money: {
-          cap: (id) => caps.status(id),
+          // Speed x2: his limit (role and tier) is kept a few minutes for the app's own reads; cash is read every time.
+          cap: (id) => caps.status(id, { keptLimit: true }),
           driverLines: async (id, from) => (await ledger.statement(Accounts.driver(id), { from })).lines,
           batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare,
           take: takeFor,
         },
+        // «المدينة حيّة»: kitchens at work and where orders were placed (shops only, no order ids or customers).
+        town: { activity: (cityId, from, to) => orders.townActivity(cityId, from, to) },
         roles: { activeRoles: (id): Promise<RoleKind[]> => roles.activeRoles(id) },
         // The registered vehicle (review #20): the vehicle registry the courier card reads (`vehicles`
         // with a database, the in-process registry otherwise), else the fleet's own registry.
@@ -117,6 +136,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
         // Maps program SP3d: the customer's door (note, photos, first visit) on drop-offs at saved places.
         places: { courierDoor: (placeId, input) => places.courierDoor(placeId, input), dropoffsAt: (placeId, tripId) => trips.dropoffsAt(placeId, tripId) },
         // Maps program r7: the kitchen's pickup spot (note, photos) on pickups still to do.
+        errandMedia: { readUrl: (id) => blobs.readUrl(id, ERRAND_MEDIA_VALID_MS, { exact: true }) },
         pickupSpots: { forCourier: (merchantOrgId, input) => merchant.courierPickupSpot(merchantOrgId, input) },
         // Ride idea x1: the shift's AC / heating question, on what the car check confirmed for his car.
         climate: {
@@ -130,7 +150,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks, BLOB_STORE, RouteClosures],
     },
     PartnerService,
   ],
