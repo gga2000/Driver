@@ -369,11 +369,20 @@ def sign_kind(cat, n):
     if any(k in n for k in ('جامع', 'مسجد', 'حسينية')) or 'worship' in cat: return 'mosque'
     if 'صيدلية' in n or 'pharmacy' in cat: return 'pharmacy'
     if any(k in n for k in ('فرن', 'مخبز', 'صمون')) or 'bakery' in cat: return 'bakery'
+    # food kinds (Ali picked A · Pins, 2026-10-30): one pin per kind, in the colour of the kind's 3D shop sign
+    if any(k in n for k in ('مشاوي', 'مشويات', 'كباب', 'تكة', 'كص ')): return 'grill'
+    if any(k in n for k in ('شاورما', 'فلافل')): return 'shawarma'
+    if any(k in n for k in ('برگر', 'برغر', 'بركر', 'همبرگر', 'همبرغر', 'burger', 'Burger')): return 'burger'
+    if any(k in n for k in ('حلويات', 'كنافة', 'بقلاوة', 'كيك', 'آيس كريم', 'ايس كريم', 'جيلاتو')) or 'dessert' in cat or 'sweet' in cat: return 'sweets'
+    if any(k in n for k in ('عصير', 'عصاير')) or 'juice' in cat: return 'juice'
+    if any(k in n for k in ('چايخانة', 'جايخانة', 'جايخانه', 'چايخانه', 'كافيه', 'كافي ', 'قهوة', 'مقهى', 'Cafe', 'Café')) or cat in ('cafe', 'coffee_shop', 'tea_room', 'coffee_roastery'): return 'cafe'
+    if 'اكل بيت' in n or 'أكل بيت' in n or 'أكلات بيت' in n: return 'home'
+    if 'restaurant' in cat or 'مطعم' in n or 'مطاعم' in n: return 'restaurant'
     if cat in ('hospital', 'health_care', 'specialized_medical_facility', 'outpatient_care_facility') or any(k in n for k in ('مستشفى', 'مستوصف', 'مركز صحي')): return 'health'
     if cat in ('place_of_learning', 'education', 'elementary_school', 'college_university') or any(k in n for k in ('مدرسة', 'ثانوية', 'متوسطة', 'كلية')): return 'school'
     if cat == 'gas_station' or 'محطة وقود' in n or 'بانزين' in n: return 'fuel'
     return None
-SIGN_RANK = {'mosque': 1, 'health': 1, 'fuel': 1, 'school': 2, 'pharmacy': 2, 'bakery': 2}
+SIGN_RANK = {'mosque': 1, 'health': 1, 'fuel': 1, 'school': 2, 'pharmacy': 2, 'bakery': 2, **{k: 2 for k in ('grill', 'shawarma', 'sweets', 'home', 'cafe', 'juice', 'burger', 'restaurant')}}
 ours_path = os.path.join(TOWN, 'our-places.json')
 ours = json.load(open(ours_path)) if os.path.exists(ours_path) else []
 our_kinds = {o['kind'] for o in ours if o.get('kind') != 'area'}

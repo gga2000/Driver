@@ -460,7 +460,7 @@ function labelLayers(p: GoldenPalette): LayerSpecification[] {
         'text-font': [...GOLDEN_FONTS.medium], 'text-size': fade(15, 12, 17, 13.5), 'text-max-width': 8, 'text-optional': true,
         'text-anchor': 'top', 'text-offset': [0, 0.3],
       },
-      paint: { 'text-color': p.windowGlow ? p.label : SIGN_COLOURS.bakery, ...halo, 'text-halo-width': 1.6 },
+      paint: { 'text-color': p.windowGlow ? p.label : (['match', ['get', 'icon'], ...FOOD_SIGNS.flatMap((k) => [k, SIGN_COLOURS[k]]), SIGN_COLOURS.bakery] as never), ...halo, 'text-halo-width': 1.6 },
     },
     {
       // everything else (mosques, schools, clinics, pharmacies, fuel) is a quiet mark printed on the ground: no pin,

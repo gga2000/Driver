@@ -61,4 +61,13 @@ describe('signposts', () => {
       expect(ids.indexOf('golden-area-names')).toBeLessThan(ids.indexOf('golden-houses-3d'));
     }
   });
+
+  it('stands every food kind as a pin and keeps the rest as quiet marks (Ali picked A · Pins)', () => {
+    expect([...FOOD_SIGNS].sort()).toEqual(['bakery', 'burger', 'cafe', 'grill', 'home', 'juice', 'restaurant', 'shawarma', 'sweets']);
+    for (const light of ['day', 'night'] as const) {
+      const imgs = goldenImages(light);
+      for (const k of SIGN_KINDS) expect(imgs[FOOD_SIGNS.includes(k) ? signImageId(k) : markImageId(k)], k).toBeDefined();
+    }
+    expect(new Set(FOOD_SIGNS.map((k) => SIGN_COLOURS[k])).size).toBe(FOOD_SIGNS.length);
+  });
 });

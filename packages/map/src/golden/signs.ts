@@ -8,12 +8,13 @@ import type { PatternImage } from './palm.js';
  *
  * Drawn without a canvas (like the palm texture), at 2× so they stay sharp on phones; the style halves `icon-size`.
  */
-export type SignKind = 'mosque' | 'school' | 'health' | 'pharmacy' | 'bakery' | 'fuel';
-export const SIGN_KINDS: readonly SignKind[] = ['mosque', 'school', 'health', 'pharmacy', 'bakery', 'fuel'];
+export type FoodKind = 'bakery' | 'grill' | 'shawarma' | 'sweets' | 'home' | 'cafe' | 'juice' | 'burger' | 'restaurant';
+export type SignKind = 'mosque' | 'school' | 'health' | 'pharmacy' | 'fuel' | FoodKind;
+export const SIGN_KINDS: readonly SignKind[] = ['mosque', 'school', 'health', 'pharmacy', 'fuel', 'bakery', 'grill', 'shawarma', 'sweets', 'home', 'cafe', 'juice', 'burger', 'restaurant'];
 export const SIGN_MINZOOM = 14.6;
 export const signImageId = (kind: SignKind) => `golden-sign-${kind}`;
-/** Food signs stand as pins; every other kind is a quiet mark on the ground (Ali, 2026-10-13: food first, the rest calm). */
-export const FOOD_SIGNS: readonly SignKind[] = ['bakery'];
+/** Food signs stand as pins, one per food kind (Ali picked A · Pins, 2026-10-30); every other kind is a quiet mark on the ground (2026-10-13: food first, the rest calm). */
+export const FOOD_SIGNS: readonly SignKind[] = ['bakery', 'grill', 'shawarma', 'sweets', 'home', 'cafe', 'juice', 'burger', 'restaurant'];
 export const markImageId = (kind: SignKind) => `golden-mark-${kind}`;
 
 /** Each kind's colour: warm and earthy, readable under cream glyphs, never blue or teal. */
@@ -24,6 +25,15 @@ export const SIGN_COLOURS: Record<SignKind, string> = {
   pharmacy: '#2F6A32',
   bakery: '#7A4A22',
   fuel: '#4E4238',
+  // food kinds wear their shop sign's colour (restaurants.ts KIND_LOOK), so a pin and its 3D shop agree
+  grill: '#B3261E',
+  shawarma: '#4F6B1E',
+  sweets: '#C2416E',
+  home: '#8A4A12',
+  cafe: '#5A3418',
+  juice: '#E0700C',
+  burger: '#2B2420',
+  restaurant: '#C8730F',
 };
 
 // 24×24 line glyphs in the app's icon style (1.9 px round strokes).
@@ -34,6 +44,14 @@ const GLYPHS: Record<SignKind, string[]> = {
   pharmacy: ['M9.5 4.5h5v5h5v5h-5v5h-5v-5h-5v-5h5z'],
   bakery: ['M3 18.5c0-6.6 4-10.5 9-10.5s9 3.9 9 10.5z', 'M7.6 12.6l1.6 2.4', 'M11.2 10.9l1.6 2.6', 'M14.8 12.6l1.6 2.4'],
   fuel: ['M5.5 20V4.5h9V20', 'M4 20h12', 'M8 8h5', 'M14.5 11h3v5.5c0 1.7 2.6 1.7 2.6 0V9l-2.4-2.4'],
+  grill: ['M12 3c.9 2.9 4 4.4 4 8 0 2.2-1.8 4-4 4s-4-1.8-4-4c0-1.5.7-2.6 1.5-3.5.3 1.3 1 2 1.7 2.2C11 7.4 10.8 5 12 3z', 'M6 20.5h12'],
+  shawarma: ['M12 3v2', 'M8.5 6.5h7l-1.2 5.2H9.7z', 'M9.5 12.5h5l-.8 5h-3.4z', 'M12 17.5V21', 'M9 21h6'],
+  sweets: ['M4 18.5h16', 'M5.5 18.5v-5h13v5', 'M5.5 13.5c1.5-1.8 3-1.8 4.2 0 1.2-1.8 2.9-1.8 4.2 0 1.2-1.8 2.8-1.8 4.6 0', 'M12 13.5v-3', 'M12 8.2v.1'],
+  home: ['M4 11l8-6 8 6', 'M6 10v9h12v-9', 'M10 19v-4h4v4'],
+  cafe: ['M5 9h11v5c0 2.8-2.2 5-5 5h-1c-2.8 0-5-2.2-5-5z', 'M16 10.5h1.5c1.2 0 2.2 1 2.2 2.2s-1 2.2-2.2 2.2H16', 'M8.5 3.8c-.8 1 .8 1.7 0 2.7', 'M12 3.8c-.8 1 .8 1.7 0 2.7'],
+  juice: ['M7 8h10l-1.4 11.5H8.4z', 'M7.6 12h8.8', 'M13 8l2-5', 'M14.4 3h2.2'],
+  burger: ['M4 10.5c0-3.3 3.6-5.5 8-5.5s8 2.2 8 5.5z', 'M4 14h16', 'M5 17.5h14c0 1.4-1.6 2-3.4 2H8.4C6.6 19.5 5 18.9 5 17.5z'],
+  restaurant: ['M8 3v7c0 1.4 1.1 2.5 2.5 2.5V21', 'M5.5 3v5', 'M10.5 3v5', 'M16.5 21V3c-2.2 1.2-3 3.8-3 7 0 1.6 1.2 2.5 3 2.5'],
 }
 
 type Pt = [number, number];
