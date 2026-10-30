@@ -1,6 +1,6 @@
 export { OrdersModule } from './orders.module.js';
 export { OrdersService, ORDER_JOBS, ORDERS_QUEUE, ORDERS_TRIPS, ORDERS_PRICING, ORDERS_CASH_RISK, ORDERS_WALLET, toOrderView, lineValue, roundingOf, commissionBaseOf, merchantDealOf, payable, orderPriceIqd, changeOf } from './orders.service.js';
-export type { OrdersTripsPort, OrdersPricingPort, OrdersCashRiskPort, OrdersWalletPort, OrderTimerJob, OrdersReferralsPort } from './orders.service.js';
+export type { OrdersTripsPort, OrdersPricingPort, OrdersCashRiskPort, OrdersWalletPort, OrderTimerJob, OrdersReferralsPort, OrdersAccessPort } from './orders.service.js';
 export { OrdersRpc, ORDERS_ROLE_CHECKER } from './orders.rpc.js';
 export type { OrgRoleChecker } from './orders.rpc.js';
 export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANSITIONS, canOrderTransition, orderEventType, transitionsFor, vehicleRequirement } from './order.machine.js';

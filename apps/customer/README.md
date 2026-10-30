@@ -191,6 +191,16 @@ for today (no delivered burst, success buzz or moment sounds). `POST /demo/night
 Metro caches inlined `EXPO_PUBLIC_*` values across checkouts: add `--clear` to the export when the
 API port changed (otherwise the bundle can still point at another demo API).
 
+## Customer waves «نبلّغك من يصير دورك» (W5)
+
+`docs/api/waves.md`. Off until ops sets a zone's open places. A waiting customer sees home's
+«لسه ما وصل دور منطقتك» card and `app/waitlist.tsx` (area, how many ahead, the message to come); checkout
+sends them there and the server refuses their food order (`waitlisted`). Menus stay open to browse.
+
+- Demo: `POST /demo/waitlist?personId=…&ahead=3` puts that person in line in their own place's area (with
+  3 ahead); `POST /demo/waves?zoneKey=…&slots=off` opens the area again (or `slots=<n>`).
+- Shots: `SHOTS=waves` → `waves-*.png` on a fresh account (home card, the waiting screen, «صار دورك»).
+
 ## «وين الباص» (map idea N14, «بس بيتك والباص»)
 
 `docs/api/khat-guardian-map.md`. From أطفال الخطوط (`app/household/children.tsx`) each child has «وين

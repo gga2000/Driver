@@ -18,9 +18,6 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261009090000 | scheduled_timers | lane B | #13 (merged) |
 | 20261009091000 | quotes_expires_at_index | lane B | #13 (merged) |
 | 20261009092000 | participants_person_id_index | lane B | #13 (merged) |
-| 20261009100000 | test_kitchen | lane D | BENCH-04 PR |
-| 20261009102000 | abuse_limits | lane D | lane D PR (reserved) |
-| 20261009104000 | customer_waves | lane D | W5 waves PR (reserved) |
 | 20261009110000 | ledger_events_order_trip_indexes | lane B | DB time limits + speed PR |
 | 20261010092000 | on_call | lane E | #14 (merged) |
 | 20261010100000 | inbox | lane E | #14 (merged) |
@@ -52,6 +49,7 @@ Migrations merged before this ledger started (up to `20261008101500_garage_taxis
 | 20261010600000 | notify_stuck_claims_index | lane D | (status, sent_at) index for the every-minute stuck-send count (#321 follow-up) |
 | 20261010610000 | street_closures | lane A | N20 «شارع مسدود», closed streets for today (re-stamped 560000 → 610000; 600000 went to #323's notify index) |
 | 20261010630000 | map_editor | map thread | Console › محرر الخريطة: `map_edits` (undo history), `map_reports` (fixes inbox); 620000 stays reserved for TOTP #330 |
+| 20261010660000 | customer_waves | lane D | W5 waves PR, food orders open area by area with a waitlist (re-stamped 440000 → 660000) |
 
 Queue note (2026-10-08, coordinator): #19's `20261010230000` landed ahead of #41 (trips, was `20261010140000`)
 and #38 (lane B, `20261010220000`). #38 re-stamps to the next free timestamp when it lands. Trips steps 1–6
