@@ -48,6 +48,9 @@ as an OTA update the same day.
 
 ## Roll back
 
+On a bad night use the buttons instead (Actions → Ops): [bad-night.md](bad-night.md). The commands below are
+what they do, for when a button can't.
+
 **API** (bad code, database fine) — go back to the previous image, takes a minute:
 
 ```bash
@@ -62,7 +65,7 @@ from" the old tag; migrations already applied are skipped.)
 so the previous API version keeps working on the newer schema. If a migration itself is wrong, write a
 new migration that fixes it and deploy that.
 
-**Web apps**: Cloudflare → the Pages project → Deployments → the previous one → **Rollback**.
+**Web apps** (Vercel): Actions → Ops → `promote-previous-web`, or Vercel → the project → Deployments → the previous one → **Promote**.
 **Console**: like the API (`fly releases --config deploy/fly/console.toml`).
 **OTA update**: `cd apps/<app> && eas update:roll-back-to-embedded --channel production` (or republish the
 previous update group from expo.dev). Publish a new OTA update only with
@@ -169,6 +172,7 @@ only for this case. The game day rehearses it.
 
 ## Incident checklist
 
+0. **The buttons**: [bad-night.md](bad-night.md) (Actions → Ops) covers the usual bad night in one page.
 1. **Is it down?** `curl -s https://driver-api.fly.dev/trpc/health.ready` → `db` and `redis` must be `ok`.
    `health.live` answering 503 means the machines have not reached the database for 30 seconds (see "Deploying while the
    database is down" below).
