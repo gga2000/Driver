@@ -9905,7 +9905,7 @@
   "console.alarm.sos_body": "{name} ({role}) · {what}",
   "console.alarm.title_flash": "({count}) طوارئ · افتح الكونسول",
   "partner.staff_alert_title": "تنبيه طوارئ للموظفين",
-  "partner.staff_alert_body": "هذا التنبيه يُستلم من الكونسول. افتحه هسة حتى تشوف التفاصيل وتستلمه.",
+  "partner.staff_alert_body": "هذا التنبيه تستلمه من الكونسول. افتحه هسة حتى تشوف التفاصيل وتستلمه.",
   "partner.staff_alert_open": "افتح بالكونسول",
   "partner.staff_alert_back": "رجوع",
   "partner.staff_alert_no_link": "افتح الكونسول من الكمبيوتر حتى تشوف التنبيه وتستلمه.",
