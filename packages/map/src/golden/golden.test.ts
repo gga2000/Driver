@@ -2,15 +2,21 @@ import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { describe, expect, it } from 'vitest';
 import {
   buildGoldenStyle,
+  twinkleRiver,
   FURROW_PATTERN,
   GOLDEN_FIRST_LABEL,
   GOLDEN_FONTS,
   GOLDEN_PALETTES,
+  GOLDEN_SEQUIN_LAYERS,
   GOLDEN_SOURCE,
+  GOLDEN_ZONE_NAMES_SOURCE,
+  GOLDEN_ZONES_SOURCE,
   LANDMARK_PARTS,
   LANDMARK_RISE,
   goldenImages,
   lightFor,
+  LIT_WALL_PATTERN,
+  litWallPattern,
   PALM_PATTERN,
   palmPattern,
   resolveLight,
@@ -56,6 +62,28 @@ describe('buildGoldenStyle', () => {
       }
     }
   });
+  it('draws the Console neighbourhoods on customer and lite only, under the houses, never the AI draft outlines', () => {
+    for (const mode of MODES) {
+      const style = buildGoldenStyle({ ...base, light: 'golden', mode, zoneNames: true });
+      const zoneIds = style.layers.filter((l) => 'source' in l && (l.source === GOLDEN_ZONES_SOURCE || l.source === GOLDEN_ZONE_NAMES_SOURCE)).map((l) => l.id);
+      if (mode === 'customer' || mode === 'lite') {
+        expect(style.sources[GOLDEN_ZONES_SOURCE]).toMatchObject({ type: 'geojson' });
+        expect(style.sources[GOLDEN_ZONE_NAMES_SOURCE]).toMatchObject({ type: 'geojson' });
+        expect(zoneIds).toEqual(['golden-zone-wash', 'golden-zone-edge', 'golden-zone-names']);
+        for (const id of ['golden-zone-wash', 'golden-zone-edge']) expect(style.layers.find((l) => l.id === id)).toMatchObject({ filter: ['!=', ['get', 'placement'], 'draft'] });
+        // every neighbourhood keeps its name, drawn or not
+        expect(style.layers.find((l) => l.id === 'golden-zone-names')).not.toHaveProperty('filter');
+        expect(ids(style).indexOf('golden-zone-edge')).toBeLessThan(ids(style).indexOf('golden-roofs'));
+        expect(ids(style).indexOf('golden-zone-names')).toBeGreaterThan(ids(style).indexOf('golden-roofs'));
+      } else {
+        // courier and Console lay their own zone layers on this source
+        expect(style.sources[GOLDEN_ZONES_SOURCE]).toBeUndefined();
+        expect(zoneIds).toEqual([]);
+      }
+    }
+    // names stay off until the app stops drawing its own
+    expect(ids(buildGoldenStyle({ ...base, light: 'day', mode: 'customer' }))).not.toContain('golden-zone-names');
+  });
   it('reads only the layers the tiles carry and only the fonts glyphs.py writes', () => {
     const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'courier' });
     const sourceLayers = new Set(style.layers.flatMap((l) => ('source-layer' in l && l['source-layer'] ? [l['source-layer']] : [])));
@@ -86,7 +114,8 @@ describe('buildGoldenStyle', () => {
     const first = ids(style).indexOf(GOLDEN_FIRST_LABEL);
     expect(first).toBeGreaterThan(0);
     expect(style.layers.slice(first).every((l) => l.type === 'symbol')).toBe(true);
-    expect(style.layers.slice(0, first).some((l) => l.type === 'symbol')).toBe(false);
+    // the one exception is paint on the ground: neighbourhood names lie under the houses (and under a route)
+    expect(style.layers.slice(0, first).filter((l) => l.type === 'symbol').map((l) => l.id)).toEqual(['golden-area-names']);
   });
   it('draws less where less is needed: no 3D, shadows or patterns on the Console and cheap phones', () => {
     for (const mode of ['console', 'lite'] as const) {
@@ -180,6 +209,49 @@ describe('palm pattern', () => {
     }
     expect([...alphas]).toEqual([255]);
     expect(colours.size).toBeGreaterThan(5);
-    expect(Object.keys(goldenImages('night'))).toEqual([PALM_PATTERN, FURROW_PATTERN]);
+    expect(Object.keys(goldenImages('night')).slice(0, 2)).toEqual([PALM_PATTERN, FURROW_PATTERN]);
+  });
+});
+
+describe('river sequins', () => {
+  it('scatters nine rows of points on the river from the town view, none on lite', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
+    expect(ids(style).filter((id) => id.startsWith('golden-glint-'))).toEqual([...GOLDEN_SEQUIN_LAYERS]);
+    expect(GOLDEN_SEQUIN_LAYERS).toHaveLength(9);
+    expect(style.layers.find((l) => l.id === 'golden-glint-1')).toMatchObject({ minzoom: 12.5, paint: { 'line-dasharray': [0, 6] } });
+    expect(ids(buildGoldenStyle({ ...base, light: 'golden', mode: 'lite' })).some((id) => id.startsWith('golden-glint-'))).toBe(false);
+  });
+  it('twinkles once and comes to rest where the style draws it; still with reduce motion', () => {
+    const style = buildGoldenStyle({ ...base, light: 'golden', mode: 'customer' });
+    const set: Record<string, unknown> = {};
+    let brighter = false;
+    const paintOf = (id: string) => (style.layers.find((l) => l.id === id) as { paint: Record<string, unknown> }).paint['line-opacity'];
+    const map = { getLayer: (id: string) => style.layers.find((l) => l.id === id), setPaintProperty: (id: string, _n: string, v: unknown) => { if (JSON.stringify(v) !== JSON.stringify(paintOf(id))) brighter = true; set[id] = v; } };
+    const queue: ((t: number) => void)[] = [];
+    twinkleRiver(map, { ms: 100, frame: (cb) => queue.push(cb), cancel: () => {} });
+    for (let t = 0; queue.length; t += 16) queue.shift()!(t);
+    expect(brighter).toBe(true);
+    for (const id of GOLDEN_SEQUIN_LAYERS) expect(set[id]).toEqual(paintOf(id));
+    const still: Record<string, unknown> = {};
+    twinkleRiver({ ...map, setPaintProperty: (id, _n, v) => { still[id] = v; } }, { reduceMotion: true });
+    expect(still).toEqual({});
+  });
+});
+
+describe('lit homes at night', () => {
+  it('draws lit houses with the window wall pattern under a thin roof cap, and only at night', () => {
+    const night = buildGoldenStyle({ ...base, light: 'night' });
+    expect(ids(night)).toEqual(expect.arrayContaining(['golden-houses-3d', 'golden-lit-walls', 'golden-lit-cap']));
+    const walls = night.layers.find((l) => l.id === 'golden-lit-walls') as { paint: Record<string, unknown> };
+    expect(walls.paint['fill-extrusion-pattern']).toBe(LIT_WALL_PATTERN);
+    expect(Object.keys(goldenImages('night'))).toContain(LIT_WALL_PATTERN);
+    const day = buildGoldenStyle({ ...base, light: 'day' });
+    expect(ids(day).some((id) => id.startsWith('golden-lit-'))).toBe(false);
+    expect(Object.keys(goldenImages('day'))).not.toContain(LIT_WALL_PATTERN);
+  });
+  it('keeps the wall pattern opaque and the right size', () => {
+    const img = litWallPattern(GOLDEN_PALETTES.night);
+    expect(img.data.length).toBe(img.width * img.height * 4);
+    expect(img.data.every((v, i) => i % 4 !== 3 || v === 255)).toBe(true);
   });
 });

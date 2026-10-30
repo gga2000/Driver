@@ -187,6 +187,11 @@ export const CityPricingConfig = z.object({
     })
     .optional(),
   /**
+   * أكل بيت (home kitchens, Ali 2026-10-11): open to customers in this city. Absent = closed. Home
+   * kitchens are ordinary food orders, so this sits beside the launched services, not among them.
+   */
+  homeKitchens: z.object({ launched: z.boolean().default(false) }).optional(),
+  /**
    * Food carts «عربانات» (2026-10-11): open to customers in this city. Absent = closed (off at launch
    * until Ali opens them). Cart delivery orders are ordinary food orders; this gates the carts' own
    * list, page, follows and walk-over tickets.

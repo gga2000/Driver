@@ -202,6 +202,15 @@ const smartBroadcast: DispatchConfig = {
  */
 const rides: DispatchConfig = {
   ...smartBroadcast,
+  // Ali 2026-10-21: taxi and tuktuk drivers get 25 s to accept (was 15), so they can pull over and read
+  // the offer; the red card / re-broadcast moves to after all three waves (25 + 25 + 30 = 80 s).
+  waves: [
+    { size: 3, radiusKm: 1.5, seconds: 25 },
+    { size: 5, radiusKm: 3, seconds: 25 },
+    { size: 'all', seconds: 30 },
+  ],
+  acceptTimeoutSec: 25,
+  rebroadcastAfterSec: 80,
   bookedRides: {
     offerFromHour: 18,
     confirmByHour: 22,
@@ -338,10 +347,10 @@ export const aziziyah: CityPricingConfig = {
     intercity: scheduled,
     khat: preAssigned,
   },
-  // Launch day: food with taxis and tuktuks (Ali), and parcels (طرود: Ali, 2026-10-12 "switch it on").
-  // الرجعة (intercity), خطوط, grocery and errands open later by adding them here; until then the server
-  // refuses their new work.
-  launchedVerticals: ['food', 'taxi', 'tuktuk', 'parcel'],
+  // Launch day: food with taxis and tuktuks (Ali), parcels (طرود: Ali, 2026-10-12 "switch it on") and
+  // Baghdad/Kut seats with الرجعة (intercity: Ali, 2026-10-22, "open Baghdad/Kut at launch").
+  // خطوط, grocery and errands open later by adding them here; until then the server refuses their new work.
+  launchedVerticals: ['food', 'taxi', 'tuktuk', 'parcel', 'intercity'],
   // Food carts open with food (Ali, 2026-10-12: "open them"); the Console's switch overrides this.
   foodCarts: { launched: true },
   creditCapsIqd: { bronze: 75000, silver: 150000, gold: 300000 },

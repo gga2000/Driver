@@ -147,7 +147,9 @@ export const NotifyTemplateId = z.enum([
   'ride_nudge',
   'merchant_cash_handover',
   'merchant_activated',
+  'home_kitchen_activated',
   'menu_photos_ready',
+  'merchant_staff_changed',
   'courier_cash_receipt',
   'driver_pay_reply',
   'tip_received',
@@ -661,12 +663,32 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     primary: ['push'],
     quietHours: 'send',
   },
+  // «فريقنا عدّل بمحلك»: Driver's team changed the shop from the Console — its owners hear it once per
+  // sitting (the first change after 30 quiet minutes), with the kind of change only; the list is in the app.
+  merchant_staff_changed: {
+    id: 'merchant_staff_changed',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.merchant_staff_changed.title', body: 'push.merchant_staff_changed.body', androidChannel: 'orders', deepLink: 'driver-merchant://staff-changes' },
+    primary: ['push'],
+    quietHours: 'defer',
+  },
   // «جهّز محلك»: ops approved the shop — its owners hear it is live and where to finish setting it up.
   merchant_activated: {
     id: 'merchant_activated',
     category: 'work',
     app: 'merchant',
     push: { title: 'push.merchant_activated.title', body: 'push.merchant_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://setup' },
+    sms: { key: 'sms.merchant_activated' },
+    primary: ['push', 'sms'],
+    quietHours: 'defer',
+  },
+  // أكل بيت: staff approved a cook's kitchen — the same news, but it opens «أكلاتي» and says «ضيف أكلاتك».
+  home_kitchen_activated: {
+    id: 'home_kitchen_activated',
+    category: 'work',
+    app: 'merchant',
+    push: { title: 'push.merchant_activated.title', body: 'push.home_kitchen_activated.body', androidChannel: 'orders', deepLink: 'driver-merchant://home-kitchen' },
     sms: { key: 'sms.merchant_activated' },
     primary: ['push', 'sms'],
     quietHours: 'defer',

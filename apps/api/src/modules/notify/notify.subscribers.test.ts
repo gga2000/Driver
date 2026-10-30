@@ -80,6 +80,11 @@ describe('notify subscribers: events → notifications', () => {
     // Menu photo service (maps k3): the visit's photos are handed over — «صور المنيو جاهزة» to the owners.
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1', merchantOrgId: 'org_k', photos: 4 }))).toEqual([{ template: 'menu_photos_ready', to: 'owner', params: { store: 'مطعم خالد' } }]);
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1' }))).toEqual([]);
+    // «فريقنا عدّل بمحلك»: the team changed the shop from the Console — the owners only, a fixed phrase, never free text.
+    expect(await one(event('stores.console_changed', { merchantOrgId: 'org_k', kind: 'prices' }))).toEqual([{ template: 'merchant_staff_changed', to: 'owner', params: { change: 'غيّرنا أسعار بالمنيو' } }]);
+    expect(render('merchant_staff_changed', { change: 'غيّرنا أسعار بالمنيو' }, 'ar-IQ').body).toBe('غيّرنا أسعار بالمنيو. كل التعديلات بالتطبيق');
+    expect(await one(event('stores.console_changed', { merchantOrgId: 'org_k', kind: 'زاد «فلافل»' }))).toEqual([]);
+    expect(await one(event('stores.console_changed', { kind: 'menu' }))).toEqual([]);
     // «جهّز محلك»: ops approved the shop — its owners (never the onboarding contact as such) hear it is live.
     const activated = event('merchant.activated', { onboardingId: 'onb_1', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'someone', reason: null });
     expect(await one(activated)).toEqual([{ template: 'merchant_activated', to: 'owner', params: { shop: 'مطعم خالد', next: 'افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.' } }]);
@@ -590,5 +595,44 @@ describe('staff.new_device', () => {
       { template: 'staff_new_device', to: 'p_ali', params: { name: 'موظف', device: 'موبايل جديد' } },
     ]);
     expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'web', adminIds: [] }))).toEqual([]);
+  });
+});
+
+describe('notify subscribers: أكل بيت activation link', () => {
+  const merchantAppUrl = 'https://merchant.driver.iq/';
+  const activated = (extra: Record<string, unknown>) => event('merchant.activated', { onboardingId: 'onb_h', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'owner', reason: null, ...extra });
+
+  it("a home kitchen's welcome opens «أكلاتي» (/home-kitchen) and asks her to add her dishes, not set up a shop", async () => {
+    const h = notifyHarness();
+    const got = await requestsFor(activated({ type: 'home_kitchen' }), { ...deps(h), merchantAppUrl });
+    expect(got.map((r) => ({ template: r.template, to: r.to, shop: r.params?.['shop'] }))).toEqual([{ template: 'home_kitchen_activated', to: 'owner', shop: 'مطعم خالد' }]);
+    const next = String(got[0]!.params?.['next']);
+    expect(next).toContain('https://merchant.driver.iq/home-kitchen');
+    expect(next).toContain('أكلاتك');
+    expect(next).not.toContain('/setup');
+    expect(next).not.toContain('كمّل تجهيز محلك');
+  });
+
+  it('with no Merchant app link, a home kitchen hears the app text about her dishes; a shop keeps the setup text', async () => {
+    const h = notifyHarness();
+    const home = await requestsFor(activated({ type: 'home_kitchen' }), deps(h));
+    const next = String(home[0]!.params?.['next']);
+    expect(next).toContain('أكلاتك');
+    expect(next).not.toContain('http');
+    expect(next).not.toContain('كمّل تجهيز محلك');
+    const shop = await requestsFor(activated({ type: 'restaurant' }), deps(h));
+    expect(shop.map((r) => r.params?.['next'])).toEqual(['افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.']);
+    expect(home.map((r) => r.template)).toEqual(['home_kitchen_activated']);
+    expect(shop.map((r) => r.template)).toEqual(['merchant_activated']);
+  });
+
+  it('a missing or any other type keeps the /setup link', async () => {
+    const h = notifyHarness();
+    for (const extra of [{}, { type: 'restaurant' }, { type: 'grocer' }, { type: 'HOME_KITCHEN' }, { type: null }]) {
+      const got = await requestsFor(activated(extra), { ...deps(h), merchantAppUrl });
+      expect(got.map((r) => r.params?.['next'])).toEqual(['كمّل تجهيز محلك من هنا: https://merchant.driver.iq/setup']);
+      expect(String(got[0]!.params?.['next'])).not.toContain('أكلاتك');
+      expect(got.map((r) => r.template)).toEqual(['merchant_activated']);
+    }
   });
 });

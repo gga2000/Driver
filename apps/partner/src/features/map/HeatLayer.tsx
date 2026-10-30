@@ -49,7 +49,7 @@ export function useGlowCells(zones: ReadonlyArray<HeatZone> | undefined): Demand
  * pulse, and reduce motion swaps it at once. When the map itself glows (`outline`), only his zone's edge is
  * drawn here.
  */
-export const HeatLayer = memo(function HeatLayer({ drawn, cam, size, zones, at = 0, outline = false }: { drawn: Camera; cam: CameraValues; size: Size; zones: ReadonlyArray<HeatZone>; at?: number; outline?: boolean }) {
+export const HeatLayer = memo(function HeatLayer({ drawn, cam, size, zones, at = 0, outline = false, strength = 1 }: { drawn: Camera; cam: CameraValues; size: Size; zones: ReadonlyArray<HeatZone>; at?: number; outline?: boolean; strength?: number }) {
   const theme = useTheme();
   const geometry = usePlacedZones();
   const level = useMemo(() => new Map(zones.map((z) => [z.zoneId, z.level])), [zones]);
@@ -80,10 +80,10 @@ export const HeatLayer = memo(function HeatLayer({ drawn, cam, size, zones, at =
               testID={z.id === mine ? `heat-${z.id}-mine` : `heat-${z.id}`}
               d={z.d}
               fill={theme.colors.accent}
-              fillOpacity={outline ? 0 : FILL[z.level]}
+              fillOpacity={outline ? 0 : FILL[z.level] * strength}
               stroke={theme.colors.accent}
-              strokeOpacity={z.level === 'hot' ? 0.9 : 0.5}
-              strokeWidth={z.id === mine ? 3 : z.level === 'hot' ? 2 : 1.2}
+              strokeOpacity={(z.level === 'hot' ? 0.9 : 0.5) * Math.max(0.4, strength)}
+              strokeWidth={z.id === mine ? (strength < 1 ? 2 : 3) : z.level === 'hot' ? 2 : 1.2}
             />
           ))}
         </Svg>

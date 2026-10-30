@@ -849,6 +849,8 @@ model CatalogItem {
   photoLibrary    String?   @map("photo_library")
   /// p4 (Ali 2026-10-08): the shop's own uploaded photo shows at once; set when it was uploaded and Driver's team has not looked yet. NULL = nothing waiting.
   photoReviewPendingAt DateTime? @map("photo_review_pending_at")
+  /// أكل بيت (2026-10-11): how a home kitchen sells the dish: {mode:'ready', cooked, cookedOn} (stock = plates left) or {mode:'reserve', rule:{aheadMin, days, times, maxPerSlot}}. NULL = a restaurant's dish.
+  homeSale        Json?     @map("home_sale")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -3409,6 +3411,8 @@ model NotifyDelivery {
   @@index([personId, createdAt])
   @@index([orderId, createdAt])
   @@index([providerRef])
+  /// Stuck-send count every minute (status queued/deferred, sentAt older than 5 min).
+  @@index([status, sentAt])
   @@map("notify_deliveries")
   @@schema("public")
 }
@@ -3961,6 +3965,36 @@ model RefundApproval {
   @@schema("public")
 }
 
+/// N20 «شارع مسدود» (Ali, 2026-10-11): a street field ops closed for today. Every route goes around it
+/// until `endsAt` (the next Baghdad midnight unless ops picked an earlier hour) or until it is opened early.
+/// Ids and places only; who did it is a staff person id.
+model StreetClosure {
+  id         String    @id @default(cuid())
+  cityId     String    @map("city_id")
+  /// The closed stretch along the street: [{lat, lng}, ...], two or more points.
+  path       Json
+  /// works | funeral | water | other (CHECK in the migration).
+  reason     String
+  /// What ops call it («شارع المستشفى»); shown to couriers and customers. NULL = no name.
+  nameAr     String?   @map("name_ar")
+  lengthM    Int       @map("length_m")
+  startsAt   DateTime  @map("starts_at")
+  endsAt     DateTime  @map("ends_at")
+  closedById String    @map("closed_by_id")
+  openedAt   DateTime? @map("opened_at")
+  openedById String?   @map("opened_by_id")
+  /// ops | courier (CHECK in the migration). A courier's report routes nothing until confirmed.
+  source        String    @default("ops")
+  confirmedAt   DateTime? @map("confirmed_at")
+  confirmedById String?   @map("confirmed_by_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, endsAt])
+  @@map("street_closures")
+  @@schema("public")
+}
+
 /// طرود (Ali 2026-10-12): a parcel inside the city. The receiver is a person id (the name the sender
 /// gave lives in identity_vault under participant `parcel:<id>`); the door link's token is stored only
 /// as its sha-256. The courier order is placed once the door is set (`order_id`). Ids, the parcel's
@@ -4154,5 +4188,63 @@ model FoodCartWalkup {
   @@index([cartId, state])
   @@index([personId, state])
   @@map("food_cart_walkups")
+  @@schema("public")
+}
+
+/// Console › محرر الخريطة (Ali, 2026-10-20): every change the team makes to a restaurant's or a
+/// landmark's pin, name, other names, icon or visibility, with what it was before, so it can be undone.
+model MapEdit {
+  id         String    @id @default(cuid())
+  cityId     String    @map("city_id")
+  /// landmark | restaurant (CHECK in the migration).
+  targetKind String    @map("target_kind")
+  targetId   String    @map("target_id")
+  /// add | edit | move | hide | show | merge (CHECK in the migration).
+  action     String
+  summaryAr  String    @map("summary_ar")
+  /// The fields as they were, and as they became: {name?, localNames?, category?, pin?, state?}.
+  before     Json
+  after      Json
+  /// A merge: the landmark that was hidden into this one.
+  mergedId   String?   @map("merged_id")
+  actorId    String    @map("actor_id")
+  undoneAt   DateTime? @map("undone_at")
+  undoneById String?   @map("undone_by_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, createdAt])
+  @@index([targetKind, targetId, createdAt])
+  @@map("map_edits")
+  @@schema("public")
+}
+
+/// A fix sent from an app (a place moved, a new place, a wrong name, a place that closed), waiting in
+/// the Console inbox until the team accepts or rejects it. Pins, a short note and person ids only.
+model MapReport {
+  id          String    @id @default(cuid())
+  cityId      String    @map("city_id")
+  /// driver | merchant | ops (CHECK in the migration): which inbox tab it lands in.
+  source      String
+  /// moved | new_place | wrong_name | closed (CHECK in the migration).
+  kind        String
+  /// landmark | restaurant; NULL for a new place.
+  targetKind  String?   @map("target_kind")
+  targetId    String?   @map("target_id")
+  /// Where it really is: {lat, lng}; NULL when the report is about the name or a closure.
+  pin         Json?
+  nameAr      String?   @map("name_ar")
+  note        String?
+  reporterId  String    @map("reporter_id")
+  /// open | accepted | rejected (CHECK in the migration).
+  state       String    @default("open")
+  decidedAt   DateTime? @map("decided_at")
+  decidedById String?   @map("decided_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([cityId, state, createdAt])
+  @@index([reporterId, state])
+  @@map("map_reports")
   @@schema("public")
 }

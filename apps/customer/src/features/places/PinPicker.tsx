@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import type { LatLng } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
 import type { LabelObstacle } from '@driver/map';
+import type { Road } from '@driver/map/golden';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { TILE_SIZE, type Camera, type Size } from '@/features/track/geo';
 import { BaseMap } from '@/features/track/map/BaseMap';
+import type { CameraValues } from '@/features/track/map/types';
 import { MAP_CREDIT } from '@/features/track/map/credit';
 
 const EARTH_CIRCUMFERENCE_M = 40_075_016.686;
@@ -57,18 +59,31 @@ export function PinPicker({
   onMoving,
   recentre,
   tone = 'dropoff',
+  zoom = 15.2,
+  under,
+  onRoads,
   testID,
 }: {
   initial: LatLng;
   onCentre: (p: LatLng) => void;
   onMoving: (moving: boolean) => void;
-  recentre: { pin: LatLng; seq: number; accuracyM?: number } | null;
+  recentre: { pin: LatLng; seq: number; accuracyM?: number; zoom?: number } | null;
   tone?: 'pickup' | 'dropoff';
+  /** The starting zoom (the ride steps open closer, at a door). */
+  zoom?: number;
+  /** Drawn on the map under the centre pin (the ride steps: where the phone is, the line to the pin). */
+  under?: (cam: CameraValues, size: SharedValue<Size>) => ReactNode;
+  /** The streets the map has drawn, each time it settles. */
+  onRoads?: (roads: Road[]) => void;
   testID?: string;
 }) {
   const theme = useTheme();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
-  const start: Camera = { lat: initial.lat, lng: initial.lng, zoom: 15.2 };
+  const sizeSV = useSharedValue<Size>(size);
+  useEffect(() => {
+    sizeSV.value = size;
+  }, [size, sizeSV]);
+  const start: Camera = { lat: initial.lat, lng: initial.lng, zoom };
   const cam = useMapCamera(start);
   const [drawn, setDrawn] = useState<Camera>(start);
   const [ringM, setRingM] = useState<number | null>(null);
@@ -79,7 +94,7 @@ export function PinPicker({
   useEffect(() => {
     if (!recentre) return;
     const ease = { duration: 500, easing: Easing.inOut(Easing.cubic) };
-    const target: Camera = { lat: recentre.pin.lat, lng: recentre.pin.lng, zoom: Math.max(15.5, cam.zoom.value) };
+    const target: Camera = { lat: recentre.pin.lat, lng: recentre.pin.lng, zoom: recentre.zoom ?? Math.max(15.5, cam.zoom.value) };
     cam.lng.value = withTiming(target.lng, ease);
     cam.lat.value = withTiming(target.lat, ease);
     cam.zoom.value = withTiming(target.zoom, ease, (done) => {
@@ -107,6 +122,7 @@ export function PinPicker({
           size={size}
           labelAvoid={CENTRE_PIN_AVOID}
           alwaysDay
+          onRoads={onRoads}
           onUserGestureStart={() => {
             lift.value = withSpring(1, { damping: 16, stiffness: 260 });
             setRingM(null);
@@ -120,6 +136,7 @@ export function PinPicker({
           }}
         />
       ) : null}
+      {size.w > 0 && under ? under(cam, sizeSV) : null}
       {/* The fixed centre pin: its tip is the spot. */}
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
         {ringPx >= MIN_RING_PX ? (

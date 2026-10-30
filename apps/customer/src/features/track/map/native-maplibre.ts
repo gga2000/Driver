@@ -31,7 +31,7 @@ type Golden = typeof import('@driver/map/golden');
  * The Golden hour style for MapLibre Native: the same style as the web, reading `pmtiles://` natively
  * (no protocol to add) and shaping Arabic itself (no RTL plugin). The sky block is web-only.
  */
-export function nativeGoldenStyle(golden: Golden, light: Parameters<Golden['goldenImages']>[0], mode: 'customer' | 'lite' = 'customer', extra: { riseAt?: number } = {}): StyleSpecification {
+export function nativeGoldenStyle(golden: Golden, light: Parameters<Golden['goldenImages']>[0], mode: 'customer' | 'lite' = 'customer', extra: { riseAt?: number; zoneNames?: boolean } = {}): StyleSpecification {
   const { style } = golden.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode, light, ...extra });
   const { sky: _sky, ...rest } = style as unknown as StyleSpecification & { sky?: unknown };
   return rest as StyleSpecification;

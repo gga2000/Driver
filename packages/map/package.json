@@ -59,6 +59,10 @@
     "./pieces/windows": {
       "types": "./dist/golden/windows.d.ts",
       "default": "./dist/golden/windows.js"
+    },
+    "./pieces/closed-streets": {
+      "types": "./dist/golden/closed-streets.d.ts",
+      "default": "./dist/golden/closed-streets.js"
     }
   },
   "scripts": {

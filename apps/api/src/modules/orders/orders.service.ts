@@ -55,6 +55,7 @@ import {
   type Vertical,
   MERCHANT_BUSY_RULES,
   localClock,
+  type HomeTally,
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
@@ -64,6 +65,7 @@ import { DistributedKeyedLock, advisoryXactLock } from '../../shared/db/advisory
 import { lockWallets } from '../ledger/index.js';
 import { ShopLoad, tabletOffline } from './shop-load.js';
 import { foodScheduleProblem } from './orders.config.js';
+import { homeOrderProblem, homeReservations, homeTally, homeTallySince } from './home-kitchen.js';
 import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
@@ -101,6 +103,7 @@ import { NoPromotions, ORDERS_PROMOTIONS, type MerchantDealQuery, type Promotion
 import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, platformRevenueIqd, resolveParticipants, type ParticipantResolver } from './participants.js';
 import type { OrdersRidersPort, ResolvedRider } from './riders.js';
 import { publicLabel, recipientIds, rememberRecipients, withRecipientLabels } from './recipients.js';
+import { STOREFRONT_HOME, type StorefrontHome } from '../catalog/index.js';
 import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 /** A household member as placement reads them (role and limits). */
@@ -256,6 +259,11 @@ function ticketWindowStart(now: Date): Date {
   return new Date(startOfLocalDay(now).getTime() - 86_400_000);
 }
 
+/** The most orders placed in the live map's window read at once (a busy city's ten minutes). */
+const TOWN_PLACED_LIMIT = 500;
+/** The catalog's tag on a food cart (`catalog.service` FOOD_CART_TAG): carts stay off the live map. */
+const FOOD_CART_TAG = 'food_cart';
+
 @Injectable()
 export class OrdersService implements OnModuleInit {
   constructor(
@@ -281,6 +289,8 @@ export class OrdersService implements OnModuleInit {
     @Optional() @Inject(ORDERS_WEIGHED_ITEMS) private readonly weighed?: WeighedItemsPort,
     /** «دوّرلي» photos and voice notes are checked against it; absent = an errand line may carry none. */
     @Optional() @Inject(ORDERS_UPLOADS) private readonly uploads?: OrdersUploadsPort,
+    /** أكل بيت: whether home kitchens are open to customers in a city (`homeKitchens.launched`); absent = open. */
+    @Optional() @Inject(STOREFRONT_HOME) private readonly homeOpen?: StorefrontHome,
   ) {
     this.promotions = promotions ?? new NoPromotions();
     this.parcelReturnLock = new DistributedKeyedLock(uow, 'orders.parcel_return');
@@ -318,6 +328,8 @@ export class OrdersService implements OnModuleInit {
   private readonly parcelReturnLock: DistributedKeyedLock;
   /** Joy w4: one household-wallet placing at a time per member in this instance (the budget check). */
   private readonly householdLock = new KeyedLock();
+  /** أكل بيت: one order at a time per home kitchen while its plates are counted. */
+  private readonly homePlatesLock = new KeyedLock();
   /** l4 (Ali 2026-10-08): how many orders each kitchen has waiting, read at most every 20 s. */
   private readonly shopLoad = new ShopLoad(this.repoForLoad());
   /** Per-kitchen caps on scheduled slots (J6): off by default; ops (or a test) switch them on. */
@@ -469,6 +481,7 @@ export class OrdersService implements OnModuleInit {
         if (slotFull(this.slotCaps, merchantOrgId, input.scheduledFor, live.map((o) => o.scheduledFor))) throw new DriverError('slot_full');
       }
     }
+    const homeKitchen = merchantType && input.merchantOrgId ? await this.assertHomePlates(ordererId, input.householdOrgId ?? null, input.cityId, input.merchantOrgId, input.lines, input.scheduledFor ?? null, now) : false;
     const participants = await resolveParticipants(input.participants, this.participants);
     assertLineTags(input.type === 'ride' ? [] : input.lines, participants);
     if (input.type === 'ride') assertExpected(input.fareIqd, fees.fareIqd);
@@ -530,6 +543,13 @@ export class OrdersService implements OnModuleInit {
           if (prior) return prior;
         }
         if (spendsOwnWallet && this.wallet && (await this.walletAvailable(ordererId, null, tx)) < total) throw new DriverError('wallet_insufficient');
+        // أكل بيت: two orders for the last plates are placed one after the other (this instance's lock
+        // below, every instance's advisory lock here), and the second counts the first.
+        if (homeKitchen && input.merchantOrgId) {
+          await advisoryXactLock(tx, `orders.home_plates:${input.merchantOrgId}`);
+          const late = await this.homePlatesProblem(input.merchantOrgId, input.lines, input.scheduledFor ?? null, this.clock.now(), tx);
+          if (late) throw new DriverError(late);
+        }
         // LOAD-01: one kept quote, one order (a retry of this order was answered by the replay above).
         if (input.quoteId && this.pricing.claimQuote && !(await this.pricing.claimQuote(input.quoteId, now, tx))) throw new DriverError('price_changed');
         // Joy w4: the member's month is read and this order written under one lock per household member
@@ -641,7 +661,8 @@ export class OrdersService implements OnModuleInit {
         }
         return this.view(order.id, tx);
       });
-    return spendKey ? this.householdLock.run(spendKey, write) : write();
+    const run = () => (spendKey ? this.householdLock.run(spendKey, write) : write());
+    return homeKitchen && input.merchantOrgId ? this.homePlatesLock.run(input.merchantOrgId, run) : run();
   }
 
   /**
@@ -683,6 +704,42 @@ export class OrdersService implements OnModuleInit {
       totalIqd,
     });
   }
+
+  /**
+   * «المدينة حيّة» (Partner live map home): the city's kitchens with an order accepted, cooking or ready, and
+   * the drop-off areas of orders placed between `from` and `to`. Shops only: home-cook kitchens (private
+   * houses) and food carts are left out. No order ids, customers or pins leave here; the partner module
+   * builds one shared picture from it (`townPulseSnapshot`).
+   */
+  async townActivity(cityId: string, from: Date, to: Date): Promise<{
+    kitchens: Array<{ merchantOrgId: string; pin: LatLng | null; state: 'merchant_accepted' | 'preparing' | 'ready'; acceptedAt: Date | null; promisedReadyAt: Date | null }>;
+    placed: Array<{ zoneId: string | null; placedAt: Date }>;
+  }> {
+    const [cooking, placed] = await Promise.all([
+      this.repo.findMany({ cityId, states: ['merchant_accepted', 'preparing', 'ready'] }),
+      this.repo.search({ cityId, from, to, limit: TOWN_PLACED_LIMIT }),
+    ]);
+    const kitchens: Awaited<ReturnType<OrdersService['townActivity']>>['kitchens'] = [];
+    for (const o of cooking) {
+      if (o.type !== 'food' || !o.merchantOrgId) continue;
+      const shop = await this.townShop(o.merchantOrgId);
+      if (!shop) continue;
+      kitchens.push({ merchantOrgId: o.merchantOrgId, pin: shop.pin, state: o.state as 'merchant_accepted' | 'preparing' | 'ready', acceptedAt: o.acceptedAt, promisedReadyAt: o.promisedReadyAt });
+    }
+    return { kitchens, placed: placed.map((o) => ({ zoneId: o.dropoff?.zoneKey ?? null, placedAt: o.placedAt })) };
+  }
+
+  /** A shop's pin for the live map, or null for a home kitchen or a food cart (kept for ten minutes). */
+  private async townShop(merchantOrgId: string): Promise<{ pin: LatLng | null } | null> {
+    const now = this.clock.now().getTime();
+    const hit = this.townShops.get(merchantOrgId);
+    if (hit && hit.until > now) return hit.shop;
+    const [profile, front] = await Promise.all([this.merchants.profile(merchantOrgId), this.catalog.storefront?.(merchantOrgId) ?? Promise.resolve(null)]);
+    const shop = !profile || front?.home || front?.tags?.includes(FOOD_CART_TAG) ? null : { pin: profile.location?.pin ?? null };
+    this.townShops.set(merchantOrgId, { shop, until: now + 10 * 60_000 });
+    return shop;
+  }
+  private readonly townShops = new Map<string, { shop: { pin: LatLng | null } | null; until: number }>();
 
   /**
    * Joy r6 («عشاك يوصل وياك»): how long before a delivery time a kitchen must hear of a pre-order —
@@ -869,6 +926,42 @@ export class OrdersService implements OnModuleInit {
     return { balance: available, usable, valueIqd: usable * ORDERS_RULES.pointValueIqd };
   }
 
+  /** A food order reserved at a home kitchen (أكل بيت), with the no-show rule bound. */
+  private async isHomeReservation(order: OrderRecord): Promise<boolean> {
+    if (order.type !== 'food' || !order.scheduledFor || !order.merchantOrgId || !this.platformFailure?.homeNoShow) return false;
+    return Boolean((await this.catalog.storefront?.(order.merchantOrgId))?.home);
+  }
+
+  /**
+   * أكل بيت at placement: the city switch, an owed reservation, then ready plates still free today and
+   * reserved plates within what she takes at that pickup time (`homeOrderProblem`). Other kitchens pass
+   * untouched; true when the kitchen is a home kitchen.
+   */
+  private async assertHomePlates(ordererId: string, householdId: string | null, cityId: string, merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date): Promise<boolean> {
+    if (!(await this.catalog.storefront?.(merchantOrgId))?.home) return false;
+    // A home kitchen takes no orders until أكل بيت opens in the city, even by a direct link.
+    if (this.homeOpen && !this.homeOpen.open(cityId)) throw new DriverError('service_paused');
+    // A reservation he never took is owed first (Ali, 2026-10-11): no new one until his wallet is back at 0.
+    // A no-show paid from a household is owed by that household: its own reservations wait on it too.
+    if (scheduledFor && this.wallet) {
+      const owing = [{ customerId: ordererId, householdId: null }, ...(householdId ? [{ customerId: ordererId, householdId }] : [])];
+      for (const p of owing) if ((await this.wallet.balanceIqd(p)) < 0) throw new DriverError('home_reservation_owed');
+    }
+    const problem = await this.homePlatesProblem(merchantOrgId, lines, scheduledFor, now);
+    if (problem) throw new DriverError(problem);
+    return true;
+  }
+
+  /** The plates check alone; inside the placing transaction it runs again under the kitchen's lock. */
+  private async homePlatesProblem(merchantOrgId: string, lines: z.infer<typeof PlaceOrderInput>['lines'], scheduledFor: Date | null, now: Date, tx?: Tx) {
+    const ids = [...new Set(lines.map((l) => l.catalogItemId).filter((id): id is string => Boolean(id)))];
+    const items = new Map((await this.catalog.itemsOf(merchantOrgId, ids)).map((i) => [i.id, i]));
+    // Up to and including this millisecond: an order placed in the same instant counts too.
+    const tally = homeTally(await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), new Date(now.getTime() + 1), tx), now);
+    const home = lines.filter((l) => l.catalogItemId).map((l) => ({ itemId: l.catalogItemId!, qty: l.qty, sale: items.get(l.catalogItemId!)?.homeSale ?? null, stock: items.get(l.catalogItemId!)?.stock ?? null }));
+    return homeOrderProblem(home, scheduledFor, now, tally);
+  }
+
   /**
    * Prices an order the way `place` charges it: lines from the menu (review C2), fees from the server
    * quote (M2 follow-up), the tip cap, the one discount the server grants (merchant deal or a resolved
@@ -896,7 +989,8 @@ export class OrdersService implements OnModuleInit {
         // pause windows at that instant, then an early close (now only). Busy mode only adds prep.
         // FOOD-03: a pre-order is for a real slot — from the kitchen's scheduling lead to the end of
         // «باچر» — never a past time (that dodged the hours, the hand-close and the night fee).
-        if (input.scheduledFor && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
+        // أكل بيت: a home kitchen's reserved dish books up to a week ahead at its own times (`homeOrderProblem`).
+        if (input.scheduledFor && !storefront?.home && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
         const at = input.scheduledFor ?? now;
         if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
         if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
@@ -1661,6 +1755,12 @@ export class OrdersService implements OnModuleInit {
 
   // ───────────────────────── reads ─────────────────────────
 
+  /** أكل بيت (the cook's side): the plates her live orders hold and the pickup times she cooks for. */
+  async homeKitchenOrders(merchantOrgId: string, now: Date): Promise<{ tally: HomeTally; reservations: ReturnType<typeof homeReservations> }> {
+    const live = await this.repo.merchantOrdersBetween(merchantOrgId, homeTallySince(now), now);
+    return { tally: homeTally(live, now), reservations: homeReservations(live, now) };
+  }
+
   async get(orderId: string): Promise<Order> {
     return this.view(orderId);
   }
@@ -1780,6 +1880,11 @@ export class OrdersService implements OnModuleInit {
    */
   async deliveredByDropoffZone(merchantOrgId: string, range: { from: Date; to: Date }): Promise<Array<{ zoneKey: string | null; orders: number }>> {
     return this.repo.deliveredByDropoffZone(merchantOrgId, range.from, range.to);
+  }
+
+  /** Zone outline dry run (admin): recent delivered drop-off pins as bare coordinates, newest first. */
+  recentDropoffPins(limit: number): Promise<Array<{ lat: number; lng: number }>> {
+    return this.repo.recentDropoffPins(limit);
   }
 
   /** Console history: any state, newest first, keyset-paginated by an opaque cursor. */
@@ -2299,6 +2404,16 @@ export class OrdersService implements OnModuleInit {
 
   private async unreachableDispute(order: OrderRecord, e: TripEventEnvelope, tx: Tx): Promise<unknown> {
     if (order.state !== 'picked_up' && order.state !== 'matched') return;
+    if (await this.isHomeReservation(order)) {
+      // أكل بيت: nothing to dispute — the cook and the courier are paid and he owes both (Ali, 2026-10-11/12).
+      // The courier is the one this order's trip is linked to, and only for the trip that gave up.
+      const carrier = await this.trips.courierOf(order.id);
+      const courier = carrier && carrier.tripId === e.tripId ? { courierId: carrier.courierId, tripId: carrier.tripId, ...(carrier.batchedSecond ? { batchedSecond: true } : {}) } : null;
+      const owedIqd = homeNoShowOwedIqd(order, courier !== null);
+      const failed = await this.move(order, 'failed', SYSTEM, tx, {}, { kind: 'home_no_show', tripId: e.tripId, owedIqd });
+      await this.platformFailure!.homeNoShow!(failed, tx, courier);
+      return failed;
+    }
     // Domain §2/§9: food — the customer owes the cost; ride — the cancellation fee. Support may override.
     const defaultOutcome = order.type === 'ride' ? 'customer_owes_cancellation_fee' : 'customer_owes_cost';
     return this.move(order, 'disputed', SYSTEM, tx, {}, { kind: 'unreachable', openedBy: 'system', defaultOutcome, tripId: e.tripId, evidence: { ...e.payload, tripId: e.tripId } });
@@ -2575,6 +2690,12 @@ function dealQuery(merchantOrgId: string, lines: ReadonlyArray<Pick<NewLine, 'ca
 }
 
 /** The merchant-funded part of an order's discount by what it comes off (G-87 commission base, ledger lines). */
+/** What a home no-show leaves him owing: the dishes, plus the delivery fee he saw at checkout when a courier made the trip. */
+export function homeNoShowOwedIqd(order: Pick<OrderRecord, 'itemsTotalIqd' | 'deliveryFeeIqd' | 'discountIqd' | 'promotionId' | 'discountMeta'>, carried: boolean): number {
+  const deal = merchantDealOf(order);
+  return order.itemsTotalIqd + (carried ? Math.max(0, order.deliveryFeeIqd - (deal?.target === 'delivery' ? deal.amountIqd : 0)) : 0);
+}
+
 export function merchantDealOf(order: Pick<OrderRecord, 'discountIqd' | 'promotionId' | 'discountMeta'>): { promotionId: string; target: 'items' | 'delivery'; amountIqd: number } | null {
   if (!order.promotionId || order.discountIqd <= 0 || order.discountMeta?.funder !== 'merchant') return null;
   return { promotionId: order.promotionId, target: order.discountMeta.target === 'delivery' ? 'delivery' : 'items', amountIqd: order.discountIqd };

@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { EtaService, RoutingModule } from '../routing/index.js';
+import { avoidedStreets, EtaService, RouteClosures, RoutingModule } from '../routing/index.js';
 import { AZIZIYAH_MONEY_RULES, type RoleKind, type Vertical } from '@driver/contracts';
 import { ClimateChecks, DispatchModule, DispatchService, type BookedJobInfo } from '../dispatch/index.js';
 import { DriverAccountModule, DriverAccountService } from '../driver-account/index.js';
@@ -58,8 +58,14 @@ function takeFor(vertical: Vertical): TakeRule | null {
         merchant: MerchantService,
         climate: ClimateChecks,
         blobs: BlobStore,
+        closures: RouteClosures,
       ): PartnerDeps => ({
-        roads: { path: (points) => eta.path(points) },
+        roads: {
+          path: async (points) => {
+            const r = await eta.path(points);
+            return { ...r, closures: avoidedStreets(closures, r.avoided) };
+          },
+        },
         presence: {
           get: (id) => dispatch.presence.get(id),
           online: (id, input) => dispatch.presence.online(id, input),
@@ -121,6 +127,8 @@ function takeFor(vertical: Vertical): TakeRule | null {
           batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare,
           take: takeFor,
         },
+        // «المدينة حيّة»: kitchens at work and where orders were placed (shops only, no order ids or customers).
+        town: { activity: (cityId, from, to) => orders.townActivity(cityId, from, to) },
         roles: { activeRoles: (id): Promise<RoleKind[]> => roles.activeRoles(id) },
         // The registered vehicle (review #20): the vehicle registry the courier card reads (`vehicles`
         // with a database, the in-process registry otherwise), else the fleet's own registry.
@@ -142,7 +150,7 @@ function takeFor(vertical: Vertical): TakeRule | null {
           },
         },
       }),
-      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks, BLOB_STORE],
+      inject: [DispatchService, TripsService, OrdersService, OrgsService, PricingService, CapsService, LedgerService, ROLE_READER, COURIER_VEHICLES, DriverAccountService, FleetService, EtaService, SavedPlacesService, MerchantService, ClimateChecks, BLOB_STORE, RouteClosures],
     },
     PartnerService,
   ],

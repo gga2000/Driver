@@ -1,7 +1,8 @@
-import type { DealBadge, DeliveryPoint } from '@driver/contracts';
+import { EMPTY_HOME_TALLY, type DealBadge, type DeliveryPoint, type HomeTally } from '@driver/contracts';
 import type { StorefrontMerchants } from '../catalog/index.js';
 import type { MerchantDirectory } from './merchants.port.js';
 import { busyExtraMinutes } from './busy.js';
+import { homeTally, homeTallySince } from './home-kitchen.js';
 import { CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE } from './orders.config.js';
 import type { OrdersRepository } from './orders.repository.js';
 import type { PromotionsPort } from './promotions.port.js';
@@ -39,6 +40,12 @@ export class OrdersStorefrontMerchants implements StorefrontMerchants {
       for (const id of dishes) counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     return counts;
+  }
+
+  /** أكل بيت: the plates the kitchen's live orders hold (`homeTally`). */
+  async homeBooked(orgId: string, now: Date): Promise<HomeTally> {
+    if (!this.orders) return EMPTY_HOME_TALLY;
+    return homeTally(await this.orders.merchantOrdersBetween(orgId, homeTallySince(now), now), now);
   }
 
   /** x1: when a merchant's settings last changed on this instance (the lists' snapshot rebuilds). */

@@ -1,4 +1,4 @@
-import type { EtaBasis, LatLng, Order, PartnerBookedAnswer, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
+import type { AvoidedStreet, EtaBasis, LatLng, Order, PartnerBookedAnswer, PartnerClimateCheck, PartnerOnlineGate, PartnerPickupSpot, Quote, RoleKind, Trip, VehicleClass, Vertical } from '@driver/contracts';
 import type { TakeRule } from './logic.js';
 
 /**
@@ -101,7 +101,8 @@ export interface PartnerDeps {
     lastPosition?(tripId: string): Promise<{ pin: LatLng; driverId: string } | null>;
   };
   /** The road router (maps program d2); absent in fakes = straight lines on the app. */
-  roads?: { path(points: readonly LatLng[]): Promise<{ polyline6: string | null; basis: EtaBasis }> };
+  /** The road ahead, and (N20) the streets closed today it goes around. */
+  roads?: { path(points: readonly LatLng[]): Promise<{ polyline6: string | null; basis: EtaBasis; closures?: AvoidedStreet[] }> };
   orders: {
     get(orderId: string): Promise<Order | null>;
     /** s1: whether a ride needs the rider's night code to start (the code itself never reaches the partner side). */
@@ -122,6 +123,16 @@ export interface PartnerDeps {
     driverLines(driverId: string, from: Date): Promise<PartnerLedgerLine[]>;
     batchShare: number;
     take(vertical: Vertical): TakeRule | null;
+  };
+  /**
+   * «المدينة حيّة»: the city's kitchens at work and where orders were placed (orders' `townActivity`; shops
+   * only, no order ids or customers). Absent: the live map shows no kitchens or areas.
+   */
+  town?: {
+    activity(cityId: string, from: Date, to: Date): Promise<{
+      kitchens: Array<{ merchantOrgId: string; pin: LatLng | null; state: 'merchant_accepted' | 'preparing' | 'ready'; acceptedAt: Date | null; promisedReadyAt: Date | null }>;
+      placed: Array<{ zoneId: string | null; placedAt: Date }>;
+    }>;
   };
   roles: { activeRoles(personId: string): Promise<RoleKind[]> };
   vehicles: { vehicleOf(driverId: string): Promise<VehicleClass | null> };

@@ -68,7 +68,7 @@ strip («فلان: ربط تطبيق مصادقة جديد الساعة …. إ�
 who did not expect it resets that person's authenticator there.
 
 ### Storage
-One row per staff member in `identity_vault.staff_totp` (migration `20261010620000_staff_totp`, ends with
+One row per staff member in `identity_vault.staff_totp` (migration `20261010680000_staff_totp`, ends with
 `driver_harden`):
 - the secret, **encrypted with AES-256-GCM** under `STAFF_TOTP_KEY`, a fresh IV each time and bound to
   the person (it cannot be moved to another row);

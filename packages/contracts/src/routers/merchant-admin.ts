@@ -48,6 +48,8 @@ import {
 } from '../merchant-admin-io.js';
 import { DecideMenuShotInput, MenuPhotoRequestRef, MenuPhotoRequestView, RequestMenuPhotosInput } from '../menu-photos-io.js';
 import { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from '../habits-io.js';
+import { HomeKitchenDish, HomeKitchenView, SaveHomeDishInput, SetHomeTodayInput } from '../home-kitchen-admin-io.js';
+import { StaffChange, StoreHistoryInput } from '../store-setup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Coarse gate; the API checks the role is scoped to `merchantOrgId` and owner-only where noted. */
@@ -58,7 +60,7 @@ const p = protectedProcedure(MERCHANT_ADMIN_ROLES);
 /**
  * `merchantAdmin.*` — Merchant app wave 2: menu, deals, money, insights, staff. `staff.myInvites` and
  * `staff.respondInvite` need only a sign-in (the invitee's own). Owner-only:
- * `money.*`, `staff.*`, `activity.*` (who pressed what), `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
+ * `money.*`, `staff.*`, `activity.*` (who pressed what), `staffChanges` (what our team changed), `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
  */
 export const merchantAdminRouter = router({
   /** Merchants the caller works at, with his role at each. */
@@ -124,6 +126,8 @@ export const merchantAdminRouter = router({
     /** PRV-08: the invitee accepts (joins with the invite's role) or declines; his invites after. */
     respondInvite: protectedProcedure().input(RespondStaffInviteInput).output(z.array(MyStaffInvite)).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRespondInvite(ctx.actor, input)),
   }),
+  /** «فريقنا عدّل بمحلك»: what Driver's team changed at his store from the Console, newest first. Owner only. */
+  staffChanges: p.input(StoreHistoryInput).output(z.array(StaffChange)).query(({ ctx, input }) => ctx.stores.ownerChanges(ctx.actor, input)),
   /** «مين سوّى شنو»: who accepted, rejected, readied, extended, handed over, sold out. Owner only. */
   activity: router({
     today: p.input(ActivityTodayInput).output(MerchantActivity).query(({ ctx, input }) => ctx.merchantAdmin.activityToday(ctx.actor, input)),
@@ -134,6 +138,12 @@ export const merchantAdminRouter = router({
     get: p.input(MerchantScope).output(MerchantPotView).query(({ ctx, input }) => ctx.merchantAdmin.potGet(ctx.actor, input)),
     set: p.input(SetPotInput).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potSet(ctx.actor, input)),
     clear: p.input(MerchantScope).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potClear(ctx.actor, input)),
+  }),
+  /** أكل بيت (home-kitchen mode): her dishes and reservations; the owner saves dishes, owner and staff set today's plates. */
+  home: router({
+    get: p.input(MerchantScope).output(HomeKitchenView).query(({ ctx, input }) => ctx.merchantAdmin.homeGet(ctx.actor, input)),
+    saveDish: p.input(SaveHomeDishInput).output(HomeKitchenDish).mutation(({ ctx, input }) => ctx.merchantAdmin.homeSaveDish(ctx.actor, input)),
+    setToday: p.input(SetHomeTodayInput).output(HomeKitchenDish).mutation(({ ctx, input }) => ctx.merchantAdmin.homeSetToday(ctx.actor, input)),
   }),
   /** «مطاعمنا» (joy h5): the owner's lines and the year; shown to customers only when he says so (owner writes). */
   story: router({

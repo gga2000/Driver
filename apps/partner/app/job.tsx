@@ -54,6 +54,9 @@ import { useLocale, useT, type TFn } from '@/lib/i18n';
 import { playDoneTink } from '@/lib/alert';
 import { currentFix } from '@/lib/location';
 import { amountParam } from '@/lib/money';
+import { ClosedNote } from '@/features/work/ClosedNote';
+import { MapFixSheet, PickupMapAsk, wasAsked, type PickupAsk } from '@/features/work/MapFix';
+import { pickupAskDistance } from '@/features/work/map-fix';
 
 /**
  * On a job: one task at a time with a single advancing button (وصلت للمطعم → استلمت → وصلت للزبون →
@@ -230,6 +233,10 @@ function JobView({
   const arrival = useAutoArrive(stop?.stopId ?? null, stop?.state === 'pending' && action?.kind === 'arrive' && !saved.has(stop.stopId));
   const nav = useNavApp();
   const [choosingNav, setChoosingNav] = useState(false);
+  const [mapFix, setMapFix] = useState(false);
+  const [pickupAsk, setPickupAsk] = useState<PickupAsk | null>(null);
+  // The kitchen this stop names, for «الخريطة غلط» and the after-pickup question.
+  const kitchen = stop?.type === 'pickup' && stop.merchantOrgId && !ride ? { orgId: stop.merchantOrgId, name: placeTitle(stop, ride, t, locale) } : null;
 
   const pins = useMemo<MapPin[]>(
     () =>
@@ -249,6 +256,13 @@ function JobView({
     if (net.online) return false;
     toast.show({ message: t('net.needs_internet'), tone: 'warning', icon: 'wifi-off' });
     return true;
+  };
+
+  /** Picked up far from the kitchen's pin with a good fix: «"X" جان هنا؟», once per kitchen on this phone. */
+  const askAboutKitchen = async (k: { orgId: string; name: string }, pin: PartnerJobStop['pin'], at: { lat: number; lng: number; accuracyM?: number }) => {
+    const m = pickupAskDistance(pin ?? null, at);
+    if (m === null || (await wasAsked(k.orgId))) return;
+    setPickupAsk({ ...k, distanceM: m, at: { lat: at.lat, lng: at.lng } });
   };
 
   const advance = async () => {
@@ -278,6 +292,8 @@ function JobView({
         if (s?.arrivedOutsideGeofence) toast.show({ message: t('partner.arrived_outside'), tone: 'warning' });
       } else {
         const res = await queue.run({ kind: 'complete', tripId: job.tripId, stopId: stop.stopId, handover: {} });
+        // He still stands at the kitchen: where he took the bag, measured after the tap so it never waits.
+        if (res.status === 'sent' && kitchen && !practice) void currentFix(4000).then((at) => at && askAboutKitchen(kitchen, stop.pin, at));
         if (res.status === 'queued') {
           savedToast();
           if (lastStop) onDone({ earnedIqd: job.pay.totalIqd, failed: false, queued: true });
@@ -444,6 +460,7 @@ function JobView({
     ...(stop?.type === 'dropoff' && stop.state === 'arrived' && !ride && !practice ? [{ key: 'unreachable', icon: 'clock' as const, title: t('partner.job_unreachable_cta'), body: t('partner.problem_unreachable_sub'), onPress: () => void startUnreachable() }] : []),
     ...(kitchenThread ? [{ key: 'kitchen', icon: 'bag' as const, title: t('partner.problem_kitchen'), body: t('partner.problem_kitchen_sub'), onPress: () => openChat('merchant_courier') }] : []),
     ...(customerThread ? [{ key: 'customer', icon: 'chat' as const, title: t('partner.problem_customer'), body: t('partner.problem_customer_sub'), onPress: () => openChat('customer_courier') }] : []),
+    ...(!practice ? [{ key: 'mapfix', icon: 'map-pin' as const, title: t('partner.mapfix_row'), body: kitchen ? t('partner.mapfix_row_sub', { name: kitchen.name }) : t('partner.mapfix_row_sub_new'), onPress: () => setMapFix(true) }] : []),
     { key: 'safety', icon: 'shield', title: t('partner.problem_safety'), body: t('partner.problem_safety_sub'), tone: 'danger', onPress: () => setSafetyAsk((n) => n + 1) },
   ];
 
@@ -461,6 +478,8 @@ function JobView({
         }}
       />
       <ProblemSheet visible={problem} items={problems} onClose={() => setProblem(false)} />
+      <MapFixSheet visible={mapFix} restaurant={kitchen} onClose={() => setMapFix(false)} />
+      <PickupMapAsk ask={pickupAsk} onClose={() => setPickupAsk(null)} />
       {/* At the door the cash helper needs the room, not the map: it shrinks to a strip under the top bar. */}
       <View style={{ height: panel === 'none' ? '34%' : '17%' }}>
         <DriverMap
@@ -470,6 +489,7 @@ function JobView({
           pins={pins}
           route={self ? [self, ...pins.map((p) => p.at)] : pins.map((p) => p.at)}
           road={road.data?.polyline6 ?? null}
+          closures={road.data?.closures ?? []}
           topInset={92}
           bottomInset={64}
           maxZoom={15.4}
@@ -542,6 +562,9 @@ function JobView({
                   ) : null
                 }
               />
+
+              {/* N20: the road goes around a street closed today: one warning line. */}
+              <ClosedNote testID="job-closed" closures={road.data?.closures} />
 
               {ride && stop.type === 'pickup' && stop.state === 'arrived' ? <RiderWait arrivedAt={stop.arrivedAt} /> : null}
               {/* j5: the code the kitchen matches before handing over the food (maps program r4). */}

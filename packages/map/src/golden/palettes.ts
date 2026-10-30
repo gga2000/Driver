@@ -16,6 +16,8 @@ export interface GoldenPalette {
   waterEdge: string;
   canal: string;
   glint: string;
+  /** The brightest of the river's sequins (every third row). */
+  sparkle: string;
   glintOpacity: number;
   shadow: string;
   shadowOpacity: number;
@@ -45,8 +47,7 @@ export interface GoldenPalette {
   sky: { sky: string; horizon: string; fog: string };
   /** Six real roof finishes (plaster, yellow brick, cream, ochre…); each house carries `tone` 0–5. */
   roofTones: readonly [string, string, string, string, string, string];
-  /** Night only: the roof colour of a house with its lights on, and the warm light it spills on the street. */
-  litRoof: string | null;
+  /** Night only: the warm light a home with its lights on spills on the street, and the colour of its windows. */
   windowGlow: string | null;
   /**
    * Streets up close (audit 2026-10-12): warm dusty tarmac with a sandy shoulder, a pale kerb and a white centre line.
@@ -93,7 +94,7 @@ const LANDMARK_DAY: Record<LandmarkPart, string> = {
 
 const DAY: GoldenPalette = {
   land: '#F3E2C2', urban: '#EBD3A8', farm: '#EDE3B9', palm: '#E2DDA8', palmCrown: '#B4B071',
-  water: '#7E7F4E', waterEdge: '#666839', canal: '#9AA06A', glint: '#C9C690', glintOpacity: 0.55,
+  water: '#7E7F4E', waterEdge: '#666839', canal: '#9AA06A', glint: '#FFF4D2', sparkle: '#FFFFFF', glintOpacity: 0.7,
   shadow: '#8A6440', shadowOpacity: 0.3,
   alley: '#FBF1DE', minor: '#FFFBF1', minorCase: '#D9B27A', major: '#FFF6E4', majorCase: '#C9944C',
   highway: '#F8DA9E', highwayCase: '#B67A31', deck: '#FFF8EA', deckCase: '#6B3D1A', lampGlow: null,
@@ -103,7 +104,7 @@ const DAY: GoldenPalette = {
   sky: { sky: '#F6D9A6', horizon: '#FBEBD0', fog: '#F6E7CB' },
   // lime plaster, yellow brick, sand brick, white-washed, dusty stone, baked brick: Iraqi walls, sculpted by a real sun
   roofTones: ['#F2E2C6', '#EDD3A6', '#E4C190', '#F4E8D2', '#E0C8A4', '#D2AE82'],
-  litRoof: null, windowGlow: null,
+  windowGlow: null,
   riverDepth: ['#ADA972', '#A19E68', '#96955E', '#8B8C55', '#82834E', '#7A7C49', '#717344'],
   reeds: ['#7A853A', '#8E9446', '#6A7432'],
   crops: ['#E2CB86', '#CFCB86', '#BCC07A', '#E4CFA2', '#D9C08F'],
@@ -116,7 +117,7 @@ const DAY: GoldenPalette = {
 const GOLDEN: GoldenPalette = {
   ...DAY,
   land: '#F1D9B2', urban: '#E9CFA3', farm: '#EADBA9', palm: '#DDD49A', palmCrown: '#ADA562',
-  water: '#7A7A48', waterEdge: '#626234', glint: '#EBC883', glintOpacity: 0.8,
+  water: '#7A7A48', waterEdge: '#626234', glint: '#FFEAB8', sparkle: '#FFFFFF', glintOpacity: 0.85,
   shadow: '#8A6440', shadowOpacity: 0.5,
   alley: '#F9EBD3', minor: '#FFF8EA', minorCase: '#D2A66C', major: '#FFF2D8', majorCase: '#C28640',
   highway: '#F6CF86', highwayCase: '#AE6E25', deck: '#FFF5E2', deckCase: '#633416',
@@ -143,7 +144,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
   sunset: {
     ...GOLDEN,
     land: '#F0D2AE', urban: '#ECC9A2', roof: '#DDB898', wall: '#B48E70', shadow: '#7E5A44', shadowOpacity: 0.48,
-    glint: '#F2B870', glintOpacity: 0.9,
+    glint: '#FFD9A0', sparkle: '#FFF6E6', glintOpacity: 0.9,
     light: { color: '#FFD9B8', intensity: 0.5 },
     sky: { sky: '#E8A066', horizon: '#F6CF9C', fog: '#F0D2AE' },
     roofTones: ['#E9CDAA', '#DFB78E', '#D5A77E', '#EED8BC', '#D2AA88', '#C2946E'],
@@ -153,7 +154,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
   },
   night: {
     land: '#261D15', urban: '#2B2118', farm: '#252012', palm: '#2A2A19', palmCrown: '#4E4F2F',
-    water: '#2F3320', waterEdge: '#4A5034', canal: '#2F3320', glint: '#6E5A30', glintOpacity: 0.5,
+    water: '#2F3320', waterEdge: '#4A5034', canal: '#2F3320', glint: '#FFD58A', sparkle: '#FFF1CC', glintOpacity: 0.95,
     shadow: '#000000', shadowOpacity: 0,
     alley: '#3A3026', minor: '#45392D', minorCase: '#261D15', major: '#5A4C3E', majorCase: '#261D15',
     highway: '#665443', highwayCase: '#261D15', deck: '#B48A57', deckCase: '#22180F', lampGlow: '#E8A34A',
@@ -163,7 +164,7 @@ export const GOLDEN_PALETTES: Record<GoldenLight, GoldenPalette> = {
     sky: { sky: '#1E140C', horizon: '#4A2E16', fog: '#24190F' },
     // a warm evening, not a black-out: walls in umber and olive-brown (red-browns turn purple under the lamps)
     roofTones: ['#54473A', '#4C4033', '#5C4D3B', '#463B30', '#615240', '#50443A'],
-    litRoof: '#6E4A26', windowGlow: '#FFB04A',
+    windowGlow: '#FFB04A',
     riverDepth: ['#4A4E30', '#44482C', '#3E4229', '#383C25', '#323621', '#2C301D', '#262A18'],
     reeds: ['#3A4220', '#34391D', '#2C321A'],
     crops: ['#3A3218', '#2E3218', '#28301A', '#3A2E20', '#36291C'],

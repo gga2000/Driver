@@ -40,6 +40,7 @@ import {
   type VerifyOtpInput,
   type VerifyOtpOutput,
 } from '@driver/contracts';
+import { PHONE_REVEAL_ROLES, PhoneRevealReason as PhoneRevealReasonEnum, type PhoneRevealReason } from '@driver/contracts/people';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { requestCaller } from '../../shared/request-context.js';
@@ -52,13 +53,21 @@ import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { OtpGuard } from './rate-limit.js';
 import { isStagingTestNumber, STAFF_ROLES, type StagingTestConfig } from './staging-test.js';
-import { InMemoryWindowCounter } from '../../shared/window-counter.js';
+import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
 import { StaffTotpService } from './staff-totp.service.js';
 import { staffTotpConfigFromEnv, type StaffTotpConfig } from './totp.js';
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms/provider.js';
 import type { WhatsAppPort } from '../../shared/messaging/whatsapp.js';
+
+const HOUR_MS = 3_600_000;
+/** Whole numbers one staff member may show in an hour before it refuses and ops is alerted. */
+export const STAFF_REVEAL_PER_HOUR = 30;
+/** VaultAccessLog purpose of a Console number reveal (a fail-closed staff read, vault-log.ts). */
+export const STAFF_PHONE_REVEAL_PURPOSE = 'console_phone_reveal';
+export const PHONE_REVEAL_LIMIT_EVENT = 'security.phone_reveal_limit';
+const PHONE_REVEAL_REASONS = PhoneRevealReasonEnum.options;
 
 /** WhatsApp port for login codes (`identity.requestOtp` with `channel: 'whatsapp'`); WHATSAPP_PROVIDER=dev|meta. */
 export const OTP_WHATSAPP = Symbol('OTP_WHATSAPP');
@@ -112,6 +121,8 @@ export class IdentityService implements IdentityPort {
   private readonly guardians: GuardianService;
   private readonly totp: StaffTotpService;
   private readonly selfReads: SelfReadLogWindow;
+  /** Staff number reveals per person per hour (`staffRevealPhone`), in the shared counter (Redis across machines when set). */
+  private readonly reveals: WindowCounter;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
 
@@ -127,6 +138,7 @@ export class IdentityService implements IdentityPort {
     @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort | null,
     @Optional() @Inject(STAGING_TEST) private readonly stagingTest: StagingTestConfig | null = null,
     @Optional() @Inject(STAFF_TOTP) totpConfig?: StaffTotpConfig | null,
+    @Optional() @Inject(WINDOW_COUNTER) counter?: WindowCounter,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
     this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp ?? undefined, stagingTest);
@@ -134,6 +146,7 @@ export class IdentityService implements IdentityPort {
     this.guardians = new GuardianService(repo, this.otp, events, clock);
     this.totp = new StaffTotpService(repo, events, clock, totpConfig ?? staffTotpConfigFromEnv());
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
+    this.reveals = counter ?? new InMemoryWindowCounter(clock);
   }
 
   // ───────────────────────── phone helpers ─────────────────────────
@@ -1117,6 +1130,41 @@ export class IdentityService implements IdentityPort {
       const identity = await this.repo.readIdentity(personId, tx);
       if (!identity) return null;
       await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['phone_e164'], now: this.clock.now() }, tx);
+      return identity.phoneE164;
+    });
+  }
+
+  /**
+   * «اكشف الرقم» in the Console's «الناس» pages: one staff member sees one person's whole number,
+   * for a reason from the fixed list. Checked here, not only at the router: the reader must hold a
+   * live support, dispatcher or admin role; their own record never (they know it), another staff
+   * member's only for an admin; at most `STAFF_REVEAL_PER_HOUR` an hour each, past which it refuses
+   * and raises a `security.phone_reveal_limit` alert (so the button can't page through the city's
+   * numbers). The read and its VaultAccessLog row (purpose `console_phone_reveal`) share one unit of
+   * work, and the log failing fails the read (a staff purpose). Null for unknown or deleted people.
+   */
+  async staffRevealPhone(actor: Actor, personId: string, reason: PhoneRevealReason): Promise<string | null> {
+    if (!(PHONE_REVEAL_REASONS as readonly string[]).includes(reason)) throw new DriverError('invalid_input');
+    const mine = await this.repo.rolesOf(actor.personId);
+    const live = mine.filter((r) => r.frozenAt === null).map((r) => r.kind);
+    if (!PHONE_REVEAL_ROLES.some((k) => live.includes(k))) throw new DriverError('forbidden');
+    if (personId === actor.personId) throw new DriverError('forbidden');
+    if (!live.includes('admin') && (await this.holdsStaffRole(personId))) throw new DriverError('forbidden');
+    const gate = await this.reveals.hit(`reveal:${actor.personId}`, HOUR_MS, STAFF_REVEAL_PER_HOUR);
+    if (!gate.allowed) {
+      await this.events.emit(
+        undefined,
+        { actorId: actor.personId, type: PHONE_REVEAL_LIMIT_EVENT, occurredAt: this.clock.now(), payload: { staffId: actor.personId, count: gate.count, limit: STAFF_REVEAL_PER_HOUR } },
+        { name: 'security', id: 'phone_reveal' },
+      );
+      throw new DriverError('rate_limited');
+    }
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person || person.deletedAt) return null;
+      const identity = await this.repo.readIdentity(personId, tx);
+      if (!identity) return null;
+      await this.repo.logVaultAccess({ personId, accessorId: actor.personId, purpose: STAFF_PHONE_REVEAL_PURPOSE, fieldsRead: ['phone_e164'], now: this.clock.now() }, tx);
       return identity.phoneE164;
     });
   }

@@ -531,4 +531,42 @@ describe('ChatService — «نسيت غرض» after a ride (ride step 3, s7)', (
     h.clock.advance(24 * 60 * MIN);
     expect(await code(chat.lostItem(as('c1'), { orderId: o.id }))).toBe('chat_lost_item_unavailable');
   });
+
+  it('«انحلّت»: the driver closes it early, one line, the strip goes, and the rider cannot reopen it', async () => {
+    const { h, chat, ev } = setup();
+    const o = await completedRide(h);
+    h.clock.advance(3 * 60 * MIN);
+    expect(await code(chat.resolveLostItem(as('d1'), { orderId: o.id }))).toBe('chat_lost_item_unavailable');
+    await chat.lostItem(as('c1'), { orderId: o.id });
+    expect((await chat.thread(as('d1'), { orderId: o.id, kind: 'customer_courier' })).lostItem).toBe('open');
+    expect((await chat.threads(as('c1'), { orderId: o.id })).find((x) => x.kind === 'customer_courier')?.lostItem).toBe('open');
+    expect(await code(chat.resolveLostItem(as('stranger'), { orderId: o.id }))).toBe('chat_not_party');
+    const view = await chat.resolveLostItem(as('d1'), { orderId: o.id });
+    expect(view.lostItem).toBe('resolved');
+    expect(view.status).toBe('closed');
+    expect(view.messages.filter((m) => m.kind === 'system').map((m) => m.text)).toEqual(['الراكب يدور على غرض نساه بالسيارة', 'انحلّت قصة الغرض · السايق سكّر المحادثة']);
+    expect(await chat.lostItems(as('d1'))).toEqual([]);
+    // Pressed again (or by the rider at the same moment): nothing more is written.
+    await chat.resolveLostItem(as('c1'), { orderId: o.id });
+    expect((await ev.repo.find({})).filter((e) => e.type === 'chat.message_sent' && (e.payload as { messageKind?: string }).messageKind === 'system')).toHaveLength(2);
+    expect(await code(chat.send(as('c1'), { orderId: o.id, kind: 'customer_courier', clientId: cid(), text: 'وين صار؟' }))).toBe('chat_closed');
+    expect(await code(chat.lostItem(as('c1'), { orderId: o.id }))).toBe('chat_lost_item_resolved');
+    expect((await chat.thread(as('c1'), { orderId: o.id, kind: 'customer_courier' })).lostItem).toBe('resolved');
+  });
+
+  it('«انحلّت» by the rider or by support says who closed it', async () => {
+    for (const [who, line] of [
+      ['c1', 'انحلّت قصة الغرض · الراكب سكّر المحادثة'],
+      ['ops', 'انحلّت قصة الغرض · الدعم سكّر المحادثة'],
+    ] as const) {
+      const { h, chat } = setup();
+      const o = await completedRide(h);
+      await chat.lostItem(as('c1'), { orderId: o.id });
+      // Right after the ride (inside its usual half hour): «انحلّت» still closes it at once.
+      const view = await chat.resolveLostItem(as(who), { orderId: o.id });
+      expect(view.status).toBe('closed');
+      expect(view.messages.at(-1)?.text).toBe(line);
+      expect(view.lostItem).toBe('resolved');
+    }
+  });
 });

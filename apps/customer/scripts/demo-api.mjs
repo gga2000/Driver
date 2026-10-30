@@ -16,6 +16,7 @@
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
 //   - GET /demo/market lists the seeded stalls and bakeries «السوق» with their org ids;
 //   - POST /demo/popular  24 town orders at مطعم خالد so «الأكثر طلباً بالعزيزية» shows (joy o8);
+//   - POST /demo/town  «العزيزية هسة» (/live): five kitchens cooking and seven couriers online in two parts of town;
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
 //   - POST /demo/night?on=1|0  the street asleep (/food after midnight): every kitchen closed now and opening at its
 //     own morning hour; on=0 puts the real hours back.
@@ -57,7 +58,7 @@ const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const { createApp } = await load('bootstrap.js');
 const { OrdersService } = await load('modules/orders/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
-const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
+const { CatalogRpc, CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
 const { ControlsService } = await load('modules/controls/index.js');
 
 const PORT = Number(process.env.PORT ?? 3200);
@@ -81,7 +82,14 @@ const controls = app.get(ControlsService);
 // The four launch kitchens, then the demo-only café, juice bar, sweets and ice cream shops so every food
 // door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
 const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
-const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
+// أكل بيت: four demo home kitchens (@driver/contracts/demo-home-kitchens; never in `pnpm db:seed`), and
+// home cooking opened in the studio (the city file keeps it closed until Ali opens it).
+const { DEMO_HOME_KITCHENS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-home-kitchens.js', import.meta.url))).href);
+const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_HOME_KITCHENS, 'demo-owner'))];
+if (process.env.DEMO_HOME_KITCHENS !== '0') {
+  const { ConfigService } = await load('modules/config/index.js');
+  app.get(ConfigService).setHomeKitchensOpen('aziziyah', true);
+}
 // The shopping side «السوق» (2026-10-11): two produce stalls with today's and yesterday's prices, two
 // bakeries (one paused for 30 minutes), all demo-only (never in `pnpm db:seed`).
 const { ShoppingService, seedDemoShops } = await load('modules/shopping/index.js');
@@ -169,6 +177,61 @@ app.use('/demo/popular', async (req, res) => {
         if (i < 20) lines.push({ catalogItemId: khalid.itemIds.get('lentil_soup'), qty: 1 });
         if (i % 2 === 0) lines.push({ catalogItemId: khalid.itemIds.get('pepsi'), qty: 1 });
         await orders.place(`demo-town-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines, paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: tomorrow });
+      }
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// «العزيزية هسة» (the customer live map): five kitchens cooking now and seven couriers online in two parts of
+// town (a part shows a count only with 3 or more, from the picture before: the count appears ~20 s later).
+let townSeeded = false;
+app.use('/demo/town', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/town' });
+    if (!townSeeded) {
+      const homeKeys = new Set(DEMO_HOME_KITCHENS.map((k) => k.key));
+      const kitchens = seeded.filter((s) => s.seed.pin && !homeKeys.has(s.seed.key)).slice(0, 5);
+      for (const [i, s] of kitchens.entries()) {
+        // The first dish that needs no choices (some ask for a size or extras).
+        for (const itemId of s.itemIds.values()) {
+          const placed = await orders.place(`demo-town-cook-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: s.orgId, lines: [{ catalogItemId: itemId, qty: 2 }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } } }).catch(() => null);
+          if (!placed) continue;
+          await accept(placed.id);
+          break;
+        }
+      }
+      const crowd = [
+        { lat: 32.9041, lng: 45.0607 }, { lat: 32.9044, lng: 45.0611 }, { lat: 32.9047, lng: 45.0604 }, { lat: 32.9039, lng: 45.0615 },
+        { lat: 32.9128, lng: 45.0662 }, { lat: 32.9131, lng: 45.0668 }, { lat: 32.9126, lng: 45.0671 },
+      ];
+      for (const at of crowd) await newCourier(at);
+      townSeeded = true;
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// أكل بيت: real reservations at مطبخ أم حسين so the reserve sheet shows a full time
+// — her chicken biryani's first time fully booked (8 of 8).
+let homeBookedSeeded = false;
+app.use('/demo/home-booked', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/home-booked' });
+    if (!homeBookedSeeded) {
+      homeBookedSeeded = true;
+      const umHussein = seeded.find((s) => s.seed.key === 'um_hussein');
+      for (const [key, qtys] of [['biryani', [2, 2, 2, 2]]]) {
+        const itemId = umHussein.itemIds.get(key);
+        const { days } = await app.get(CatalogRpc).homeSlots({ actor: null, ip: null }, { merchantId: umHussein.orgId, itemId });
+        const at = days[0].slots[0].at;
+        for (const [i, qty] of qtys.entries()) {
+          await orders.place(`demo-home-${key}-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: umHussein.orgId, lines: [{ catalogItemId: itemId, qty }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: at });
+        }
       }
     }
     json(res, 200, { ok: true });
@@ -298,6 +361,9 @@ const { tenderOptions } = await import('@driver/contracts');
 // `late_credit` puts it past the honest-delay threshold, so the order's next read posts the credit.
 // `late_traffic` (N6 «ليش متأخر»): `late_apology`, picked up and on the way, with the market street on
 // his way home learned slow, so the route names a traffic stretch (`late_apology` itself shows the kitchen one).
+// `closed_street` (N20 «شارع مسدود»): picked up, standing at the start of the way home, with «شارع السوق» closed
+// today across the middle of it, so the route bends round it and carries `closures` (the map stripes it; the sheet
+// says «شارع السوق مسدود اليوم، فالدليفري دار من فرع ثاني»). Each call adds one more closure for today.
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
@@ -546,6 +612,20 @@ async function scenario(personId, name, opts = {}) {
     eta.factor = async (from) => (Math.hypot(from.lat - jam.lat, (from.lng - jam.lng) * 0.84) < 0.006 ? 1.6 : 1);
     return r;
   }
+  if (name === 'closed_street') {
+    const r = await scenario(personId, 'on_the_way');
+    stopMover(r.tripId);
+    await trips.reportPosition(r.courierId, { tripId: r.tripId, pin: TO_HOME[1], at: new Date(), bearing: 150, speedKmh: 0 });
+    // The stretch between 40 % and 55 % of the way from him to the door, closed till midnight.
+    const at = (k) => ({ lat: TO_HOME[1].lat + (HOME.lat - TO_HOME[1].lat) * k, lng: TO_HOME[1].lng + (HOME.lng - TO_HOME[1].lng) * k });
+    const { ClosuresService, CLOSURES_REPOSITORY } = await load('modules/closures/index.js');
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    await app.get(CLOSURES_REPOSITORY).create({ cityId: 'aziziyah', path: [at(0.4), at(0.475), at(0.55)], reason: 'works', nameAr: 'شارع السوق', lengthM: 350, startsAt: now, endsAt: midnight, closedById: 'demo-ops' });
+    await app.get(ClosuresService).reload();
+    return r;
+  }
   if (name === 'late_credit' || name === 'late_apology') {
     // Past one of the honest-delay promise's steps (MoneyRules.latePromise): the next read sends the
     // apology (+ apologyAfterMin) or posts the credit (+ afterMin; the apology went out on the way).
@@ -615,7 +695,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'closed_street', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {

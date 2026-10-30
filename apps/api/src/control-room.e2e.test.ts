@@ -90,8 +90,10 @@ describe('launch control room (e2e)', () => {
     await app.listen(0);
     const address = app.getHttpServer().address();
     origin = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
-    // Open at any hour: no opening hours on file.
+    // Open at any hour: no opening hours on file and no Friday-prayer pause (the city default would
+    // refuse every order placed or scheduled 11:45–13:15 Baghdad on a Friday).
     khalid = (await seedStorefronts(app.get(OrgsService), app.get(CatalogService), AZIZIYAH_RESTAURANTS.slice(0, 1).map((r) => ({ ...r, hours: [] })), 'cr-owner'))[0]!;
+    await app.get(OrgsService).setMerchantSettings(khalid.orgId, { pauseWindows: [] });
     await app.get(OrgsService).settled();
   });
 
@@ -212,7 +214,7 @@ describe('launch control room (e2e)', () => {
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'zone', key: 'street_30', active: false, reason: 'خفّت' });
     });
 
-    it('الرجعة is closed until the city launches it; then a corridor switch refuses new holds', async () => {
+    it('الرجعة is closed while the city has not launched it; then a corridor switch refuses new holds', async () => {
       const admin = await person(['admin']);
       const driver = await person(['intercity_driver']);
       const rider = await person();
@@ -223,14 +225,16 @@ describe('launch control room (e2e)', () => {
         latestDepartureAt: new Date(Date.now() + 80 * 60_000),
         vehicle: { kind: 'saloon', layout: 4, plate: 'واسط 77001' },
       });
-      // Launch day (food, taxi, tuktuk): no seat hold and no private-car request, with no switch set.
+      // Launch day opens الرجعة (Ali, 2026-10-22); with it taken out of the city's list, no seat hold and
+      // no private-car request, with no switch set.
+      expect((await anon().system.season.query({ cityId: 'aziziyah' })).launched).toEqual(['food', 'taxi', 'tuktuk', 'parcel', 'intercity']);
+      const config = app.get(ConfigService);
+      const launch = config.launchedVerticals('aziziyah');
+      config.setLaunchedVerticals('aziziyah', launch.filter((v) => v !== 'intercity'));
       const notOpen = { code: 'service_paused', message: 'خدمة الرجعة بعدها ما انفتحت. نبلشها قريب' };
       expect(await errOf(rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }))).toMatchObject(notOpen);
       expect(await errOf(rider.client.routes.requestBoard.post.mutate({ from: { label: 'كراج البوابة 1', garageId: 'mp_garage_bab1' }, to: { label: 'الصويرة' }, when: new Date(Date.now() + 120 * 60_000), seats: 3, privateCar: true, travellingAs: 'aila' }))).toMatchObject(notOpen);
-      expect((await anon().system.season.query({ cityId: 'aziziyah' })).launched).toEqual(['food', 'taxi', 'tuktuk', 'parcel']);
-      const config = app.get(ConfigService);
-      const launch = config.launchedVerticals('aziziyah');
-      config.setLaunchedVerticals('aziziyah', [...launch, 'intercity']);
+      config.setLaunchedVerticals('aziziyah', launch);
       await admin.client.ops.controls.setSwitch.mutate({ scope: 'corridor', key: 'aziziyah_kut', active: true, reason: 'سيطرة مغلقة' });
       const refused = await errOf(rider.client.routes.holdSeat.mutate({ departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_left'] }, travellingAs: 'rijal' }));
       expect(refused).toMatchObject({ code: 'service_paused', message: 'حجز العزيزية ⇄ الكوت موقّف مؤقتاً' });

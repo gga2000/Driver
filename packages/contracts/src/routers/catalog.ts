@@ -1,7 +1,9 @@
 import { z } from 'zod';
-import { CarryOverInput, CarryOverPreview, CatalogCraving, CatalogCravingsInput, CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { CarryOverInput, CarryOverPreview, CatalogCraving, CatalogCravingsInput, CatalogPicksInput, CatalogSearchDish, SearchUnmetInput, UNMET_SEARCH_ROLES, UnmetSearchesInput, UnmetSearchRow, CatalogSearchInput, CatalogSearchResult, CatalogToday, CatalogTodayInput, HomeKitchens, HomeKitchensInput, MenuInput, RestaurantCard, RestaurantMenu, RestaurantsInput, type CatalogReader } from '../catalog-io.js';
+import { HomeSlots, HomeSlotsInput } from '../home-kitchens.js';
 import { FollowDishInput, MyDishFollows, PotsTodayInput, TodayPot } from '../habits-io.js';
 import type { Actor } from '../identity-io.js';
+import { CustomerTownNow, CustomerTownNowInput } from '../town-pulse-io.js';
 import { protectedProcedure, publicProcedure, router, type AppContext } from '../trpc.js';
 
 /**
@@ -58,7 +60,25 @@ export const catalogRouter = router({
     .input(PotsTodayInput)
     .output(z.array(TodayPot))
     .query(({ ctx, input }) => ctx.catalog.pots(readerOf(ctx), input)),
+  /** أكل بيت: the city's home kitchens, and whether home cooking is open there. */
+  homeKitchens: publicProcedure
+    .input(HomeKitchensInput)
+    .output(HomeKitchens)
+    .query(({ ctx, input }) => ctx.catalog.homeKitchens(readerOf(ctx), input)),
+  /** أكل بيت: a reserve dish's days and pickup times for the coming week, with plates still free. */
+  homeSlots: publicProcedure
+    .input(HomeSlotsInput)
+    .output(HomeSlots)
+    .query(({ ctx, input }) => ctx.catalog.homeSlots(readerOf(ctx), input)),
   /** The dishes this person follows («خبرني لمن يطبخوه»). */
+  /**
+   * «العزيزية هسة» (the customer's live map): shops cooking around the place and drivers per part of town,
+   * from the same city picture the drivers' map reads (`partner.townPulse`), cut for a customer. Signed in only.
+   */
+  townNow: protectedProcedure()
+    .input(CustomerTownNowInput)
+    .output(CustomerTownNow)
+    .query(({ ctx, input }) => ctx.partner.townNow(input.at)),
   dishFollows: protectedProcedure()
     .output(MyDishFollows)
     .query(({ ctx }) => ctx.catalog.dishFollows(ctx.actor)),

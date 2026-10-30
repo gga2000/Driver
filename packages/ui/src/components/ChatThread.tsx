@@ -4,7 +4,7 @@ import { PhotoImage } from './PhotoImage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CHAT_TEXT_MAX, quickReplyText, voiceAllowedIn, type CallSession, type QuickReplyKey, type ChatMessage, type ChatThreadKind, type ChatThreadView, type LatLng } from '@driver/contracts';
 import type { Locale, MessageKey } from '@driver/i18n';
-import { formatClock, ltr } from '../format';
+import { cityDayDiff, formatClock, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import type { IconName } from '../icons/paths';
 import { usePhotoFallback } from '../logic/photo-fallback';
@@ -506,7 +506,7 @@ export function ChatThread({
           )}
           {v?.closesAt && open ? (
             <Text variant="caption" color="textMuted" style={{ textAlign: 'center', marginTop: theme.space[2] }} testID="chat-closes-at">
-              {t('chat.closes_at', { time: formatClock(v.closesAt) })}
+              {t(cityDayDiff(v.closesAt, Date.now()) > 0 ? 'chat.closes_at_tomorrow' : 'chat.closes_at', { time: formatClock(v.closesAt) })}
             </Text>
           ) : null}
         </ScrollView>

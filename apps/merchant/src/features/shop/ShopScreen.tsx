@@ -109,6 +109,8 @@ export function ShopScreen() {
   const tiles: { id: string; icon: MIconName; title: string; hint: string; href: Parameters<typeof router.push>[0]; owner?: boolean }[] = [
     // السوق: a produce stall's «أسعار اليوم» or a bakery's «الفرن».
     ...(shopKind === 'produce_stall' ? [{ id: 'market', icon: 'camera' as const, title: t('merchant.market.prices.title'), hint: t('merchant.market.tile.prices_hint'), href: '/market/prices' as const }] : shopKind === 'bakery' ? [{ id: 'market', icon: 'flame' as const, title: t('merchant.market.oven.title'), hint: t('merchant.market.tile.oven_hint'), href: '/market/oven' as const }] : []),
+    // أكل بيت: a home kitchen's dishes, today's plates and reservations.
+    ...(store?.home ? [{ id: 'home-kitchen', icon: 'utensils' as const, title: t('merchant.home_kitchen.title'), hint: t('merchant.home_kitchen.tile_hint'), href: '/home-kitchen' as const }] : []),
     { id: 'staff', icon: 'people', title: t('merchant.more.staff'), hint: t('merchant.more.staff_hint'), href: '/staff', owner: true },
     { id: 'printer', icon: 'printer', title: t('merchant.printer.title'), hint: t('merchant.more.printer_hint'), href: '/printer' },
     { id: 'deals', icon: 'tag', title: t('merchant.more.deals'), hint: t('merchant.more.deals_hint'), href: '/deals' },
@@ -116,6 +118,7 @@ export function ShopScreen() {
     { id: 'pot', icon: 'flame', title: t('merchant.pot.title'), hint: t('merchant.more.pot_hint'), href: '/pot' },
     { id: 'story', icon: 'store', title: t('merchant.story.title'), hint: t('merchant.more.story_hint'), href: '/story' },
     { id: 'pickup-spot', icon: 'map-pin', title: t('merchant.more.pickup_spot'), hint: t('merchant.more.pickup_spot_hint'), href: '/pickup-spot' },
+    { id: 'my-map', icon: 'location-arrow', title: t('merchant.more.my_map'), hint: t('merchant.more.my_map_hint'), href: '/my-map' },
     { id: 'delivery-area', icon: 'grid', title: t('merchant.more.delivery_area'), hint: t('merchant.more.delivery_area_hint'), href: '/delivery-area' },
     { id: 'settings', icon: 'sliders', title: t('merchant.more.settings'), hint: t('merchant.more.settings_hint'), href: '/settings' },
   ];

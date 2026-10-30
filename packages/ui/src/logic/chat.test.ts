@@ -45,7 +45,7 @@ describe('chat logic', () => {
   it('reads the last seq, unread counts and threads', () => {
     expect(lastSeqOf([msg(3, '2026-10-04T09:00:00'), msg(7, '2026-10-04T09:00:00')])).toBe(7);
     expect(lastSeqOf([])).toBe(0);
-    const threads: ChatThreadSummary[] = [{ kind: 'customer_courier', status: 'open', myRole: 'customer', counterpart: 'courier', unread: 2, lastMessageAt: null, canCall: true }];
+    const threads: ChatThreadSummary[] = [{ kind: 'customer_courier', status: 'open', myRole: 'customer', counterpart: 'courier', unread: 2, lastMessageAt: null, canCall: true, lostItem: null }];
     expect(unreadOf(threads, 'customer_courier')).toBe(2);
     expect(unreadOf(threads, 'customer_merchant')).toBe(0);
     expect(unreadOf(undefined, 'customer_courier')).toBe(0);

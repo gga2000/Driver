@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CallSession, ChatLostItemInput, ChatLostItemResult, ChatLostItemThread, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView, ChatVoiceUploadInput, VoiceUploadTicket } from '../chat-io.js';
+import { CallSession, ChatLostItemInput, ChatLostItemResult, ChatLostItemThread, ChatMarkReadInput, ChatMarkReadOutput, ChatMessage, ChatRequestCallInput, ChatResolveLostItemInput, ChatSendInput, ChatThreadInput, ChatThreadsInput, ChatThreadSummary, ChatThreadView, ChatVoiceUploadInput, VoiceUploadTicket } from '../chat-io.js';
 import { TripChatMarkReadInput, TripChatSendInput, TripChatSummary, TripChatThreadInput, TripChatThreadsInput, TripChatView, TripChatVoiceUploadInput } from '../trip-chat-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 import { DRIVING_ROLES } from './trips.js';
@@ -45,6 +45,11 @@ export const chatRouter = router({
   lostItems: protectedProcedure(DRIVING_ROLES)
     .output(z.array(ChatLostItemThread))
     .query(({ ctx }) => ctx.chat.lostItems(ctx.actor)),
+  /** s7 «انحلّت»: the rider, the driver or support closes the reopened chat early; it stays closed. */
+  resolveLostItem: protectedProcedure()
+    .input(ChatResolveLostItemInput)
+    .output(ChatThreadView)
+    .mutation(({ ctx, input }) => ctx.chat.resolveLostItem(ctx.actor, input)),
   /**
    * Baghdad/Kut (step 4c): a rider and the driver of a seat run or a private-car offer, one thread per
    * pair, with the agreed-price cards and the «اللي اتفقنا عليه» strip (docs/api/trip-chat.md).

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CustomerTownNow, PartnerMyDay, PartnerTownPulse } from './town-pulse-io.js';
 import { RoleKind } from './auth.js';
 import { AnswerClimateCheckInput, ClimateFeature, PartnerClimateCheck } from './climate-check.js';
 import { CityId, Iqd, LatLng, Vertical } from './common.js';
@@ -397,6 +398,8 @@ export const PartnerJobStop = z.object({
   pin: LatLng.nullable(),
   /** Merchant name at a pickup, null at the customer's door. */
   label: z.string().nullable(),
+  /** The kitchen's org at a pickup from one of our merchants, so «الخريطة غلط» names the right restaurant; absent otherwise. */
+  merchantOrgId: z.string().nullable().optional(),
   orderId: z.string().nullable(),
   /** The customer's courier note ("باب أخضر، يم الجامع"). */
   note: z.string().nullable(),
@@ -490,6 +493,10 @@ export interface PartnerPort {
   jobRoute(actor: Actor): Promise<OrderRoute>;
   /** Where the orders are now and in the coming hour, against the drivers there (maps program d5). */
   demandGlow(actor: Actor): Promise<PartnerDemandGlow>;
+  townPulse(actor: Actor): Promise<PartnerTownPulse>;
+  /** The customer's live map: the same city picture, cut around a customer's place (`catalog.townNow`). */
+  townNow(at: LatLng): Promise<CustomerTownNow>;
+  myDay(actor: Actor): Promise<PartnerMyDay>;
   /** «المكيّفة شغالة اليوم؟» نعم / لا for this shift (ride idea x1); `climate_check_none` when nothing is asked. */
   answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus>;
   errandReceipt(actor: Actor, input: PartnerErrandReceiptInput): Promise<PartnerErrandReceipt>;

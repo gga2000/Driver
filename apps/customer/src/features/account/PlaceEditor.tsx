@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLiveZones } from '@/lib/zones-live';
 import { Platform, Pressable, View } from 'react-native';
-import { AZIZIYAH_ZONES, PLACE_MAX_PHOTOS, type LatLng, type PlacePhotoRef, type SavedPlaceLabel, type SavePlaceInput } from '@driver/contracts';
+import { PLACE_MAX_PHOTOS, type LatLng, type PlacePhotoRef, type SavedPlaceLabel, type SavePlaceInput } from '@driver/contracts';
 import { Button, Chip, ChipGroup, Icon, PhotoImage, Skeleton, Text, TextField, useTheme, useToast, withAlpha } from '@driver/ui';
 import { useApiClient } from '@/lib/api';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
@@ -57,8 +58,8 @@ export function toSaveInput(v: PlaceEditorValue, t: TFn): SavePlaceInput | null 
   };
 }
 
-/** Centre and near zones first (most orders); "كل المناطق" shows all 34. */
-const COMMON_ZONES = AZIZIYAH_ZONES.filter((z) => z.tier === 'centre' || z.tier === 'near');
+/** Centre and near zones first (most orders); "كل المناطق" shows them all. */
+const isCommon = (z: { tier: string }) => z.tier === 'centre' || z.tier === 'near';
 /** Where the map opens for a new place with no zone yet: the middle of the town. */
 const AZIZIYAH_CENTRE: LatLng = { lat: 32.9085, lng: 45.0655 };
 
@@ -96,11 +97,12 @@ export function PlaceEditor({
   const [recentre, setRecentre] = useState<{ pin: LatLng; seq: number; accuracyM?: number } | null>(null);
   const moveTo = (pin: LatLng, accuracyM?: number | null) => setRecentre((r) => ({ pin, seq: (r?.seq ?? 0) + 1, ...(accuracyM ? { accuracyM } : {}) }));
 
+  const all = useLiveZones();
   const zones = useMemo(() => {
-    const list = allZones ? AZIZIYAH_ZONES : COMMON_ZONES;
-    const chosen = AZIZIYAH_ZONES.find((z) => z.id === value.zoneId);
+    const list = allZones ? all : all.filter(isCommon);
+    const chosen = all.find((z) => z.id === value.zoneId);
     return chosen && !list.includes(chosen) ? [...list, chosen] : list;
-  }, [allZones, value.zoneId]);
+  }, [all, allZones, value.zoneId]);
 
   const setPin = (pin: LatLng) => onChange({ ...value, pin, zoneId: nearestZone(pin) });
 

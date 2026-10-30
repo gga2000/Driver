@@ -53,6 +53,13 @@ export * from './carry-over.js';
 export * from './search.js';
 export * from './zone-geometry.js';
 export * from './zones-io.js';
+export * from './map-editor-io.js';
+export * from './closed-street.js';
+// Console and ops closure schemas: `@driver/contracts/closures`; the apps only need the types.
+export type * from './closures-io.js';
+// «الناس» (customer and driver profiles): `@driver/contracts/people`; the apps only need the types.
+export type * from './people-io.js';
+export type * from './store-setup-io.js';
 export * from './safety-io.js';
 export * from './tracking.js';
 export * from './account-io.js';
@@ -119,5 +126,8 @@ export {
 export type { RequestOrigin } from './identity-io.js';
 export * from './demand.js';
 export * from './food-doors.js';
+export * from './home-kitchens.js';
+// Schemas live with the routers that parse them; apps only need the types (the customer bundle skips them).
+export type * from './home-kitchen-admin-io.js';
 export * from './featured.js';
 export * from './weights.js';

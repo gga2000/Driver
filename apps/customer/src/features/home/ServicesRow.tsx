@@ -1,8 +1,9 @@
 import { useCallback, useEffect, type ComponentProps, type ReactNode } from 'react';
+import { liveZones } from '@/lib/zones-state';
 import { Pressable, StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
-import { AZIZIYAH_ZONES, type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
+import { type IntercityDirection, type LatLng, type LaunchService } from '@driver/contracts';
 import { lift, type ServiceCard } from '@driver/design-tokens';
 import type { MessageKey } from '@driver/i18n';
 import { CornerFill, Icon, LocalPhoto, Skeleton, Text, useNetwork, useTheme, withAlpha, type IconName } from '@driver/ui';
@@ -98,7 +99,7 @@ function useMoment() {
 export function homePin(place: SavedPlace | null): LatLng | null {
   if (!place) return null;
   if (place.pin) return place.pin;
-  const z = AZIZIYAH_ZONES.find((x) => x.id === place.zoneId);
+  const z = liveZones().find((x) => x.id === place.zoneId);
   return z ? { lat: z.lat, lng: z.lng } : null;
 }
 

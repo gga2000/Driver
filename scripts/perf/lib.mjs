@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
+import { PERF_NOW } from './clock.mjs';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -31,12 +32,20 @@ export async function serveDist(dist) {
   return { origin: `http://127.0.0.1:${port}`, close: () => server.close() };
 }
 
-/** Starts `apps/<app>/scripts/demo-api.mjs` on `port` and waits until it answers. */
+/**
+ * Starts `apps/<app>/scripts/demo-api.mjs` on `port` and waits until it answers. Its clock starts at
+ * PERF_NOW (scripts/perf/clock.mjs), so what the screens show never depends on when CI ran.
+ */
 export async function startDemoApi(root, app, port) {
-  const child = spawn(process.execPath, [join(root, 'apps', app, 'scripts', 'demo-api.mjs')], {
-    env: { ...process.env, PORT: String(port) },
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
+  const clock = join(root, 'scripts', 'perf', 'clock.mjs');
+  const child = spawn(
+    process.execPath,
+    ['--import', clock, join(root, 'apps', app, 'scripts', 'demo-api.mjs')],
+    {
+      env: { ...process.env, PORT: String(port), PERF_PIN_CLOCK: process.env.PERF_NOW ?? PERF_NOW },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    },
+  );
   let err = '';
   child.stderr.on('data', (c) => (err = (err + c).slice(-4000)));
   const until = Date.now() + 90_000;

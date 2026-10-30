@@ -1,8 +1,12 @@
 import type { LayerSpecification, StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import { AZIZIYAH_CENTER, AZIZIYAH_DEFAULT_ZOOM } from '../zones.js';
 import { GOLDEN_FONTS } from './fonts.js';
+import { FOOD_SIGNS, SIGN_COLOURS, signImages } from './signs.js';
+
+// Overture's food categories (cafés, restaurants, bakeries, sweets, juice): the map's first focus
+const FOOD_PLACE = ['any', ...['restaurant', 'cafe', 'coffee', 'bakery', 'dessert', 'sweet', 'juice', 'food', 'eat_and_drink', 'tea'].map((w) => ['in', w, ['get', 'kind']])];
 import { GOLDEN_PALETTES, LANDMARK_PARTS, type GoldenPalette } from './palettes.js';
-import { FURROW_PATTERN, furrowPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
+import { FURROW_PATTERN, furrowPattern, LIT_WALL_PATTERN, litWallPattern, PALM_PATTERN, palmPattern, type PatternImage } from './palm.js';
 import { lightFor, sunAt, TYPICAL_SUN, type GoldenLight, type SunPosition } from './sun.js';
 
 /**
@@ -25,6 +29,55 @@ export interface GoldenStyleOptions {
   mode?: GoldenMode;
   /** Zoom where houses start rising into 3D (customer/courier only); the order map uses TRACKING_RISE_ZOOM. */
   riseAt?: number;
+  /**
+   * Paint the Console zones' names on the ground (customer and lite). Off by default while an app
+   * still draws the names itself; their edges show either way once the app fills `GOLDEN_ZONES_SOURCE`.
+   */
+  zoneNames?: boolean;
+}
+
+/** The river's sequins: [n, offset across the river (−0.5 … 0.5 of its width), gap between points, strength]. */
+const RIVER_SEQUINS = Array.from({ length: 9 }, (_, i) => [i + 1, -0.4 + i * 0.1, 6 + ((i * 7) % 11), 0.55 + ((i * 5) % 5) / 10] as const);
+const sequinOffset = (off: number) =>
+  ['interpolate', ['exponential', 2], ['zoom'], 12.5, 12 * off, 14, 30 * off, 15, 60 * off, 16, 120 * off, 17, 240 * off, 18, 480 * off] as never;
+/** Fades in from the town view, full on the streets, quieter right up close so the water stays calm. */
+const sequinOpacity = (o: number) => ['interpolate', ['linear'], ['zoom'], 12.5, 0, 13.2, o * 0.75, 15, o, 17, o, 18.5, o * 0.55] as never;
+
+/** The ids of the river's sequins (customer and courier maps; lite has none). */
+export const GOLDEN_SEQUIN_LAYERS: readonly string[] = RIVER_SEQUINS.map(([n]) => `golden-glint-${n}`);
+
+/**
+ * One twinkle across the river when the map opens: each row of points brightens in turn, then rests
+ * where the style draws it. Nothing moves when `reduceMotion` is on or the layers are missing (lite).
+ * Returns a stop function that puts every row back at rest.
+ */
+export function twinkleRiver(
+  map: { getLayer(id: string): unknown; setPaintProperty(layer: string, name: string, value: unknown): void },
+  opts: { reduceMotion?: boolean; ms?: number; frame?: (cb: (t: number) => void) => number; cancel?: (id: number) => void } = {},
+): () => void {
+  const rows = RIVER_SEQUINS.filter(([n]) => map.getLayer(`golden-glint-${n}`));
+  if (opts.reduceMotion || rows.length === 0) return () => {};
+  const g = globalThis as { requestAnimationFrame?: (cb: (t: number) => void) => number; cancelAnimationFrame?: (id: number) => void };
+  const frame = opts.frame ?? g.requestAnimationFrame?.bind(g), cancel = opts.cancel ?? g.cancelAnimationFrame?.bind(g) ?? (() => {}), ms = opts.ms ?? 2400;
+  if (!frame) return () => {};
+  const rest = new Map(rows.map(([n]) => [n, (map.getLayer(`golden-glint-${n}`) as { paint?: Record<string, unknown> } | undefined)?.paint?.['line-opacity']]));
+  const restOf = (n: number, k: number) => {
+    const r = rest.get(n);
+    return Array.isArray(r) ? r.map((v, i) => (i >= 4 && i % 2 === 0 && typeof v === 'number' ? Math.min(1, v * k) : v)) : r;
+  };
+  let start: number | null = null, id = 0;
+  const step = (t: number) => {
+    start ??= t;
+    const k = Math.min(1, (t - start) / ms);
+    rows.forEach(([n], i) => {
+      // Each row's moment comes a little after the last; a soft rise and fall, then rest.
+      const at = (k - (i / rows.length) * 0.6) / 0.4, lift = at > 0 && at < 1 ? Math.sin(Math.PI * at) : 0;
+      map.setPaintProperty(`golden-glint-${n}`, 'line-opacity', restOf(n, 1 + 0.9 * lift));
+    });
+    if (k < 1) id = frame(step);
+  };
+  id = frame(step);
+  return () => { cancel(id); for (const [n] of rows) map.setPaintProperty(`golden-glint-${n}`, 'line-opacity', rest.get(n)); };
 }
 
 /** The vector source id; the font stacks live in `fonts.ts` so pieces can import them alone. */
@@ -37,6 +90,15 @@ export const GOLDEN_ATTRIBUTION = '© OpenStreetMap contributors, Overture Maps 
  * stay readable on top of them: `map.addLayer(route, GOLDEN_FIRST_LABEL)`.
  */
 export const GOLDEN_FIRST_LABEL = 'golden-street-names';
+/**
+ * The GeoJSON source for the neighbourhoods drawn in the Console zones page (`buildPlacedZonesGeoJSON`
+ * of `ops.zones.map`). Same id as the original map's `SOURCE.zones`, so an app that already fills it
+ * draws the edges on our map too. Courier and Console bring their own zone layers, so only customer
+ * and lite get these.
+ */
+export const GOLDEN_ZONES_SOURCE = 'zones';
+/** With `zoneNames`: one point per neighbourhood (`buildPlacedZoneCentroidsGeoJSON`), so each name is painted once. */
+export const GOLDEN_ZONE_NAMES_SOURCE = 'zone-names';
 
 /** The light and sun a style was built for: the light drives the palette, the sun the shadows. */
 export function resolveLight(opts: Pick<GoldenStyleOptions, 'light' | 'now'> = {}): { light: GoldenLight; sun: SunPosition } {
@@ -47,7 +109,7 @@ export function resolveLight(opts: Pick<GoldenStyleOptions, 'light' | 'now'> = {
 
 /** Images the style uses; add each with `map.addImage(id, image)` (or on `styleimagemissing`). */
 export function goldenImages(light: GoldenLight): Record<string, PatternImage> {
-  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]), [FURROW_PATTERN]: furrowPattern(GOLDEN_PALETTES[light]) };
+  return { [PALM_PATTERN]: palmPattern(GOLDEN_PALETTES[light]), [FURROW_PATTERN]: furrowPattern(GOLDEN_PALETTES[light]), ...(light === 'night' ? { [LIT_WALL_PATTERN]: litWallPattern(GOLDEN_PALETTES[light]) } : {}), ...signImages(light === 'night') };
 }
 
 type Stops = number[];
@@ -146,13 +208,14 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     { id: 'golden-canal', type: 'line', ...src, 'source-layer': 'water', filter: kindIn('canal'), layout: ROUND, paint: { 'line-color': p.canal, 'line-width': zoom(10, 0.5, 14, 1, 16, 2.4, 18, 6), 'line-opacity': fade(9, 0.35, 12, 0.7, 14, 1) } },
   );
   if (rich) {
-    // Light on the Tigris: three broken lines either side of the centre, only when zoomed in.
-    for (const [n, off, dash, op] of [[1, -0.24, [0.1, 9], 1], [2, -0.05, [0.1, 13], 0.75], [3, 0.18, [0.1, 17], 0.55]] as const) {
+    // Light on the Tigris: scattered bright points across the river, from the town view in.
+    for (const [n, off, gap, op] of RIVER_SEQUINS) {
       L.push({
-        id: `golden-glint-${n}`, type: 'line', ...src, 'source-layer': 'water', filter: kindIn('centre'), minzoom: 15.5, layout: { 'line-cap': 'round' },
+        id: `golden-glint-${n}`, type: 'line', ...src, 'source-layer': 'water', filter: kindIn('centre'), minzoom: 12.5, layout: { 'line-cap': 'round' },
         paint: {
-          'line-color': p.glint, 'line-opacity': p.glintOpacity * op * 0.8, 'line-width': zoom(13, 1.2, 16, 3, 18, 6),
-          'line-offset': zoom(12.5, 10 * off, 15, 60 * off, 16, 120 * off, 17, 240 * off, 18, 480 * off), 'line-dasharray': [...dash],
+          'line-color': n % 3 === 1 ? p.sparkle : p.glint, 'line-opacity': sequinOpacity(p.glintOpacity * op),
+          'line-width': zoom(12.5, 2, 14, 3.2, 16, 6, 18, 12), 'line-blur': zoom(14, 0.5, 18, 3),
+          'line-offset': sequinOffset(off), 'line-dasharray': [0, gap],
         },
       });
     }
@@ -199,11 +262,11 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     });
   }
   const bld = { ...src, 'source-layer': 'buildings' } as const;
-  // each house wears one of six real roof finishes; at night a share of them have their lights on
+  // each house wears one of six real roof finishes; at night a share of them have their lights on, shown by the
+  // lit walls below (a house keeps its own roof finish, so lit homes don't turn into orange boxes)
   const t = p.roofTones;
   const finish = ['match', ['%', ['coalesce', ['get', 'tone'], 0], 6], 0, t[0], 1, t[1], 2, t[2], 3, t[3], 4, t[4], t[5]];
-  const house = p.litRoof ? ['case', ['==', ['get', 'lit'], 1], p.litRoof, finish] : finish;
-  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], house] as never;
+  const roofColor = ['match', ['get', 'kind'], 'mosque', p.mosque, 'tankW', p.tankWhite, 'tankB', p.tankBlack, 'dish', p.tankWhite, 'hut', t[0], finish] as never;
   const lm = { ...src, 'source-layer': 'landmarks' } as const;
   // `pool` parts are light on the ground: never solid, drawn see-through at night by their own layer
   const solidPart = ['!=', ['get', 'part'], 'pool'] as never;
@@ -216,29 +279,67 @@ function baseLayers(p: GoldenPalette, mode: GoldenMode, sun: SunPosition, riseAt
     id: 'golden-roofs', type: 'fill', ...bld, minzoom: 14.4, filter: kindIn('house', 'mosque'),
     paint: { 'fill-color': roofColor, 'fill-opacity': fade(14.4, 0, 15, 0.55, 16, 1), 'fill-outline-color': ['step', ['zoom'], p.wall, 16, p.roof] as never },
   });
+  // neighbourhood names painted big and soft on the ground (Ali's pick, 2026-10-12): they tilt with the town, the
+  // houses stand over them, and they fade as the camera comes down to the streets
+  L.push({
+    id: 'golden-area-names', type: 'symbol', ...src, 'source-layer': 'localities', minzoom: 13.8, maxzoom: 17.6, filter: kindIn('area'),
+    layout: {
+      'text-field': ['get', 'name'] as never, 'text-font': [...GOLDEN_FONTS.bold], 'text-pitch-alignment': 'map', 'text-rotation-alignment': 'map',
+      'text-size': ['interpolate', ['exponential', 2], ['zoom'], 14, 14, 15, 24, 16, 44, 17, 80] as never, 'text-allow-overlap': true, 'text-ignore-placement': true,
+    },
+    paint: {
+      'text-color': p.area, 'text-halo-color': p.labelHalo, 'text-halo-width': 1, 'text-halo-blur': 2,
+      'text-opacity': fade(13.8, 0, 14.4, p.windowGlow ? 0.55 : 0.5, 16.4, p.windowGlow ? 0.45 : 0.42, 17.4, 0),
+    },
+  });
   if (rich) {
     const rise = riseAt ?? (mode === 'courier' ? 15.4 : 16.4);
     // a soft dark line where walls meet the ground, so houses sit on the street instead of floating
     L.push({
       id: 'golden-wall-foot', type: 'line', ...bld, minzoom: rise, filter: kindIn('house'),
-      paint: { 'line-color': p.shadow, 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.6, 18, 4] as never, 'line-blur': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.5, 18, 3] as never, 'line-opacity': fade(rise, 0, rise + 0.6, p.litRoof ? 0.6 : 0.32) },
+      paint: { 'line-color': p.shadow, 'line-width': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.6, 18, 4] as never, 'line-blur': ['interpolate', ['exponential', 2], ['zoom'], 15.5, 0.5, 18, 3] as never, 'line-opacity': fade(rise, 0, rise + 0.6, p.windowGlow ? 0.6 : 0.32) },
     });
     if (p.windowGlow) {
       // lit houses spill warm light onto the street around them
       L.push({
         id: 'golden-window-glow', type: 'circle', ...src, 'source-layer': 'lights', minzoom: 14.5,
-        paint: { 'circle-color': p.windowGlow, 'circle-opacity': 0.32, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 15, 5, 18, 34] as never },
+        paint: { 'circle-color': p.windowGlow, 'circle-opacity': 0.34, 'circle-blur': 1, 'circle-pitch-alignment': 'map', 'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 15, 6, 18, 40] as never },
       });
     }
+    // at night a home with its lights on wears the lit-wall pattern (a warm band of ground-floor windows) under a thin
+    // cap in its own roof finish, so the flat roof still reads as a roof
+    const unlit = ['!=', ['coalesce', ['get', 'lit'], 0], 1] as never;
+    const rise3d = ['interpolate', ['linear'], ['zoom'], rise, 0, rise + 0.6] as const;
     L.push({
-      id: 'golden-houses-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: kindIn('house', 'mosque'),
+      id: 'golden-houses-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: p.windowGlow ? (['all', kindIn('house', 'mosque'), unlit] as never) : kindIn('house', 'mosque'),
       paint: {
         'fill-extrusion-color': roofColor,
-        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], rise, 0, rise + 0.6, ['get', 'hm']] as never,
+        'fill-extrusion-height': [...rise3d, ['get', 'hm']] as never,
         'fill-extrusion-base': ['coalesce', ['get', 'base'], 0] as never,
         'fill-extrusion-vertical-gradient': true,
       },
     });
+    if (p.windowGlow) {
+      const litHouse = ['all', kindIn('house', 'mosque'), ['!', unlit]] as never;
+      L.push({
+        id: 'golden-lit-walls', type: 'fill-extrusion', ...bld, minzoom: rise, filter: litHouse,
+        paint: {
+          'fill-extrusion-pattern': LIT_WALL_PATTERN,
+          'fill-extrusion-height': [...rise3d, ['get', 'hm']] as never,
+          'fill-extrusion-base': ['coalesce', ['get', 'base'], 0] as never,
+          'fill-extrusion-vertical-gradient': true,
+        },
+      });
+      L.push({
+        id: 'golden-lit-cap', type: 'fill-extrusion', ...bld, minzoom: rise, filter: litHouse,
+        paint: {
+          'fill-extrusion-color': roofColor,
+          'fill-extrusion-height': [...rise3d, ['+', ['get', 'hm'], 0.06]] as never,
+          'fill-extrusion-base': [...rise3d, ['-', ['get', 'hm'], 0.5]] as never,
+          'fill-extrusion-vertical-gradient': true,
+        },
+      });
+    }
     // river bridges stand on piers, the deck a storey above the water with a dark rail each side
     L.push({
       id: 'golden-bridge-3d', type: 'fill-extrusion', ...bld, minzoom: rise, filter: kindIn('deck', 'rail', 'pier'),
@@ -337,10 +438,46 @@ function labelLayers(p: GoldenPalette): LayerSpecification[] {
       paint: { 'text-color': p.river, 'text-halo-color': p.riverHalo, 'text-halo-width': 1.6 },
     },
     {
+      // other open-data places: food (cafés, restaurants, sweets) named from z15.5 in the bakery's brown; shops, offices
+      // and clinics only when you are right there, faint, so the food reads first (Ali, 2026-10-13)
       id: 'golden-places', type: 'symbol', ...src, 'source-layer': 'places', minzoom: 15.5,
-      filter: ['any', ['==', ['get', 'rank'], 1], ['>=', ['zoom'], 16.5]] as never,
-      layout: { 'text-field': ['get', 'name'] as never, 'text-font': [...GOLDEN_FONTS.regular], 'text-size': 11.5, 'text-max-width': 8, 'text-padding': 6, 'symbol-sort-key': ['get', 'rank'] as never },
-      paint: { 'text-color': p.area, ...halo },
+      filter: ['all', ['!', ['has', 'icon']], ['any', FOOD_PLACE, ['all', ['<=', ['get', 'rank'], 2], ['>=', ['zoom'], 17]]]] as never,
+      layout: {
+        'text-field': ['get', 'name'] as never, 'text-font': [...GOLDEN_FONTS.medium],
+        'text-size': ['case', FOOD_PLACE, 12.5, 11] as never, 'text-max-width': 8, 'text-padding': 6,
+        'symbol-sort-key': ['case', FOOD_PLACE, 0, ['get', 'rank']] as never,
+      },
+      paint: { 'text-color': ['case', FOOD_PLACE, p.windowGlow ? p.label : SIGN_COLOURS.bakery, p.area] as never, 'text-opacity': ['case', FOOD_PLACE, 1, 0.75] as never, ...halo },
+    },
+    {
+      // food first (Ali, 2026-10-13): bakeries stand as pins in their colour from z15, names at street level
+      id: 'golden-signposts', type: 'symbol', ...src, 'source-layer': 'places', minzoom: 15,
+      filter: ['in', ['get', 'icon'], ['literal', [...FOOD_SIGNS]]] as never,
+      layout: {
+        'icon-image': ['concat', 'golden-sign-', ['get', 'icon']] as never, 'icon-anchor': 'bottom', 'icon-allow-overlap': true,
+        'icon-size': fade(15, 0.35, 17, 0.48), 'symbol-z-order': 'source',
+        'text-field': ['step', ['zoom'], '', 16, ['get', 'name']] as never,
+        'text-font': [...GOLDEN_FONTS.medium], 'text-size': fade(15, 12, 17, 13.5), 'text-max-width': 8, 'text-optional': true,
+        'text-anchor': 'top', 'text-offset': [0, 0.3],
+      },
+      paint: { 'text-color': p.windowGlow ? p.label : (['match', ['get', 'icon'], ...FOOD_SIGNS.flatMap((k) => [k, SIGN_COLOURS[k]]), SIGN_COLOURS.bakery] as never), ...halo, 'text-halo-width': 1.6 },
+    },
+    {
+      // everything else (mosques, schools, clinics, pharmacies, fuel) is a quiet mark printed on the ground: no pin,
+      // softened, only near street level, giving way to anything else; its name only when you are right there
+      id: 'golden-marks', type: 'symbol', ...src, 'source-layer': 'places', minzoom: 15.6,
+      filter: ['all', ['has', 'icon'], ['!', ['in', ['get', 'icon'], ['literal', [...FOOD_SIGNS]]]]] as never,
+      layout: {
+        'icon-image': ['concat', 'golden-mark-', ['get', 'icon']] as never, 'icon-pitch-alignment': 'map', 'icon-rotation-alignment': 'map',
+        'icon-size': fade(15.6, 0.3, 18, 0.5), 'icon-padding': 6, 'symbol-sort-key': ['get', 'rank'] as never,
+        'text-field': ['step', ['zoom'], '', 17, ['get', 'name']] as never,
+        'text-font': [...GOLDEN_FONTS.regular], 'text-size': 11.5, 'text-max-width': 8, 'text-optional': true,
+        'text-anchor': 'top', 'text-offset': [0, 0.6],
+      },
+      paint: {
+        'icon-opacity': fade(15.6, 0, 16.2, p.windowGlow ? 0.6 : 0.7),
+        'text-color': p.area, 'text-opacity': fade(17, 0, 17.5, 0.85), ...halo,
+      },
     },
     {
       id: 'golden-localities', type: 'symbol', ...src, 'source-layer': 'localities',
@@ -353,6 +490,46 @@ function labelLayers(p: GoldenPalette): LayerSpecification[] {
       paint: { 'text-color': p.area, ...halo, 'text-opacity': fade(14.5, 1, 15.5, 0) },
     },
   ];
+}
+
+/**
+ * The neighbourhoods Ali draws in the Console (Ali, 2026-10-14: "Console zones"): a faint wash and a fine
+ * dotted edge lying on the ground under the houses, gone by the time the camera is down in the streets.
+ * Draft outlines (the AI's first guess) never show: only outlines someone placed or drivers confirmed.
+ * Every neighbourhood keeps its name, though: a draft's sits at its listed centre until someone draws it.
+ */
+function zoneLayers(p: GoldenPalette, names: boolean): [LayerSpecification[], LayerSpecification[]] {
+  const real = ['!=', ['get', 'placement'], 'draft'] as never;
+  const ground: LayerSpecification[] = [
+    {
+      id: 'golden-zone-wash', type: 'fill', source: GOLDEN_ZONES_SOURCE, filter: real, maxzoom: 17.4,
+      paint: { 'fill-color': p.area, 'fill-opacity': fade(12.5, 0.07, 15.5, 0.05, 17.2, 0) },
+    },
+    {
+      id: 'golden-zone-edge', type: 'line', source: GOLDEN_ZONES_SOURCE, filter: real, maxzoom: 17.6,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': p.area, 'line-dasharray': [0.1, 2.2],
+        'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 12.5, 1.4, 15, 2.8, 17, 4.4] as never,
+        'line-opacity': fade(12.5, 0.7, 16, 0.62, 17.5, 0),
+      },
+    },
+  ];
+  const L: LayerSpecification[] = [];
+  if (names) {
+    L.push({
+      id: 'golden-zone-names', type: 'symbol', source: GOLDEN_ZONE_NAMES_SOURCE, minzoom: 13, maxzoom: 17.6,
+      layout: {
+        'text-field': ['get', 'name_ar'] as never, 'text-font': [...GOLDEN_FONTS.bold], 'text-pitch-alignment': 'map', 'text-rotation-alignment': 'map',
+        'text-size': ['interpolate', ['exponential', 2], ['zoom'], 13, 12, 14, 15, 15, 20, 16, 30, 17, 46] as never, 'text-allow-overlap': true, 'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': p.area, 'text-halo-color': p.labelHalo, 'text-halo-width': 1, 'text-halo-blur': 2,
+        'text-opacity': fade(13, 0, 13.6, p.windowGlow ? 0.7 : 0.66, 16.4, p.windowGlow ? 0.56 : 0.52, 17.4, 0),
+      },
+    });
+  }
+  return [ground, L];
 }
 
 /**
@@ -383,6 +560,16 @@ export function buildGoldenStyle(opts: GoldenStyleOptions): StyleSpecification {
       position: [1.15, sun.az, Math.min(75, Math.max(30, 90 - sun.alt))],
     },
   };
+  if (mode === 'customer' || mode === 'lite') {
+    style.sources[GOLDEN_ZONES_SOURCE] = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+    if (opts.zoneNames) style.sources[GOLDEN_ZONE_NAMES_SOURCE] = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+    // edges on the ground under the roofs; names over the roofs, where the tile area names sit
+    const [ground, names] = zoneLayers(p, opts.zoneNames ?? false);
+    const roofs = style.layers.findIndex((l) => l.id === 'golden-roofs');
+    style.layers.splice(roofs < 0 ? style.layers.length : roofs, 0, ...ground);
+    const areas = style.layers.findIndex((l) => l.id === 'golden-area-names');
+    style.layers.splice(areas < 0 ? style.layers.length : areas + 1, 0, ...names);
+  }
   if (mode === 'courier' || mode === 'customer') {
     // a warm sky over every tilted view, and far streets fading into haze so the near street stays sharp
     style.sky = {

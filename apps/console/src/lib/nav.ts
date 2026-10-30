@@ -1,4 +1,5 @@
 import { PICKUP_SPOT_CONSOLE_ROLES, REVIEW_MODERATION_ROLES, SAFETY_DESK_ROLES, ZONE_READ_ROLES, type RoleKind } from '@driver/contracts';
+import { CLOSURE_EDIT_ROLES } from '@driver/contracts/closures';
 import type { MessageKey } from '@driver/i18n';
 import { INBOX_READ_ROLES, ON_CALL_READ_ROLES, PHONE_BOOKING_ROLES } from '@driver/contracts';
 
@@ -38,7 +39,8 @@ export type IconName =
   | 'garage'
   | 'system'
   | 'audit'
-  | 'staff';
+  | 'staff'
+  | 'customers';
 
 export interface NavItem {
   href: string;
@@ -97,6 +99,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // SOS (scoring & safety §3): the emergencies desk; the red banner shows on every page anyway.
       { href: '/safety', key: 'console.safety.nav', icon: 'safety', roles: SAFETY_DESK_ROLES, jump: 'e' },
       { href: '/support', key: 'console.nav_support', icon: 'support', roles: SUPPORT, jump: 's' },
+      // «الناس» (Ali 2026-10-21): every customer with a profile; drivers' profiles open from السواق.
+      { href: '/customers', key: 'console.nav_customers', icon: 'customers', roles: READ, jump: 'i' },
       {
         href: '/approvals',
         key: 'console.nav_approvals',
@@ -117,6 +121,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { href: '/pricing', key: 'console.nav_pricing', icon: 'pricing', roles: READ, jump: 'p' },
       // b4: prices and the zones they are set by sit together.
       { href: '/zones', key: 'console.nav_zones', icon: 'zones', roles: ZONE_READ_ROLES, jump: 'z' },
+      { href: '/closures', key: 'console.closures_nav', icon: 'map', roles: CLOSURE_EDIT_ROLES, jump: 'x' },
     ],
   },
   {

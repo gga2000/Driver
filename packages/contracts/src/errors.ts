@@ -109,6 +109,12 @@ export const ERROR_TABLE = {
   zone_at_capacity: { retryHint: 'later', status: 'CONFLICT' },
   control_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  zone_tier_edge_fixed: { retryHint: 'never', status: 'BAD_REQUEST' },
+  map_place_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  map_landmark_seeded: { retryHint: 'never', status: 'BAD_REQUEST' },
+  map_edit_stale: { retryHint: 'never', status: 'CONFLICT' },
+  map_report_unknown: { retryHint: 'never', status: 'NOT_FOUND' },
+  map_reports_limit: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   zone_key_taken: { retryHint: 'never', status: 'CONFLICT' },
   zone_shape_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   zone_overlap: { retryHint: 'never', status: 'CONFLICT' },
@@ -288,6 +294,8 @@ export const ERROR_TABLE = {
   chat_closed: { retryHint: 'never', status: 'CONFLICT' },
   // s7 «نسيت غرض»: only a completed ride, only within 24 h of its end
   chat_lost_item_unavailable: { retryHint: 'never', status: 'CONFLICT' },
+  // s7 «انحلّت»: someone closed the lost-item chat; it is not reopened
+  chat_lost_item_resolved: { retryHint: 'never', status: 'CONFLICT' },
   chat_quick_reply_invalid: { retryHint: 'never', status: 'BAD_REQUEST' },
   /** Voice notes are for the customer ↔ courier / driver chat and the support chat only (`VOICE_THREAD_KINDS`). */
   chat_voice_unavailable: { retryHint: 'never', status: 'BAD_REQUEST' },
@@ -434,6 +442,9 @@ export const ERROR_TABLE = {
   open_cash_orders_cap: { retryHint: 'never', status: 'CONFLICT' },
   cash_debt_blocked: { retryHint: 'never', status: 'FORBIDDEN' },
   prepay_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  // أكل بيت: a reservation he never took at the door is owed before he reserves again (Ali, 2026-10-11).
+  home_reservation_owed: { retryHint: 'never', status: 'FORBIDDEN' },
+  commission_tier_home_only: { retryHint: 'never', status: 'FORBIDDEN' },
   // Parcels طرود (2026-10-12): the parcel, the receiver's door link and its area, the photo.
   parcel_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   parcel_door_closed: { retryHint: 'never', status: 'CONFLICT' },

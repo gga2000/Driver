@@ -7,7 +7,8 @@ import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queu
 import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
-import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
+import { CatalogModule, CatalogRpc, CatalogService, STOREFRONT_HOME, STOREFRONT_MERCHANTS, STOREFRONT_PHOTOS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontHome, type StorefrontSwitches, type StorefrontToday } from '../catalog/index.js';
+import { ConfigModule, ConfigService } from '../config/index.js';
 import { RoutesModule, RoutesRpc } from '../routes/index.js';
 import { Accounts, CapsService, LedgerModule, LedgerService, NightlyJob, WalletHolds } from '../ledger/index.js';
 import { AuditLogService, ControlsModule, ControlsService } from '../controls/index.js';
@@ -56,7 +57,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * from the outbox as the `orders:trip-events` subscriber.
  */
 @Module({
-  imports: [EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule, PlacesModule, ReferralsModule, ShopItemsModule],
+  imports: [ConfigModule, EventsModule, TripsModule, PricingModule, OrgsModule, IdentityModule, LedgerModule, CatalogModule, PromotionsModule, ControlsModule, RoutingModule, RoutesModule, PlacesModule, ReferralsModule, ShopItemsModule],
   providers: [
     {
       provide: ORDERS_REPOSITORY,
@@ -148,6 +149,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
       useFactory: (routes: RoutesRpc): StorefrontToday => ({ rajaa: () => routes.today(), latePromiseMin: () => AZIZIYAH_MONEY_RULES.latePromise.afterMin }),
       inject: [RoutesRpc],
     },
+    // أكل بيت: home kitchens open per city (`homeKitchens.launched`), off unless the city file opens them.
+    { provide: STOREFRONT_HOME, useFactory: (config: ConfigService): StorefrontHome => ({ open: (cityId) => config.homeKitchensOpen(cityId) }), inject: [ConfigService] },
     // Merchant-uploaded dish photos (`upload:<id>`) reach customers as signed links from the blob store.
     { provide: STOREFRONT_PHOTOS, useExisting: BLOB_STORE },
     // REL-16: menus and lists show a kitchen the kill switches stopped, with place()'s own words.

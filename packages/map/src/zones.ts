@@ -13,6 +13,8 @@ export interface ZoneProps {
   /** Fill colour for the tier, so a renderer without data-driven styling still shades correctly. */
   color: string;
   radiusM: number;
+  /** Console outlines only: draft (the AI guess), placed or confirmed. The Golden map hides drafts. */
+  placement?: 'draft' | 'placed' | 'confirmed';
 }
 
 /**
@@ -80,14 +82,14 @@ export function buildPlacedZonesGeoJSON(zones: readonly ZonePlacementView[]): Zo
   return { type: 'FeatureCollection', features: zones.map((z, i) => ({
     type: 'Feature', id: i,
     geometry: { type: 'Polygon', coordinates: [[...z.ring.map((p) => [p.lng, p.lat] as [number, number]), [z.ring[0]!.lng, z.ring[0]!.lat]] ] },
-    properties: { id: z.key, extId: '', name_ar: labelDigits(z.name_ar), name_en: z.name_en, tier: z.tier, group: z.group, color: TIER_COLORS[z.tier], radiusM: 0 },
+    properties: { id: z.key, extId: '', name_ar: labelDigits(z.name_ar), name_en: z.name_en, tier: z.tier, group: z.group, color: TIER_COLORS[z.tier], radiusM: 0, placement: z.placement },
   })) };
 }
 
 export function buildPlacedZoneCentroidsGeoJSON(zones: readonly ZonePlacementView[]): FeatureCollection<Point, ZoneProps> {
   return { type: 'FeatureCollection', features: zones.map((z, i) => ({
     type: 'Feature', id: i, geometry: { type: 'Point', coordinates: [z.centre.lng, z.centre.lat] },
-    properties: { id: z.key, extId: '', name_ar: labelDigits(z.name_ar), name_en: z.name_en, tier: z.tier, group: z.group, color: TIER_COLORS[z.tier], radiusM: 0 },
+    properties: { id: z.key, extId: '', name_ar: labelDigits(z.name_ar), name_en: z.name_en, tier: z.tier, group: z.group, color: TIER_COLORS[z.tier], radiusM: 0, placement: z.placement },
   })) };
 }
 
