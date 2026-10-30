@@ -70,7 +70,7 @@ import { isUniqueViolation } from '../../shared/db/unique-violation.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
-import { arrivalCountsForFees, type CancellationSubject } from '../pricing/index.js';
+import { arrivalCountsForFees, riderNoShowFee, type CancellationSubject } from '../pricing/index.js';
 import { EtaService } from '../routing/index.js';
 import { ORDER_EVENTS, type OrderEventEmitter, type TripEventEnvelope } from './events.adapter.js';
 import { assertExpected, serverFees, verticalOf as orderVertical, type QuotePort, type ServerFees } from './fees.js';
@@ -197,6 +197,8 @@ export interface OrdersFavouritesPort {
 /** Pricing as orders uses it: the server quote that fixes an order's fees, and cancellation fees. */
 export interface OrdersPricingPort extends QuotePort {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee;
+  /** «الراكب ما إجه» (Ali 2026-10-30): the rider's no-show fee to the driver, rounded per city (the default rules without it). */
+  riderNoShowFee?(t: { arrivedPickupAt: Date | null; fareIqd: number }, at: Date, cityId?: string): CancellationFee;
   /** Seconds a ride searches before the customer may cancel free or switch vehicle (city dispatch config). */
   freeCancelAfterSec?(cityId: string, vertical: Vertical): number;
   /** LOAD-01: takes the kept quote the order names, once (false: unknown, expired or already taken). */
@@ -2432,6 +2434,30 @@ export class OrdersService implements OnModuleInit {
         if (by === 'driver' && o.state === 'picked_up' && pickedUp.has(o.id)) {
           // Spec §9: courier cancels after pickup → courier pays the food cost.
           return this.move(o, 'disputed', SYSTEM, tx, {}, { kind: 'courier_cancelled_after_pickup', openedBy: 'system', defaultOutcome: 'courier_pays_food_cost', tripId: e.tripId, courierId: p['courierId'] ?? null });
+        }
+        if (o.type === 'ride' && o.state === 'matched' && by === 'customer' && p['reason'] === 'rider_no_show') {
+          // «الراكب ما إجه» (Ali 2026-10-30): the trips module checked the arrival and the free wait; the
+          // rider owes the no-show fee to the driver, the same customer-cancel posting as a late cancel.
+          const t = { arrivedPickupAt: dateOrNull(p['arrivedPickupAt']), fareIqd: o.totalIqd };
+          const fee = this.pricing.riderNoShowFee ? this.pricing.riderNoShowFee(t, e.occurredAt, o.cityId) : riderNoShowFee(t, e.occurredAt);
+          const charged = fee.allowed && !fee.free && trip?.courierId ? fee : null;
+          return this.move(
+            o,
+            'customer_cancelled',
+            e.actorId,
+            tx,
+            { cancelledAt: e.occurredAt, cancellationReason: 'rider_no_show', cancellationFeeIqd: charged?.amountIqd ?? 0 },
+            this.cancelled(o, {
+              by: 'customer',
+              reason: 'rider_no_show',
+              free: !charged,
+              feeIqd: charged?.amountIqd ?? 0,
+              beneficiaries: charged ? beneficiariesOf(charged, o, trip) : [],
+              tripId: e.tripId,
+              label_ar: fee.label_ar,
+              reason_ar: fee.reason_ar,
+            }),
+          );
         }
         if (o.type === 'ride' && o.state === 'matched') {
           // The rider was already picked up: never search for a driver again (staff settle it from the stuck list).

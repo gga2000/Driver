@@ -25,7 +25,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
 import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
-import { arrivalCountsForFees } from '../pricing/index.js';
+import { arrivalCountsForFees, riderNoShowAt } from '../pricing/index.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
 import { assessFix } from './position-guard.js';
@@ -962,6 +962,25 @@ export class TripsService implements OnModuleInit {
       const after = await this.view(tripId, tx);
       if (opts.record) await opts.record(after, tx);
       return after;
+    });
+  }
+
+  /**
+   * «الراكب ما إجه» (Ali 2026-10-30, audit RID-01): the ride's driver, at the pickup, once his arrival
+   * counts for the fees (near the rider) and the free wait is over. The trip ends as the rider's
+   * cancel (`rider_no_show`); the orders module turns it into the no-show fee to the driver.
+   */
+  async riderNoShow(tripId: string, driverId: string): Promise<Trip> {
+    return this.uow.run(async (tx) => {
+      const trip = await this.loadForCourier(tripId, driverId, tx);
+      if (trip.state === 'customer_cancelled' && trip.cancellationReason === 'rider_no_show') return this.view(tripId, tx);
+      if (!RIDE_VERTICALS.includes(trip.vertical) || trip.state !== 'arrived_pickup') throw new DriverError('trip_state_conflict');
+      const stops = await this.repo.stopsOf(tripId, tx);
+      const pickup = stops.find((s) => s.type === 'pickup' && s.state === 'arrived' && arrivalCountsForFees(s));
+      if (!pickup?.arrivedAt) throw new DriverError('ride_no_show_not_arrived');
+      if (this.clock.now().getTime() < riderNoShowAt(pickup.arrivedAt).getTime()) throw new DriverError('ride_no_show_too_early');
+      await this.finishCancelled(trip, 'customer_cancelled', driverId, 'rider_no_show', tx);
+      return this.view(tripId, tx);
     });
   }
 

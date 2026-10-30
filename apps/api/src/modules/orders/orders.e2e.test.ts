@@ -305,4 +305,33 @@ describe('orders × trips — rides', () => {
     expect(h.events.last('order.driver_cancelled')!.payload).toMatchObject({ orderId: o.id, tripId: t.id, customerId: 'c1', driverId: 'd1', customerCreditIqd: 500, creditFundedBy: 'driver', scoringHit: true });
     expect(h.events.ofType('order.rematch_needed')).toHaveLength(1);
   });
+
+  it('rider no-show (Ali 2026-10-30): «الراكب ما إجه» opens after 5 free minutes at the pickup; the rider owes 1,000 to the driver', async () => {
+    const { h, o } = await ride();
+    const t = await h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
+    const pickup = t.stops.find((s) => s.type === 'pickup')!;
+    expect(await code(h.trips.riderNoShow(t.id, 'd1'))).toBe('trip_state_conflict');
+    await h.trips.arrive(t.id, pickup.id, 'd1', { pin: KITCHEN });
+    await h.advance(5 * MIN - 1000);
+    expect(await code(h.trips.riderNoShow(t.id, 'd1'))).toBe('ride_no_show_too_early');
+    expect(await code(h.trips.riderNoShow(t.id, 'd2'))).not.toBe('ok');
+    await h.advance(1000);
+    const ended = await h.trips.riderNoShow(t.id, 'd1');
+    expect(ended).toMatchObject({ state: 'customer_cancelled', cancellationReason: 'rider_no_show' });
+    // A second tap (a retry after a dropped answer) is the same answer, not an error.
+    expect((await h.trips.riderNoShow(t.id, 'd1')).state).toBe('customer_cancelled');
+    await h.deliver();
+    expect(await h.orders.get(o.id)).toMatchObject({ state: 'customer_cancelled', cancellationReason: 'rider_no_show', cancellationFeeIqd: 1000 });
+    expect(h.events.last('order.cancelled')!.payload).toMatchObject({ by: 'customer', reason: 'rider_no_show', free: false, feeIqd: 1000, beneficiaries: [{ kind: 'driver', id: 'd1', amountIqd: 1000 }], label_ar: 'الراكب ما إجه' });
+    expect(h.events.ofType('order.rematch_needed')).toHaveLength(0);
+  });
+
+  it('rider no-show needs an arrival near the rider: a «وصلت» tapped far away never opens it', async () => {
+    const { h, o } = await ride();
+    const t = await h.tripFor(o.id, { vertical: 'taxi', vehicleClass: 'car' });
+    const pickup = t.stops.find((s) => s.type === 'pickup')!;
+    await h.trips.arrive(t.id, pickup.id, 'd1', { pin: { lat: KITCHEN.lat + 0.01, lng: KITCHEN.lng } });
+    await h.advance(10 * MIN);
+    expect(await code(h.trips.riderNoShow(t.id, 'd1'))).toBe('ride_no_show_not_arrived');
+  });
 });

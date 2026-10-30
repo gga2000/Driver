@@ -186,6 +186,13 @@ export function jobOrder<T extends Pick<Trip, 'id' | 'acceptedAt'>>(trips: reado
 
 export const TripIdInput = z.object({ tripId: z.string().min(1) });
 
+/**
+ * Rider no-show (Ali 2026-10-30, audit RID-01): after the driver's arrival at the pickup counts (the
+ * fee rule's 150 m), he waits this many minutes free; then «الراكب ما إجه» ends the ride and the rider
+ * owes the no-show fee to the driver (the amount is the server's, `riderNoShowFee`).
+ */
+export const RIDE_NO_SHOW_FREE_WAIT_MIN = 5;
+
 /** Device-side evidence carried by driver taps (edge-case §10): wall time + monotonic uptime + retry key. */
 const DeviceStamp = {
   occurredAt: z.coerce.date().optional(),
@@ -333,6 +340,8 @@ export interface TripsPort {
   skipStop(actor: Actor, input: SkipStopInput): Promise<Trip>;
   startUnreachable(actor: Actor, input: StartUnreachableInput): Promise<Trip>;
   fail(actor: Actor, input: FailTripInput): Promise<Trip>;
+  /** «الراكب ما إجه»: the ride's driver, after the free wait at the pickup. */
+  riderNoShow(actor: Actor, input: { tripId: string }): Promise<Trip>;
   cancel(actor: Actor, input: CancelTripInput): Promise<Trip>;
   /** s1: the city's night-ride code alerts of the last `START_CODE_RULES.alertShowMin` (Console safety strip). */
   startCodeAlerts(actor: Actor, input: StartCodeAlertsInput): Promise<StartCodeAlert[]>;
