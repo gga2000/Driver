@@ -21,6 +21,8 @@ export const DISPATCHER_BEHAVIOUR = {
 const FITS: Partial<Record<Vertical, ReadonlyArray<DriverRun['def']['vehicle']>>> = {
   food: ['bike', 'tuktuk', 'car'],
   grocery: ['bike', 'tuktuk', 'car'],
+  parcel: ['bike', 'tuktuk', 'car'],
+  errand: ['bike', 'tuktuk', 'car'],
   taxi: ['car'],
   tuktuk: ['tuktuk'],
 };
@@ -29,6 +31,7 @@ const FITS: Partial<Record<Vertical, ReadonlyArray<DriverRun['def']['vehicle']>>
 export interface DeskOverride {
   tripId: string;
   driverId: string;
+  offerId: string;
   /** When the desk first saw the card red. */
   redSinceT: number;
   at: number;
@@ -85,7 +88,7 @@ export async function dispatcherStep(ctx: SimContext, cards: readonly BoardCard[
       if (res) {
         offered.add(d.personId);
         state.offerIds.add(res.offerId);
-        state.overrides.push({ tripId: card.tripId, driverId: d.personId, redSinceT: seen.sinceT, at: ctx.t });
+        state.overrides.push({ tripId: card.tripId, driverId: d.personId, offerId: res.offerId, redSinceT: seen.sinceT, at: ctx.t });
         break;
       }
     }

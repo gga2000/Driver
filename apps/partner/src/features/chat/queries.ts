@@ -59,8 +59,23 @@ export function useChatActions(orderId: string, kind: ChatThreadKind) {
     Promise.all([qc.invalidateQueries({ queryKey: api.chat.thread.queryKey({ orderId, kind }) }), qc.invalidateQueries({ queryKey: api.chat.threads.queryKey({ orderId }) })]);
   return {
     send: useMutation({ ...api.chat.send.mutationOptions(), onSuccess: () => void refresh() }),
-    markRead: useMutation({ ...api.chat.markRead.mutationOptions(), onSuccess: () => void qc.invalidateQueries({ queryKey: api.chat.threads.queryKey({ orderId }) }) }),
+    markRead: useMutation({
+      ...api.chat.markRead.mutationOptions(),
+      onSuccess: () => {
+        void qc.invalidateQueries({ queryKey: api.chat.threads.queryKey({ orderId }) });
+        // Home's «نسيت غرض» strip drops its unread badge once he has read the rider's line.
+        void qc.invalidateQueries({ queryKey: api.chat.lostItems.queryKey() });
+      },
+    }),
     requestCall: useMutation(api.chat.requestCall.mutationOptions()),
+    // s7 «انحلّت»: home's strip for this chat goes with it.
+    resolveLostItem: useMutation({
+      ...api.chat.resolveLostItem.mutationOptions(),
+      onSuccess: () => {
+        void refresh();
+        void qc.invalidateQueries({ queryKey: api.chat.lostItems.queryKey() });
+      },
+    }),
     refresh,
   };
 }

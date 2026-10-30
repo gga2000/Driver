@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { LedgerModule } from '../ledger/index.js';
@@ -14,7 +15,7 @@ import { TOPUP_COURIER_CHECK, TOPUP_PEOPLE, TopUpService, courierCarriesOrderOf,
  * otherwise; the courier path checks the courier carries one of the customer's live orders.
  */
 @Module({
-  imports: [EventsModule, IdentityModule, LedgerModule, OrdersModule, TripsModule],
+  imports: [ControlsModule, EventsModule, IdentityModule, LedgerModule, OrdersModule, TripsModule],
   providers: [
     {
       provide: TOPUPS_REPOSITORY,
@@ -28,7 +29,7 @@ import { TOPUP_COURIER_CHECK, TOPUP_PEOPLE, TopUpService, courierCarriesOrderOf,
     },
     {
       provide: TOPUP_PEOPLE,
-      useFactory: (identity: IdentityService): TopUpPeople => ({ cards: (ids, accessor, purpose) => identity.memberCards(ids, accessor, purpose) }),
+      useFactory: (identity: IdentityService): TopUpPeople => ({ cards: (ids, accessor, purpose) => identity.memberCards(ids, accessor, purpose), isStaff: (id) => identity.holdsStaffRole(id) }),
       inject: [IdentityService],
     },
     TopUpService,

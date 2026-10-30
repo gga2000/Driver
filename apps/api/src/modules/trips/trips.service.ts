@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
 import {
   DriverError,
@@ -24,12 +24,15 @@ import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { jobKey, type Queue } from '../../shared/queue.js';
+import { DurableTimers, type TimerStore, type TimerSweeper } from '../../shared/timers/index.js';
+import { arrivalCountsForFees } from '../pricing/index.js';
 import { TRIP_EVENTS, type TripEventEmitter } from './events.adapter.js';
 import { GEOFENCE_RADIUS_M, evaluateArrival, haversineMeters } from './geofence.js';
 import { assessFix } from './position-guard.js';
 import { SuspicionCounter, type SuspicionReason } from './position-suspicion.js';
 import { DenyAllOfferCheck, type TripOfferCheck } from './offer-check.port.js';
-import { NoChangeToWallet, type TripHandoverCheck } from './handover-check.port.js';
+import { NoChangeToWallet, type TripHandoverCheck, type TripPickupGuard } from './handover-check.port.js';
+import type { DropoffGuardPort } from './dropoff-guard.port.js';
 import { NoStartCodes, type TripRideNear, type TripStartCodes } from './ride-safety.port.js';
 import { childHandover, isStopFinished } from './stops.js';
 import { OFFER_STATES, PROGRESS_STATES, TripTransitionError, deriveTripState, isTerminal, transition, tripEventType } from './trip.machine.js';
@@ -51,16 +54,39 @@ export const TRIPS_QUEUE = Symbol('TRIPS_QUEUE');
 /** Edge-case review B.24: no driver update for 10 min while inside the dropoff geofence → server completes the ride. */
 export const RIDE_AUTOCOMPLETE_AFTER_MS = 10 * 60_000;
 const RIDE_VERTICALS: readonly Vertical[] = ['taxi', 'tuktuk'];
+/** The verticals a courier carries goods on (a refused parcel's trip back is only on one of these). */
+const COURIER_VERTICALS: readonly Vertical[] = ['food', 'grocery', 'errand', 'parcel'];
 const SYSTEM = 'system';
+
+/** A ride pickup a position fix came close to; its ETA is asked after the fix's transaction commits. */
+interface RideNearCheck {
+  tripId: string;
+  stopId: string;
+  orderId: string;
+}
+
+/** A ride still on its way to the pickup («السايق قريب» can still fire). */
+function rideNearState(trip: TripRecord): boolean {
+  return RIDE_VERTICALS.includes(trip.vertical) && (trip.state === 'accepted' || trip.state === 'en_route_to_pickup');
+}
 
 export type TripTimerJob =
   | { tripId: string; stopId: string | null; startedAtMs: number }
-  | { tripId: string; positionAtMs: number };
+  /** `positionAtMs`: the fix (device time) the ride auto-complete waits on; `armedAtMs`: when the server got it. */
+  | { tripId: string; positionAtMs: number; armedAtMs?: number };
 
 export const TRIP_JOBS = { ...UNREACHABLE_JOBS, rideAutoComplete: 'ride.autoComplete' } as const;
 
+/** The ride auto-complete's one durable timer per trip (re-armed in place, not one per position fix). */
+const rideAutoCompleteKey = (tripId: string) => jobKey('trip', tripId, 'autocomplete');
+
 /** Vehicle classes ranked by what they can carry (edge-case review A.16). Intercity cars carry like a car. */
 const VEHICLE_RANK: Record<VehicleClass, number> = { bike: 0, tuktuk: 1, car: 2, intercity: 2, suv: 3, van: 4 };
+
+/** The trip rode along one its courier took first (money §2: he earns the batch share of its delivery fee). */
+export function isBatchedSecond(trip: Pick<TripRecord, 'id' | 'batchId'>): boolean {
+  return trip.batchId !== null && trip.batchId !== trip.id;
+}
 
 export function vehicleFits(vehicle: VehicleClass, required: VehicleClass | null): boolean {
   return required === null || VEHICLE_RANK[vehicle] >= VEHICLE_RANK[required];
@@ -96,6 +122,9 @@ export interface DeviceStamp {
   idempotencyKey?: string | undefined;
 }
 
+/** Trips whose pickups are people boarding (الرجعة seats, خطوط children): no pickup guard applies. */
+const SEAT_RUNS: ReadonlySet<string> = new Set(['intercity', 'khat']);
+
 /**
  * Trips (plan Step 4): the logistics object. Every courier or driver job is a Trip with ordered
  * Stops; once accepted, the trip's state is derived from its stops. Arrival is armed by the 60 m
@@ -107,6 +136,7 @@ export interface DeviceStamp {
  */
 @Injectable()
 export class TripsService implements OnModuleInit {
+  private readonly logger = new Logger(TripsService.name);
   private readonly positionListeners = new Set<(report: PositionReport) => void>();
   /** Fake-GPS and jump counts per driver per day (maps program SP4a). */
   private readonly suspicion = new SuspicionCounter();
@@ -116,15 +146,26 @@ export class TripsService implements OnModuleInit {
     @Inject(TRIP_EVENTS) private readonly events: TripEventEmitter,
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
-    @Inject(TRIPS_QUEUE) private readonly queue: Queue<TripTimerJob>,
+    @Inject(TRIPS_QUEUE) queue: Queue<TripTimerJob>,
     @Optional() @Inject(HANDOVER_PHOTOS) private readonly photos?: HandoverPhotos,
-  ) {}
+  ) {
+    this.timers = new DurableTimers(queue, clock, uow);
+    this.timers.rearming(TRIP_JOBS.rideAutoComplete, (data) => rideAutoCompleteKey(data.tripId));
+  }
+
+  /** FLW-22: the ride auto-complete (one per trip, re-arming) and the unreachable protocol's timers have a durable copy. */
+  private readonly timers: DurableTimers<TripTimerJob>;
+
+  /** The module binds the durable timer table and the sweeper at start-up. */
+  bindDurableTimers(store: TimerStore, sweeper: TimerSweeper | null): void {
+    this.timers.bind(store, sweeper);
+  }
 
   /** Dispatch's open-offer check (M2 review follow-up); fail closed until dispatch binds it. */
   private offerCheck: TripOfferCheck = new DenyAllOfferCheck();
 
   onModuleInit(): void {
-    this.queue.process((job) => this.handleTimer(job.name, job.data));
+    this.timers.process((job) => this.handleTimer(job.name, job.data));
   }
 
   /**
@@ -137,10 +178,23 @@ export class TripsService implements OnModuleInit {
 
   /** "الخردة علينا": the orders module's check of a drop-off's cash; until bound, no change-to-wallet passes. */
   private handoverCheck: TripHandoverCheck = new NoChangeToWallet();
+  private pickupGuard: TripPickupGuard | null = null;
+
+  /** «دوّرلي»: orders binds its pickup guard here at start-up (an errand's receipt before its shops stop completes). */
+  bindPickupGuard(guard: TripPickupGuard): void {
+    this.pickupGuard = guard;
+  }
 
   /** Orders binds its hand-over check here at start-up (orders imports trips, so trips cannot inject it). */
   bindHandoverCheck(check: TripHandoverCheck): void {
     this.handoverCheck = check;
+  }
+
+  /** طرود: the parcel drop-off guard (the receiver's code); none bound, drop-offs complete as before. */
+  private dropoffGuard: DropoffGuardPort | null = null;
+
+  bindDropoffGuard(guard: DropoffGuardPort): void {
+    this.dropoffGuard = guard;
   }
 
   /** s1: the night-ride codes live on the orders; until orders binds them no ride needs one. */
@@ -223,7 +277,8 @@ export class TripsService implements OnModuleInit {
       await this.emit(tx, 'trip.order_detached', actorId, tripId, { orderId, reason }, { orderId });
       const remaining = links.filter((l) => l.detachedAt === null && l.id !== link.id);
       if (remaining.length === 0 && !isTerminal(trip.state)) {
-        await this.finishCancelled(trip, 'platform_cancelled', actorId, 'all_orders_detached', tx);
+        // The detached order rides on the event too: orders decides whether it still needs a courier.
+        await this.finishCancelled(trip, 'platform_cancelled', actorId, 'all_orders_detached', tx, [orderId]);
       } else {
         await this.rederive(trip, actorId, tx);
       }
@@ -274,12 +329,16 @@ export class TripsService implements OnModuleInit {
       // the order he works them in is the order dispatch's batching check planned.
       const latest = Math.max(0, ...holding.map((t) => t.acceptedAt?.getTime() ?? 0));
       const now = new Date(Math.max(this.clock.now().getTime(), latest + 1));
+      // Money §2: a trip taken while he holds another rides along it — the batched second. It joins
+      // the batch of the job he took first; the courier's offer showed (and the ledger pays) the batch rate.
+      const first = [...holding].sort((a, b) => (a.acceptedAt?.getTime() ?? 0) - (b.acceptedAt?.getTime() ?? 0))[0];
+      const batchId = first ? (first.batchId ?? first.id) : null;
       const accepted = await this.move(
         trip,
         'accepted',
         driverId,
         tx,
-        { courierId: driverId, vehicleId: input.vehicleId ?? null, acceptedAt: now },
+        { courierId: driverId, vehicleId: input.vehicleId ?? null, acceptedAt: now, batchId },
         { driverId, vehicleClass: input.vehicleClass, orderIds: links.map((l) => l.orderId) },
         false,
         input,
@@ -325,7 +384,10 @@ export class TripsService implements OnModuleInit {
    */
   async reportPosition(driverId: string, input: { tripId?: string | undefined; pin: LatLng; at: Date; speedKmh?: number | undefined; bearing?: number | undefined; accuracyM?: number | undefined }): Promise<ReportPositionOutput> {
     let tripIds: string[] = [];
-    const out = await this.reportPositionTx(driverId, input, (ids) => (tripIds = ids));
+    const nearChecks: RideNearCheck[] = [];
+    const out = await this.reportPositionTx(driverId, input, (ids) => (tripIds = ids), (c) => nearChecks.push(c));
+    // After the commit, so a GPS ping never holds a database connection while the router answers (perf item 14).
+    for (const check of nearChecks) await this.noteRideNear(check, driverId, input);
     // After the commit: observers (the live channel) see the fix. Positions are not domain events (domain §6).
     if (this.positionListeners.size > 0) {
       const report: PositionReport = { driverId, pin: input.pin, at: input.at, bearing: input.bearing ?? null, speedKmh: input.speedKmh ?? null, tripIds };
@@ -467,6 +529,7 @@ export class TripsService implements OnModuleInit {
     driverId: string,
     input: { tripId?: string | undefined; pin: LatLng; at: Date; speedKmh?: number | undefined; bearing?: number | undefined; accuracyM?: number | undefined },
     seen: (tripIds: string[]) => void,
+    nearCheck: (check: RideNearCheck) => void,
   ): Promise<ReportPositionOutput> {
     return this.uow.run(async (tx) => {
       const trips = input.tripId ? [await this.load(input.tripId, tx)] : await this.repo.findTrips({ courierId: driverId, states: PROGRESS_STATES }, tx);
@@ -498,12 +561,14 @@ export class TripsService implements OnModuleInit {
             await this.emit(tx, 'stop.geofence_entered', driverId, trip.id, { stopId: s.id, stopType: s.type, distanceM: Math.round(d) }, { orderId: s.orderId ?? undefined, occurredAt: input.at, location: input.pin });
           }
         }
-        await this.noteRideNear(trip, stops, driverId, input, now, tx);
+        const near = this.rideNearCheck(trip, stops, input.pin);
+        if (near) nearCheck(near);
         if (RIDE_VERTICALS.includes(trip.vertical) && (trip.state === 'in_transit' || trip.state === 'arrived_dropoff')) {
           const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
           if (lastDropoff?.target && haversineMeters(input.pin, lastDropoff.target) <= GEOFENCE_RADIUS_M) {
-            const atMs = input.at.getTime();
-            await this.queue.add(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: atMs }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: jobKey('trip', trip.id, 'autocomplete', atMs) });
+            // Arms the trip's one timer; while it is armed this does nothing, and the timer, when it
+            // fires, waits on for the fixes that came since (`handleTimer`).
+            await this.timers.schedule(TRIP_JOBS.rideAutoComplete, { tripId: trip.id, positionAtMs: input.at.getTime(), armedAtMs: now.getTime() }, { delayMs: RIDE_AUTOCOMPLETE_AFTER_MS, jobId: rideAutoCompleteKey(trip.id) });
           }
         }
       }
@@ -516,16 +581,37 @@ export class TripsService implements OnModuleInit {
    * `RIDE_NEAR_RULES.etaSec` of the pickup stamps `courierNearAt` on it and emits `stop.driver_near`
    * (the notify module pushes it to the rider; the live channel refreshes his screen). The ETA is only
    * asked for within `checkWithinM` of the pickup, so most fixes cost nothing.
+   *
+   * Perf item 14: the ETA is a routing (OSRM) call of up to 1.5 s, so it runs after the position's
+   * transaction commits (`rideNearCheck` only picks the candidate inside it). The stamp then gets its
+   * own short transaction that re-checks the trip and the stop, so it still lands once per ride.
    */
-  private async noteRideNear(trip: TripRecord, stops: readonly StopRecord[], driverId: string, input: { pin: LatLng; at: Date }, now: Date, tx: Tx): Promise<void> {
-    if (!this.rideNear || !RIDE_VERTICALS.includes(trip.vertical) || (trip.state !== 'accepted' && trip.state !== 'en_route_to_pickup')) return;
+  private rideNearCheck(trip: TripRecord, stops: readonly StopRecord[], pin: LatLng): RideNearCheck | null {
+    if (!this.rideNear || !rideNearState(trip)) return null;
     const pickup = stops.find((s) => s.type === 'pickup' && s.state === 'pending' && !s.courierNearAt && s.target && s.orderId);
-    if (!pickup?.target || !pickup.orderId || haversineMeters(input.pin, pickup.target) > RIDE_NEAR_RULES.checkWithinM) return;
-    // A routing hiccup only skips this fix: the next one asks again.
-    const sec = await this.rideNear.secondsToPickup(await this.view(trip.id, tx), pickup.orderId, input.pin, now).catch(() => null);
-    if (sec === null || sec > RIDE_NEAR_RULES.etaSec) return;
-    await this.repo.updateStop(pickup.id, { courierNearAt: input.at }, now, tx);
-    await this.emit(tx, 'stop.driver_near', driverId, trip.id, { stopId: pickup.id, etaSec: Math.max(0, Math.round(sec)) }, { orderId: pickup.orderId, occurredAt: input.at, location: input.pin });
+    if (!pickup?.target || !pickup.orderId || haversineMeters(pin, pickup.target) > RIDE_NEAR_RULES.checkWithinM) return null;
+    return { tripId: trip.id, stopId: pickup.id, orderId: pickup.orderId };
+  }
+
+  private async noteRideNear(check: RideNearCheck, driverId: string, input: { pin: LatLng; at: Date }): Promise<void> {
+    if (!this.rideNear) return;
+    try {
+      const now = this.clock.now();
+      // A routing hiccup only skips this fix: the next one asks again.
+      const sec = await this.rideNear.secondsToPickup(await this.view(check.tripId), check.orderId, input.pin, now).catch(() => null);
+      if (sec === null || sec > RIDE_NEAR_RULES.etaSec) return;
+      await this.uow.run(async (tx) => {
+        const trip = await this.load(check.tripId, tx);
+        if (trip.courierId !== driverId || !rideNearState(trip)) return;
+        const pickup = (await this.repo.stopsOf(trip.id, tx)).find((s) => s.id === check.stopId);
+        if (!pickup || pickup.state !== 'pending' || pickup.courierNearAt) return;
+        await this.repo.updateStop(pickup.id, { courierNearAt: input.at }, now, tx);
+        await this.emit(tx, 'stop.driver_near', driverId, trip.id, { stopId: pickup.id, etaSec: Math.max(0, Math.round(sec)) }, { orderId: check.orderId, occurredAt: input.at, location: input.pin });
+      });
+    } catch (err) {
+      // The position is already stored: a failed «قريب» stamp never fails the driver's report; the next fix tries again.
+      this.logger.warn(`ride near check failed for trip ${check.tripId}: ${(err as Error).message}`);
+    }
   }
 
   /**
@@ -623,10 +709,21 @@ export class TripsService implements OnModuleInit {
         return this.view(tripId, tx);
       }
       if (stop.state !== 'arrived') throw new DriverError('stop_state_conflict');
+      // طرود: a parcel's drop-off needs the receiver's code (or a release, or it is the trip back); read-only, before any write.
+      if (this.dropoffGuard && trip.vertical === 'parcel' && stop.type === 'dropoff' && stop.orderId) {
+        const problem = await this.dropoffGuard.check(stop.orderId, { stopId: stop.id, target: stop.target });
+        if (problem) throw new DriverError(problem);
+      }
       // Maps program f11: a delivery photo is this courier's own stored upload.
       if (handover.photoUploadId && !(this.photos && (await this.photos.owns(handover.photoUploadId, driverId)))) throw new DriverError('handover_photo_invalid');
       const child = childHandover({ vertical: trip.vertical, childRef: stop.childRef, type: stop.type, childTap: handover.childTap });
       if (!child.ok) throw new DriverError('child_handover_required');
+      // «دوّرلي»: the shops stop waits for the shopper's receipt. Orders decides from the order alone (trips
+      // passes the stop's order, never a kind); read-only, before any write. Seat runs (الرجعة, خطوط) never ask.
+      if (stop.type === 'pickup' && stop.orderId && this.pickupGuard && !SEAT_RUNS.has(trip.vertical)) {
+        const refused = await this.pickupGuard.problem(stop.orderId);
+        if (refused) throw new DriverError(refused);
+      }
       // "الخردة علينا": cash above the order's total is only the customer's change going to his wallet,
       // checked against the order (cash, recomputed, capped) before anything is written.
       if (handover.changeToWalletIqd !== undefined || (stop.type === 'dropoff' && handover.cashCollectedIqd !== undefined)) {
@@ -711,6 +808,45 @@ export class TripsService implements OnModuleInit {
     });
   }
 
+  /**
+   * طرود (Ali, 2026-10-12) «رفضت تستلم»: the receiver refused the parcel, so the courier brings it back to
+   * the sender on the same trip. In one transaction: the hand-back drop-off at `back` is added after every
+   * stop (seq max + 1) FIRST, then the receiver's door stop is skipped (`parcel_refused`) — skipping first
+   * would leave nothing unfinished and complete the trip. The hand-back completes through `completeStop`
+   * like any drop-off (parcels' guard, asked with `{ stopId, target }`, lets it through without the
+   * receiver's code; the door never). The added stop is handled as `attachOrder`'s are: stored, the trip
+   * re-derived, the live views told by the trip events (tracking and the ETA read the stops). Only a parcel
+   * order on a courier trip; khat, intercity and rides are `order_type_not_supported`. A replay (the door
+   * already skipped for the refusal and the hand-back stop there) returns the trip as it stands, no event.
+   */
+  async returnStop(tripId: string, orderId: string, courierId: string, back: Pick<NewStop, 'target' | 'zoneKey' | 'placeId'>, reason = 'parcel_refused'): Promise<Trip> {
+    return this.uow.run(async (tx) => {
+      const trip = await this.loadForCourier(tripId, courierId, tx);
+      if (!COURIER_VERTICALS.includes(trip.vertical)) throw new DriverError('order_type_not_supported');
+      const stops = await this.repo.stopsOf(tripId, tx);
+      const mine = stops.filter((s) => s.orderId === orderId);
+      if (mine.length === 0) throw new DriverError('stop_not_found');
+      // Replay: the door was already skipped for the refusal and the hand-back stop follows it.
+      const refused = mine.find((s) => s.type === 'dropoff' && s.state === 'skipped' && s.skipReason === reason);
+      if (refused && mine.some((s) => s.type === 'dropoff' && s.seq > refused.seq)) return this.view(tripId, tx);
+      const door = mine.find((s) => s.type === 'dropoff' && !isStopFinished(s.state));
+      if (isTerminal(trip.state)) throw new DriverError('trip_state_conflict');
+      // The parcel is on board (its pickup done) and its door stop still open.
+      if (!door || !pickedUpFor(stops, orderId)) throw new DriverError('stop_state_conflict');
+      const now = this.clock.now();
+      await this.repo.addStops(tripId, [{ orderId, type: 'dropoff', zoneKey: back.zoneKey, target: back.target ?? null, placeId: back.placeId ?? null }], now, tx);
+      // The new stop is the last one (seq max + 1); repositories differ in what `addStops` returns.
+      const added = (await this.repo.stopsOf(tripId, tx)).reduce((a, b) => (b.seq > a.seq ? b : a));
+      await this.repo.updateStop(door.id, { state: 'skipped', skippedAt: now, skipReason: reason }, now, tx);
+      // The refusal ends any «ما يرد» wait at that door.
+      const current = trip.unreachableStartedAt ? await this.repo.updateTrip(tripId, { unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, now, tx) : trip;
+      await this.emit(tx, 'stop.skipped', courierId, tripId, { stopId: door.id, stopType: door.type, reason }, { orderId });
+      await this.emit(tx, 'trip.parcel_returning', courierId, tripId, { orderId, stopId: added.id, skippedStopId: door.id }, { orderId });
+      await this.rederive(current, courierId, tx);
+      return this.view(tripId, tx);
+    });
+  }
+
   // ───────────────────────── unreachable protocol ─────────────────────────
 
   /** "Can't reach" at an arrived dropoff: starts the 5-minute protocol (dispatcher at 3:00, "فشل" at 5:00). */
@@ -731,8 +867,8 @@ export class TripsService implements OnModuleInit {
         { orderId: stop.orderId ?? undefined, ...input },
       );
       const job = { tripId, stopId, startedAtMs: now.getTime() };
-      await this.queue.add(UNREACHABLE_JOBS.escalate, job, { delayMs: UNREACHABLE_ESCALATE_AFTER_MS, jobId: unreachableJobId('escalate', tripId, job.startedAtMs) });
-      await this.queue.add(UNREACHABLE_JOBS.allowFail, job, { delayMs: UNREACHABLE_FAIL_AFTER_MS, jobId: unreachableJobId('allowFail', tripId, job.startedAtMs) });
+      await this.timers.schedule(UNREACHABLE_JOBS.escalate, job, { delayMs: UNREACHABLE_ESCALATE_AFTER_MS, jobId: unreachableJobId('escalate', tripId, job.startedAtMs) });
+      await this.timers.schedule(UNREACHABLE_JOBS.allowFail, job, { delayMs: UNREACHABLE_FAIL_AFTER_MS, jobId: unreachableJobId('allowFail', tripId, job.startedAtMs) });
       return this.view(tripId, tx);
     });
   }
@@ -754,7 +890,7 @@ export class TripsService implements OnModuleInit {
       const failAllowedAt = failAt(trip.unreachableStartedAt, now);
       await this.emit(tx, 'trip.unreachable_extended', customerId, tripId, { stopId: atDoor.id, byCustomer: customerId, extraMs: UNREACHABLE_EXTEND_MS, failAllowedAt: failAllowedAt.toISOString() }, { orderId });
       const startedAtMs = trip.unreachableStartedAt.getTime();
-      await this.queue.add(
+      await this.timers.schedule(
         UNREACHABLE_JOBS.allowFail,
         { tripId, stopId: atDoor.id, startedAtMs },
         { delayMs: Math.max(0, failAllowedAt.getTime() - now.getTime()), jobId: unreachableJobId('allowFail', tripId, startedAtMs, true) },
@@ -803,14 +939,29 @@ export class TripsService implements OnModuleInit {
   /**
    * Cancels the trip. Unfinished stops are skipped and every order is detached (so late offline
    * replays are quarantined). Fees are the orders module's business: the event carries what it needs.
+   * A ride's driver can't cancel once the rider is in the car (a problem goes to safety or support).
+   * `beforePickupOnly` (a dispatcher taking the job off its driver) refuses once any pickup is done,
+   * and `record` writes the caller's audit row in the same unit of work.
    */
-  async cancel(tripId: string, by: 'driver' | 'customer' | 'platform', actorId: string, reason: string): Promise<Trip> {
+  async cancel(
+    tripId: string,
+    by: 'driver' | 'customer' | 'platform',
+    actorId: string,
+    reason: string,
+    opts: { beforePickupOnly?: boolean; record?: (trip: Trip, tx: Tx) => Promise<unknown> } = {},
+  ): Promise<Trip> {
     const to: TripState = by === 'driver' ? 'driver_cancelled' : by === 'customer' ? 'customer_cancelled' : 'platform_cancelled';
     return this.uow.run(async (tx) => {
       const trip = by === 'driver' ? await this.loadForCourier(tripId, actorId, tx) : await this.load(tripId, tx);
       if (trip.state === to) return this.view(tripId, tx);
+      if ((opts.beforePickupOnly || (by === 'driver' && RIDE_VERTICALS.includes(trip.vertical))) && !isTerminal(trip.state)) {
+        const stops = await this.repo.stopsOf(tripId, tx);
+        if (stops.some((s) => (s.type === 'pickup' || s.type === 'shop') && s.state === 'completed')) throw new DriverError('trip_picked_up');
+      }
       await this.finishCancelled(trip, to, actorId, reason, tx);
-      return this.view(tripId, tx);
+      const after = await this.view(tripId, tx);
+      if (opts.record) await opts.record(after, tx);
+      return after;
     });
   }
 
@@ -855,6 +1006,16 @@ export class TripsService implements OnModuleInit {
     return Promise.all(trips.map((t) => this.view(t.id)));
   }
 
+  /**
+   * The خطوط runs that carry this child (a stop with its ref): unfinished ones, and the ones completed
+   * at or after `since`. For the guardian's own-child view only; callers check the guardian first.
+   */
+  async forChild(childRef: string, since: Date): Promise<Trip[]> {
+    const going = await this.repo.findTrips({ childRef, states: PROGRESS_STATES });
+    const done = await this.repo.findTrips({ childRef, states: ['completed'], completedSince: since });
+    return Promise.all([...going, ...done].filter((t) => t.vertical === 'khat').map((t) => this.view(t.id)));
+  }
+
   /** How many trips the driver completed, every vertical (the "1,240 مشوار" on his card). */
   completedCountFor(driverId: string): Promise<number> {
     return this.repo.completedCount(driverId);
@@ -887,12 +1048,12 @@ export class TripsService implements OnModuleInit {
    * Who carried (or is carrying) an order: the most recent trip it is still attached to that has a
    * driver. Orders uses it to settle money on `closed` (the courier's delivery fee, the ride's driver).
    */
-  async courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical } | null> {
+  async courierOf(orderId: string): Promise<{ tripId: string; courierId: string; vertical: Vertical; batchedSecond: boolean } | null> {
     return this.uow.run(async (tx) => {
       const links = (await this.repo.linksForOrder(orderId, tx)).filter((l) => l.detachedAt === null).sort((a, b) => b.attachedAt.getTime() - a.attachedAt.getTime());
       for (const l of links) {
         const trip = await this.repo.findTrip(l.tripId, tx);
-        if (trip?.courierId) return { tripId: trip.id, courierId: trip.courierId, vertical: trip.vertical };
+        if (trip?.courierId) return { tripId: trip.id, courierId: trip.courierId, vertical: trip.vertical, batchedSecond: isBatchedSecond(trip) };
       }
       return null;
     });
@@ -923,8 +1084,25 @@ export class TripsService implements OnModuleInit {
         const trip = await this.repo.findTrip(data.tripId, tx);
         if (!trip || !['in_transit', 'arrived_dropoff'].includes(trip.state) || !trip.courierId) return;
         const last = await this.repo.lastTrailPoint({ tripId: trip.id }, tx);
-        if (!last || last.at.getTime() !== data.positionAtMs) return; // the driver moved or spoke since
-        await this.completeBy(trip, SYSTEM, 'system', 'auto_dropoff_geofence_10min', tx);
+        if (!last) return;
+        if (last.at.getTime() === data.positionAtMs) {
+          await this.completeBy(trip, SYSTEM, 'system', 'auto_dropoff_geofence_10min', tx);
+          return;
+        }
+        // The driver moved or spoke since. Still inside the drop-off geofence: wait 10 minutes from his
+        // last fix (it reached the server as long after the fix this run waited on as their device
+        // times say). Outside it: nothing until a fix inside arms the timer again.
+        const stops = await this.repo.stopsOf(trip.id, tx);
+        const lastDropoff = [...stops].reverse().find((s) => s.type === 'dropoff');
+        const atMs = last.at.getTime();
+        if (atMs < data.positionAtMs || !lastDropoff?.target || haversineMeters(last.pin, lastDropoff.target) > GEOFENCE_RADIUS_M) return;
+        const nowMs = this.clock.now().getTime();
+        const armedAtMs = (data.armedAtMs ?? nowMs - RIDE_AUTOCOMPLETE_AFTER_MS) + (atMs - data.positionAtMs);
+        await this.timers.schedule(
+          TRIP_JOBS.rideAutoComplete,
+          { tripId: trip.id, positionAtMs: atMs, armedAtMs },
+          { delayMs: Math.max(0, armedAtMs + RIDE_AUTOCOMPLETE_AFTER_MS - nowMs), jobId: rideAutoCompleteKey(trip.id) },
+        );
       });
       return;
     }
@@ -938,7 +1116,8 @@ export class TripsService implements OnModuleInit {
         await this.emit(tx, 'trip.unreachable_escalated', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId, dispatcherCard: true });
       } else if (name === UNREACHABLE_JOBS.allowFail && canFail(trip.unreachableStartedAt, now, 'driver', trip.unreachableExtendedAt)) {
         // After «أني نازل» the 5:00 job finds it too early and stays quiet; the 7:00 one announces.
-        await this.emit(tx, 'trip.unreachable_fail_allowed', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId });
+        // Once per protocol run, however often its timer runs (FLW-22: BullMQ and the sweeper may both fire it).
+        await this.emit(tx, 'trip.unreachable_fail_allowed', SYSTEM, trip.id, { stopId: data.stopId, courierId: trip.courierId }, { idempotencyKey: String(data.startedAtMs) });
       }
     });
   }
@@ -1034,14 +1213,16 @@ export class TripsService implements OnModuleInit {
     await this.move(trip, 'completed', actorId, tx, { completedAt: now, unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, { by, reason, orderIds: links.map((l) => l.orderId) });
   }
 
-  private async finishCancelled(trip: TripRecord, to: TripState, actorId: string, reason: string, tx: Tx): Promise<void> {
+  /** `detachedOrderIds`: orders just taken off this trip, still on the event so their owner can re-request a courier. */
+  private async finishCancelled(trip: TripRecord, to: TripState, actorId: string, reason: string, tx: Tx, detachedOrderIds: readonly string[] = []): Promise<void> {
     if (!canMove(trip.state, to)) throw new DriverError('trip_state_conflict');
     const now = this.clock.now();
     const stops = await this.repo.stopsOf(trip.id, tx);
     for (const s of stops) if (!isStopFinished(s.state)) await this.repo.updateStop(s.id, { state: 'skipped', skippedAt: now, skipReason: `cancelled:${reason}` }, now, tx);
     const links = (await this.repo.linksOf(trip.id, tx)).filter((l) => l.detachedAt === null);
     for (const l of links) await this.repo.detach(l.id, { at: now, reason: `trip_${to}`, changedBy: personOrNull(actorId) }, tx);
-    const arrivedPickup = stops.filter((s) => s.type === 'pickup' && s.arrivedAt).map((s) => s.arrivedAt!.getTime());
+    // A pickup "arrival" tapped far from it is only his word: the fees (and the M-15 credit) count arrivals near the pickup.
+    const arrivedPickup = stops.filter((s) => s.type === 'pickup' && arrivalCountsForFees(s)).map((s) => s.arrivedAt!.getTime());
     const pickedUpOrderIds = [...new Set(stops.filter((s) => (s.type === 'pickup' || s.type === 'shop') && s.state === 'completed' && s.orderId).map((s) => s.orderId!))];
     await this.move(trip, to, actorId, tx, { cancelledAt: now, cancellationReason: reason, unreachableStartedAt: null, unreachableEscalatedAt: null, unreachableExtendedAt: null }, {
       by: to === 'driver_cancelled' ? 'driver' : to === 'customer_cancelled' ? 'customer' : 'platform',
@@ -1049,7 +1230,7 @@ export class TripsService implements OnModuleInit {
       courierId: trip.courierId,
       acceptedAt: trip.acceptedAt?.toISOString() ?? null,
       arrivedPickupAt: arrivedPickup.length ? new Date(Math.min(...arrivedPickup)).toISOString() : null,
-      orderIds: links.map((l) => l.orderId),
+      orderIds: [...new Set([...detachedOrderIds, ...links.map((l) => l.orderId)])],
       pickedUpOrderIds,
     });
   }
@@ -1167,6 +1348,7 @@ function toStopView(s: StopRecord): Stop {
     arrivedAt: s.arrivedAt,
     arrivedOutsideGeofence: s.arrivedOutsideGeofence,
     arrivalDistanceM: s.arrivalDistanceM,
+    arrivalAccuracyM: s.arrivalAccuracyM,
     completedAt: s.completedAt,
     skippedAt: s.skippedAt,
     skipReason: s.skipReason,

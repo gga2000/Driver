@@ -14,7 +14,9 @@
 //   - POST /demo/active-order?personId=<id>[&accept=0]  places and accepts (or not) a cash order from مطعم خالد for that
 //     person, so home shows the pinned active-order pill with real API data;
 //   - GET /demo/seed  lists the seeded restaurants with this process's org ids;
+//   - GET /demo/market lists the seeded stalls and bakeries «السوق» with their org ids;
 //   - POST /demo/popular  24 town orders at مطعم خالد so «الأكثر طلباً بالعزيزية» shows (joy o8);
+//   - POST /demo/town  «العزيزية هسة» (/live): five kitchens cooking and seven couriers online in two parts of town;
 //   - POST /demo/quiet?on=1|0  turns a quiet day (Console mourning day) on or off for today.
 //   - POST /demo/night?on=1|0  the street asleep (/food after midnight): every kitchen closed now and opening at its
 //     own morning hour; on=0 puts the real hours back.
@@ -39,6 +41,9 @@
 //   - POST /demo/rajaa-taxi?personId=…&baghdadSeat=1                  n9: only his seat on a car back from Baghdad
 //   - POST /demo/booked-ride?personId=…[&state=looking|confirmed]    review #28: a ride booked for tomorrow 7:30,
 //                                                                     drivers asked until 22:00 or حسين confirmed
+//   - POST /demo/khat-bus?personId=…[&state=coming|away|…]           N14 «وين الباص»: a خطوط run for the first child
+//   - POST /demo/parcels?personId=…                                  طرود: a parcel waiting for its door (link in the log),
+//                                                                     one on the way, one delivered with its photos
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { avatarPng } from '../../../scripts/dev/demo-avatar.mjs';
@@ -53,12 +58,21 @@ const load = (p) => import(pathToFileURL(join(apiDir, 'dist', p)).href);
 const { createApp } = await load('bootstrap.js');
 const { OrdersService } = await load('modules/orders/index.js');
 const { OrgsService } = await load('modules/orgs/index.js');
-const { CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
+const { CatalogRpc, CatalogService, seedStorefronts } = await load('modules/catalog/index.js');
 const { ControlsService } = await load('modules/controls/index.js');
 
 const PORT = Number(process.env.PORT ?? 3200);
+// طرود: the receiver's door link (`<base>/p/<token>`) points at the studio's customer web app in the demo.
+process.env.SHARE_LINK_BASE_URL ??= 'http://localhost:8081';
 const KITCHEN_MS = Number(process.env.DEMO_KITCHEN_MS ?? 20_000);
 const app = await createApp();
+// The studio opens every service so all screens stay reviewable; launch day itself is the city file's
+// `launchedVerticals` (food, taxi, tuktuk). DEMO_LAUNCH_SCOPE=1 keeps the launch-day scope instead.
+if (process.env.DEMO_LAUNCH_SCOPE !== '1') {
+  const { ConfigService } = await load('modules/config/index.js');
+  const config = app.get(ConfigService);
+  config.setLaunchedVerticals('aziziyah', config.city('aziziyah').verticals.map((v) => v.vertical));
+}
 
 const orgs = app.get(OrgsService);
 const catalog = app.get(CatalogService);
@@ -68,7 +82,18 @@ const controls = app.get(ControlsService);
 // The four launch kitchens, then the demo-only café, juice bar, sweets and ice cream shops so every food
 // door has shops behind it (@driver/contracts/demo-shops; never in `pnpm db:seed`).
 const { DEMO_SHOPS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-shops.js', import.meta.url))).href);
-const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner'))];
+// أكل بيت: four demo home kitchens (@driver/contracts/demo-home-kitchens; never in `pnpm db:seed`), and
+// home cooking opened in the studio (the city file keeps it closed until Ali opens it).
+const { DEMO_HOME_KITCHENS } = await import(pathToFileURL(fileURLToPath(new URL('../../../packages/contracts/dist/seeds/demo-home-kitchens.js', import.meta.url))).href);
+const seeded = [...(await seedStorefronts(orgs, catalog, undefined, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_SHOPS, 'demo-owner')), ...(await seedStorefronts(orgs, catalog, DEMO_HOME_KITCHENS, 'demo-owner'))];
+if (process.env.DEMO_HOME_KITCHENS !== '0') {
+  const { ConfigService } = await load('modules/config/index.js');
+  app.get(ConfigService).setHomeKitchensOpen('aziziyah', true);
+}
+// The shopping side «السوق» (2026-10-11): two produce stalls with today's and yesterday's prices, two
+// bakeries (one paused for 30 minutes), all demo-only (never in `pnpm db:seed`).
+const { ShoppingService, seedDemoShops } = await load('modules/shopping/index.js');
+const marketShops = await seedDemoShops(orgs, catalog, app.get(ShoppingService), { ownerId: 'demo-owner' });
 // Landmarks on the map (maps b3): a mosque, a market, a school… around the centre, شارع 30 and زاكور.
 {
   const { PlacesService, seedDemoLandmarks } = await load('modules/places/index.js');
@@ -133,6 +158,7 @@ app.use('/demo/active-order', async (req, res) => {
   }
 });
 
+app.use('/demo/market', (_req, res) => json(res, 200, marketShops));
 app.use('/demo/seed', (_req, res) => json(res, 200, seeded.map((s) => ({ key: s.seed.key, orgId: s.orgId, name: s.seed.nameAr }))));
 
 // Joy o8 «الأكثر طلباً بالعزيزية»: 24 town orders at مطعم خالد (scheduled for tomorrow, so they wait and
@@ -151,6 +177,61 @@ app.use('/demo/popular', async (req, res) => {
         if (i < 20) lines.push({ catalogItemId: khalid.itemIds.get('lentil_soup'), qty: 1 });
         if (i % 2 === 0) lines.push({ catalogItemId: khalid.itemIds.get('pepsi'), qty: 1 });
         await orders.place(`demo-town-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: khalid.orgId, lines, paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: tomorrow });
+      }
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// «العزيزية هسة» (the customer live map): five kitchens cooking now and seven couriers online in two parts of
+// town (a part shows a count only with 3 or more, from the picture before: the count appears ~20 s later).
+let townSeeded = false;
+app.use('/demo/town', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/town' });
+    if (!townSeeded) {
+      const homeKeys = new Set(DEMO_HOME_KITCHENS.map((k) => k.key));
+      const kitchens = seeded.filter((s) => s.seed.pin && !homeKeys.has(s.seed.key)).slice(0, 5);
+      for (const [i, s] of kitchens.entries()) {
+        // The first dish that needs no choices (some ask for a size or extras).
+        for (const itemId of s.itemIds.values()) {
+          const placed = await orders.place(`demo-town-cook-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: s.orgId, lines: [{ catalogItemId: itemId, qty: 2 }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } } }).catch(() => null);
+          if (!placed) continue;
+          await accept(placed.id);
+          break;
+        }
+      }
+      const crowd = [
+        { lat: 32.9041, lng: 45.0607 }, { lat: 32.9044, lng: 45.0611 }, { lat: 32.9047, lng: 45.0604 }, { lat: 32.9039, lng: 45.0615 },
+        { lat: 32.9128, lng: 45.0662 }, { lat: 32.9131, lng: 45.0668 }, { lat: 32.9126, lng: 45.0671 },
+      ];
+      for (const at of crowd) await newCourier(at);
+      townSeeded = true;
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: String(err?.stack ?? err) });
+  }
+});
+
+// أكل بيت: real reservations at مطبخ أم حسين so the reserve sheet shows a full time
+// — her chicken biryani's first time fully booked (8 of 8).
+let homeBookedSeeded = false;
+app.use('/demo/home-booked', async (req, res) => {
+  try {
+    if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/home-booked' });
+    if (!homeBookedSeeded) {
+      homeBookedSeeded = true;
+      const umHussein = seeded.find((s) => s.seed.key === 'um_hussein');
+      for (const [key, qtys] of [['biryani', [2, 2, 2, 2]]]) {
+        const itemId = umHussein.itemIds.get(key);
+        const { days } = await app.get(CatalogRpc).homeSlots({ actor: null, ip: null }, { merchantId: umHussein.orgId, itemId });
+        const at = days[0].slots[0].at;
+        for (const [i, qty] of qtys.entries()) {
+          await orders.place(`demo-home-${key}-${i}`, { cityId: 'aziziyah', type: 'food', merchantOrgId: umHussein.orgId, lines: [{ catalogItemId: itemId, qty }], paymentMethod: 'cash', dropoff: { zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } }, scheduledFor: at });
+        }
       }
     }
     json(res, 200, { ok: true });
@@ -278,6 +359,11 @@ const { tenderOptions } = await import('@driver/contracts');
 // `late_apology` puts it past the apology step (MoneyRules.latePromise.apologyAfterMin), so the order's next
 // read (or the sweep) sends the one "آسفين، طلبك تأخر شوية" push and the banner says sorry;
 // `late_credit` puts it past the honest-delay threshold, so the order's next read posts the credit.
+// `late_traffic` (N6 «ليش متأخر»): `late_apology`, picked up and on the way, with the market street on
+// his way home learned slow, so the route names a traffic stretch (`late_apology` itself shows the kitchen one).
+// `closed_street` (N20 «شارع مسدود»): picked up, standing at the start of the way home, with «شارع السوق» closed
+// today across the middle of it, so the route bends round it and carries `closures` (the map stripes it; the sheet
+// says «شارع السوق مسدود اليوم، فالدليفري دار من فرع ثاني»). Each call adds one more closure for today.
 const { IdentityService } = await load('modules/identity/index.js');
 const { DispatchService } = await load('modules/dispatch/index.js');
 const { TripsService } = await load('modules/trips/index.js');
@@ -391,7 +477,7 @@ async function startMover(tripId, courierId, drawn, stepM = 38) {
   );
 }
 
-async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false } = {}) {
+async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur', pin: HOME }, tender = null, { cooking = true, street = false, accept = true } = {}) {
   const input = {
     cityId: 'aziziyah',
     type: 'food',
@@ -415,6 +501,7 @@ async function placeAccepted(personId, prepMinutes, dropoff = { zoneKey: 'zakur'
     statedTenderIqd = tender >= totalIqd ? tender : tenderOptions(totalIqd)[1];
   }
   const placed = await orders.place(personId, { ...input, ...(statedTenderIqd ? { statedTenderIqd } : {}) });
+  if (!accept) return placed.id;
   await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
   if (cooking) await orders.markPreparing('demo-staff', { orderId: placed.id });
   return placed.id;
@@ -514,6 +601,31 @@ async function pastPromise(personId, orderId, minutes) {
 }
 
 async function scenario(personId, name, opts = {}) {
+  if (name === 'late_traffic') {
+    const r = await scenario(personId, 'late_apology');
+    // Picked up and standing at the start of the way home, so the whole road ahead is on the map.
+    await advance(r.orderId, { move: false });
+    await trips.reportPosition(r.courierId, { tripId: r.tripId, pin: TO_HOME[1], at: new Date(), bearing: 150, speedKmh: 0 });
+    // The demo only: legs starting near the middle of the way home run 1.6× the router (a learned jam).
+    const jam = TO_HOME[3];
+    const eta = app.get(EtaService);
+    eta.factor = async (from) => (Math.hypot(from.lat - jam.lat, (from.lng - jam.lng) * 0.84) < 0.006 ? 1.6 : 1);
+    return r;
+  }
+  if (name === 'closed_street') {
+    const r = await scenario(personId, 'on_the_way');
+    stopMover(r.tripId);
+    await trips.reportPosition(r.courierId, { tripId: r.tripId, pin: TO_HOME[1], at: new Date(), bearing: 150, speedKmh: 0 });
+    // The stretch between 40 % and 55 % of the way from him to the door, closed till midnight.
+    const at = (k) => ({ lat: TO_HOME[1].lat + (HOME.lat - TO_HOME[1].lat) * k, lng: TO_HOME[1].lng + (HOME.lng - TO_HOME[1].lng) * k });
+    const { ClosuresService, CLOSURES_REPOSITORY } = await load('modules/closures/index.js');
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    await app.get(CLOSURES_REPOSITORY).create({ cityId: 'aziziyah', path: [at(0.4), at(0.475), at(0.55)], reason: 'works', nameAr: 'شارع السوق', lengthM: 350, startsAt: now, endsAt: midnight, closedById: 'demo-ops' });
+    await app.get(ClosuresService).reload();
+    return r;
+  }
   if (name === 'late_credit' || name === 'late_apology') {
     // Past one of the honest-delay promise's steps (MoneyRules.latePromise): the next read sends the
     // apology (+ apologyAfterMin) or posts the credit (+ afterMin; the apology went out on the way).
@@ -522,6 +634,10 @@ async function scenario(personId, name, opts = {}) {
     const rules = AZIZIYAH_MONEY_RULES.latePromise;
     await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
+  }
+  if (name === 'placed') {
+    // Sent and not yet accepted: the kitchen-waiting screen (/kitchen/[id]) with its ring.
+    return { orderId: await placeAccepted(personId, 20, undefined, null, { accept: false }) };
   }
   if (name === 'kitchen') {
     // Joy l3/l2: the kitchen said yes and has not started; no courier yet. /demo/track/kitchen moves
@@ -579,7 +695,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'closed_street', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
@@ -658,7 +774,7 @@ async function deliveredOrder(personId, h) {
     paymentMethod: h.householdOrgId ? 'wallet' : 'cash',
     ...(h.householdOrgId ? { householdOrgId: h.householdOrgId } : {}),
     ...(h.familyTable ? { familyTable: true } : {}),
-    dropoff: { zoneKey: 'zakur', pin: HOME },
+    dropoff: { zoneKey: 'zakur', pin: h.pin ?? HOME },
   });
   await accept(placed.id);
   const courierId = await newCourier(r.seed.pin);
@@ -668,7 +784,7 @@ async function deliveredOrder(personId, h) {
   await trips.arrive(tripId, pickup.id, courierId, { pin: r.seed.pin });
   await trips.completeStop(tripId, pickup.id, courierId);
   const drop = await stopOf(tripId, 'dropoff');
-  await trips.arrive(tripId, drop.id, courierId, { pin: HOME });
+  await trips.arrive(tripId, drop.id, courierId, { pin: h.pin ?? HOME });
   const order = await orders.get(placed.id);
   await trips.completeStop(tripId, drop.id, courierId, { handover: h.householdOrgId ? {} : { cashCollectedIqd: order.totalIqd } });
   if (h.rate) await orders.rate(personId, { orderId: placed.id, delivery: 5, food: 5 });
@@ -724,6 +840,8 @@ await demoPot('haj_kareem', 'rice_bamia', 'ويا لحم غنم');
 await demoPot('musafir', 'dolma', null, '22:00');
 await catalog.setStory(byKey('khalid').orgId, { text: 'نشوي على الفحم من أيام أبوي، ونفس الخلطة.\nالكباب ينگطع بالساطور كل صبح.', sinceYear: 2009, shown: true });
 await catalog.setStory(byKey('haj_kareem').orgId, { text: 'الحاج كريم بدأ بمنقلة وحدة بالسوق. هسة ولده واقف على نفس المنقلة.', sinceYear: 1998, shown: true });
+// «مميّز» (Ali, 2026-10-12): الحاج كريم is on the featured tier in the demo, so the stamp shows and he sits first.
+await orgs.setMerchantSettings(byKey('haj_kareem').orgId, { commissionTier: 'featured' });
 
 app.use('/demo/pot', async (req, res) => {
   try {
@@ -768,8 +886,15 @@ app.use('/demo/usuals', async (req, res) => {
 // middle seat that a woman can't take between two men, a van with a walk-up, a family-only SUV,
 // a car with its front seat sold), demand posts behind the board banner, and three dev hooks:
 //   POST /demo/rajaa/claim?personId=…    announce a car inside that person's open أريد أرجع window
-//   POST /demo/rajaa/offers?personId=…   seven drivers open that person's requests and four offer
+//   POST /demo/rajaa/offers?personId=…   seven drivers open that person's requests and five offer
+//   POST /demo/rajaa/history             finished private trips to Najaf (the usual range, p1)
+//   POST /demo/rajaa/waiting?personId=…&min=…[&charged=1]   the picked driver is waiting (w2 clock)
 //   POST /demo/rajaa/topup?personId=…&amount=…   credit the wallet (request-board deposit)
+//   POST /demo/rajaa/agreements?personId=…&departureId=…   the driver prices his asks (step 4 agreed prices)
+//   POST /demo/rajaa/cash?personId=…&answer=accept|decline|ask|none[&owe=…]   «احجز وادفع كاش» (step 4b, demo switch on)
+//   POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1][&open=0][&postId=…][&arrived=1][&board=self|driver]   share a private car by link (step 6, demo switch on; way C boarding)
+//   POST /demo/rajaa/return?personId=…   a seat out and two cars back: «رايح وراجع» 10 % (step 5, demo switch on)
+//   POST /demo/rajaa/road?bookingId=…&km=52[&ageMin=…]   N13 «طريق بغداد»: a departed car put km along the real road
 // الرجعة drivers are real people in this demo (identity persons with a name), so the board, seat
 // sheet and boarding pass show "سايقك حيدر" from `routes.driverCards` (audit C-19), not an ID code.
 const DRIVER_NAMES = {
@@ -1064,7 +1189,7 @@ const rajaa = await (async () => {
     }
   });
 
-  // POST /demo/rajaa/onboard?personId=… — this person is in the car: a seat on a car leaving bab 1
+  // POST /demo/rajaa/onboard?personId=…[&corridorId=…][&garageId=…] — this person is in the car: a seat on a car leaving bab 1 (or that garage)
   // in 10 minutes, booked (cash) and checked in with the PIN. Their boarding pass then carries طوارئ.
   let onboardSeq = 0;
   app.use('/demo/rajaa/onboard', async (req, res) => {
@@ -1072,21 +1197,42 @@ const rajaa = await (async () => {
       const personId = personOf(req);
       if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/onboard?personId=…' });
       const departAt = new Date(Math.ceil((Date.now() + 10 * MIN) / MIN) * MIN);
-      // A fresh driver each call (a driver cannot announce two overlapping departures).
-      const driverId = `drv_S0S${(++onboardSeq).toString(36).toUpperCase()}`;
+      const params = new URL(req.url ?? '/', 'http://x').searchParams;
+      const road = params.get('road') === '1';
+      // `&corridorId=aziziyah_kut` / `&garageId=mp_garage_nahdha` (a car back to Aziziyah) for the other roads.
+      const garageId = params.get('garageId') ?? (params.get('corridorId') === 'aziziyah_kut' ? 'mp_garage_bab2' : 'mp_garage_bab1');
+      const corridorId = params.get('corridorId') ?? 'aziziyah_baghdad';
+      // A fresh driver each call (a driver cannot announce two overlapping departures); on the road
+      // (`road=1`) a named one, so the pass, the road map's car and the family page show his name.
+      let driverId = `drv_S0S${(++onboardSeq).toString(36).toUpperCase()}`;
+      if (road) {
+        const phone = `07719${String(990000 + onboardSeq).padStart(6, '0')}`;
+        await identity.requestOtp({ phone, purpose: 'login' });
+        const { code: otp } = await identity.devLastOtp(phone);
+        driverId = (await identity.verifyOtp({ phone, code: otp })).personId;
+        await identity.grantRole({ personId: 'system:demo' }, { personId: driverId, kind: 'intercity_driver' });
+        await identity.setName({ personId: driverId, sessionId: 'demo' }, 'مصطفى جاسم');
+      }
       const dep = await deps.announce(driverId, {
-        garageId: 'mp_garage_bab1',
-        corridorId: 'aziziyah_baghdad',
+        garageId,
+        corridorId,
         departAt,
         latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
         vehicle: saloon('58120 واسط', 'كامري', 'بيضاء'),
         familyOnly: false,
       });
-      const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      // A car announced in Baghdad is filled at once by the demo's riders waiting there: let them go
+      // (in-memory demo riders only), so this person's seat is free.
+      for (const b of routesRepo.bookings?.values() ?? []) if (b.departureId === dep.id && b.origin === 'demand_claim') b.state = 'cancelled';
+      let held = null;
+      for (const seatId of ['back_right', 'back_left', 'back_middle', 'front']) {
+        held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: [seatId] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false }).catch((e) => (String(e).includes('took that seat') ? null : Promise.reject(e)));
+        if (held) break;
+      }
+      if (!held) return json(res, 409, { error: 'no seat left on that car' });
       const booked = await deps.book(personId, held.id, 'cash');
       // `&road=1` (r1–r3): his mother and Zainab follow every trip; the car has just left, 12 % of
       // the way to Baghdad, so the pass shows the road line, the arrival and who is watching.
-      const road = new URL(req.url ?? '/', 'http://x').searchParams.get('road') === '1';
       if (road) {
         await app.get(IdentityService).updateProfile(
           { personId, sessionId: 'demo' },
@@ -1097,13 +1243,47 @@ const rajaa = await (async () => {
       if (road) {
         // Before its time only a full car leaves: the other seats are walk-ups.
         await deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
-        for (const seatId of ['front', 'back_left', 'back_middle']) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' });
+        for (const seatId of ['front', 'back_left', 'back_middle', 'back_right']) await deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' }).catch(() => undefined);
         await deps.depart(driverId, dep.id);
-        const bab1 = { lat: 32.9032, lng: 45.0578 };
+        const bab1 = { lat: 32.91575, lng: 45.0405 };
         const nahdha = { lat: 33.3344, lng: 44.4165 };
         await deps.driverPosition(driverId, dep.id, { lat: bab1.lat + (nahdha.lat - bab1.lat) * 0.12, lng: bab1.lng + (nahdha.lng - bab1.lng) * 0.12 });
       }
       json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/road?bookingId=…&km=52[&ageMin=5] — N13 «طريق بغداد»: that booking's car (already
+  // departed, e.g. /demo/rajaa/onboard?road=1) is put `km` along the real road from its garage, with a
+  // fix there (`ageMin` minutes old, for the «آخر تحديث» state), and its departure time moved back so the
+  // corridor's minutes reach that far (the times on the road read like a car keeping its pace).
+  app.use('/demo/rajaa/road', async (req, res) => {
+    try {
+      const q = new URL(req.url ?? '/', 'http://x').searchParams;
+      const bookingId = q.get('bookingId');
+      const km = Number(q.get('km') ?? '0');
+      const ageMin = Number(q.get('ageMin') ?? '0');
+      if (req.method !== 'POST' || !bookingId || !Number.isFinite(km)) return json(res, 400, { error: 'POST /demo/rajaa/road?bookingId=…&km=…[&ageMin=…]' });
+      const booking = routesRepo.bookings?.get(bookingId);
+      const d = booking ? routesRepo.departures?.get(booking.departureId) : null;
+      if (!d || d.state !== 'departed') return json(res, 409, { error: 'that booking\'s car has not left (try /demo/rajaa/onboard?road=1 first)' });
+      const { INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const { intercityRoad, roadGeoJSON } = await import('@driver/map/pieces/road');
+      const corridor = INTERCITY_NETWORK.corridors.find((c) => c.id === d.corridorId);
+      const keyOf = { mp_garage_bab1: 'bab1', mp_garage_bab2: 'bab2', mp_garage_souq: 'souq' };
+      const direction = d.garageId in keyOf ? 'from_aziziyah' : 'to_aziziyah';
+      const road = intercityRoad(keyOf[d.garageId] ?? (corridor.cityId === 'kut' ? 'bab2' : 'bab1'), corridor.cityId, direction);
+      const m = Math.max(0, Math.min(road.totalM - 50, km * 1000));
+      const car = roadGeoJSON(road, { m }).features.find((f) => f.properties.part === 'car')?.geometry.coordinates ?? road.path[0];
+      await deps.driverPosition(d.driverId, d.id, { lat: car[1], lng: car[0] });
+      // The write stored a new record: move its times on that one.
+      const rec = routesRepo.departures.get(d.id);
+      const now = Date.now();
+      rec.lastPosition = { ...rec.lastPosition, at: new Date(now - ageMin * MIN) };
+      rec.departedAt = new Date(now - ageMin * MIN - (m / road.totalM) * corridor.travelMin * MIN);
+      json(res, 200, { bookingId, departureId: d.id, km: Math.round(m / 100) / 10, totalKm: Math.round(road.totalM / 100) / 10, at: { lat: car[1], lng: car[0] } });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
@@ -1131,6 +1311,74 @@ const rajaa = await (async () => {
       const held = await deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
       const booked = await deps.book(personId, held.id, 'wallet');
       json(res, 200, { departureId: dep.id, bookingId: booked.id });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/garage[?garageId=mp_garage_bab1] — map idea N12 «شوف الكراج»: three more cars to
+  // Baghdad standing in that garage (in 20, 70 and 110 minutes), some seats already taken, so the lot
+  // shows a full-ish car, a half one and an empty one.
+  let garageSeq = 0;
+  app.use('/demo/rajaa/garage', async (req, res) => {
+    try {
+      if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/rajaa/garage[?garageId=…]' });
+      const garageId = new URL(req.url ?? '/', 'http://x').searchParams.get('garageId') || 'mp_garage_bab1';
+      const cars = [
+        { inMin: 20, vehicle: saloon('70412 واسط', 'كامري', 'بيضاء'), taken: [['back_left', 'back_middle'], ['front']] },
+        { inMin: 70, vehicle: { kind: 'van', layout: 7, plate: '81123 واسط', modelKey: 'starex', color: 'فضية' }, taken: [['middle_left', 'middle_middle']] },
+        { inMin: 110, vehicle: saloon('66508 واسط', 'كورولا', 'رصاصي'), taken: [] },
+      ];
+      const ids = [];
+      for (const c of cars) {
+        const driverId = `drv_GAR${(++garageSeq).toString(36).toUpperCase()}`;
+        const departAt = new Date(Math.ceil((Date.now() + c.inMin * MIN) / (5 * MIN)) * 5 * MIN);
+        const dep = await deps.announce(driverId, { garageId, corridorId: 'aziziyah_baghdad', departAt, latestDepartureAt: new Date(departAt.getTime() + 45 * MIN), vehicle: c.vehicle, familyOnly: false });
+        for (const seatIds of c.taken) {
+          const held = await deps.hold(`demo-garage-rider-${garageSeq}-${seatIds[0]}`, { departureId: dep.id, selection: { kind: 'seats', seatIds }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+          await deps.book(held.riderId, held.id, 'cash');
+        }
+        ids.push(dep.id);
+      }
+      json(res, 200, { departureIds: ids });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/return?personId=… — step 5 «رايح وراجع» (demo switch on): a cash seat on a car to
+  // Baghdad in 3 h and two cars back from النهضة later today, so the pass offers the way back for 10 %.
+  let returnSeq = 0;
+  app.use('/demo/rajaa/return', async (req, res) => {
+    try {
+      const personId = personOf(req);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/return?personId=…' });
+      deps.money = { ...deps.money, intercityReturnBundle: { enabled: true, percent: 10, fundedBy: 'platform' } };
+      const n = (++returnSeq).toString(36).toUpperCase();
+      const at = (min) => new Date(Math.ceil((Date.now() + min * MIN) / (5 * MIN)) * 5 * MIN);
+      const out = await deps.announce(`drv_RTO${n}`, {
+        garageId: 'mp_garage_bab1',
+        corridorId: 'aziziyah_baghdad',
+        departAt: at(180),
+        latestDepartureAt: at(210),
+        vehicle: { ...saloon('63411 واسط', 'النترا', 'رصاصي'), ac: true },
+        familyOnly: false,
+      });
+      const back = [];
+      for (const [i, min] of [420, 480].entries()) {
+        const dep = await deps.announce(`drv_RTB${n}${i}`, {
+          garageId: 'mp_garage_nahdha',
+          corridorId: 'aziziyah_baghdad',
+          departAt: at(min),
+          latestDepartureAt: at(min + 30),
+          vehicle: { ...saloon(i === 0 ? '52817 بغداد' : '47205 واسط', i === 0 ? 'كورولا' : 'سوناتا', 'بيضاء'), ac: true },
+          familyOnly: false,
+        });
+        back.push(dep.id);
+      }
+      const held = await deps.hold(personId, { departureId: out.id, selection: { kind: 'seats', seatIds: ['back_right'] }, travellingAs: 'aila', pickup: { kind: 'garage' }, largeBags: false, lapChildren: 0 });
+      const booked = await deps.book(personId, held.id, 'cash');
+      json(res, 200, { departureId: out.id, bookingId: booked.id, backDepartureIds: back });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
@@ -1189,6 +1437,7 @@ const rajaa = await (async () => {
   });
 
   // y5: private trips the offering drivers already completed (post → offer → pick → done), once.
+  // They go to Najaf (the chip) there and back with a 4-hour wait, so that trip has a usual range (p1).
   let privateSeeded = false;
   async function seedPrivateTrips() {
     if (privateSeeded) return;
@@ -1197,13 +1446,24 @@ const rajaa = await (async () => {
       for (let i = 0; i < n; i += 1) {
         const who = rider();
         await ledger.record({ type: 'adjustment', amount: 20_000, fromAccount: 'bank', toAccount: `customer:${who}`, occurredAt: new Date(), memo: 'demo top-up' });
-        const r = await requests.post(who, { from: { label: 'العزيزية' }, to: { label: 'النجف' }, when: at(1), seats: 2, privateCar: true, travellingAs: 'aila', details: { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 0, carKind: null, ac: false } });
-        const o = (await requests.offer(driverId, r.id, price)).offers.at(-1);
+        const r = await requests.post(who, { from: { label: 'العزيزية' }, to: { label: 'النجف', placeId: 'najaf' }, when: at(1), seats: 2, privateCar: true, travellingAs: 'aila', details: { trip: 'wait_return', waitHours: 4, returnAt: null, bigBags: 0, carKind: null, ac: false } });
+        const o = (await requests.offer(driverId, r.id, price, { includedHours: 4, extraHourIqd: 5_000 })).offers.at(-1);
         await requests.pick(who, r.id, o.id);
         await requests.complete(driverId, r.id);
       }
     }
   }
+
+  // p1: the finished trips behind «عادةً بين … و …», before the rider opens the request form.
+  app.use('/demo/rajaa/history', async (req, res) => {
+    try {
+      if (req.method !== 'POST') return json(res, 405, { error: 'POST' });
+      await seedPrivateTrips();
+      json(res, 200, { ok: true });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
 
   app.use('/demo/rajaa/offers', async (req, res) => {
     try {
@@ -1215,12 +1475,210 @@ const rajaa = await (async () => {
         // y4: seven drivers opened it, four offered (y5, y6: the Elantra with AC, the cheaper Avante
         // without, the GMC with the best record, and one more).
         for (const d of [D.drv_1Q7Z, D.drv_6J2L, D.drv_9B3H]) await requests.seen(d, r.id);
-        await requests.offer(D.drv_7K2Q, r.id, 55_000);
-        await requests.offer(D.drv_3C5N, r.id, 42_000);
-        await requests.offer(D.drv_4M9T, r.id, 60_000);
-        await requests.offer(D.drv_5R1D, r.id, 48_000);
+        // w1: on a «يستناك وترجع» trip each offer says the hours included and the extra-hour price
+        // (one includes fewer hours than asked, one waits for free); p3: one is well above the usual.
+        const asked = r.details.waitHours ?? 3;
+        const wait = (hours, extra) => (r.details.trip === 'wait_return' ? { includedHours: hours, extraHourIqd: extra } : undefined);
+        await requests.offer(D.drv_7K2Q, r.id, 55_000, wait(asked, 5_000));
+        await requests.offer(D.drv_3C5N, r.id, 42_000, wait(Math.max(1, asked - 2), 5_000));
+        await requests.offer(D.drv_4M9T, r.id, 60_000, wait(asked, 0));
+        await requests.offer(D.drv_5R1D, r.id, 48_000, wait(asked, 4_000));
+        await requests.offer(D.drv_9B3H, r.id, 80_000, wait(asked + 1, 5_000));
       }
       json(res, 200, { requests: open.map((r) => r.id) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/waiting?personId=…&min=…[&charged=1] — w2: the driver of that person's picked
+  // «يستناك وترجع» request dropped them `min` minutes ago and is waiting; `charged=1` shows the extra
+  // hours as they will look once Ali switches the charge on (the demo only; the launch rule stays off).
+  app.use('/demo/rajaa/waiting', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const min = Number(url.searchParams.get('min') ?? 60);
+      const live = personId ? (await requests.mine(personId)).filter((r) => r.state === 'matched' || r.state === 'driver_arrived') : [];
+      if (req.method !== 'POST' || live.length === 0) return json(res, 400, { error: 'POST with a personId that has a picked request' });
+      const { ROUTES_REPOSITORY } = await load('modules/routes/index.js');
+      const repo = app.get(ROUTES_REPOSITORY);
+      requests.moneyRules = { ...requests.moneyRules, requestWaitExtra: { enabled: url.searchParams.get('charged') === '1', freeMin: 15 } };
+      for (const r of live) {
+        const driverId = r.offers.find((o) => o.id === r.pickedOfferId)?.driverId;
+        if (!driverId) continue;
+        if (r.state === 'matched') await requests.arrived(driverId, r.id, { lat: 32.9105, lng: 45.0611 });
+        const now = await requests.get(r.id);
+        if (!now.waitStartedAt) await requests.waitStart(driverId, r.id);
+        const back = await requests.get(r.id);
+        back.waitStartedAt = new Date(Date.now() - min * 60_000);
+        back.waitEndedAt = null;
+        await repo.saveRequest(back);
+      }
+      json(res, 200, { requests: live.map((r) => r.id) });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/cash?personId=…[&answer=accept|decline|ask|none][&owe=5000] — step 4b a6 «احجز وادفع كاش»:
+  // switches the rule on for this demo only (the launch rule stays off), asks the 42,000 driver on each of
+  // the person's open requests and answers as given (`ask` leaves it waiting, `none` only switches it
+  // on and names the offer); `owe` puts a past
+  // no-show on his wallet so the «عليك» line shows.
+  app.use('/demo/rajaa/cash', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const answer = url.searchParams.get('answer') ?? 'accept';
+      const open = personId ? (await requests.mine(personId)).filter((r) => r.state === 'open') : [];
+      if (req.method !== 'POST' || open.length === 0) return json(res, 400, { error: 'POST with a personId that has an open request with offers' });
+      requests.moneyRules = { ...requests.moneyRules, requestCashReservation: { enabled: true } };
+      const asked = [];
+      for (const r of open) {
+        const o = r.offers.find((x) => x.state === 'open' && x.driverId === D.drv_3C5N) ?? r.offers.find((x) => x.state === 'open');
+        if (!o) continue;
+        if (answer === 'none') {
+          asked.push(o.id);
+          continue;
+        }
+        if (!o.cash) await requests.askCash(personId, r.id, o.id);
+        if (answer !== 'ask' && (o.cash ?? 'asked') === 'asked') await requests.answerCash(o.driverId, r.id, o.id, answer === 'accept');
+        asked.push(o.id);
+      }
+      const owe = Number(url.searchParams.get('owe') ?? 0);
+      if (owe > 0) {
+        const { LedgerService } = await load('modules/ledger/index.js');
+        const { postCancellation } = await load('modules/ledger/postings.js');
+        await app.get(LedgerService).recordAll(postCancellation({ from: 'placed', to: 'customer_cancelled', cancelledState: 'customer_cancelled', orderId: `demo_owe_${Date.now()}`, occurredAt: new Date(), customerId: personId, by: 'customer', reason: 'request_board_rider_no_show', free: false, feeIqd: owe, beneficiaries: [{ kind: 'driver', id: D.drv_7K2Q, amountIqd: owe }] }));
+      }
+      json(res, 200, { offers: asked });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1] — step 6 «تقاسم السيارة» (demo switch
+  // on): a private car to Baghdad for 4 people in 10 h, علي حسن's 110,000 picked. `booker`: the person
+  // booked it and opened the link, and كرار already paid his place. `friend`: أحمد booked it and shared
+  // it, زيد took a place, and the person has the link (`joined=1`: he took a place too).
+  let shareSeq = 0;
+  const sharePeople = {};
+  async function namedPerson(name) {
+    if (sharePeople[name]) return sharePeople[name];
+    const phone = `0771977${String(1000 + Object.keys(sharePeople).length).padStart(4, '0')}`;
+    await identity.requestOtp({ phone, purpose: 'login' });
+    const { code: otp } = await identity.devLastOtp(phone);
+    const id = (await identity.verifyOtp({ phone, code: otp })).personId;
+    await identity.setName({ personId: id, sessionId: 'demo' }, name);
+    sharePeople[name] = id;
+    return id;
+  }
+  const topUp = (who, amount) => ledger.record({ type: 'adjustment', amount, fromAccount: 'bank', toAccount: `customer:${who}`, occurredAt: new Date(), memo: 'demo top-up' });
+  app.use('/demo/rajaa/share', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const as = url.searchParams.get('as') ?? 'booker';
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/rajaa/share?personId=…&as=booker|friend[&joined=1]' });
+      requests.moneyRules = { ...requests.moneyRules, requestSharing: { enabled: true, closeBeforeMin: 120 } };
+      // `postId`: كرار joins the link the person opened on that request himself.
+      const postId = url.searchParams.get('postId');
+      if (postId) {
+        const code = (await requests.get(postId))?.share?.code;
+        if (!code) return json(res, 400, { error: 'that request has no share link yet' });
+        const friend = await namedPerson('كرار حسن');
+        await topUp(friend, 30_000);
+        await requests.joinShare(friend, code, 1);
+        return json(res, 200, { postId, code });
+      }
+      shareSeq += 1;
+      const booker = as === 'friend' ? await namedPerson('أحمد علي') : personId;
+      await topUp(booker, 60_000);
+      const when = new Date(Math.ceil((Date.now() + 600 * MIN) / (5 * MIN)) * 5 * MIN);
+      const r = await requests.post(booker, { from: { label: 'العزيزية · البيت' }, to: { label: 'بغداد · مستشفى ابن النفيس' }, when, seats: 4, privateCar: true, travellingAs: 'aila', details: { trip: 'one_way', waitHours: null, returnAt: null, bigBags: 1, carKind: null, ac: true } });
+      const o = (await requests.offer(D.drv_7K2Q, r.id, 110_000)).offers.at(-1);
+      await requests.pick(booker, r.id, o.id);
+      if (url.searchParams.get('open') === '0') return json(res, 200, { postId: r.id, code: null });
+      const code = (await requests.openShare(booker, r.id, 1)).share.code;
+      const friend = await namedPerson(as === 'friend' ? 'زيد كاظم' : 'كرار حسن');
+      await topUp(friend, 30_000);
+      await requests.joinShare(friend, code, 1);
+      if (as === 'friend') {
+        await topUp(personId, 60_000);
+        if (url.searchParams.get('joined') === '1') await requests.joinShare(personId, code, 1);
+      }
+      // Way C: `arrived=1` brings the trip to now and علي حسن to the door (CAR_AT); `board=self` has the
+      // other friend say «صعدت»; `board=driver` has the driver confirm the person (a friend) himself.
+      const CAR_AT = { lat: 32.9105, lng: 45.0611 };
+      if (url.searchParams.get('arrived') === '1') {
+        const rec = await requests.get(r.id);
+        await requests.repo.saveRequest({ ...rec, when: new Date(Math.ceil((Date.now() + 5 * MIN) / (5 * MIN)) * 5 * MIN) });
+        await requests.arrived(D.drv_7K2Q, r.id, CAR_AT);
+        const board = url.searchParams.get('board');
+        if (board === 'self') await requests.boardShare(friend, code, CAR_AT);
+        if (board === 'driver') {
+          const m = (await requests.get(r.id)).share.members.find((x) => x.personId === personId && x.state === 'joined');
+          if (m) await requests.boardShareFor(D.drv_7K2Q, r.id, m.id);
+        }
+      }
+      json(res, 200, { postId: r.id, code, n: shareSeq, carAt: CAR_AT });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // POST /demo/rajaa/agreements?personId=…&departureId=… — step 4 agreed prices: the driver of that
+  // car prices every ask the person made on it (a pin on the road 2,000 دينار, a door drop ببلاش),
+  // asking a door drop for him first if he has none open.
+  app.use('/demo/rajaa/agreements', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const departureId = url.searchParams.get('departureId');
+      if (req.method !== 'POST' || !personId || !departureId) return json(res, 400, { error: 'POST /demo/rajaa/agreements?personId=…&departureId=…' });
+      const { AgreementsService, INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const agreements = app.get(AgreementsService);
+      const dep = await deps.departure(departureId);
+      const open = (a) => a.state === 'asked' || a.state === 'proposed' || a.state === 'accepted';
+      if (!(await agreements.mine(personId, dep.id)).some((a) => a.kind === 'door_drop' && open(a))) {
+        const far = INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId && !g.draft) ?? INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId);
+        await agreements.ask(personId, { departureId: dep.id, kind: 'door_drop', lat: far.lat + 0.018, lng: far.lng + 0.006, note: 'البيت الثاني بعد الجامع' });
+      }
+      const priced = [];
+      for (const a of await agreements.mine(personId, dep.id)) {
+        if (a.state !== 'asked') continue;
+        priced.push((await agreements.propose(dep.driverId, { agreementId: a.id, amountIqd: a.kind === 'pin_pickup' ? 2_000 : 0 })).id);
+      }
+      json(res, 200, { priced });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
+  // Step 4c: the Baghdad/Kut chat. The rider asks the driver about a spot on the road (سيطرة المدائن) and
+  // his door at the far end (each ask comes in as a card), the driver answers in words and prices both (2,000 and 3,000).
+  app.use('/demo/rajaa/trip-chat', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const departureId = url.searchParams.get('departureId');
+      if (req.method !== 'POST' || !personId || !departureId) return json(res, 400, { error: 'POST /demo/rajaa/trip-chat?personId=…&departureId=…' });
+      const { AgreementsService, INTERCITY_NETWORK } = await load('modules/routes/index.js');
+      const { TripChatService } = await load('modules/chat/index.js');
+      const agreements = app.get(AgreementsService);
+      const chat = app.get(TripChatService);
+      const dep = await deps.departure(departureId);
+      const far = INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId && !g.draft) ?? INTERCITY_NETWORK.garages.find((g) => g.cityId === dep.toCityId);
+      const pin = await agreements.ask(personId, { departureId: dep.id, kind: 'pin_pickup', lat: 33.1667, lng: 44.5517, note: 'سيطرة المدائن، صوب الكازية' });
+      const door = await agreements.ask(personId, { departureId: dep.id, kind: 'door_drop', lat: far.lat + 0.018, lng: far.lng + 0.006, note: 'حي العسكري، قرب الجامع' });
+      const driver = { personId: dep.driverId, sessionId: 'demo' };
+      const ref = { subject: 'departure', id: dep.id, with: personId };
+      await new Promise((r) => setTimeout(r, 400));
+      await chat.send(driver, { ...ref, clientId: `demo-tc-${Date.now()}-1`, text: 'هلا بيك، إي أگدر. شوف الأسعار تحت' });
+      await agreements.propose(dep.driverId, { agreementId: pin.id, amountIqd: 2_000 });
+      await agreements.propose(dep.driverId, { agreementId: door.id, amountIqd: 3_000 });
+      json(res, 200, { pin: pin.id, door: door.id });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
@@ -1415,6 +1873,21 @@ const rajaa = await (async () => {
   // just ended, «وفّرت» lines and points; last month three meals and its own savings and points, for
   // the month stepper and the month-start card.
   const familySeeded = new Set();
+  // POST /demo/owe?personId=…&amount=500 — an earlier unpaid amount on his wallet (a cancellation fee
+  // he never paid), so the next cash checkout shows «مبلغ سابق عليك» (M-3, `CASH_DEBT_COLLECT`).
+  app.use('/demo/owe', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const amount = Number(url.searchParams.get('amount') ?? 500);
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/owe?personId=…&amount=…' });
+      await ledger.record({ type: 'adjustment', amount, fromAccount: `customer:${personId}`, toAccount: 'bank', occurredAt: new Date(), memo: 'demo unpaid fee' });
+      json(res, 200, { personId, amount });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+
   app.use('/demo/family', async (req, res) => {
     try {
       const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
@@ -1483,6 +1956,109 @@ const rajaa = await (async () => {
       // A الرجعة trip that just ended (this month's «رجعة وحدة»).
       await fetch(`http://127.0.0.1:${PORT}/demo/rajaa/arrived?personId=${encodeURIComponent(personId)}`, { method: 'POST' }).catch(() => null);
       json(res, 200, { householdId: household.id, held: held ? { orderId: held.id, heldForPayer: held.heldForPayer === true } : null });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── «وين الباص» (map idea N14) ─────────────────────────
+//   POST /demo/khat-bus?personId=<id>[&state=coming|away|on_board|delivered|absent][&fixAgoMin=5]   (after /demo/account)
+//
+// Today's morning school run for the person's first خطوط child (زهراء): two neighbours' children
+// (another family) are picked up before her, one more after her, then the school (المركز). The bus is
+// a demo خطوط driver's fix, through the real trips/khat modules, so the guardian map shows exactly what
+// the server lets out. `away` (the default): no one picked up yet, the bus heading to the first
+// neighbour (busAway, two stops before yours). `coming`: both neighbours on board, the bus on the way to
+// her home, well past 300 m from their stops. `on_board`: she and the third child are on, the bus
+// heading to the school. `delivered`: dropped at school. `absent`: marked absent. Each call replaces
+// the previous demo run.
+{
+  const { KhatService } = await load('modules/khat/index.js');
+  const khat = app.get(KhatService);
+  // All in town north of the river: the neighbours east and north of her home, the third child between
+  // her home and the school.
+  const P = {
+    n1: { lat: 32.9135, lng: 45.068 },
+    n2: { lat: 32.915, lng: 45.061 },
+    home: { lat: 32.912, lng: 45.056 },
+    n3: { lat: 32.9085, lng: 45.0575 },
+    school: { lat: 32.905, lng: 45.06 },
+  };
+  /** Where the bus stands in each state (≥ 300 m from every other child's stop whenever it should show). */
+  const BUS_AT = {
+    away: { lat: 32.912, lng: 45.073, bearing: 290 },
+    coming: { lat: 32.9125, lng: 45.059, bearing: 260 },
+    on_board: { lat: 32.9058, lng: 45.0596, bearing: 150 },
+    delivered: { lat: 32.905, lng: 45.06, bearing: 150 },
+    absent: { lat: 32.912, lng: 45.073, bearing: 290 },
+  };
+  const runs = new Map(); // personId → tripId
+  let khatDriver = null;
+  let neighbours = null;
+
+  app.use('/demo/khat-bus', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      const personId = url.searchParams.get('personId');
+      const state = url.searchParams.get('state') ?? 'away';
+      if (req.method !== 'POST' || !personId || !BUS_AT[state]) return json(res, 400, { error: 'POST /demo/khat-bus?personId=…&state=coming|away|on_board|delivered|absent' });
+      const own = await identity.myChildren({ personId });
+      if (!own.length) return json(res, 400, { error: 'POST /demo/account?personId=… first (it adds the خطوط children)' });
+      const childRef = own[0].childRef;
+      if (!khatDriver) {
+        const phone = '07712990004';
+        await identity.requestOtp({ phone, purpose: 'login' });
+        const { code } = await identity.devLastOtp(phone);
+        khatDriver = (await identity.verifyOtp({ phone, code })).personId;
+        await identity.grantRole({ personId: 'system:demo' }, { personId: khatDriver, kind: 'khat_driver' });
+        await identity.setName({ personId: khatDriver, sessionId: 'demo' }, 'كرار عادل');
+        vehicles.register?.(khatDriver, { vehicleClass: 'van', plate: 'واسط 40417' });
+        await dispatch.setPolicy({ personId: 'demo-dispatcher', sessionId: 'demo' }, { cityId: 'aziziyah', vertical: 'khat', suggestOnly: true }).catch(() => undefined);
+      }
+      // The neighbours' children belong to another family: nothing of theirs reaches this guardian.
+      if (!neighbours) {
+        const parent = await identity.ensurePersonByPhone('07803330399', 'system:demo', 'demo');
+        neighbours = [];
+        for (const name of ['سجاد حيدر', 'نور كاظم', 'آية سالم']) neighbours.push((await identity.registerChild({ personId: parent }, { name })).childRef);
+      }
+      const old = runs.get(personId);
+      if (old) await trips.cancel(old, 'platform', 'demo-dispatcher', 'demo_reset').catch(() => undefined);
+      const driver = { personId: khatDriver, sessionId: 'demo' };
+      const now = Date.now();
+      const w = (m) => new Date(now + m * 60_000);
+      const kids = [
+        [neighbours[0], P.n1, -10],
+        [neighbours[1], P.n2, -5],
+        [childRef, P.home, 2],
+        [neighbours[2], P.n3, 6],
+      ];
+      const stops = kids.map(([ref, at, m]) => ({ type: 'pickup', zoneKey: 'hashimi', target: at, childRef: ref, windowStart: w(m), windowEnd: w(m + 5) }));
+      for (const [ref] of kids) stops.push({ type: 'dropoff', zoneKey: 'centre', target: P.school, childRef: ref, windowStart: w(15), windowEnd: w(25) });
+      const trip = await trips.createForOrders({ cityId: 'aziziyah', vertical: 'khat', orders: [], stops });
+      runs.set(personId, trip.id);
+      await dispatch.presence.online(khatDriver, { cityId: 'aziziyah', at: BUS_AT.away, vehicle: 'van', tier: 'silver' });
+      await dispatch.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'khat', zoneId: 'hashimi', pickup: P.n1, dropoffZoneId: 'centre' });
+      const { offerId } = await dispatch.override({ personId: 'demo-dispatcher', sessionId: 'demo' }, { tripId: trip.id, driverId: khatDriver, reason: 'demo: khat bus', force: true });
+      await dispatch.respond(driver, { offerId, accept: true });
+      const s = [...(await trips.get(trip.id)).stops].sort((a, b) => a.seq - b.seq);
+      const tapIn = (i) => khat.tapIn(driver, { tripId: trip.id, stopId: s[i].id, pin: kids[i][1] });
+      if (state === 'absent') await khat.reportAbsence(driver, { tripId: trip.id, childRef, reason: 'guardian_notice' });
+      if (state === 'coming' || state === 'on_board' || state === 'delivered') {
+        await tapIn(0);
+        await tapIn(1);
+      }
+      if (state === 'on_board' || state === 'delivered') {
+        await tapIn(2);
+        await tapIn(3);
+      }
+      if (state === 'delivered') await khat.tapOut(driver, { tripId: trip.id, stopId: s[6].id, pin: P.school });
+      // `&fixAgoMin=5`: the bus's last fix is that old (the stale caption); `&fixAt=<ISO>`: taken then (shots on a fixed clock).
+      const bus = BUS_AT[state];
+      const fixAt = url.searchParams.get('fixAt') ? new Date(url.searchParams.get('fixAt')) : new Date(now - Number(url.searchParams.get('fixAgoMin') ?? 0) * 60_000);
+      await trips.reportPosition(khatDriver, { tripId: trip.id, pin: { lat: bus.lat, lng: bus.lng }, at: fixAt, bearing: bus.bearing, speedKmh: 25 });
+      const view = await khat.guardianRun({ personId, sessionId: 'demo' }, { childRef });
+      json(res, 200, { tripId: trip.id, childRef, view });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }
@@ -1668,7 +2244,9 @@ const rajaa = await (async () => {
       const pickup = (await trips.get(trip.id)).stops.find((s) => s.type === 'pickup');
       await trips.reportPosition(driverId, { tripId: trip.id, pin: PICKUP, at: new Date(), bearing: 320, speedKmh: 0 });
       await trips.arrive(trip.id, pickup.id, driverId, { pin: PICKUP });
-      await trips.completeStop(trip.id, pickup.id, driverId);
+      // A night ride (21:00–05:59) starts with the rider's code, as on /demo/ride/advance.
+      const startCode = (await orders.startCodeOf(ride.id)) ?? undefined;
+      await trips.completeStop(trip.id, pickup.id, driverId, startCode ? { startCode } : {});
       await startMover(trip.id, driverId, [PICKUP, { lat: 32.9061, lng: 45.0671 }, { lat: 32.9105, lng: 45.0632 }, { lat: 32.9139, lng: 45.0603 }, DROP], 26);
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), quickReplyKey: 'courier_outside' });
       await chat.send(as(driverId), { orderId: ride.id, kind: 'customer_courier', clientId: cid(), voiceUploadId: await demoVoiceNote(driverId), durationSec: 4 });
@@ -2217,6 +2795,166 @@ const rajaa = await (async () => {
         json(res, 500, { error: String(err?.stack ?? err) });
       }
     });
+
+    // ───────── «دفترك ويا درايفر» (stats & savings) ─────────
+    //   POST /demo/stats?personId=…   → {meals, rides, seats}
+    // This year so far, back-dated in memory: 30 meals from four kitchens (كبدة مطعم خالد the favourite,
+    // mostly Thursday and Friday nights, 3 of them late), 14 taxi and tuktuk rides (most to الدائرة,
+    // the driver 4–9 minutes away), three الرجعة seats to Baghdad (one the return leg, one with a child
+    // on the lap) and one to Kut, and what came off his bills each month (kitchen deals, our
+    // promotions, points against fees, the return-trip discount) plus one late-delivery credit.
+    const { LedgerService: StatsLedger, Accounts: StatsAccounts } = await load('modules/ledger/index.js');
+    const statsLedger = app.get(StatsLedger);
+    const DAY = 86_400_000;
+    /** A Baghdad wall-clock time `daysAgo` days back. */
+    const baghdadAt = (daysAgo, hour, minute = 0) => {
+      const local = new Date(Date.now() + 3 * 3_600_000 - daysAgo * DAY);
+      return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), hour, minute) - 3 * 3_600_000);
+    };
+    /** Moves an in-memory order's times so it was placed at `at` and reached the door `doorMin` later. */
+    const backdate = (orderId, at, doorMin) => {
+      const rec = orders.repo?.orders?.get?.(orderId);
+      if (!rec) return;
+      const shift = rec.placedAt.getTime() - at.getTime();
+      for (const f of ['placedAt', 'acceptedAt', 'preparingAt', 'readyAt', 'pickedUpAt', 'deliveredAt', 'closedAt', 'completedAt', 'merchantOfferedAt', 'promisedReadyAt']) {
+        if (rec[f] instanceof Date) rec[f] = new Date(rec[f].getTime() - shift);
+      }
+      if (doorMin != null && rec.deliveredAt instanceof Date) rec.deliveredAt = new Date(at.getTime() + doorMin * 60_000);
+    };
+    const MEALS = [
+      // [kitchen, lines, daysAgo, hour, minutes to the door, late]
+      ['khalid', [['liver_plate', 1]], 276, 21, 34],
+      ['khalid', [['liver_plate', 1], ['pepsi', 1]], 262, 22, 31],
+      ['sham', [['arabi_shawarma', 1]], 250, 20, 28],
+      ['khalid', [['khalid_mix', 1], ['salad', 1]], 241, 14, 36],
+      ['musafir', [['kahi_geymar', 2], ['iraqi_tea', 2]], 229, 8, 26],
+      ['khalid', [['liver_plate', 2]], 218, 21, 39],
+      ['haj_kareem', [['rice_bamia', 2], ['erbil_laban', 2]], 205, 13, 41, true],
+      ['sham', [['arabi_shawarma', 1], ['lemon_mint', 1]], 196, 23, 27],
+      ['khalid', [['liver_plate', 1], ['shenina', 1]], 184, 22, 30],
+      ['musafir', [['dolma', 1], ['quzi', 1]], 177, 13, 44],
+      ['khalid', [['khalid_mix', 1]], 163, 21, 33],
+      ['sham', [['falafel_plate', 1]], 151, 18, 25],
+      ['khalid', [['liver_plate', 1], ['pepsi', 2]], 142, 22, 29],
+      ['haj_kareem', [['rice_bamia', 1], ['arabic_salad', 1]], 133, 21, 38],
+      ['musafir', [['kahi_geymar', 1]], 121, 9, 24],
+      ['khalid', [['liver_plate', 1]], 112, 23, 52, true],
+      ['sham', [['arabi_shawarma', 2]], 104, 21, 30],
+      ['khalid', [['khalid_mix', 1]], 92, 14, 35],
+      ['haj_kareem', [['rice_bamia', 1]], 85, 13, 37],
+      ['khalid', [['liver_plate', 1], ['salad', 1]], 71, 22, 28],
+      ['sham', [['arabi_shawarma', 1]], 64, 20, 26],
+      ['musafir', [['dolma', 1]], 57, 13, 40],
+      ['khalid', [['khalid_mix', 1], ['liver_plate', 1]], 43, 21, 32],
+      ['sham', [['falafel_plate', 1], ['lemon_mint', 2]], 36, 17, 29],
+      ['khalid', [['liver_plate', 1]], 29, 22, 58, true],
+      ['haj_kareem', [['rice_bamia', 1], ['erbil_laban', 1]], 22, 21, 36],
+      ['musafir', [['kahi_geymar', 2]], 15, 8, 23],
+      ['khalid', [['liver_plate', 1], ['pepsi', 1]], 8, 22, 27],
+      ['sham', [['arabi_shawarma', 1]], 4, 23, 25],
+      ['khalid', [['liver_plate', 1]], 1, 21, 31],
+    ];
+    // [vehicle, daysAgo, hour, to work (else home), minutes the driver took to reach him]
+    const RIDES = [
+      ['tuktuk', 268, 7, true, 5], ['car', 247, 7, true, 7], ['tuktuk', 230, 15, false, 4], ['tuktuk', 211, 7, true, 6],
+      ['car', 188, 20, false, 9], ['tuktuk', 169, 7, true, 4], ['tuktuk', 140, 7, true, 5], ['car', 118, 15, false, 6],
+      ['tuktuk', 96, 7, true, 3], ['car', 74, 21, false, 8], ['tuktuk', 52, 7, true, 5], ['tuktuk', 33, 15, false, 4],
+      ['car', 17, 7, true, 6], ['tuktuk', 6, 7, true, 4],
+    ];
+    // [Baghdad (else Kut), daysAgo, return leg, lap child]
+    const SEATS = [[true, 238, false, false], [true, 160, true, false], [false, 97, false, false], [true, 40, false, true]];
+    // What came off his bills: [daysAgo, memo, amount]; one late-delivery credit made good.
+    const OFF_BILLS = [
+      [270, 'deal:demo', 2_000], [244, 'promo:welcome', 3_000], [226, 'deal:demo', 1_500], [200, 'points:delivery_fee', 1_500],
+      [180, 'deal:demo', 2_500], [159, 'return_bundle', 1_000], [138, 'points:service_fee', 1_000], [120, 'deal:demo', 2_000],
+      [101, 'promo:ramadan', 2_500], [88, 'points:delivery_fee', 1_500], [70, 'deal:demo', 3_000], [55, 'deal:demo:delivery', 1_000],
+      [41, 'points:delivery_fee', 2_000], [26, 'promo:friday', 1_500], [12, 'deal:demo', 2_500], [3, 'points:service_fee', 1_000],
+    ];
+
+    async function seatDone(personId, toBaghdad) {
+      const driverId = await namedRajaaDriver(toBaghdad ? 'حيدر عباس' : 'جاسم محمد');
+      const departAt = at5(Date.now() + 10 * MIN);
+      const dep = await j7deps.announce(driverId, {
+        garageId: 'mp_garage_bab1',
+        corridorId: toBaghdad ? 'aziziyah_baghdad' : 'aziziyah_kut',
+        departAt,
+        latestDepartureAt: new Date(departAt.getTime() + 30 * MIN),
+        vehicle: saloon('52318 واسط', 'سوناتا', 'فضية'),
+        familyOnly: false,
+      });
+      const held = await j7deps.hold(personId, { departureId: dep.id, selection: { kind: 'seats', seatIds: [toBaghdad ? 'front' : 'back_right'] }, travellingAs: 'rijal', pickup: { kind: 'garage' }, largeBags: false });
+      const booked = await j7deps.book(personId, held.id, 'cash');
+      await j7deps.selfie(driverId, dep.id, 'demo/selfie.jpg');
+      for (const seatId of ['front', 'back_left', 'back_middle', 'back_right']) {
+        await j7deps.markWalkUp(driverId, dep.id, { seatId, travellingAs: 'rijal' }).catch(() => null);
+      }
+      await j7deps.checkIn(driverId, dep.id, booked.pin);
+      await j7deps.depart(driverId, dep.id);
+      await j7deps.arrive(driverId, dep.id);
+      return booked.id;
+    }
+
+    app.use('/demo/stats', async (req, res) => {
+      try {
+        const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+        if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/stats?personId=…' });
+        const { home, work } = await homeAndWork(personId);
+        for (const [key, lines, daysAgo, hour, doorMin, late] of MEALS) {
+          const id = await deliveredOrder(personId, { key, lines, daysAgo: 0, pin: home.pin });
+          const at = baghdadAt(daysAgo, hour, 10 + (daysAgo % 40));
+          backdate(id, at, doorMin);
+          const rec = orders.repo?.orders?.get?.(id);
+          // On time unless marked late: the promise is ready + the locked ride.
+          if (rec && rec.deliveredAt) {
+            const ride = rec.promisedRideMin ?? 15;
+            rec.promisedReadyAt = new Date(rec.deliveredAt.getTime() - ride * 60_000 + (late ? -12 : 6) * 60_000);
+          }
+        }
+        const free = async (vehicle) => (await ensureDrivers()).find((d) => !d.tripId && d.def.vehicle === vehicle)?.def.name;
+        for (const [vehicle, daysAgo, hour, toWork, waitMin] of RIDES) {
+          const name = await free(vehicle);
+          if (!name) throw new Error(`no free demo ${vehicle}`);
+          const id = await finishedRide(personId, name, toWork ? home : work, toWork ? work : home, 5);
+          const at = baghdadAt(daysAgo, hour, 15 + (daysAgo % 30));
+          backdate(id, at, 14);
+          const tripId = (await trips.tripIdsForOrder(id)).at(-1);
+          const trip = tripId ? trips.repo?.trips?.get?.(tripId) : null;
+          if (trip) {
+            trip.acceptedAt = new Date(at.getTime() + 60_000);
+            const pickup = [...trips.repo.stops.values()].find((s) => s.tripId === tripId && s.orderId === id && s.type === 'pickup');
+            if (pickup) pickup.arrivedAt = new Date(at.getTime() + (1 + waitMin) * 60_000);
+          }
+        }
+        for (const [toBaghdad, daysAgo, returnLeg, lapChild] of SEATS) {
+          const bookingId = await seatDone(personId, toBaghdad);
+          const b = j7deps.repo?.bookings?.get?.(bookingId);
+          if (b) {
+            b.completedAt = baghdadAt(daysAgo, toBaghdad ? 11 : 16);
+            if (returnLeg) b.returnDiscountIqd = 1_000;
+            if (lapChild) b.lapChildren = 1;
+          }
+        }
+        const customer = StatsAccounts.customer(personId);
+        const group = (id, kind, at, lines) => ({ id, kind, occurredAt: at, refs: {}, lines, controls: [] });
+        const stamp = Date.now().toString(36);
+        await statsLedger.recordAll([
+          ...OFF_BILLS.map(([daysAgo, memo, amount], i) =>
+            group(`demo:stats:${personId}:${stamp}:${i}`, 'money', baghdadAt(daysAgo, 21), [{ type: 'promo_funded', amount, fromAccount: StatsAccounts.platform, toAccount: customer, memo }]),
+          ),
+          group(`demo:stats:${personId}:${stamp}:late`, 'money', baghdadAt(29, 23), [{ type: 'credit_issued', amount: 1_500, fromAccount: StatsAccounts.platform, toAccount: customer, memo: 'late_promise' }]),
+          // Points spent against fees: 100 points = 1,000 دينار.
+          ...OFF_BILLS.filter(([, memo]) => memo.startsWith('points:')).map(([daysAgo, , amount], i) =>
+            group(`demo:stats:${personId}:${stamp}:used${i}`, 'points', baghdadAt(daysAgo, 21), [{ type: 'points_redeemed', amount: amount / 10, fromAccount: StatsAccounts.points(personId), toAccount: StatsAccounts.pointsPool }]),
+          ),
+          ...[260, 200, 150, 95, 44, 8].map((daysAgo, i) =>
+            group(`demo:stats:${personId}:${stamp}:pts${i}`, 'points', baghdadAt(daysAgo, 22), [{ type: 'points_earned', amount: 90 + i * 15, fromAccount: StatsAccounts.pointsPool, toAccount: StatsAccounts.points(personId) }]),
+          ),
+        ]);
+        json(res, 200, { meals: MEALS.length, rides: RIDES.length, seats: SEATS.length });
+      } catch (err) {
+        json(res, 500, { error: String(err?.stack ?? err) });
+      }
+    });
   }
 
   // ───────────────────────── taxi ideas x2 / x3 / x4 (+ n10): taxis linked to a الرجعة seat ─────────────────────────
@@ -2474,6 +3212,179 @@ const rajaa = await (async () => {
       }
       await accessRepo.put({ personId, cityId: 'aziziyah', zoneKey: own ? zoneKey : null, state: 'waiting', reason: 'wave', joinedAt: new Date(now), admittedAt: null });
       json(res, 200, await access.status({ personId, sessionId: 'demo' }));
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// ───────────────────────── طرود (parcels, 2026-10-12) ─────────────────────────
+//
+//   POST /demo/parcels?personId=<id>   → {waiting: {parcelId, link}, onTheWay: {parcelId, orderId}, delivered: {parcelId, orderId}}
+//
+// Three parcels from the person's home (or the town centre) to «أم حيدر»: one waiting for her to mark her
+// door (its link is printed to the log: open it to see the receiver's page), one a courier picked up and
+// is bringing (the sender marked the door), and one delivered with the receipt code, with the pickup and
+// door photos. The photos are read from DEMO_PARCEL_PHOTOS (default /mnt/project-files/parcels/photos)
+// when that folder is there; otherwise the parcels have none.
+{
+  const { existsSync: parcelPhotosThere, readFileSync: readParcelPhoto } = await import('node:fs');
+  const { ParcelsService } = await load('modules/parcels/index.js');
+  const { SavedPlacesService: ParcelPlaces } = await load('modules/places/index.js');
+  const parcels = app.get(ParcelsService);
+  const parcelPlaces = app.get(ParcelPlaces);
+  const photoDir = process.env.DEMO_PARCEL_PHOTOS ?? '/mnt/project-files/parcels/photos';
+  const parcelPhoto = async (ownerId, file) => {
+    const path = join(photoDir, file);
+    if (!parcelPhotosThere(path)) return null;
+    const bytes = readParcelPhoto(path);
+    const store = app.get(PHOTO_STORE);
+    const ticket = await store.createUpload({ ownerId, contentType: 'image/jpeg', sizeBytes: bytes.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await store.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/jpeg', bytes });
+    return ticket.uploadId;
+  };
+  const RECEIVER = { from: 'typed', name: 'أم حيدر', phone: '07703452210' };
+  /** Near the big mosque in Zakur: where «أم حيدر» marked her door on the parcels already on their way. */
+  const HER_DOOR = { lat: 32.8893, lng: 45.0731 };
+  let parcelSeq = 0;
+  const tripFor = async (orderId, from, to) => {
+    for (let i = 0; i < 5; i++) {
+      const trip = await trips.activeForOrder(orderId);
+      if (trip) return trip;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // Dispatch does not build parcel trips yet: the demo builds the courier trip itself (pickup → the door).
+    const trip = await trips.createForOrders({
+      cityId: 'aziziyah',
+      vertical: 'parcel',
+      orders: [{ orderId, minVehicleClass: null }],
+      stops: [
+        { orderId, type: 'pickup', zoneKey: from.zoneKey, target: from.pin },
+        { orderId, type: 'dropoff', zoneKey: to.zoneKey, target: to.pin },
+      ],
+    });
+    await dispatch.orchestrator.request({ tripId: trip.id, cityId: 'aziziyah', vertical: 'parcel', zoneId: from.zoneKey, pickup: from.pin, dropoffZoneId: to.zoneKey, minVehicleClass: null, cashIqd: 0 });
+    return trip;
+  };
+
+  app.use('/demo/parcels', async (req, res) => {
+    try {
+      const personId = new URL(req.url ?? '/', 'http://x').searchParams.get('personId');
+      if (req.method !== 'POST' || !personId) return json(res, 400, { error: 'POST /demo/parcels?personId=…' });
+      const as = { personId, sessionId: 'demo' };
+      if (!(await identity.me(as)).name) await identity.setName(as, 'علي');
+      const home = (await parcelPlaces.mine(personId)).find((p) => p.label === 'home') ?? null;
+      const pickup = home?.pin ? { zoneKey: home.zoneId, pin: home.pin } : { zoneKey: 'centre', pin: { lat: 32.9051, lng: 45.0607 } };
+      const what = ['ملابس العيد', 'مفاتيح البيت', 'دوا لبيبي'];
+      const send = async (n, door, extra = {}) => {
+        parcelSeq += 1;
+        const dropZoneKey = door.by === 'receiver' ? door.zoneKey : 'zakur';
+        const { fareIqd } = await parcels.quote(as, { cityId: 'aziziyah', pickup, dropZoneKey, size: 'small' });
+        const photoUploadId = await parcelPhoto(personId, 'received.jpg');
+        return parcels.send(as, {
+          cityId: 'aziziyah',
+          clientRequestId: `demo-parcel-${parcelSeq}-${Date.now()}`,
+          what: what[n],
+          size: n === 1 ? 'small' : 'medium',
+          declaredValueIqd: [40_000, 5_000, 15_000][n],
+          ...(photoUploadId ? { photoUploadId } : {}),
+          recipient: RECEIVER,
+          pickup,
+          door,
+          payer: 'sender',
+          fareIqd,
+          ...extra,
+        });
+      };
+      const carry = async (sent, { deliver }) => {
+        const orderId = sent.orderId;
+        const trip = await tripFor(orderId, pickup, { zoneKey: 'zakur', pin: HER_DOOR });
+        const courierId = await newCourier(pickup.pin, { photo: true });
+        await assign(orderId, courierId);
+        const up = await stopOf(trip.id, 'pickup');
+        await trips.reportPosition(courierId, { tripId: trip.id, pin: pickup.pin, at: new Date(), bearing: 160, speedKmh: 0 });
+        await trips.arrive(trip.id, up.id, courierId, { pin: pickup.pin });
+        const upPhoto = await parcelPhoto(courierId, 'trunk.jpg');
+        await trips.completeStop(trip.id, up.id, courierId, upPhoto ? { handover: { photoUploadId: upPhoto } } : {});
+        if (!deliver) {
+          await startMover(trip.id, courierId, [pickup.pin, { lat: (pickup.pin.lat + HER_DOOR.lat) / 2, lng: (pickup.pin.lng + HER_DOOR.lng) / 2 }, HER_DOOR], 20);
+          return { parcelId: sent.id, orderId };
+        }
+        const drop = await stopOf(trip.id, 'dropoff');
+        await trips.reportPosition(courierId, { tripId: trip.id, pin: HER_DOOR, at: new Date(), bearing: 135, speedKmh: 0 });
+        await trips.arrive(trip.id, drop.id, courierId, { pin: HER_DOOR });
+        await parcels.checkPin({ personId: courierId, sessionId: 'demo' }, { orderId, pin: sent.pin });
+        const dropPhoto = await parcelPhoto(courierId, 'door-handover.jpg');
+        await trips.completeStop(trip.id, drop.id, courierId, { handover: { ...(dropPhoto ? { photoUploadId: dropPhoto } : {}) } });
+        return { parcelId: sent.id, orderId };
+      };
+      const waiting = await send(0, { by: 'receiver', zoneKey: 'zakur' });
+      const onTheWay = await carry(await send(1, { by: 'sender', dropoff: { zoneKey: 'zakur', pin: HER_DOOR } }), { deliver: false });
+      const delivered = await carry(await send(2, { by: 'sender', dropoff: { zoneKey: 'zakur', pin: HER_DOOR } }), { deliver: true });
+      console.log(`DEMO_API parcel waiting for the door: ${waiting.doorLink ?? '(no SHARE_LINK_BASE_URL)'}`);
+      json(res, 200, { waiting: { parcelId: waiting.id, link: waiting.doorLink }, onTheWay, delivered });
+    } catch (err) {
+      json(res, 500, { error: String(err?.stack ?? err) });
+    }
+  });
+}
+
+// Food carts «عربانات» (2026-10-11): six Aziziyah carts (three open tonight around the souq garage,
+// Street 30 and the centre; two closed until their hour; one away till Ramadan).
+//   - POST /demo/carts?personId=…[&ticket=placed|ready]   follows كبدة أبو حيدر and عرانيس أبو سجاد;
+//     with ticket, a walk-over ticket at the liver cart (ready = the cart said «جاهزة»)
+//   - POST /demo/carts/open?key=corn|bagilla|zbeeb      the cart opens at its last spot (followers' «فتح» push)
+//   - POST /demo/carts/close?key=liver|falafel|tea      the cart closes
+{
+  const { FoodCartsService, FOOD_CARTS_REPOSITORY, seedDemoCarts, DEMO_CARTS } = await load('modules/food-carts/index.js');
+  const carts = app.get(FoodCartsService);
+  const cartsRepo = app.get(FOOD_CARTS_REPOSITORY);
+  // Carts are off at launch (`foodCarts.launched`); the demo opens them.
+  app.get((await load('modules/config/index.js')).ConfigService).setFoodCartsOpen('aziziyah', true);
+  const cartSeed = await seedDemoCarts(orgs, catalog, carts, { ownerId: 'demo-cart-owner' });
+  const cartOf = (key) => cartSeed.find((c) => c.key === key);
+  const cartActor = (personId) => ({ personId, sessionId: 'demo' });
+  const ownerOps = {
+    async open(key) {
+      const c = cartOf(key);
+      const d = DEMO_CARTS.find((x) => x.key === key);
+      const rec = await cartsRepo.get(c.cartId);
+      const spot = d.open ?? d.last ?? { lat: 32.905, lng: 45.06, label: 'ساحة المركز', facing: 180 };
+      return carts.openAt(rec, spot, null, 'demo-cart-owner');
+    },
+    async close(key) {
+      const c = cartOf(key);
+      await cartsRepo.update(c.cartId, { closedAt: new Date(), closesAt: null });
+      await orgs.setMerchantSettings(c.orgId, { closed: { reason: 'cart_closed', note: null, at: new Date() } });
+    },
+  };
+  app.use('/demo/carts', async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://x');
+      if (req.method !== 'POST') return json(res, 400, { error: 'POST /demo/carts?personId=…' });
+      const key = url.searchParams.get('key');
+      if (url.pathname === '/open' || url.pathname === '/close') {
+        if (!key || !cartOf(key)) return json(res, 400, { error: `key=${cartSeed.map((c) => c.key).join('|')}` });
+        await ownerOps[url.pathname.slice(1)](key);
+        return json(res, 200, { ok: true, cartId: cartOf(key).cartId });
+      }
+      const personId = url.searchParams.get('personId');
+      if (!personId) return json(res, 400, { error: 'POST /demo/carts?personId=…' });
+      const a = cartActor(personId);
+      await carts.follow(a, { cartId: cartOf('liver').cartId, on: true });
+      await carts.follow(a, { cartId: cartOf('corn').cartId, on: true });
+      const ticket = url.searchParams.get('ticket');
+      let walkup = null;
+      if (ticket === 'placed' || ticket === 'ready') {
+        // A re-run starts clean: this person's open tickets are cancelled first (the 3-ticket limit).
+        for (const w of await carts.myWalkups(a)) if (w.state === 'placed') await carts.cancelWalkup(a, { walkupId: w.id });
+        for (const w of await carts.myWalkups(a)) if (w.state === 'ready') await cartsRepo.updateWalkup(w.id, ['ready'], { state: 'expired' });
+        const liver = cartOf('liver');
+        walkup = await carts.placeWalkup(a, { cartId: liver.cartId, lines: [{ itemId: `${liver.orgId}_laffa`, qty: 2 }, { itemId: `${liver.orgId}_maalak`, qty: 1 }] });
+        if (ticket === 'ready') await cartsRepo.updateWalkup(walkup.id, ['placed'], { state: 'ready', readyAt: new Date() });
+      }
+      json(res, 200, { carts: cartSeed, walkupId: walkup?.id ?? null, code: walkup?.code ?? null });
     } catch (err) {
       json(res, 500, { error: String(err?.stack ?? err) });
     }

@@ -27,11 +27,16 @@ import { supportRouter } from './routers/support.js';
 import { safetyRouter } from './routers/safety.js';
 import { referralRouter } from './routers/referral.js';
 import { rideHabitsRouter } from './routers/ride-habits.js';
+import { parcelsRouter } from './routers/parcels.js';
+import { shoppingRouter } from './routers/shopping.js';
+import { foodCartsRouter } from './routers/food-carts.js';
 import { phoneBookingsRouter } from './routers/phone-booking.js';
 import { inboxRouter } from './routers/inbox.js';
 import { onCallRouter } from './routers/on-call.js';
 import { garageTaxiRouter } from './routers/garage-taxi.js';
 import { accessRouter } from './routers/waves.js';
+import { closuresRouter } from './routers/closures.js';
+import { peopleRouter } from './routers/people.js';
 import { publicProcedure, router, t } from './trpc.js';
 
 export type { AppContext, IdentityPort, Actor } from './trpc.js';
@@ -96,6 +101,8 @@ export const appRouter = router({
   /** Customer waves (W5): my place in line. */
   access: accessRouter,
   partner: partnerRouter,
+  closures: closuresRouter,
+  people: peopleRouter,
   merchant: merchantRouter,
   chat: chatRouter,
   tracking: trackingRouter,
@@ -109,6 +116,12 @@ export const appRouter = router({
   referral: referralRouter,
   // Joy J7d: favourite drivers, regular trips, dinner timed to the ride home.
   rideHabits: rideHabitsRouter,
+  // Parcels طرود (2026-10-12): send, the parcel's page, and her door page from the text link.
+  parcels: parcelsRouter,
+  // The shopping side «السوق» (2026-10-11): stalls, bakeries, «صمون كل يوم», shop mode.
+  shopping: shoppingRouter,
+  // Food carts «عربانات» (2026-10-11): the list, a cart's page, walk-over tickets and cart mode.
+  foodCarts: foodCartsRouter,
   // Taxi/tuktuk step 4 (v4): Console › حجز بالتلفون — a ride booked for a caller without the app.
   phoneBookings: phoneBookingsRouter,
   onCall: onCallRouter,

@@ -15,7 +15,9 @@ import type { RoutesPort } from './routes-io.js';
 import type { CustomerCatalogPort } from './catalog-io.js';
 import type { HouseholdsPort, InsightsPort, PlacesPort, WalletPort } from './account-io.js';
 import type { AccessPort } from './waves-io.js';
+import type { StatsPort } from './stats-io.js';
 import type { PartnerPort } from './partner-io.js';
+import type { ParcelsPort } from './parcels-io.js';
 import type { DependencyStatus } from './router-io.js';
 import { isStaffProcedure, type RequestLimitsPort } from './request-limits.js';
 import type { DriverAccountPort } from './driver-account-io.js';
@@ -23,10 +25,15 @@ import type { KhatPort } from './khat-io.js';
 import type { FleetPort } from './fleet-io.js';
 import type { OpsPort } from './ops-io.js';
 import type { MenuPhotosPort } from './menu-photos-io.js';
+import type { ShoppingPort } from './shopping-io.js';
+import type { FoodCartsPort } from './food-carts-io.js';
 import type { MerchantAdminPort } from './merchant-admin-io.js';
 import type { MerchantPort, PickupSpotsOpsPort } from './merchant-io.js';
+import type { MapEditorPort } from './map-editor-io.js';
+import type { MerchantSetupPort } from './merchant-setup-io.js';
 import type { TopUpPort } from './topup-io.js';
 import type { ChatPort } from './chat-io.js';
+import type { TripChatPort } from './trip-chat-io.js';
 import type { TrackingSharePort } from './share-io.js';
 import { LIVE_RULES, type LivePort } from './live-io.js';
 import type { NotifyPort } from './notify-io.js';
@@ -34,12 +41,17 @@ import type { OnCallServicePort } from './on-call-io.js';
 import type { InboxServicePort } from './inbox-io.js';
 import type { ControlRoomPort, ControlsPort } from './control-room-io.js';
 import type { ZoneChecksPort, ZonesPort } from './zones-io.js';
+import type { ClosuresPort } from './closures-io.js';
+import type { PeoplePort } from './people-io.js';
+import type { StoresOpsPort } from './store-setup-io.js';
 import type { SupportPort } from './support-io.js';
+import type { AccountClosePort } from './account-close-io.js';
 import type { SafetyPort } from './safety-io.js';
 import type { ReferralsPort } from './referral-io.js';
 import type { RideHabitsPort } from './ride-habits-io.js';
 import type { PhoneBookingPort } from './phone-booking-io.js';
 import type { GarageTaxiPort } from './garage-taxi-io.js';
+import type { DishPhotoReviewPort } from './dish-photos-io.js';
 import { transformer } from './transformer.js';
 
 // ───────────────────────── context ─────────────────────────
@@ -64,6 +76,8 @@ export interface AppContext {
   ops: OpsPort;
   /** Menu photo service (maps k3): merchant requests, field ops shoots, Console queue (`modules/menu-photos`). */
   menuPhotos: MenuPhotosPort;
+  /** p4: shop-uploaded dish photos waiting for the same-day look (`modules/ops` over `modules/catalog`). */
+  dishPhotos: DishPhotoReviewPort;
   /** Console › المطاعم: stores' pickup spots set by field ops (`modules/ops` over `modules/merchant`). */
   pickupSpots: PickupSpotsOpsPort;
   /** Merchant wave 2: menu, deals, money, insights, staff (`modules/merchant-admin`). */
@@ -84,8 +98,8 @@ export interface AppContext {
   places: PlacesPort;
   /** Customer wallet: balance, points, readable lines, top-up options (`modules/ledger`). */
   wallet: WalletPort;
-  /** Joy w6 «شهرك»: the caller's month from orders, rides, الرجعة and the ledger (`modules/insights`). */
-  insights: InsightsPort;
+  /** Joy w6 «شهرك» and «دفترك ويا درايفر» (stats): the caller's own record from orders, rides, الرجعة and the ledger (`modules/insights`). */
+  insights: InsightsPort & StatsPort;
   /** Wallet top-up with cash: customer codes, ops-agent / courier confirmation (`modules/topups`). */
   topups: TopUpPort;
   /** Households: members, limits, payer approvals (`modules/orgs`). */
@@ -96,8 +110,12 @@ export interface AppContext {
   partner: PartnerPort;
   /** Driver Merchant: my stores, the orders board, store status (`modules/merchant`). */
   merchant: MerchantPort;
+  /** «جهّز محلك»: a new shop's first-day setup (`modules/merchant`). */
+  merchantSetup: MerchantSetupPort;
   /** In-order chat and masked calls (`modules/chat`): party-checked on every call. */
   chat: ChatPort;
+  /** Baghdad/Kut chat between a rider and a run's or private car's driver, with the price cards (`modules/chat`, step 4c). */
+  tripChat: TripChatPort;
   /** Share-trip links (`modules/tracking`): signed, expiring, revocable; public read is coarse. */
   trackingShare: TrackingSharePort;
   /** Real-time channel (`modules/live`): stream tokens and the SSE event streams of `live.*`. */
@@ -114,8 +132,18 @@ export interface AppContext {
   controlRoom: ControlRoomPort;
   /** Support desk: persisted tickets, case view, refunds within limits (`modules/support`). */
   support: SupportPort;
+  /** Console: an admin closes a partner's or merchant's account and erases his identity (`modules/control-room`). */
+  accountClose: AccountClosePort;
   /** Zone outlines drawn in the Console (`modules/zones`). */
   zones: ZonesPort;
+  /** Console › محرر الخريطة: restaurants, landmarks, history and fixes inbox (`modules/map-editor`). */
+  mapEditor: MapEditorPort;
+  /** N20 «شارع مسدود»: streets closed for today (`modules/closures`). */
+  closures: ClosuresPort;
+  /** «الناس»: customer and driver profiles in the Console (`modules/console`). */
+  people: PeoplePort;
+  /** Console › المطاعم: store setup and menu for the owner (`modules/ops`). */
+  stores: StoresOpsPort;
   /** Drivers confirm zones at the end of a delivery (`modules/zones`, maps program SP3). */
   zoneChecks: ZoneChecksPort;
   /** SOS: the person's alert, the Console's incident desk (`modules/safety`). */
@@ -124,6 +152,12 @@ export interface AppContext {
   referrals: ReferralsPort;
   /** Joy J7d: favourite drivers, regular trips, dinner timed to the ride home (`modules/ride-habits`). */
   rideHabits: RideHabitsPort;
+  /** Parcels طرود: quote, send, the parcel's page, her door page (`modules/parcels`). */
+  parcels: ParcelsPort;
+  /** The shopping side «السوق»: stalls, bakeries, daily bread, shop mode (`modules/shopping`). */
+  shopping: ShoppingPort;
+  /** Food carts «عربانات»: list, follow, walk-over tickets, cart mode (`modules/food-carts`). */
+  foodCarts: FoodCartsPort;
   /** Taxi/tuktuk step 4 (v4): rides booked by phone from the Console (`modules/phone-booking`). */
   phoneBookings: PhoneBookingPort;
   /** Taxi ideas x2/x3/x4: taxis linked to a الرجعة seat (`modules/garage-taxi`). */

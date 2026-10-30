@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AccountCloseInput, AccountCloseView, CloseAccountInput, CloseAccountOutput, RequestDeletionInput, RequestDeletionOutput } from '../account-close-io.js';
 import { RoleGrant, TokenPair } from '../auth.js';
 import { DriverError } from '../errors.js';
 import {
@@ -7,6 +8,10 @@ import {
   ChangePhoneStartOutput,
   ConsentGuardianLinkInput,
   DevLastOtpInput,
+  EndAllSessionsInput,
+  EndAllSessionsOutput,
+  StagingTestCodeInput,
+  StagingTestCodeOutput,
   DevLastOtpOutput,
   GrantRoleInput,
   GuardianLinkView,
@@ -53,12 +58,28 @@ export const identityRouter = router({
       await ctx.identity.revokeRole(ctx.actor, input);
       return { ok: true as const };
     }),
+  /**
+   * «طلّعه من كل الأجهزة» (Console «الموظفين»): every session of the person ends on every device. The
+   * audit row lives with the Console's trail, so `ctx.controls` runs it (identity cannot write there).
+   */
+  endAllSessions: protectedProcedure(['admin']).input(EndAllSessionsInput).output(EndAllSessionsOutput).mutation(({ ctx, input }) => ctx.controls.endAllSessions(ctx.actor, input)),
   linkGuardian: protectedProcedure().input(LinkGuardianInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.linkGuardian(ctx.actor, input)),
   consentGuardianLink: protectedProcedure().input(ConsentGuardianLinkInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.consentGuardianLink(ctx.actor, input)),
   revokeGuardianLink: protectedProcedure().input(RevokeGuardianLinkInput).output(GuardianLinkView).mutation(({ ctx, input }) => ctx.identity.revokeGuardianLink(ctx.actor, input)),
   changePhone: router({
     start: protectedProcedure().input(ChangePhoneStartInput).output(ChangePhoneStartOutput).mutation(({ ctx, input }) => ctx.identity.changePhoneStart(ctx.actor, input)),
     confirm: protectedProcedure().input(ChangePhoneConfirmInput).output(MeView).mutation(({ ctx, input }) => ctx.identity.changePhoneConfirm(ctx.actor, input)),
+  }),
+  /** «احذف حسابي» (partner and merchant apps): opens a support case of kind `deletion`; asking again returns the open one. */
+  requestDeletion: protectedProcedure().input(RequestDeletionInput).output(RequestDeletionOutput).mutation(({ ctx, input }) => ctx.support.requestDeletion(ctx.actor, input)),
+  /**
+   * Console, admin only (docs/api/account-close.md): what stands in the way of closing a partner's or
+   * merchant's account, and the close itself — refused while he holds cash, has a job open or money is
+   * unsettled; erases his identity and his document, selfie and photo files, keeps the ledger and trips.
+   */
+  closeAccount: router({
+    check: protectedProcedure(['admin']).input(AccountCloseInput).output(AccountCloseView).query(({ ctx, input }) => ctx.accountClose.check(ctx.actor, input)),
+    close: protectedProcedure(['admin']).input(CloseAccountInput).output(CloseAccountOutput).mutation(({ ctx, input }) => ctx.accountClose.close(ctx.actor, input)),
   }),
   /** خطوط: a guardian registers a child (name into the vault, opaque childRef back). */
   registerChild: protectedProcedure().input(RegisterChildInput).output(RegisterChildOutput).mutation(({ ctx, input }) => ctx.identity.registerChild(ctx.actor, input)),
@@ -72,4 +93,12 @@ export const identityRouter = router({
       if (ctx.env.nodeEnv === 'production') throw new DriverError('dev_only');
       return ctx.identity.devLastOtp(input.phone);
     }),
+  /**
+   * Staging only: the fixed code of a staging test number, for the «عبّيه» button on the code screen.
+   * Null on every other host, for every other number, and for a test number that holds a staff role.
+   */
+  stagingTestCode: publicProcedure
+    .input(StagingTestCodeInput)
+    .output(StagingTestCodeOutput)
+    .query(({ ctx, input }) => ctx.identity.stagingTestCode(input.phone)),
 });

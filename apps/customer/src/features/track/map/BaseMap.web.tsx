@@ -1,26 +1,41 @@
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { StyleSheet, View } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import type { GeoJSONSource, Map as MlMap } from 'maplibre-gl';
-import { buildPlacedZonesGeoJSON, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
+import type { GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
+import { buildPlacedZoneCentroidsGeoJSON, buildPlacedZonesGeoJSON, MAP_COLORS_LIGHT, SOURCE } from '@driver/map';
 import { useLiteMode } from '@driver/ui';
 import { useApi } from '@/lib/api';
+import { MAP_GLYPHS_URL, MAP_TILES_URL } from '@/lib/env';
+import { GOLDEN_MAP } from './credit';
 import { CUSTOMER_MAP_STYLE } from './customerStyle';
+import { LIGHT_CHECK_MS, prepareGolden } from './golden-setup';
+import { bindHouseWindows } from './house-windows-web';
+import { ensureMaplibreCss } from './maplibre-css';
 import { LandmarkLayer } from './LandmarkLayer';
 import { SvgBase } from './SvgBase';
 import type { BaseMapProps } from './types';
 import { ZoneLayer } from './ZoneLayer';
 import { ZONE_SHAPES_QUERY } from './zone-query';
 
-/** Web: MapLibre GL with the `@driver/map` light style; the SVG base if WebGL is unavailable. */
+/**
+ * Web: MapLibre GL with the Golden hour map when its files are set up (`GOLDEN_MAP`), else the
+ * `@driver/map` light style; the SVG base if WebGL is unavailable.
+ */
 export function BaseMap(props: BaseMapProps) {
   const [failed, setFailed] = useState(false);
   // Low-data mode (maps program q2): the drawn town instead of downloading map tiles.
   const lite = useLiteMode();
   if (failed || lite) return <SvgBase {...props} />;
   return <MapLibreBase {...props} onFail={() => setFailed(true)} />;
+}
+
+type Zones = Parameters<typeof buildPlacedZonesGeoJSON>[0];
+/** The Console's neighbourhoods: their edges (both maps) and, on ours, one painted name per neighbourhood. */
+function setZones(m: MlMap, zones: Zones) {
+  m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zones));
+  // `GOLDEN_ZONE_NAMES_SOURCE`, spelled out: the Golden module loads lazily.
+  m.getSource<GeoJSONSource>('zone-names')?.setData(buildPlacedZoneCentroidsGeoJSON(zones));
 }
 
 export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
@@ -30,7 +45,7 @@ export const BASE_MAP_KIND: 'svg' | 'maplibre' = 'maplibre';
  * overlay (drawn from the same values) never drifts from the tiles, including during follow
  * animations. While the person drags or pinches, the map leads and writes the values instead.
  */
-function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, onFail }: BaseMapProps & { onFail: () => void }) {
+function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labelAvoid, coveredTop, coveredBottom, alwaysDay, onRoads, onFail }: BaseMapProps & { onFail: () => void }) {
   const api = useApi();
   const zonesQuery = useQuery(api.ops.zones.map.queryOptions({ cityId: 'aziziyah' }, ZONE_SHAPES_QUERY));
   const zonesRef = useRef(zonesQuery.data);
@@ -39,21 +54,33 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
   const mapRef = useRef<MlMap | null>(null);
   const driving = useRef(false);
   const labels = useSharedValue(1);
-  const cbs = useRef({ onUserGestureStart, onUserCamera, onFail });
-  cbs.current = { onUserGestureStart, onUserCamera, onFail };
+  // Our map paints the neighbourhood names itself (Console zones, #339); the original map still needs the drawn ones.
+  const [goldenNames, setGoldenNames] = useState(GOLDEN_MAP);
+  // Pin pickers (`alwaysDay`) draw no names: one would sit under the pin, and the sheet already says «المنطقة: …».
+  const cbs = useRef({ onUserGestureStart, onUserCamera, onFail, onRoads });
+  cbs.current = { onUserGestureStart, onUserCamera, onFail, onRoads };
 
   useEffect(() => {
     let cancelled = false;
     let raf = 0;
+    let lightTimer: ReturnType<typeof setInterval> | undefined;
+    let stopFallback: (() => void) | undefined;
     let map: MlMap | null = null;
-    import('maplibre-gl')
-      .then((mod) => {
+    Promise.all([import('maplibre-gl'), GOLDEN_MAP ? import('@driver/map/golden') : null, GOLDEN_MAP ? import('@driver/map/pieces/windows') : null])
+      .then(async ([mod, golden, win]) => {
         const maplibregl = (mod as unknown as { default?: typeof mod }).default ?? mod;
+        if (golden) await prepareGolden(maplibregl);
         if (cancelled || !container.current) return;
+        ensureMaplibreCss();
+        // Golden hour when its files are set up; the original map otherwise and as the fallback.
+        let light = golden?.resolveLight(alwaysDay ? { light: 'day' } : {}).light;
+        const goldenStyle = () =>
+          golden!.chooseMapStyle({ tilesUrl: MAP_TILES_URL, glyphsUrl: MAP_GLYPHS_URL, mode: 'customer', light: light!, zoneNames: !alwaysDay }).style as unknown as StyleSpecification;
+        let onGolden = !!golden;
         try {
           map = new maplibregl.Map({
             container: container.current,
-            style: CUSTOMER_MAP_STYLE,
+            style: golden ? goldenStyle() : CUSTOMER_MAP_STYLE,
             center: [cam.lng.value, cam.lat.value],
             zoom: cam.zoom.value,
             attributionControl: false,
@@ -68,8 +95,41 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
         }
         mapRef.current = map;
         const m = map;
-        m.once('load', () => {
-          if (zonesRef.current) m.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesRef.current));
+        // Windows, doors and roof walls on the houses up close (our map only).
+        const windows = golden && win ? bindHouseWindows(m, golden, win) : null;
+        // Every style load (first, fallback, new light): zones on the original map, palm pattern on ours.
+        m.on('style.load', () => {
+          if (zonesRef.current) setZones(m, zonesRef.current);
+          if (onGolden && golden && light) {
+            for (const [id, img] of Object.entries(golden.goldenImages(light))) {
+              if (m.hasImage(id)) m.updateImage(id, img);
+              else m.addImage(id, img);
+            }
+            windows?.add(light);
+          }
+        });
+        if (golden) {
+          // Our file failing or silent for 10 s → the original map, once (with the customer's layers only).
+          stopFallback = golden.fallBackToOriginalMap(m as never, {
+            onFallback: () => {
+              onGolden = false;
+              setGoldenNames(false);
+              clearInterval(lightTimer);
+              m.setStyle(CUSTOMER_MAP_STYLE);
+            },
+          });
+          lightTimer = setInterval(() => {
+            if (alwaysDay) return;
+            const next = golden.resolveLight().light;
+            if (!onGolden || next === light) return;
+            light = next;
+            m.setStyle(goldenStyle());
+          }, LIGHT_CHECK_MS);
+        }
+        // The streets on screen once the map settles, for a screen that asked (our map only).
+        m.on('idle', () => {
+          if (!onGolden || !golden || !cbs.current.onRoads) return;
+          cbs.current.onRoads(golden.roadsFromFeatures(m.querySourceFeatures(golden.GOLDEN_SOURCE, { sourceLayer: 'roads' })));
         });
         m.touchZoomRotate.disableRotation();
         m.keyboard.disableRotation();
@@ -112,6 +172,8 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      clearInterval(lightTimer);
+      stopFallback?.();
       map?.remove();
       mapRef.current = null;
     };
@@ -124,14 +186,14 @@ function MapLibreBase({ drawn, cam, size, onUserGestureStart, onUserCamera, labe
   }, [size.w, size.h]);
 
   useEffect(() => {
-    if (zonesQuery.data) mapRef.current?.getSource<GeoJSONSource>(SOURCE.zones)?.setData(buildPlacedZonesGeoJSON(zonesQuery.data));
+    if (zonesQuery.data && mapRef.current) setZones(mapRef.current, zonesQuery.data);
   }, [zonesQuery.data]);
 
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: MAP_COLORS_LIGHT.background }]}>
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
-      {/* MapLibre has no glyphs until the PMTiles basemap lands: neighbourhood names come from SVG. */}
-      <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
+      {/* Our map paints the neighbourhood names; the original map (the fallback) still gets them drawn in SVG. */}
+      {goldenNames || alwaysDay ? null : <ZoneLayer drawn={drawn} cam={cam} size={size} fills={false} labels opacity={labels} {...(labelAvoid ? { avoid: labelAvoid } : {})} />}
       {/* Landmarks (maps b3) over the tiles and under every pin the screen draws. */}
       <LandmarkLayer drawn={drawn} cam={cam} size={size} opacity={labels} coveredTop={coveredTop ?? 0} coveredBottom={coveredBottom ?? 0} {...(labelAvoid ? { avoid: labelAvoid } : {})} />
     </View>

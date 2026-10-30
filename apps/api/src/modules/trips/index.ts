@@ -1,5 +1,5 @@
 export { TripsModule } from './trips.module.js';
-export { TripsService, vehicleFits, largestVehicleClass, RIDE_AUTOCOMPLETE_AFTER_MS, TRIPS_QUEUE, TRIP_JOBS, toTripView } from './trips.service.js';
+export { TripsService, isBatchedSecond, vehicleFits, largestVehicleClass, RIDE_AUTOCOMPLETE_AFTER_MS, TRIPS_QUEUE, TRIP_JOBS, toTripView } from './trips.service.js';
 export type { CreateTripInput, TripOrderInput, DeviceStamp, TripTimerJob, PositionReport } from './trips.service.js';
 export { TripsRpc, TRIPS_ROLE_CHECKER, TRIPS_CHILD_NAMES, TRIPS_DRIVER_CARDS } from './trips.rpc.js';
 export type { RoleChecker, ChildNamesPort, DriverCardsPort } from './trips.rpc.js';
@@ -15,6 +15,7 @@ export type { TripEventEmitter, TripDomainEvent } from './events.adapter.js';
 export { DenyAllOfferCheck, ScriptedOfferCheck } from './offer-check.port.js';
 export type { TripOfferCheck, OfferCheckVerdict } from './offer-check.port.js';
 export { NoChangeToWallet } from './handover-check.port.js';
-export type { TripHandoverCheck, HandoverProblem } from './handover-check.port.js';
+export type { TripHandoverCheck, TripPickupGuard, HandoverProblem } from './handover-check.port.js';
+export type { DropoffGuardPort, DropoffGuardProblem } from './dropoff-guard.port.js';
 export { NoStartCodes } from './ride-safety.port.js';
 export type { TripStartCodes, TripRideNear } from './ride-safety.port.js';

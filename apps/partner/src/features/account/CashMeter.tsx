@@ -94,7 +94,7 @@ export function CashMeter({
         <Text testID={`${testID}-held`} variant="caption" color="textMuted" tabular>
           {held.kind === 'own'
             ? t('partner.held_split', { held: amountParam(heldIqd), own: amountParam(held.amountIqd) })
-            : t('partner.held_more', { held: amountParam(heldIqd), extra: amountParam(held.amountIqd) })}
+            : t('partner.held_more_v2', { held: amountParam(heldIqd), extra: amountParam(held.amountIqd) })}
         </Text>
       ) : null}
       {note ? <CashNote truth={c} testID={`${testID}-note`} /> : null}

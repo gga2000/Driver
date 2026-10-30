@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
-import { DeliveryPoint, DriverError, decodeDomainEvent, rideSearchStartsAt, type LatLng, type OrderType, type VehicleClass, type Vertical } from '@driver/contracts';
+import { DeliveryPoint, DriverError, VehicleClass, decodeDomainEvent, rideSearchStartsAt, type LatLng, type OrderType, type Vertical } from '@driver/contracts';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { OfferOrchestrator } from './offer.orchestrator.js';
 import type { TripOffersPort } from './ports.js';
@@ -12,6 +12,8 @@ export const DISPATCH_TRIP_SUBSCRIBER = 'dispatch:trip-events';
 export const DISPATCH_REDISPATCH_SUBSCRIBER = 'dispatch:redispatch';
 export const DISPATCH_READY_SUBSCRIBER = 'dispatch:order-ready';
 export const DISPATCH_RIDE_SUBSCRIBER = 'dispatch:ride-request';
+export const DISPATCH_RIDE_REMATCH_SUBSCRIBER = 'dispatch:ride-rematch';
+export const DISPATCH_COURIER_PLACED_SUBSCRIBER = 'dispatch:courier-placed';
 
 /** The ride part of `order.placed` (orders adds it for `type: 'ride'`). */
 const RidePlaced = z.object({
@@ -33,10 +35,35 @@ const RidePlaced = z.object({
   scheduledFor: z.string().nullable().optional(),
 });
 
+/**
+ * The courier part of `order.placed` for errands and parcels (orders adds `pickup` / `dropoff` for
+ * them): no merchant accepts these, so the placement is what starts the courier search.
+ */
+const CourierPlaced = z.object({
+  type: z.enum(['parcel', 'errand']),
+  cityId: z.string().min(1),
+  paymentMethod: z.string(),
+  totalIqd: z.number(),
+  minVehicleClass: VehicleClass.nullable().optional(),
+  /** The sender's door (parcel) or the shop / «قريب» place (errand): the first stop, never a merchant. */
+  pickup: DeliveryPoint.nullable().optional(),
+  dropoff: DeliveryPoint.nullable().optional(),
+  scheduledFor: z.string().nullable().optional(),
+});
+
+/** Order types dispatch starts on `order.placed` (no merchant accepts them), and their vertical. */
+const PLACED_VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { parcel: 'parcel', errand: 'errand' };
+
+/** `order.rematch_needed` for a ride its driver dropped before pickup: the same ride part, the driver kept off it. */
+const RideRematch = RidePlaced.omit({ scheduledFor: true }).extend({
+  riderId: z.string().min(1),
+  avoidDriverIds: z.array(z.string()).default([]),
+});
+
 export const AUTO_ASSIGN_EVENTS = ['order.accepted', 'order.auto_accepted'] as const;
 export const DISPATCH_TRIP_EVENTS = ['trip.accepted', 'trip.declined', 'trip.timed_out', 'trip.completed', 'trip.cancelled', 'stop.completed'] as const;
 
-/** Merchant order types dispatch auto-assigns, and the vertical whose policy applies. */
+/** Merchant order types dispatch auto-assigns on acceptance, and the vertical whose policy applies. */
 const VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { food: 'food', grocery_catalog: 'grocery' };
 
 /**
@@ -50,18 +77,27 @@ const VERTICAL_OF: Partial<Record<OrderType, Vertical>> = { food: 'food', grocer
  *   trip and the live request and changes nothing.
  * - `dispatch:redispatch` on `order.courier_unassigned` with `redispatch`: the courier's trip ended
  *   before pickup (taken off an unreachable courier, dropped, released): a new courier trip and a
- *   new request, timed to the promised ready time as on acceptance.
+ *   new request, timed to the promised ready time as on acceptance. A parcel / errand searches again
+ *   from its own pickup point (orders sends it; one without it, or already picked up, is not re-sent).
  * - `dispatch:ride-request` on `order.placed` for rides: builds the ride's trip and starts the
  *   taxi / tuktuk policy (smart broadcast), so a placed ride reaches drivers without a dispatcher. A
  *   ride booked for later (joy J7d) is offered to drivers the evening before (review #28) and otherwise waits until 30 min before; one that asked for the rider's
  *   favourite (l9) offers him the job alone for a minute first.
+ * - `dispatch:courier-placed` on `order.placed` for parcels and errands (no merchant accepts them, so
+ *   nobody else would): builds the courier trip from the order's own pickup (the sender's door, the
+ *   shop) to its drop-off and requests a courier now — no ready time, not hot. Food and grocery are
+ *   ignored here (they wait for `order.accepted`), and so is a parcel / errand booked for later:
+ *   nothing searches for those yet. A redelivery finds the live trip and the live request.
+ * - `dispatch:ride-rematch` on `order.rematch_needed`: the ride's driver dropped it (or a dispatcher
+ *   took it off him) before pickup — a new trip and a new search at once, never offered to him again.
  * - `dispatch:order-ready` on `order.ready`: a kitchen that finishes early starts the courier search
  *   now instead of at the timed start (the request moves its ready time to now).
  * - `dispatch:trip-events`: `trip.accepted` / `trip.declined` from the Partner app (or the echo of
  *   dispatch's own calls) settle the offer; `trip.timed_out` is the echo of dispatch's own timer
  *   (dispatch owns offer timers) and is ignored; `trip.completed` frees the courier (`jobFinished`);
  *   `trip.cancelled` withdraws offers and frees him (`cancel`); a completed pickup marks the job
- *   picked up for batching.
+ *   picked up for batching; a drop-off that took cash holds that cash against his cap until the
+ *   ledger posts it (`cashCollected`).
  */
 export class DispatchSubscribers {
   private readonly logger = new Logger(DispatchSubscribers.name);
@@ -78,6 +114,8 @@ export class DispatchSubscribers {
       events.subscribe(DISPATCH_REDISPATCH_SUBSCRIBER, ['order.courier_unassigned'], (e) => this.onCourierUnassigned(e)),
       events.subscribe(DISPATCH_READY_SUBSCRIBER, ['order.ready'], (e) => this.onOrderReady(e)),
       events.subscribe(DISPATCH_RIDE_SUBSCRIBER, ['order.placed'], (e) => this.onRidePlaced(e)),
+      events.subscribe(DISPATCH_COURIER_PLACED_SUBSCRIBER, ['order.placed'], (e) => this.onCourierPlaced(e)),
+      events.subscribe(DISPATCH_RIDE_REMATCH_SUBSCRIBER, ['order.rematch_needed'], (e) => this.onRideRematch(e)),
       events.subscribe(DISPATCH_TRIP_SUBSCRIBER, DISPATCH_TRIP_EVENTS, (e) => this.onTripEvent(e)),
     ];
   }
@@ -128,19 +166,68 @@ export class DispatchSubscribers {
     });
   }
 
+  /**
+   * A parcel or errand was placed: start the courier search now, from the order's own pickup point.
+   * Every other order type is ignored; one booked for later is left alone (no scheduled search for
+   * these yet). Idempotent through `requestCourier`.
+   */
+  async onCourierPlaced(e: Pick<PublishedEvent, 'orderId' | 'aggregateId' | 'payload'>): Promise<void> {
+    const parsed = CourierPlaced.safeParse(e.payload);
+    if (!parsed.success || parsed.data.scheduledFor) return;
+    const p = parsed.data;
+    const vertical = PLACED_VERTICAL_OF[p.type];
+    if (!vertical) return;
+    await this.requestCourier(
+      e.orderId ?? e.aggregateId,
+      { orderType: p.type, cityId: p.cityId, pickup: p.pickup ?? null, dropoff: p.dropoff ?? null, minVehicleClass: p.minVehicleClass ?? null, paymentMethod: p.paymentMethod, totalIqd: p.totalIqd, readyAt: undefined },
+      vertical,
+    );
+  }
+
+  /** A ride lost its driver before pickup: a fresh ride trip, searched now, without the driver who dropped it. */
+  async onRideRematch(e: Pick<PublishedEvent, 'orderId' | 'aggregateId' | 'payload'>): Promise<void> {
+    const parsed = RideRematch.safeParse(e.payload);
+    if (!parsed.success || !this.trips.createRideTrip) return;
+    const p = parsed.data;
+    const orderId = e.orderId ?? e.aggregateId;
+    const pickup = this.point(p.cityId, p.ride.pickup, orderId, 'pickup');
+    const dropoff = this.point(p.cityId, p.ride.dropoff ?? p.ride.pickup, orderId, 'dropoff');
+    const tripId = await this.trips.createRideTrip({ orderId, cityId: p.cityId, vertical: p.ride.vertical, pickup, dropoff, quoteId: p.ride.quoteId });
+    await this.orchestrator.request({
+      riderId: p.riderId,
+      ...(p.ride.familyPreferred ? { familyPreferred: true } : {}),
+      avoidDriverIds: p.avoidDriverIds,
+      orderId,
+      tripId,
+      cityId: p.cityId,
+      vertical: p.ride.vertical,
+      zoneId: pickup.zoneKey,
+      pickup: this.pin(p.cityId, pickup),
+      dropoffZoneId: dropoff.zoneKey,
+      cashIqd: p.paymentMethod === 'cash' ? p.totalIqd : 0,
+    });
+  }
+
   /** A courier trip ended before pickup and the order still needs one: build a new trip and request again. */
   async onCourierUnassigned(e: Pick<PublishedEvent, 'orderId' | 'aggregateId' | 'payload'>): Promise<void> {
     const p = decodeDomainEvent('order.courier_unassigned', e.payload);
     if (!p.redispatch) return;
-    await this.requestCourier(e.orderId ?? e.aggregateId, { ...p, readyAt: p.promisedReadyAt ?? undefined });
+    const orderId = e.orderId ?? e.aggregateId;
+    const placedVertical = PLACED_VERTICAL_OF[p.orderType];
+    if (placedVertical) {
+      // A parcel / errand searches again from its own pickup, never a stand-in point (or a merchant's).
+      if (!p.pickup) return this.logger.warn(`order ${orderId}: ${p.orderType} dropped without its pickup point, not re-dispatched`);
+      return this.requestCourier(orderId, { ...p, readyAt: undefined }, placedVertical);
+    }
+    await this.requestCourier(orderId, { ...p, readyAt: p.promisedReadyAt ?? undefined });
   }
 
   /** Idempotent: an order already on a live trip keeps it, and a live request for that trip is returned as is. */
   private async requestCourier(
     orderId: string,
     p: { orderType: OrderType; cityId: string; pickup: DeliveryPoint | null; dropoff: DeliveryPoint | null; minVehicleClass: VehicleClass | null; paymentMethod: string; totalIqd: number; readyAt: Date | undefined },
+    vertical: Vertical | undefined = VERTICAL_OF[p.orderType],
   ): Promise<void> {
-    const vertical = VERTICAL_OF[p.orderType];
     if (!vertical) return;
     const pickup = this.point(p.cityId, p.pickup, orderId, 'pickup');
     const dropoff = this.point(p.cityId, p.dropoff ?? p.pickup, orderId, 'dropoff');
@@ -159,7 +246,7 @@ export class DispatchSubscribers {
     });
   }
 
-  async onTripEvent(e: Pick<PublishedEvent, 'type' | 'tripId' | 'aggregateId' | 'actorId' | 'payload'>): Promise<void> {
+  async onTripEvent(e: Pick<PublishedEvent, 'type' | 'tripId' | 'aggregateId' | 'actorId' | 'payload'> & Partial<Pick<PublishedEvent, 'orderId'>>): Promise<void> {
     const tripId = e.tripId ?? e.aggregateId;
     switch (e.type) {
       case 'trip.accepted':
@@ -175,6 +262,7 @@ export class DispatchSubscribers {
       case 'stop.completed': {
         const p = decodeDomainEvent('stop.completed', e.payload);
         if (p.stopType === 'pickup' || p.stopType === 'shop') await this.orchestrator.markPickedUp(tripId);
+        else if (p.stopType === 'dropoff' && p.cashCollectedIqd) await this.orchestrator.cashCollected(tripId, p.stopId, p.cashCollectedIqd, e.orderId);
         return;
       }
       default:

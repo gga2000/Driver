@@ -50,7 +50,14 @@ function potDish(p: TodayPot): CatalogSearchDish {
 }
 
 /**
- * Pots first (the day's real cooking), then the hour's dishes. Home shows each dish once and each
+ * Where the day's pots go: first at lunch and dinner (the day's real cooking), after the hour's
+ * dishes at other hours (a pot of بامية shouldn't lead breakfast, home roast 4), and not at all when
+ * the section promises something else (sweets after iftar).
+ */
+export type PotPlace = 'first' | 'after' | 'none';
+
+/**
+ * Pots first (the day's real cooking, `potPlace`), then the hour's dishes. Home shows each dish once and each
  * picture once: a second kitchen's «تمن وقيمة», or a dish whose stand-in photo is already showing,
  * stays on its menu; so does a dish with no picture at all (`pictureOf` null), since a drawing that
  * big looks cheap. The gallery takes one dish per kitchen before any kitchen's second, so swiping
@@ -69,24 +76,35 @@ export function hourFood(input: {
   pictureOf?: (d: CatalogSearchDish) => string | number | null;
   /** Pictures already on the page (the usual card's dish): a dish that would show one is left out. */
   taken?: readonly (string | number)[];
+  /** Where the town's pots go (`potPlace`): first at meal times, after the hour's dishes, or not at all. */
+  potPlace?: PotPlace;
+  /** Only these kitchens' food (the last hours before iftar: the ones that still make it before the adhan). */
+  only?: ReadonlySet<string> | null;
 }): { slides: HourDish[]; more: HourDish[] } {
   const byId = new Map((input.picks ?? []).map((d) => [d.id, d]));
-  const all: HourDish[] = [];
+  const place = input.potPlace ?? 'first';
+  const potRows: HourDish[] = [];
+  const pickRows: HourDish[] = [];
   const seen = new Set<string>();
-  for (const p of livePots(input.pots, input.now)) {
-    if (seen.has(p.dish.id)) continue;
-    seen.add(p.dish.id);
-    const pick = byId.get(p.dish.id);
-    all.push({ dish: pick ? { ...pick, photoUrl: pick.photoUrl ?? p.dish.photoUrl } : potDish(p), pot: { until: p.until }, line: p.note ?? pick?.description ?? null });
-  }
+  const addPots = () => {
+    for (const p of livePots(input.pots, input.now)) {
+      if (seen.has(p.dish.id)) continue;
+      seen.add(p.dish.id);
+      const pick = byId.get(p.dish.id);
+      potRows.push({ dish: pick ? { ...pick, photoUrl: pick.photoUrl ?? p.dish.photoUrl } : potDish(p), pot: { until: p.until }, line: p.note ?? pick?.description ?? null });
+    }
+  };
+  if (place === 'first') addPots();
   const starts = (input.words ?? []).map(plain);
   for (const d of input.picks ?? []) {
     if (seen.has(d.id) || !d.available || !d.restaurantOpen) continue;
     // «كليچة مشكلة» is not lunch because it holds «مشكّل»: only a dish that starts with an hour word.
     if (starts.length > 0 && !starts.some((w) => plain(d.name).startsWith(w))) continue;
     seen.add(d.id);
-    all.push({ dish: d, pot: null, line: d.description });
+    pickRows.push({ dish: d, pot: null, line: d.description });
   }
+  if (place === 'after') addPots();
+  const all = place === 'first' ? [...potRows, ...pickRows] : [...pickRows, ...potRows];
 
   const front = all.filter((h) => h.dish.restaurantId !== input.later);
   const back = all.filter((h) => h.dish.restaurantId === input.later);
@@ -94,6 +112,7 @@ export function hourFood(input: {
   const pictures = new Set<string | number>(input.taken ?? []);
   const ordered: HourDish[] = [];
   for (const h of [...front, ...back]) {
+    if (input.only && !input.only.has(h.dish.restaurantId)) continue;
     const name = plain(h.dish.name);
     const picture = input.pictureOf ? input.pictureOf(h.dish) : h.dish.id;
     if (picture === null || names.has(name) || pictures.has(picture)) continue;

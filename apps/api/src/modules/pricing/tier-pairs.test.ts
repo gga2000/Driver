@@ -34,11 +34,17 @@ describe('Aziziyah config — 34 seed zones', () => {
   it('dispatch timing per plan Step 5', () => {
     const taxi = aziziyah.dispatch.taxi!;
     expect(taxi.waves).toEqual([
-      { size: 3, radiusKm: 1.5, seconds: 15 },
-      { size: 5, radiusKm: 3, seconds: 15 },
+      { size: 3, radiusKm: 1.5, seconds: 25 },
+      { size: 5, radiusKm: 3, seconds: 25 },
       { size: 'all', seconds: 30 },
     ]);
-    expect(taxi.rebroadcastAfterSec).toBe(60);
+    expect(taxi.acceptTimeoutSec).toBe(25);
+    expect(taxi.rebroadcastAfterSec).toBe(80);
+    expect(aziziyah.dispatch.tuktuk!.waves).toEqual(taxi.waves);
+    expect(aziziyah.dispatch.tuktuk!.rebroadcastAfterSec).toBe(80);
+    // Parcels keep the 15 s waves and the 60 s red card.
+    expect(aziziyah.dispatch.parcel!.waves?.map((w) => w.seconds)).toEqual([15, 15, 30]);
+    expect(aziziyah.dispatch.parcel!.rebroadcastAfterSec).toBe(60);
     expect(taxi.rebroadcastCompensationIqd).toBe(500);
     expect(taxi.customerFreeCancelAfterSec).toBe(180);
     expect(taxi.rankWeights).toEqual({ distance: 40, tier: 30, load: 20, vehicleFit: 10 });

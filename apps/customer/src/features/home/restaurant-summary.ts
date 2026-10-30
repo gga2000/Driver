@@ -35,6 +35,8 @@ export interface RestaurantSummary {
   tags: string[];
   /** Live merchant deals (badges); the list's "عروض" filter. */
   dealCount: number;
+  /** «مميّز»: on the featured tier; the stamp by its name, and one sits first in the list (`featuredFirst`). */
+  featured?: boolean;
   /** Opening hours and pause windows (joy s3: the «غدا الجمعة» slot). */
   hours?: Array<{ dow: number; start: string; end: string }>;
   pauses?: Array<{ dow: number; start: string; end: string }>;
@@ -63,6 +65,7 @@ export function toSummary(card: RestaurantCard, favourite: boolean): RestaurantS
     favourite,
     tags: [...card.tags],
     dealCount: card.deals?.length ?? 0,
+    ...(card.featured ? { featured: true } : {}),
     hours: [...(card.hours ?? [])],
     pauses: [...(card.pauses ?? [])],
   };

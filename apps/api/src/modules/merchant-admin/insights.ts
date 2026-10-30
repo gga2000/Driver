@@ -1,5 +1,5 @@
 import { DisputeKind, type MerchantDispute, type MerchantInsights, type Order } from '@driver/contracts';
-import { localDow, localHour } from '../../shared/local-time.js';
+import { localDateKey, localDow, localHour, localMinutes } from '../../shared/local-time.js';
 
 const MIN_MS = 60_000;
 /** "جاهز" within this of the promised time still counts as on time. */
@@ -38,6 +38,8 @@ export function composeInsights(input: { merchantOrgId: string; from: Date; to: 
   let onTime = 0;
   let offered = 0;
   let rejected = 0;
+  let ratingSum = 0;
+  let ratingCount = 0;
   const peak = Array.from({ length: 24 }, () => 0);
   const grid = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
   const sold = new Map<string, { qty: number; orders: number; salesIqd: number }>();
@@ -67,6 +69,8 @@ export function composeInsights(input: { merchantOrgId: string; from: Date; to: 
     }
     const food = o.rating?.food;
     if (!food) continue;
+    ratingSum += food;
+    ratingCount += 1;
     // The food score and its text go to the order's main dish (largest line), not the drinks and
     // sides that rode along — otherwise a pickle inherits every complaint about the liver wrap.
     const main = [...o.lines].filter((l) => l.catalogItemId).sort((a, b) => b.qty * (b.unitPriceIqd ?? 0) - a.qty * (a.unitPriceIqd ?? 0))[0];
@@ -106,6 +110,7 @@ export function composeInsights(input: { merchantOrgId: string; from: Date; to: 
       .sort((a, b) => b.salesIqd - a.salesIqd || b.qty - a.qty || a.itemId.localeCompare(b.itemId))
       .slice(0, BEST_SELLERS),
     orders: input.orders.length,
+    foodRating: { avg: ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 10) / 10 : null, count: ratingCount },
   };
 }
 
@@ -146,4 +151,36 @@ export function defaultOutcome(kind: string, order: Order): MerchantDispute['def
 export function disputeKindOf(raw: string): DisputeKind {
   const parsed = DisputeKind.safeParse(raw);
   return parsed.success ? parsed.data : 'other';
+}
+
+/** m4: a dish needs this many sold-out days in the window before the kitchen is told it keeps running out. */
+export const SOLD_OUT_HABIT_DAYS = 3;
+
+/**
+ * m4 «يخلص عادةً»: from the store's `item.sold_out` events, the dishes that ran out for the day on
+ * at least {@link SOLD_OUT_HABIT_DAYS} Baghdad days, most days first (top 3), each with the median
+ * local time it ran out (its first sell-out of each day). Turning a dish off by hand (`until` null)
+ * is not running out, so it doesn't count.
+ */
+export function soldOutHabits(events: readonly { occurredAt: Date; payload: Record<string, unknown> }[], itemNames: ReadonlyMap<string, string>): NonNullable<MerchantInsights['soldOutHabits']> {
+  const firstByItemDay = new Map<string, Map<string, number>>();
+  for (const e of events) {
+    const itemId = typeof e.payload.itemId === 'string' ? e.payload.itemId : null;
+    if (!itemId || e.payload.until == null) continue;
+    const day = localDateKey(e.occurredAt);
+    const minute = localMinutes(e.occurredAt);
+    const days = firstByItemDay.get(itemId) ?? new Map<string, number>();
+    const seen = days.get(day);
+    if (seen === undefined || minute < seen) days.set(day, minute);
+    firstByItemDay.set(itemId, days);
+  }
+  const out: NonNullable<MerchantInsights['soldOutHabits']> = [];
+  for (const [itemId, days] of firstByItemDay) {
+    if (days.size < SOLD_OUT_HABIT_DAYS) continue;
+    const minutes = [...days.values()].sort((a, b) => a - b);
+    const mid = Math.floor(minutes.length / 2);
+    const usualMinute = minutes.length % 2 === 1 ? minutes[mid]! : Math.round((minutes[mid - 1]! + minutes[mid]!) / 2);
+    out.push({ itemId, nameAr: itemNames.get(itemId) ?? null, days: days.size, usualMinute });
+  }
+  return out.sort((a, b) => b.days - a.days || a.usualMinute - b.usualMinute).slice(0, 3);
 }

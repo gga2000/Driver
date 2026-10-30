@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ActivityEntry } from '@driver/contracts';
 import { translate } from '@/lib/i18n-core';
 import { clock12 } from '@/lib/time';
+import { visibleText } from '@/lib/order-no';
 import { ACTIVITY_COLLAPSED, activityRows, addDismissed, adviceLine, dayCardKey, dayFacts, dayTitleKey, orderWhoLine, parseDismissed, showDayCard, visibleActivity } from './logic';
 
 const base = { merchantOrgId: 'org_1', localDate: '2026-10-05', due: true, reason: 'closed' as const, orders: 42, missed: 0, onTimeShare: 0.91, netIqd: 512_000 };
@@ -46,7 +47,7 @@ describe('end of day card (S-M6)', () => {
   });
 });
 
-describe('«مين سوّى شنو» (owner only)', () => {
+describe('«منو سوّى شنو» (owner only)', () => {
   const ar = (key: Parameters<typeof translate>[0], params?: Record<string, string | number>) => translate(key, params, 'ar-IQ');
   // 9:41 Baghdad = 06:41Z
   const at = (hhmm: string) => new Date(`2026-10-05T${hhmm}:00+03:00`);
@@ -66,7 +67,7 @@ describe('«مين سوّى شنو» (owner only)', () => {
       ],
       ar,
     );
-    expect(rows.map((r) => r.line)).toEqual([
+    expect(rows.map((r) => visibleText(r.line))).toEqual([
       `منتظر · رفض #6347 · ${clock12(at('09:41'))}`,
       `منتظر · رفض #6347 (زحمة) · ${clock12(at('21:05'))}`,
       `منتظر · رفض #6347 (الغاز خلص) · ${clock12(at('09:41'))}`,

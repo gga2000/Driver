@@ -214,9 +214,9 @@ export function cachedIdentityRepository(inner: IdentityRepository, cache: AuthC
       return row;
     },
     revokeSessionsOf: async (personId, now, tx) => {
-      const n = await inner.revokeSessionsOf(personId, now, tx);
+      const ids = await inner.revokeSessionsOf(personId, now, tx);
       await dropAfter(tx, { person: personId });
-      return n;
+      return ids;
     },
     upsertRole: async (input, tx) => {
       const out = await inner.upsertRole(input, tx);
@@ -232,6 +232,11 @@ export function cachedIdentityRepository(inner: IdentityRepository, cache: AuthC
       const n = await inner.setRolesFrozen(personId, kinds, frozenAt, tx);
       await dropAfter(tx, { person: personId });
       return n;
+    },
+    closeAccount: async (personId, now, tx) => {
+      const closed = await inner.closeAccount(personId, now, tx);
+      await dropAfter(tx, { person: personId });
+      return closed;
     },
   };
   return new Proxy(inner, {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { ThemeColorKey } from '@driver/design-tokens';
 import { Button, Icon, ModalSheet, Text, useTheme, useToast, type IconName } from '@driver/ui';
-import { pluralKey } from '@driver/i18n';
+import { pluralKey, type MessageKey } from '@driver/i18n';
 import { playTestSound } from '@/lib/alert';
 import { useT, type TFn } from '@/lib/i18n';
 import { askGps, openSettings } from '@/lib/readiness-probe';
@@ -30,74 +30,86 @@ function labelOf(item: ReadyItem, t: TFn): string {
   return t(`partner.ready_${item.key}` as `partner.ready_${Exclude<ReadyKey, 'battery'>}`);
 }
 
+/** The short line for the one thing that needs a look (check-up item 3): the sheet keeps the full sentence. */
+const SHORT: Record<string, MessageKey> = {
+  'partner.ready_gps_ask': 'partner.ready_line_gps_ask',
+  'partner.ready_gps_off': 'partner.ready_line_gps_off',
+  'partner.ready_net_off': 'partner.ready_line_net_off',
+  'partner.ready_sound_off': 'partner.ready_line_sound_off',
+  'partner.ready_push_off': 'partner.ready_line_push_off',
+  'partner.ready_battery_low': 'partner.ready_line_battery_low',
+  'partner.ready_battery_saver': 'partner.ready_line_battery_saver',
+};
+
+const FIX_LABEL = { gps: 'partner.ready_fix_gps', settings: 'partner.ready_fix_settings', sound: 'partner.ready_fix_sound', retry: 'partner.ready_fix_retry' } as const;
+
 /**
- * "جاهز تستلم طلبات" above the start slide (UI/UX audit S-8, every shift; dashboard idea h6): when all is
- * well, one quiet line «كلشي جاهز: GPS، النت، الصوت · 82%»; when something isn't, four big chips — GPS ·
- * النت · الصوت · البطارية — with only the bad ones in colour (never a ✓ glyph: IBM Plex Sans Arabic has
- * none). The whole row is one 44-px+ target: it opens a sheet where every item that needs a look says
- * why in a sentence and carries its fix (allow location, open settings, play the sound).
+ * "جاهز تستلم طلبات" above the start slide (UI/UX audit S-8, every shift; check-up item 3, Ali 2026-10-09):
+ * when all is well, nothing at all. When something isn't, ONE line that names it — «الموقع مطفي» — in the
+ * worst item's colour, with its fix button right there (allow location, open settings, play the sound) and
+ * «+1» when more than one thing needs a look. Tapping the line opens the sheet with every item and why.
  */
 export function ReadinessRow({ enabled = true }: { enabled?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const r = useReadiness(enabled);
   const [open, setOpen] = useState(false);
-  const ok = r.issues === 0;
-  const title = ok ? t('partner.ready_title') : t(pluralKey('partner.ready_issues', r.issues), { n: r.issues });
-  const spoken = r.items.map((i) => t(i.tone === 'ok' ? 'partner.ready_ok_a11y' : 'partner.ready_bad_a11y', { item: labelOf(i, t) })).join('، ');
-  // h6: all good = one quiet line; anything wrong = the four chips, only the bad ones in colour.
-  const open_ = () => {
-    theme.haptic('selection');
-    r.recheck();
-    setOpen(true);
+  const [fixing, setFixing] = useState(false);
+  const toast = useToast();
+  if (r.issues === 0) return null;
+  const title = t(pluralKey('partner.ready_issues', r.issues), { n: r.issues });
+  const worst = [...r.items].sort((a, b) => rank(b.tone) - rank(a.tone))[0]!;
+  const tone = TONE[worst.tone];
+  const line = worst.problem ? t(SHORT[worst.problem] ?? worst.problem, { percent: pct(worst.percent ?? 0) }) : labelOf(worst, t);
+  const more = r.issues - 1;
+  const fix = async () => {
+    setFixing(true);
+    try {
+      await runFix(worst, r, () => toast.show({ message: t('partner.test_sound_blocked'), tone: 'warning' }));
+    } finally {
+      setFixing(false);
+    }
   };
-  const battery = r.items.find((i) => i.key === 'battery');
   return (
     <>
       <Pressable
         testID="readiness"
         accessibilityRole="button"
-        accessibilityLabel={`${title}. ${spoken}`}
-        onPress={open_}
-        style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', borderRadius: theme.radius.lg, opacity: pressed ? 0.8 : 1 })}
+        accessibilityLabel={`${line}. ${title}`}
+        onPress={() => {
+          theme.haptic('selection');
+          r.recheck();
+          setOpen(true);
+        }}
+        style={({ pressed }) => ({ minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingVertical: theme.space[2], paddingHorizontal: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors[tone.bg], opacity: pressed ? 0.85 : 1 })}
       >
-        {ok ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[1] }}>
-            <Icon name="check" size={18} color="successText" strokeWidth={2.6} />
-            <Text testID="readiness-title" variant="footnote" weight={600} color="text" style={{ flex: 1 }}>
-              {t('partner.ready_all_ok')}
-            </Text>
-            {battery?.percent != null ? (
-              <Text variant="footnote" weight={600} color="textMuted" tabular>
-                {pct(battery.percent)}
-              </Text>
-            ) : null}
-          </View>
-        ) : (
-          <View style={{ gap: theme.space[2] }}>
-            <Text testID="readiness-title" variant="label" weight={700} color="warningText">
-              {title}
-            </Text>
-            <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
-              {r.items.map((i) => (
-                <View
-                  key={i.key}
-                  testID={`ready-${i.key}`}
-                  style={{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 2, borderRadius: 14, backgroundColor: theme.colors[TONE[i.tone].bg], borderWidth: i.tone === 'ok' ? 0 : 1.5, borderColor: theme.colors[TONE[i.tone].fg] }}
-                >
-                  <Icon name={iconOf(i)} size={18} color={TONE[i.tone].fg} strokeWidth={2.2} />
-                  <Text variant="caption" weight={700} color={TONE[i.tone].fg} tabular numberOfLines={1}>
-                    {i.key === 'battery' ? pct(i.percent ?? 0) : t(`partner.ready_chip_${i.key}` as `partner.ready_chip_${Exclude<ReadyKey, 'battery'>}`)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
+        <Icon name={iconOf(worst)} size={20} color={tone.fg} strokeWidth={2.2} />
+        <Text testID="readiness-title" variant="label" weight={700} color={tone.fg} style={{ flex: 1 }}>
+          {line}
+        </Text>
+        {more > 0 ? (
+          <Text testID="readiness-more" variant="caption" weight={700} color={tone.fg} tabular>
+            {t('partner.ready_more', { n: more })}
+          </Text>
+        ) : null}
+        {worst.fix ? (
+          <Button testID={`ready-line-fix-${worst.key}`} size="sm" variant={worst.tone === 'bad' ? 'primary' : 'secondary'} label={t(FIX_LABEL[worst.fix])} loading={fixing} onPress={() => void fix()} style={{ minHeight: 44 }} />
+        ) : null}
       </Pressable>
       <ReadinessSheet visible={open} onClose={() => setOpen(false)} title={title} items={r.items} onFixed={r.recheck} setGps={r.setGps} setSound={r.setSound} />
     </>
   );
+}
+
+/** Runs one item's fix (shared by the line's button and the sheet). */
+async function runFix(item: ReadyItem, r: Pick<ReturnType<typeof useReadiness>, 'setGps' | 'setSound' | 'recheck'>, soundBlocked: () => void) {
+  if (item.fix === 'gps') r.setGps(await askGps());
+  else if (item.fix === 'settings') await openSettings();
+  else if (item.fix === 'sound') {
+    if (await playTestSound()) r.setSound('ready');
+    else soundBlocked();
+  }
+  r.recheck();
 }
 
 function ReadinessSheet({
@@ -125,14 +137,7 @@ function ReadinessSheet({
   const fix = async (item: ReadyItem) => {
     setBusy(item.key);
     try {
-      if (item.fix === 'gps') setGps(await askGps());
-      else if (item.fix === 'settings') await openSettings();
-      else if (item.fix === 'sound') {
-        const played = await playTestSound();
-        if (!played) toast.show({ message: t('partner.test_sound_blocked'), tone: 'warning' });
-        else setSound('ready');
-      }
-      onFixed();
+      await runFix(item, { setGps, setSound, recheck: onFixed }, () => toast.show({ message: t('partner.test_sound_blocked'), tone: 'warning' }));
     } finally {
       setBusy(null);
     }
@@ -162,7 +167,7 @@ function ReadinessSheet({
                   testID={`ready-fix-${i.key}`}
                   size="sm"
                   variant={i.tone === 'bad' ? 'primary' : 'secondary'}
-                  label={t(i.fix === 'gps' ? 'partner.ready_fix_gps' : i.fix === 'settings' ? 'partner.ready_fix_settings' : i.fix === 'sound' ? 'partner.ready_fix_sound' : 'partner.ready_fix_retry')}
+                  label={t(FIX_LABEL[i.fix])}
                   icon={i.fix === 'sound' ? 'volume' : i.fix === 'gps' ? 'location-arrow' : i.fix === 'retry' ? 'refresh' : undefined}
                   loading={busy === i.key}
                   onPress={() => void fix(i)}

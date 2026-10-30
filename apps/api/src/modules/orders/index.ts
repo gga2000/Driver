@@ -7,7 +7,7 @@ export { MERCHANT_ORDER_TRANSITIONS, COURIER_ORDER_TRANSITIONS, RIDE_ORDER_TRANS
 export { ORDERS_RULES, ORDER_CAPS, CITY_PAUSE_WINDOWS, DEFAULT_TIMEZONE, commissionPctOf } from './orders.config.js';
 export { InMemoryMerchantDirectory, MERCHANT_DIRECTORY } from './merchants.port.js';
 export type { MerchantDirectory, MerchantProfile } from './merchants.port.js';
-export { InMemoryOrdersRepository, ORDERS_REPOSITORY } from './orders.repository.js';
+export { InMemoryOrdersRepository, MISSED_STATES, ORDERS_REPOSITORY } from './orders.repository.js';
 export type { OrderSearchFilter } from './orders.repository.js';
 export { isLate, LATE_DELIVERY_MIN, LATE_PICKUP_GRACE_MIN, ACTIVE_ORDER_STATES } from './history.js';
 export { PARTICIPANT_RESOLVER, allocatePoints, orderPoints } from './participants.js';
@@ -19,7 +19,7 @@ export type { OrderEventEmitter, OrderDomainEvent, TripEventEnvelope } from './e
 export type { PauseWindow } from './pause.js';
 export { activePauseWindow } from './pause.js';
 export { busyExtraMinutes } from './busy.js';
-export { ORDERS_CATALOG, priceLines } from './catalog.port.js';
+export { ORDERS_CATALOG, ORDERS_UPLOADS, ORDERS_WEIGHED_ITEMS, priceLines, type OrdersUploadsPort, type WeighedItemsPort } from './catalog.port.js';
 export type { CatalogPort, CatalogItemView } from './catalog.port.js';
 export { ORDERS_PROMOTIONS, NoPromotions } from './promotions.port.js';
 export type { PromotionsPort, PromotionQuery, ResolvedPromotion, MerchantDealQuery, MerchantDealResult } from './promotions.port.js';
@@ -40,6 +40,8 @@ export { newStartCode, startCodeForNewOrder } from './start-code.js';
 export { OrdersStaffService, ORDERS_STAFF_PORTS, PLATFORM_FAILURE_FEE } from './orders.staff.js';
 export type { OrdersStaffPorts, OrderEventLog, StaffLedgerPort, StaffAuditPort } from './orders.staff.js';
 export { OrdersStaffJob, ORDERS_STAFF_SWEEP_MS } from './orders.staff.job.js';
+export { RefundApprovalsService, REFUND_APPROVALS_REPOSITORY, InMemoryRefundApprovalsRepository, PrismaRefundApprovalsRepository } from './refund-approvals.js';
+export type { RefundApprovalRecord, RefundApprovalsRepository, RefundApprovalKind } from './refund-approvals.js';
 export { CashLimits, CASH_LIMITS } from './cash-limits.js';
 export { ORDER_OUTCOME_RULES, DEFAULT_ORDER_OUTCOME_RULES, DISPUTE_OUTCOMES, outcomeRules, outcomeRulesFromEnv } from './outcomes.config.js';
 export type { OrderOutcomeRules, DisputeOutcome, CookedFoodPayer } from './outcomes.config.js';

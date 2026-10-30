@@ -73,6 +73,7 @@ import {
   Textarea,
   useToast,
 } from './ui';
+import { LaunchCard } from './launch-card';
 import { ScreensCard } from './screens-card';
 import { SeasonsCard } from './seasons-card';
 import { UnmetSearchesCard } from './unmet-searches-card';
@@ -169,6 +170,7 @@ export function ControlsPage() {
       )}
       {view.data && (
         <div className="mt-6 space-y-5">
+          <LaunchCard signedIn={signedIn} canOpen={roles.has('admin')} canClose={canSwitch} />
           <ScreensCard signedIn={signedIn} canShow={roles.has('admin')} canOff={canSwitch} />
           <SeasonsCard signedIn={signedIn} canEdit={roles.has('admin')} />
           <UnmetSearchesCard signedIn={signedIn} />
@@ -1502,17 +1504,45 @@ export function SwitchDialog({
   const [edited, setEdited] = useState(false);
   const [expiry, setExpiry] = useState<ExpiryKey>('1h');
   const [hold, setHold] = useState(false);
-  const save = useMutation(
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: trpc.ops.controls.view.queryKey() });
+    void qc.invalidateQueries({ queryKey: trpc.ops.controls.audit.queryKey() });
+  };
+  // o8: a stop can be taken back for 10 s; the undo is a restore with its own reason, so both stay audited.
+  const undo = useMutation(
     trpc.ops.controls.setSwitch.mutationOptions({
       onSuccess: (s) => {
-        void qc.invalidateQueries({ queryKey: trpc.ops.controls.view.queryKey() });
-        void qc.invalidateQueries({ queryKey: trpc.ops.controls.audit.queryKey() });
-        toast({
-          title: s.active
-            ? t('console.ctl_toast_stopped', { name: s.label_ar })
-            : t('console.ctl_toast_restored', { name: s.label_ar }),
-          tone: 'ok',
-        });
+        refresh();
+        toast({ title: t('console.ctl_toast_restored', { name: s.label_ar }), tone: 'ok' });
+      },
+      onError: (e) => toast({ title: errorText(e), tone: 'bad' }),
+    }),
+  );
+  const save = useMutation(
+    trpc.ops.controls.setSwitch.mutationOptions({
+      onSuccess: (s, vars) => {
+        refresh();
+        toast(
+          s.active
+            ? {
+                title: t('console.ctl_toast_stopped', { name: s.label_ar }),
+                tone: 'ok',
+                durationMs: 10_000,
+                action: {
+                  label: t('console.undo'),
+                  onClick: () =>
+                    undo.mutate({
+                      cityId: vars.cityId,
+                      scope: vars.scope,
+                      key: vars.key,
+                      ...(vars.vertical ? { vertical: vars.vertical } : {}),
+                      active: false,
+                      reason: t('console.ctl_undo_reason'),
+                    }),
+                },
+              }
+            : { title: t('console.ctl_toast_restored', { name: s.label_ar }), tone: 'ok' },
+        );
         onClose();
       },
     }),

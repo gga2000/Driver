@@ -33,7 +33,7 @@ describe('rides booked for later (joy J7d)', () => {
     await h.advance(20 * 60 - 1);
     expect(h.trips.offers).toEqual([]);
     await h.advance(1);
-    expect(h.trips.offers[0]).toEqual({ tripId: 't1', driverIds: ['a1', 'a2'], timeoutSec: 15 });
+    expect(h.trips.offers[0]).toEqual({ tripId: 't1', driverIds: ['a1', 'a2'], timeoutSec: 25 });
     expect((await h.service.getRequest('t1'))?.status).toBe('searching');
   });
 
@@ -59,7 +59,7 @@ describe('favourite first (joy l9)', () => {
     await h.advance(WINDOW - 1);
     expect(h.trips.offers).toHaveLength(1);
     await h.advance(1);
-    expect(h.trips.offers[1]).toEqual({ tripId: 't1', driverIds: ['a1', 'a2'], timeoutSec: 15 });
+    expect(h.trips.offers[1]).toEqual({ tripId: 't1', driverIds: ['a1', 'a2'], timeoutSec: 25 });
     expect((await h.offers('t1')).find((o) => o.driverId === 'fav')?.state).toBe('timed_out');
   });
 
@@ -78,7 +78,7 @@ describe('favourite first (joy l9)', () => {
     await fleet(h);
     await taxi(h, { preferDriverIds: ['fav'] });
     await respond(h, 'fav', false);
-    expect(h.trips.offers[1]).toEqual({ tripId: 't1', driverIds: ['a1', 'a2'], timeoutSec: 15 });
+    expect(h.trips.offers[1]).toEqual({ tripId: 't1', driverIds: ['a1', 'a2'], timeoutSec: 25 });
     await h.advance(30);
     expect(h.trips.offers.flatMap((o) => o.driverIds).filter((d) => d === 'fav')).toHaveLength(1);
   });
@@ -87,7 +87,7 @@ describe('favourite first (joy l9)', () => {
     const h = dispatchHarness();
     await h.online('a1', 0.2);
     await taxi(h, { preferDriverIds: ['away'] });
-    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['a1'], timeoutSec: 15 }]);
+    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['a1'], timeoutSec: 25 }]);
     expect(h.events.ofType('dispatch.wave_sent').map((e) => e.payload['wave'])).toEqual([1]);
   });
 

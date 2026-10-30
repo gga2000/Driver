@@ -15,3 +15,10 @@ export {
   PrismaConsoleWatchRepository,
 } from './console-watch.repository.js';
 export type { ConsoleWatchRepository, PresenceRecord } from './console-watch.repository.js';
+export { HandoverService } from './handover.service.js';
+export {
+  HANDOVER_REPOSITORY,
+  InMemoryHandoverRepository,
+  PrismaHandoverRepository,
+} from './handover.repository.js';
+export type { HandoverRepository, HandoverRecord } from './handover.repository.js';

@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import type { SupportCustomer, TicketCase } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
@@ -26,6 +27,13 @@ import {
   Timeline,
 } from '../ui';
 import { statusTone } from './sla';
+
+// Loads only on a case with a refund waiting for a second OK (Console speed budget).
+const PendingRefundStrip = dynamic(() => import('../refund-approvals').then((m) => m.PendingRefundStrip));
+// A partner's or merchant's «احذف حسابي» case: the admin's close (loads only on those cases).
+const AccountClose = dynamic(() => import('../account-close').then((m) => m.AccountClose));
+// The customer's last orders and credits (s5) load after the card (Console speed budget).
+const CustomerHistory = dynamic(() => import('./customer-history').then((m) => m.CustomerHistory));
 
 export type SupportAction = 'refund' | 'fault' | 'escalate' | 'resolve';
 
@@ -60,6 +68,9 @@ export function ContextPane({
         name={data.ticket.customerName}
         currentId={data.ticket.id}
       />
+      {data.ticket.kind === 'deletion' && data.ticket.customerId ? (
+        <AccountClose personId={data.ticket.customerId} className="mx-5 my-4" {...(closed ? {} : { ticketId: data.ticket.id })} />
+      ) : null}
       {!closed ? <ActionsSection data={data} onAction={onAction} /> : null}
       <OrderSection data={data} />
       <LedgerSection data={data} />
@@ -191,6 +202,7 @@ function CustomerSection({
             ))}
         </ul>
       )}
+      <CustomerHistory customerId={customer.customerId} />
     </Section>
   );
 }
@@ -225,7 +237,6 @@ function ActionsSection({
         <Button
           icon={<IconRefund size={16} />}
           onClick={() => onAction('refund')}
-          disabled={data.limits.availableIqd < 250}
           className="justify-start"
         >
           {t('console.sup_act_refund')}
@@ -254,6 +265,7 @@ function ActionsSection({
           {t('console.sup_act_resolve')}
         </Button>
       </div>
+      {data.pendingApproval ? <PendingRefundStrip pending={data.pendingApproval} className="mt-3" /> : null}
       <dl className="mt-3 space-y-1 text-dense">
         <div className="flex justify-between gap-2">
           <dt className="text-muted">{t('console.sup_fault_now')}</dt>

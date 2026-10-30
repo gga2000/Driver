@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   AZIZIYAH_ZONES,
@@ -7,31 +7,50 @@ import {
   CreateZoneInput,
   RenameZoneInput,
   RemoveZoneInput,
+  SetZoneTierInput,
   openRing,
   ringAreaM2,
   westernDigits,
   zoneProblemText,
   zoneServiceBounds,
   zoneShapeProblem,
+  ZONE_PIN_CHECK_MAX,
   type Actor,
   type AziziyahZoneSeed,
   type PlaceZoneInput,
   type ZoneCheckTally,
+  type ZonePinCheck,
+  type ZoneTier,
+  type ZoneTierFare,
   type ZonePlacementView,
   type ZonesPort,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
+import { ConfigService } from '../config/index.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
+import { ZoneResolver } from '../places/index.js';
+import { tierFare } from '../pricing/index.js';
 import { EventsService } from '../events/index.js';
 import { confirmsZone, tallyChecks } from './zone-checks.logic.js';
+import { pinCheck } from './zone-pin-check.logic.js';
 import { ZONE_CHECKS_REPOSITORY, type ZoneChecksRepository, type ZoneOutline } from './zone-checks.repository.js';
 import { ZONES_REPOSITORY, type ZoneRecord, type ZonesRepository } from './zones.repository.js';
+
+/** Other API machines pick up a group Ali moved within this long. */
+export const TIER_SYNC_MS = 60_000;
+
+const TIER_AR: Record<ZoneTier, string> = { centre: 'المركز', near: 'قريب', mid: 'متوسط', far: 'بعيد', edge: 'الأطراف' };
 
 /** Who confirms a zone when drivers' answers add up (shows as «النظام» in the audit log). */
 export const ZONE_CHECKS_ACTOR = 'system:zone-checks';
 
 const SEEDS = new Map<string, readonly AziziyahZoneSeed[]>([['aziziyah', AZIZIYAH_ZONES]]);
+
+/** Where the dry run gets recent delivery pins (bound to orders in the tRPC module); bare coordinates only. */
+export interface ZonePinSource {
+  recentDropoffPins(limit: number): Promise<Array<{ lat: number; lng: number }>>;
+}
 
 /** The outline drivers are asked about: drawn zones only (a draft has nothing drawn to confirm). */
 function outlineOf(row: ZoneRecord): ZoneOutline | null {
@@ -59,9 +78,14 @@ function view(seed: AziziyahZoneSeed | undefined, row: ZoneRecord, names: Record
  * Zone outlines (maps program SP3). Ali and field ops draw them in the Console; each save is
  * validated (shape, service area, overlap with other drawn zones), audited and evented. Pricing and
  * dispatch still use the seed centroids until the switch-over (SP3b), so a save never moves a fee.
+ * An area's group (tier) is different: Ali moves it in the Console and pricing follows at once on this
+ * machine, and within `TIER_SYNC_MS` on the others.
  */
 @Injectable()
-export class ZonesService implements ZonesPort {
+export class ZonesService implements ZonesPort, OnApplicationBootstrap, OnModuleDestroy {
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private pinSource: ZonePinSource | null = null;
+
   constructor(
     @Inject(ZONES_REPOSITORY) private readonly repo: ZonesRepository,
     private readonly events: EventsService,
@@ -70,7 +94,81 @@ export class ZonesService implements ZonesPort {
     private readonly uow: UnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ZONE_CHECKS_REPOSITORY) private readonly checks: ZoneChecksRepository,
+    @Optional() private readonly config?: ConfigService,
   ) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    if (!this.config) return;
+    await this.syncTiers();
+    this.timer = setInterval(() => void this.syncTiers().catch(() => {}), TIER_SYNC_MS);
+    this.timer.unref?.();
+  }
+
+  /** Wired once at boot so zones never imports orders. */
+  attachPinSource(source: ZonePinSource): void {
+    this.pinSource = source;
+  }
+
+  /**
+   * Read-only dry run: recent delivery pins placed by the built-in circles versus the drawn outlines, and
+   * the delivery-fee difference by group. Moves no fee and returns no pin (counts and areas only).
+   */
+  async pinCheck(cityId: string): Promise<ZonePinCheck> {
+    const pins = (await this.pinSource?.recentDropoffPins(ZONE_PIN_CHECK_MAX)) ?? [];
+    const resolver = new ZoneResolver();
+    return pinCheck(cityId, pins, await this.list(cityId), this.tierFares(cityId), (pin) => resolver.resolve(cityId, pin));
+  }
+
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  /** Every city's saved groups into the pricing config (another machine may have moved one). */
+  async syncTiers(): Promise<void> {
+    if (!this.config) return;
+    for (const cityId of this.config.cityIds()) {
+      const rows = await this.repo.list(cityId);
+      const seeds = SEEDS.get(cityId) ?? [];
+      this.config.applyZoneTiers(cityId, rows.filter((r) => r.active !== false && r.tier).map((r) => {
+        const seed = seeds.find((x) => x.id === r.key);
+        return { key: r.key, tier: r.tier as ZoneTier, name_ar: r.nameAr ?? seed?.name_ar ?? r.key, name_en: r.nameEn ?? seed?.name_en ?? r.key };
+      }));
+    }
+  }
+
+  /** From the town centre to an area in each group: what delivery, taxi and tuktuk charge today. */
+  tierFares(cityId: string): ZoneTierFare[] {
+    const city = this.config?.city(cityId);
+    const fare = (vertical: string, tier: ZoneTier): number => {
+      const v = city?.verticals.find((x) => x.vertical === vertical);
+      return v ? (tierFare(v, 'centre', tier) ?? v.defaultFare) : 0;
+    };
+    return (['centre', 'near', 'mid', 'far', 'edge'] as const).map((tier) => ({ tier, deliveryIqd: fare('food', tier), taxiIqd: fare('taxi', tier), tuktukIqd: fare('tuktuk', tier) }));
+  }
+
+  /**
+   * Moves an area to another group (Ali, 2026-10-20). Its fees to and from every other area follow the
+   * group from the next quote; a price already shown keeps its own amount. Audited with both groups.
+   */
+  async setTier(actor: Actor, input: z.output<typeof SetZoneTierInput>): Promise<ZonePlacementView> {
+    const now = this.clock.now();
+    const seed = (SEEDS.get(input.cityId) ?? []).find((x) => x.id === input.key);
+    const row = await this.uow.run(async (tx) => {
+      const before = (await this.repo.list(input.cityId, tx)).find((r) => r.key === input.key && r.active !== false);
+      if (!before) throw new DriverError('zone_unknown');
+      const from = before.tier ?? seed?.tier ?? 'near';
+      if (from === 'edge') throw new DriverError('zone_tier_edge_fixed');
+      if (from === input.tier) return before;
+      const moved = await this.repo.setTier(input.cityId, input.key, input.tier, tx);
+      if (!moved) throw new DriverError('zone_unknown');
+      await this.events.emit(tx, { actorId: actor.personId, type: 'zone.tier_set', occurredAt: now, payload: { cityId: input.cityId, key: input.key, from, to: input.tier } }, { name: 'zone', id: `${input.cityId}:${input.key}` });
+      await this.audits.record({ cityId: input.cityId, actorId: actor.personId, action: 'zone.tier_set', subjectKind: 'zone', subjectId: input.key, summaryAr: `نقل ${westernDigits(moved.nameAr ?? seed?.name_ar ?? input.key)} من «${TIER_AR[from]}» إلى «${TIER_AR[input.tier]}»`, detail: { from, to: input.tier } }, tx);
+      return moved;
+    });
+    await this.syncTiers();
+    const names = await this.names.of(row.placedById ? [row.placedById] : []);
+    return view(seed, row, names);
+  }
 
   async list(cityId: string): Promise<ZonePlacementView[]> {
     const rows = new Map((await this.repo.list(cityId)).map((r) => [r.key, r]));

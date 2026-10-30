@@ -197,7 +197,7 @@ export function DisputeSheet({ r, visible, onClose }: { r: JobReceipt; visible: 
     setSent(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
-  const reasonLabel = (k: (typeof REASONS)[number]) => t(`partner.receipt_dispute_reason_${k}`);
+  const reasonLabel = (k: (typeof REASONS)[number]) => (k === 'take' ? t('partner.receipt_dispute_reason_take_v2') : t(`partner.receipt_dispute_reason_${k}`));
   const onPick = (next: string[]) => {
     setPicked(next);
     const added = next.find((k) => !picked.includes(k)) as (typeof REASONS)[number] | undefined;

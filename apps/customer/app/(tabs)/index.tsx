@@ -24,10 +24,11 @@ import { HomeHeader } from '@/features/home/HomeHeader';
 import { useActiveOrder, useBookedRide, usePicks, useRestaurants } from '@/features/home/queries';
 import { BookedRideCard, DinnerCard } from '@/features/ride-habits/Cards';
 import { useDinnerChance } from '@/features/ride-habits/queries';
-import { bandTitleKey, bandWords, daypart, kitchenRank } from '@/features/home/daypart';
+import { bandTitleKey, bandWords, daypart, kitchenRank, potPlace } from '@/features/home/daypart';
 import type { BandBasket } from '@/features/home/DaypartBand';
 import { HOUR_PICKS } from '@/features/home/gallery';
 import { HourFood, useHourFood } from '@/features/home/HourFood';
+import { iftarOrderOpen, ramadanDay } from '@/features/home/ramadan-day';
 import { dishKind, orderPhoto } from '@/features/home/dish-photos';
 import { useHomeIntro } from '@/features/home/intro';
 import { useUsuals } from '@/features/home/habit-queries';
@@ -35,15 +36,21 @@ import { fridayAhead, usualNow } from '@/features/home/habits';
 import { FridayCard, UsualCard } from '@/features/home/UsualCard';
 import { WelcomeHome } from '@/features/home/WelcomeHome';
 import { RajaaCard } from '@/features/home/RajaaCard';
+import { ramadanKitchens } from '@/features/season/ramadan';
 import { SeasonCard } from '@/features/season/SeasonCard';
+import { useTimetable } from '@/features/season/use-timetable';
 import { SimpleHomeRedirect } from '@/features/simple/SimpleHome';
 import { ReorderCard } from '@/features/home/ReorderCard';
 import { RestaurantRail } from '@/features/home/RestaurantRail';
 import { foodFact } from '@/features/home/service-facts';
 import { ServicesRow, type ServiceId } from '@/features/home/ServicesRow';
 import { KitchenNote, KitchenRows, KitchenRowsSkeleton, NoteMark } from '@/features/home/KitchenRows';
+import { MapBox, mapBoxNight } from '@/features/home/MapBox';
+import { PromiseDoors } from '@/features/home/PromiseDoors';
 import { QuietEnd } from '@/features/home/QuietEnd';
 import { TeaPullScroll } from '@/features/home/TeaPull';
+import { HomeLive } from '@/features/livemap/HomeLive';
+import { LIVE_MAP } from '@/features/livemap/LiveMap';
 import { lastReorderable } from '@/features/orders/history';
 import { REORDER_LAST_PARAM } from '@/features/shortcuts/shortcuts';
 import { useMyPersonId, useOrderHistory } from '@/features/orders/queries';
@@ -53,6 +60,7 @@ import { useActiveBooking } from '@/features/rajaa/queries';
 import { BaghdadModeCard } from '@/features/ride/BaghdadModeCard';
 import { RideHomeCard } from '@/features/ride/RideHomeCard';
 import { startRide } from '@/features/ride/WhereToBar';
+import { GOLDEN_MAP } from '@/features/track/map/credit';
 import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
 import { profile, selectedPlace, useProfile } from '@/lib/profile';
@@ -95,10 +103,16 @@ export default function Home() {
   // The hour in town (joy h1). A dev build may shift it for screenshots (`?now=07:30`).
   const now = useMemo(() => appNow(tick), [tick]);
   const dp = useMemo(() => daypart(now), [now]);
-  const quiet = useSeason().quiet;
+  const season = useSeason();
+  const quiet = season.quiet;
+  // Ramadan (home roast 4): the greeting, the hour's food and its title follow the fast, not the clock.
+  const [timetable] = useTimetable();
+  const fast = useMemo(() => ramadanDay(season.ramadan, timetable, now, dp.hour), [season.ramadan, timetable, now, dp.hour]);
+  const phase = fast?.phase ?? null;
+  const words = useMemo(() => bandWords(dp, phase), [dp, phase]);
   // h7: the welcome-home moment, once, right after setup.
   const prof = useProfile();
-  const picks = usePicks(bandWords(dp), HOUR_PICKS);
+  const picks = usePicks(words, HOUR_PICKS);
   const { width: screenW } = useWindowDimensions();
   // The page column: the screen up to the content cap, less the gutters.
   const columnW = Math.min(screenW, MAX_CONTENT_WIDTH) - theme.space[5] * 2;
@@ -151,7 +165,9 @@ export default function Home() {
   const offered = slotRow?.order.merchantOrgId ?? null;
   // The card's dish photo, picked once here so the gallery and the kitchens below don't show it again.
   const slotPhoto = useMemo(() => (slotRow ? orderPhoto(slotRow.items) : null), [slotRow]);
-  const hour = useHourFood({ picks: picks.data, picksPending: picks.isPending, words: bandWords(dp), later: offered, taken: slotPhoto?.photo ?? null, now });
+  // The last hours before iftar: only the kitchens whose longest time still beats the adhan.
+  const making = useMemo(() => (fast?.phase === 'iftar_soon' ? new Set(ramadanKitchens(open, fast.line).map((k) => k.id)) : null), [fast, open]);
+  const hour = useHourFood({ picks: picks.data, picksPending: picks.isPending, words, later: offered, taken: slotPhoto?.photo ?? null, now, potPlace: potPlace(dp, phase), only: making });
   // The stand-in photos the card and the hour's dishes show, so the kitchens below pick others.
   const showing = useMemo(
     () => [...(slotPhoto?.kind ? [slotPhoto.kind] : []), ...[...hour.food.slides, ...hour.food.more].flatMap((h) => (h.dish.photoUrl ? [] : [dishKind(h.dish.name)].filter((k) => k !== null)))],
@@ -212,6 +228,9 @@ export default function Home() {
     setRefreshing(false);
   };
 
+  const lateFirst = dp.key === 'late';
+  const hourFood = <HourFood title={t(bandTitleKey(dp, quiet, phase))} food={hour.food} pending={hour.pending} kitchens={open} basket={basket} now={now} scrollY={scrollY} width={columnW} spaced={lateFirst} forIftar={iftarOrderOpen(fast, timetable, now)} />;
+
   return (
     <Screen testID="home" scroll={false} padded={false}>
       {/* «الوضع البسيط» on: home hands over to /simple (ride idea v2). */}
@@ -223,10 +242,11 @@ export default function Home() {
         onRefresh={() => void onRefresh()}
         contentStyle={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: theme.space[10] + (basketShown ? BASKET_ROOM : 0), gap: theme.space[6] }}
       >
-        <View style={{ gap: theme.space[4] }} onLayout={(e) => setBarAt(e.nativeEvent.layout.y + e.nativeEvent.layout.height - theme.space[2])}>
+        {/* «العزيزية هسة» (Ali, 2026-10-28): the live town behind the greeting and search; a tap opens /live. */}
+        <HomeLive night={mapBoxNight(dp.hour)} gutter={theme.space[5]} padTop={theme.space[3]}>
           <Animated.View entering={rise(0)}>
             <Animated.View style={fade} onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>
-              <HomeHeader daypart={dp} quiet={quiet} closed={night.night} />
+              <HomeHeader daypart={dp} quiet={quiet} closed={night.night} ramadan={phase} />
             </Animated.View>
           </Animated.View>
           {/* Offline: one line says what's below is the last copy we had, and offers to try again. */}
@@ -235,9 +255,10 @@ export default function Home() {
           <Animated.View entering={rise(1)}>
             <SearchField testID="home-search" floating placeholder={t('search.placeholder')} accessibilityLabel={t('search.a11y_open')} onPress={() => router.push('/search')} />
           </Animated.View>
-        </View>
+        </HomeLive>
 
-        <Animated.View entering={rise(2)}>
+        {/* The slim bar comes down once the service boxes have gone up, never while they still show (home roast 4). */}
+        <Animated.View entering={rise(2)} onLayout={(e) => setBarAt(e.nativeEvent.layout.y + e.nativeEvent.layout.height - theme.space[2])}>
           <ServicesRow onPress={onService} foodFact={food} foodOff={foodOff} scrollY={scrollY} />
         </Animated.View>
         {/* Customer waves (W5): «لسه ما وصل دور منطقتك» while this person waits; nothing otherwise. */}
@@ -263,16 +284,18 @@ export default function Home() {
           </Animated.View>
         ) : null}
         {/* J6, under what is in progress: Ramadan countdown, Eid greeting or a special Friday line; nothing on an ordinary day. */}
-        <SeasonCard />
+        <SeasonCard kitchens={open} />
 
         {/* The hour's food (concept C, Ali 2026-10-08): the town's pots and the hour's dishes as one
-            photo gallery that shows itself once, then «أكلات ثانية» in two columns. */}
-        {open.length > 0 ? <HourFood title={t(bandTitleKey(dp, quiet))} food={hour.food} pending={hour.pending} kitchens={open} basket={basket} now={now} scrollY={scrollY} width={columnW} /> : null}
+            photo gallery that shows itself once, then «أكلات ثانية» in two columns. Late at night
+            («سهرانين؟ هذني فاتحين») it goes under the open kitchens, which come first. */}
+        {open.length > 0 && !lateFirst ? hourFood : null}
 
-        {/* The kitchens open now (concept C): a few plain rows with the fee said once, then «كل المحلات». */}
-        <View testID="home-food" style={{ gap: theme.space[3] }}>
+        {/* The kitchens open now (concept C): a few plain rows with the fee said once, then «كل المحلات».
+            A new part of the page after the hour's food, so a little more room above it (home roast 4). */}
+        <View testID="home-food" style={{ gap: theme.space[3], marginTop: open.length > 0 && !lateFirst ? theme.space[4] : 0 }}>
           {open.length > 0 ? (
-            <KitchenRows title={t('home.rail_open_now')} kitchens={open} count={t('home.food_open', { n: open.length })} showing={showing} />
+            <KitchenRows title={t('home.rail_open_now')} kitchens={open} showing={showing} />
           ) : (
             <>
               <SectionHeader big title={night.night ? t('home.rail_opening') : t('home.rail_open_now')} />
@@ -295,11 +318,22 @@ export default function Home() {
             </>
           )}
         </View>
+        {open.length > 0 && lateFirst ? hourFood : null}
+
+        {/* The restaurant map in its own box (Ali's idea, 2026-10-09/10), where the map is set up (web for
+            now; the phones get it with the native map) and there are kitchens to show on it. Not where the
+            live town already stands at the top of home (Ali, 2026-10-29: «continue» on the recommendation to hide it). */}
+        {GOLDEN_MAP && !LIVE_MAP && list && list.length > 0 ? (
+          <MapBox night={mapBoxNight(dp.hour)} fact={open.length > 0 ? null : t('home.rail_opening')} scrollY={scrollY} width={columnW} />
+        ) : null}
 
         {/* No promotions resolve yet (the API's NoPromotions): the deals rail appears once one does. */}
         {list?.some((r) => !!r.deal) ? (
           <RestaurantRail testID="rail-deals" title={t('home.deals_today')} restaurants={list.filter((r) => !!r.deal)} showDeal seeAll="deals" loading={false} error={false} onRetry={retry} />
         ) : null}
+
+        {/* «وعدنا هم» (look D): the doors of the services that came after, while each is open. */}
+        <PromiseDoors />
 
         {/* The ending (concept C): «جاي قريب» as one quiet line, then «بالعافية». */}
         <QuietEnd onSoon={onService} bye={open.length > 0} />

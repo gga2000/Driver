@@ -8,7 +8,9 @@ import {
   MIN_PER_EARLIER_DROP,
   positionVisible,
   publicCourierRating,
+  ROUTE_VEHICLE_FACTOR,
   type Actor,
+  type AvoidedStreet,
   type CourierCard,
   type CourierPosition,
   type DeliveryPoint,
@@ -21,6 +23,7 @@ import {
   type OrderHistoryRow,
   type OrderRoute,
   type OrderTracking,
+  type SlowStretch,
   type TrackingPort,
   type TrackItem,
   type TrackStop,
@@ -30,8 +33,10 @@ import {
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
-import { EtaService, type EtaMinutes } from '../routing/index.js';
+import { avoidedStreets, EtaService, RouteClosures, type EtaMinutes } from '../routing/index.js';
+import { arrivalCountsForFees } from '../pricing/index.js';
 import { rideMilestones } from './ride-milestones.js';
+import { closedStretch, decodePolyline, kitchenStretch, measuredPath, SLOW_STRETCH_RULES, trafficStretch } from './slow-stretch.js';
 import { findUsuals } from './usuals.js';
 import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 
@@ -42,12 +47,12 @@ import { COURIER_VEHICLES, type CourierVehicleDirectory } from './vehicles.js';
 export interface TrackingOrdersPort {
   aggregate(orderId: string): Promise<{
     order: { id: string; ordererId: string; type: Order['type']; merchantOrgId: string | null; dropoff: DeliveryPoint | null; promisedReadyAt: Date | null; minVehicleClass: VehicleClass | null; promisedRideMin?: number | null; startCode?: string | null };
-    lines: Array<{ id: string; catalogItemId: string | null; freeText: string | null; qty: number; unitPriceIqd: number; modifiers: Array<{ priceIqd?: number } & Record<string, unknown>>; participantId: string | null; note: string | null; substitution: { state: string } | null }>;
+    lines: Array<{ id: string; catalogItemId: string | null; freeText: string | null; qty: number; unitPriceIqd: number; modifiers: Array<{ priceIqd?: number } & Record<string, unknown>>; participantId: string | null; note: string | null; substitution: { state: string } | null; weightG?: number | null }>;
     participants: Array<{ personId: string | null }>;
   }>;
   get(orderId: string): Promise<Order>;
   /** The person's own orders (orderer), any state. */
-  listForPerson(personId: string): Promise<Order[]>;
+  listForPerson(personId: string, opts?: { limit?: number }): Promise<Order[]>;
   /** The city's live orders (Console at-risk list). Optional for fakes. */
   listActive?(filter: { cityId?: string | undefined }): Promise<Order[]>;
   /** Ride ideas c9/s3: the orders with the rider's name for this reader (logged vault read). Optional for fakes. */
@@ -198,6 +203,8 @@ export class TrackingService implements TrackingPort {
     @Optional() @Inject(TRACKING_PHOTOS) private readonly photos: TrackingPhotosPort | null = null,
     /** Customers' delivery scores for the card's public rating (joy l2); without it the card has none. */
     @Optional() @Inject(TRACKING_RATINGS) private readonly ratings: TrackingRatingsPort | null = null,
+    /** N20: today's closed streets (routing's book), to name the ones a route goes around. */
+    @Optional() @Inject(RouteClosures) private readonly closures: RouteClosures | null = null,
   ) {}
 
   private readonly logger = new Logger(TrackingService.name);
@@ -269,7 +276,7 @@ export class TrackingService implements TrackingPort {
     const agg = await this.assertOwner(actor, input.orderId);
     const order = await this.orders.get(input.orderId);
     const now = this.clock.now();
-    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
+    const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now, slowStretch: null };
     if (SETTLED_ORDER_STATES.has(order.state)) return none;
     const trip = await this.trips.activeForOrder(order.id);
     const fix = trip?.courierId && positionVisible(trip.state) && trip.acceptedAt ? await this.trips.lastPosition(trip.id) : null;
@@ -284,7 +291,63 @@ export class TrackingService implements TrackingPort {
     const points = courier ? [courier, ...ahead] : ahead;
     if (points.length < 2) return none;
     const r = await this.eta.path(points);
-    return { polyline6: r.polyline6, basis: r.basis, from: points[0]!, computedAt: now };
+    const vehicle = await this.vehicleOf(order, trip);
+    // N20: the streets closed today that this route goes around, with the minutes each way around adds.
+    const closures: AvoidedStreet[] = this.closures ? avoidedStreets(this.closures, r.avoided, ROUTE_VEHICLE_FACTOR[vehicle]) : [];
+    const slowStretch = await this.slowStretch(order, agg.order, trip, kitchenOrg?.pin ?? null, points, r, now, closures);
+    return { polyline6: r.polyline6, basis: r.basis, from: points[0]!, computedAt: now, slowStretch, ...(closures.length > 0 ? { closures } : {}) };
+  }
+
+  /**
+   * N6 «ليش متأخر» (Ali, 2026-10-11): once a delivery is past its 10-minute late step and still on its
+   * way, the part of this route that explains it — the kitchen when the food is not out on time, else
+   * the stretch whose learned minutes run slowest — measured along the same line the map draws.
+   * Read-only: the promise, the apology and the credit are untouched. Null when nothing explains it.
+   */
+  private async slowStretch(
+    order: Order,
+    stored: Parameters<TrackingService['promise']>[0],
+    trip: Trip | null,
+    kitchen: LatLng | null,
+    points: readonly LatLng[],
+    road: { polyline6: string | null; durationS: number; basis: EtaBasis },
+    now: Date,
+    closures: readonly AvoidedStreet[] = [],
+  ): Promise<SlowStretch | null> {
+    if (order.type === 'ride') return null;
+    const promisedAt = await this.promise(stored, kitchen, order.acceptedAt);
+    if (!promisedAt || !lateApologyDue(order, promisedAt, now, Boolean(trip?.unreachable), this.lateRules.apologyAfterMin)) return null;
+    // The road's own shape when it decodes to real points; else the straight line the map draws then.
+    let line: LatLng[] = [...points];
+    if (road.polyline6) {
+      try {
+        const decoded = decodePolyline(road.polyline6);
+        if (decoded.length >= 2 && decoded.every((p) => Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180)) line = decoded;
+      } catch {
+        // A shape that doesn't decode: keep the straight line.
+      }
+    }
+    const path = measuredPath(line, SLOW_STRETCH_RULES.pieceM);
+    const promisedReady = order.promisedReadyAt;
+    if (kitchen && !order.pickedUpAt && promisedReady) {
+      const lateMin = ((order.readyAt ?? now).getTime() - promisedReady.getTime()) / MIN_MS;
+      if (lateMin >= 1) return kitchenStretch(path, kitchen, lateMin);
+    }
+    // N20: a street closed today that the route goes around, when the way around costs a minute or more.
+    const costliest = [...closures].sort((a, b) => b.extraMin - a.extraMin)[0];
+    if (costliest && costliest.extraMin >= SLOW_STRETCH_RULES.minExtraMin) {
+      const closed = closedStretch(path, costliest.path, costliest.extraMin);
+      if (closed) return closed;
+    }
+    const vehicle = await this.vehicleOf(order, trip);
+    const baseMinutes = (road.durationS * ROUTE_VEHICLE_FACTOR[vehicle]) / 60;
+    return trafficStretch(path, baseMinutes, (a, b) => this.eta.factor(a, b, vehicle, road.basis));
+  }
+
+  /** The vehicle the ETA times this order on: the courier's own, else what the order needs. */
+  private async vehicleOf(order: Order, trip: Trip | null): Promise<VehicleClass> {
+    const own = trip?.courierId ? (await this.vehicles.forCourier(trip.courierId, trip.vehicleId ?? null))?.vehicleClass : undefined;
+    return own ?? order.minVehicleClass ?? (order.type === 'ride' ? 'car' : 'bike');
   }
 
   /**
@@ -296,7 +359,7 @@ export class TrackingService implements TrackingPort {
   async liveEta(order: Order, trip: Trip, pin: LatLng, now: Date): Promise<{ at: Date; basis: EtaBasis } | null> {
     const agg = await this.orders.aggregate(order.id);
     const stop = (type: 'pickup' | 'dropoff'): LatLng | null => trip.stops.find((s) => s.orderId === order.id && (s.type === type || (type === 'pickup' && s.type === 'shop')))?.target ?? null;
-    const vehicle: VehicleClass = (trip.courierId ? (await this.vehicles.forCourier(trip.courierId, trip.vehicleId ?? null))?.vehicleClass : undefined) ?? order.minVehicleClass ?? (order.type === 'ride' ? 'car' : 'bike');
+    const vehicle = await this.vehicleOf(order, trip);
     const legs: EtaMinutes[] = [];
     const leg = async (a: LatLng, b: LatLng): Promise<number> => {
       const m = await this.eta.minutes(a, b, vehicle);
@@ -535,9 +598,8 @@ export class TrackingService implements TrackingPort {
    * looked up once per merchant; rides add the zone they went to.
    */
   async history(actor: Actor): Promise<OrderHistoryRow[]> {
-    const recent = [...(await this.orders.listForPerson(actor.personId))]
-      .sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())
-      .slice(0, ORDER_HISTORY_LIMIT);
+    // FOOD-04: the newest ORDER_HISTORY_LIMIT come from the database, already newest first.
+    const recent = await this.orders.listForPerson(actor.personId, { limit: ORDER_HISTORY_LIMIT });
     // c9/s3: a ride booked for someone else reads «لـ ماما» in his history.
     const orders = this.orders.withRiders ? await this.orders.withRiders(recent, actor.personId) : recent;
     return this.historyRows(orders);
@@ -640,7 +702,7 @@ export class TrackingService implements TrackingPort {
   private tripView(trip: Trip, orderId: string): NonNullable<OrderTracking['trip']> {
     const stops: TrackStop[] = trip.stops.map((s) => {
       const mine = s.orderId === orderId;
-      return { id: s.id, seq: s.seq, type: s.type, state: s.state, mine, target: mine ? s.target : null, courierNearAt: mine ? s.courierNearAt : null, arrivedAt: s.arrivedAt, completedAt: s.completedAt };
+      return { id: s.id, seq: s.seq, type: s.type, state: s.state, mine, target: mine ? s.target : null, courierNearAt: mine ? s.courierNearAt : null, arrivedAt: s.arrivedAt, arrivalClaimedOnly: mine && s.arrivedAt !== null && !arrivalCountsForFees(s), completedAt: s.completedAt };
     });
     const myDrop = stops.find((s) => s.mine && s.type === 'dropoff');
     const dropsBeforeMine = myDrop ? stops.filter((s) => !s.mine && s.type === 'dropoff' && s.seq < myDrop.seq && s.state !== 'completed' && s.state !== 'skipped').length : 0;
@@ -695,6 +757,7 @@ export class TrackingService implements TrackingPort {
         totalIqd: l.qty * (l.unitPriceIqd + mods),
         participantId: l.participantId,
         note: l.note,
+        ...(l.weightG ? { weightG: l.weightG } : {}),
       };
     });
   }

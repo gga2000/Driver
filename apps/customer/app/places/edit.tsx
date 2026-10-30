@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Button, Card, EmptyState, Icon, ModalSheet, QueryBoundary, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
-import { currentFix, locationDeniedToast, type Fix } from '@/features/account/device';
+import { currentFix, locationDeniedToast, locationWeakToast, type Fix } from '@/features/account/device';
 import { distanceText, judgeDistance, judgeHereFix } from '@/features/account/place-fix';
 import { useConfirmPlace, useHousehold, useMyPlaces, useRemovePlace, useUpdatePlace } from '@/features/account/queries';
 import { PlaceEditor, toSaveInput, type PlaceEditorValue } from '@/features/account/PlaceEditor';
@@ -99,8 +99,8 @@ export default function EditPlace() {
     setLocating(true);
     const fix = await currentFix();
     setLocating(false);
-    if (fix === 'denied') return toast.show(locationDeniedToast(t));
-    if (!fix) return toast.show({ message: t('error.location_weak'), tone: 'danger' });
+    if (fix === 'denied') return toast.show({ ...locationDeniedToast(t), placement: 'top' });
+    if (!fix) return toast.show({ ...locationWeakToast(t), placement: 'top' });
     // A rough fix never becomes the door; a fix far from home asks first (HUNT-04, FLOW-21).
     const verdict = judgeHereFix(fix, place.pin);
     if (verdict.kind === 'rough') {

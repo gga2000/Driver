@@ -278,9 +278,12 @@ jobs:
           NODE_ENV: test
           LOG_FORMAT: json
           PORT: '3999'
-          # Nine sign-ins from one address in a few seconds.
+          # About forty sign-ins (core + customer paths) from one address in a few seconds.
           OTP_RATE_LIMIT_PER_IP_HOUR: '10000'
           OTP_RATE_LIMIT_PER_DEVICE_HOUR: '10000'
+          # The seats and board flows book الرجعة, which is not launched yet: open every service for this
+          # run only (local/CI override; a deployed server refuses to boot with it).
+          DRIVER_TEST_LAUNCHED_VERTICALS: food,grocery,errand,parcel,taxi,tuktuk,intercity,khat
           E2E_API_URL: http://localhost:3999
           E2E_API_LOG: api.log
         run: |

@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import type { Actor } from './identity-io.js';
+import type { RoleKind } from './auth.js';
+import type { Actor, EndAllSessionsInput, EndAllSessionsOutput } from './identity-io.js';
 import { CityId, Iqd, Vertical } from './common.js';
+import { CommissionTier, MerchantCommissionTier } from './ledger-rules.js';
 import { HhMm, LocalDate } from './store-hours.js';
 import { VehicleFeature } from './vehicle-features.js';
 
@@ -133,6 +135,28 @@ export const AuditInput = z.object({
   limit: z.number().int().min(1).max(200).default(50),
 });
 
+/** v10: the audit page's chips; which actions each holds is the server's (`modules/controls/audit.ts`). */
+export const AUDIT_CATEGORIES = ['money', 'approvals', 'pauses', 'safety', 'orders', 'settings'] as const;
+export const AuditCategory = z.enum(AUDIT_CATEGORIES);
+export type AuditCategory = z.infer<typeof AuditCategory>;
+export const AUDIT_PAGE_SIZE = 50;
+
+/** One page of the audit log, newest first; `cursor` is the previous page's `nextCursor`. */
+export const AuditPageInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  category: AuditCategory.optional(),
+  cursor: z.string().max(120).optional(),
+  limit: z.number().int().min(1).max(100).default(AUDIT_PAGE_SIZE),
+});
+export type AuditPageInput = z.input<typeof AuditPageInput>;
+export const AuditPage = z.object({
+  rows: z.array(AuditEntry),
+  /** Every row the chip matches, not only this page. */
+  total: z.number().int().nonnegative(),
+  nextCursor: z.string().nullable(),
+});
+export type AuditPage = z.infer<typeof AuditPage>;
+
 // ───────────────────────── status banner ─────────────────────────
 
 export const BannerSeverity = z.enum(['info', 'warning', 'critical']);
@@ -227,6 +251,37 @@ export const SetScreenSwitchInput = z.object({
 });
 export type SetScreenSwitchInput = z.input<typeof SetScreenSwitchInput>;
 
+// ───────────────────────── opening a new service (Ali 2026-10-12) ─────────────────────────
+
+/**
+ * New services that live inside a launched vertical and open on their own: food carts sit inside food,
+ * so `launchedVerticals` can't open them. Stored as a `launch` row in the kill-switch table (active =
+ * open); with no row the city file decides. Opening is an admin's call; any controller may close.
+ */
+export const LaunchSwitch = z.enum(['food_carts']);
+export type LaunchSwitch = z.infer<typeof LaunchSwitch>;
+
+export const LaunchSwitchView = z.object({
+  cityId: z.string(),
+  key: LaunchSwitch,
+  open: z.boolean(),
+  /** No row yet: `open` is the city file's default. */
+  fromDefault: z.boolean(),
+  reason: z.string().nullable(),
+  setBy: z.string().nullable(),
+  setByName: z.string().nullable(),
+  setAt: z.coerce.date().nullable(),
+});
+export type LaunchSwitchView = z.infer<typeof LaunchSwitchView>;
+
+export const SetLaunchSwitchInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  key: LaunchSwitch,
+  open: z.boolean(),
+  reason: z.string().trim().min(3).max(300),
+});
+export type SetLaunchSwitchInput = z.input<typeof SetLaunchSwitchInput>;
+
 // ───────────────────────── quiet days and the season (customer joy J1a) ─────────────────────────
 
 /** The longest quiet stretch set in one go (Muharram 1–13 is 13 days). */
@@ -297,6 +352,8 @@ export const PublicSeason = z.object({
   /** Present on every day of a Ramadan period, quiet or not (iftar is service, not celebration). */
   ramadan: RamadanToday.nullable(),
   homeCard: SeasonHomeCard.nullable(),
+  /** The services launched in the asked city (city config); apps hide the tiles of the rest. Absent from older servers. */
+  launched: z.array(Vertical).optional(),
 });
 export type PublicSeason = z.infer<typeof PublicSeason>;
 
@@ -513,6 +570,8 @@ export const RoundStop = z.object({
       name: z.string().nullable(),
       /** Still in his hand. */
       heldIqd: Iqd,
+      /** What the round takes from him now: what he owes the company, never more than he holds (the rest is his own pay). */
+      dueIqd: Iqd,
       overCap: z.boolean(),
       /** What field ops took from him on tonight's round (sum), the last time and reference; null = not yet. */
       collected: RoundCollection.nullable().optional(),
@@ -537,6 +596,15 @@ export const NightlyCheck = z.object({
 });
 export type NightlyCheck = z.infer<typeof NightlyCheck>;
 
+/** A starter restaurant past `STARTER_COMMISSION.reviewAfterDays`: its two months are nearly up. */
+export const CommissionDueRow = z.object({
+  merchantOrgId: z.string(),
+  name: z.string(),
+  starterSince: z.coerce.date(),
+  days: z.number().int(),
+});
+export type CommissionDueRow = z.infer<typeof CommissionDueRow>;
+
 export const FinanceDeskView = z.object({
   cityId: z.string(),
   at: z.coerce.date(),
@@ -559,6 +627,8 @@ export const FinanceDeskView = z.object({
   }),
   nightly: NightlyCheck,
   totals: z.object({ cashInFieldIqd: Iqd, merchantsPayableIqd: z.number().int(), collectedTodayIqd: Iqd, couriersOverCap: z.number().int() }),
+  /** Starter restaurants past 7 weeks: finance picks their next rate (nothing switches by itself). */
+  commissionDue: z.array(CommissionDueRow).default([]),
 });
 export type FinanceDeskView = z.infer<typeof FinanceDeskView>;
 
@@ -570,6 +640,101 @@ export type SettlementExportInput = z.input<typeof SettlementExportInput>;
 
 export const SettlementExport = z.object({ filename: z.string(), csv: z.string(), rows: z.number().int() });
 export type SettlementExport = z.infer<typeof SettlementExport>;
+
+// ───────────────────────── commission tier (finance) ─────────────────────────
+
+/** Who reads and sets a restaurant's commission tier (a money rule per store): finance and admins. */
+export const COMMISSION_TIER_ROLES: readonly RoleKind[] = ['finance', 'admin'];
+
+export const MerchantCommissionInput = z.object({ merchantOrgId: z.string().min(1) });
+export type MerchantCommissionInput = z.input<typeof MerchantCommissionInput>;
+
+/** `finance.setCommissionTier`: finance or an admin puts a restaurant on a tier (audited). */
+export const SetCommissionTierInput = MerchantCommissionInput.extend({ tier: MerchantCommissionTier });
+export type SetCommissionTierInput = z.input<typeof SetCommissionTierInput>;
+
+/** A restaurant's commission as the Console store page shows it. */
+export const MerchantCommissionView = z.object({
+  merchantOrgId: z.string(),
+  name: z.string(),
+  tier: CommissionTier,
+  /** The tier's rate in percent, from the city's money rules. */
+  pct: z.number(),
+  /** False: no tier on file, so the default (starter) applies. */
+  onFile: z.boolean(),
+  /** Starter only: the day its starter period began (the restaurant's onboarding), and days since. */
+  starterSince: z.coerce.date().nullable(),
+  starterDays: z.number().int().nullable(),
+  /** Starter past 7 weeks: the next rate needs choosing. */
+  reviewDue: z.boolean(),
+  /** The last change from the Console, from its audit row; null when never changed there. */
+  lastChange: z.object({ at: z.coerce.date(), byName: z.string().nullable(), from: CommissionTier.nullable(), to: CommissionTier }).nullable(),
+  /** The tiers it can be put on, with their rates. */
+  options: z.array(z.object({ tier: MerchantCommissionTier, pct: z.number() })),
+});
+export type MerchantCommissionView = z.infer<typeof MerchantCommissionView>;
+
+// ───────────────────────── money out (finance) ─────────────────────────
+
+/** How the company pays out (ZainCash wallet, at an agent, by the ops round, bank transfer). */
+export const PayoutChannel = z.enum(['zaincash', 'agent', 'ops_round', 'bank']);
+export type PayoutChannel = z.infer<typeof PayoutChannel>;
+
+/** `finance.payMerchant`: the company pays a restaurant what it is owed (all of it, or part). */
+export const PayMerchantInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  merchantId: z.string().min(1),
+  amountIqd: Iqd.positive(),
+  channel: PayoutChannel.exclude(['agent']),
+  /** One per opened form: a double click or a retry posts once (it fixes the settlement reference). */
+  idempotencyKey: z.string().min(8).max(128),
+});
+export type PayMerchantInput = z.input<typeof PayMerchantInput>;
+
+/** `finance.payDriver`: the company pays a driver what it owes him beyond the cash he holds (G-86). */
+export const PayDriverInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  driverId: z.string().min(1),
+  amountIqd: Iqd.positive(),
+  channel: PayoutChannel,
+  idempotencyKey: z.string().min(8).max(128),
+});
+export type PayDriverInput = z.input<typeof PayDriverInput>;
+
+export const PayoutResult = z.object({
+  /** The settlement reference (G-82) to type into the transfer note. */
+  reference: z.string(),
+  amountIqd: Iqd,
+  /** Restaurant: what it is still owed. Driver: what the company still owes him. */
+  leftIqd: z.number().int(),
+});
+export type PayoutResult = z.infer<typeof PayoutResult>;
+
+/** Money accounts a correction may touch (never points). */
+export const AdjustmentAccount = z.string().regex(/^(platform|bank|rounding|driver:[^:]+|cash:[^:]+|merchant_cash:[^:]+|customer:[^:]+|household:[^:]+|promo:[^:]+)$/);
+
+/** `finance.adjust`: a hand-written ledger correction (G-85) with a reason and a linked support ticket or incident. */
+export const AdjustInput = z.object({
+  cityId: CityId.default('aziziyah'),
+  fromAccount: AdjustmentAccount,
+  toAccount: AdjustmentAccount,
+  amountIqd: Iqd.positive(),
+  reason: z.string().trim().min(5).max(500),
+  /** A support ticket (`tk_…`) or a ledger incident id. */
+  incidentId: z.string().min(1).max(64),
+});
+export type AdjustInput = z.input<typeof AdjustInput>;
+
+export const AdjustResult = z.object({
+  adjustmentId: z.string(),
+  status: z.enum(['posted', 'pending_second_approval']),
+  amountIqd: Iqd,
+  /** Above the second-approver line: the request waiting in the second-OK queue (`support.refundApprovals`). */
+  approvalId: z.string().nullable(),
+  /** Why it waits: above the per-correction line, or it would take today's solo total above the daily cap. Null when posted. */
+  queuedBecause: z.enum(['above_line', 'daily_cap']).nullable().default(null),
+});
+export type AdjustResult = z.infer<typeof AdjustResult>;
 
 // ───────────────────────── launch metrics wall ─────────────────────────
 
@@ -613,6 +778,7 @@ export interface ControlsPort {
   setSwitch(actor: Actor, input: z.output<typeof SetKillSwitchInput>): Promise<KillSwitchView>;
   setCapacity(actor: Actor, input: z.output<typeof SetZoneCapacityInput>): Promise<ZoneCapacityView>;
   audit(input: z.output<typeof AuditInput>): Promise<AuditEntry[]>;
+  auditPage(input: z.output<typeof AuditPageInput>): Promise<AuditPage>;
   banner(input: BannerInput): Promise<PublicBanner | null>;
   banners(): Promise<SystemBannerView[]>;
   setBanner(actor: Actor, input: z.output<typeof SetBannerInput>): Promise<SystemBannerView>;
@@ -629,6 +795,10 @@ export interface ControlsPort {
   screens(input: ScreensInput, isStaff: () => Promise<boolean>): Promise<PublicScreens>;
   screenSwitches(cityId: string): Promise<ScreenSwitchView[]>;
   setScreen(actor: Actor, input: z.output<typeof SetScreenSwitchInput>): Promise<ScreenSwitchView>;
+  launchSwitches(cityId: string): Promise<LaunchSwitchView[]>;
+  setLaunch(actor: Actor, input: z.output<typeof SetLaunchSwitchInput>): Promise<LaunchSwitchView>;
+  /** Admins: every session of a staff member ends on every device (`identity.endAllSessions`), audited. */
+  endAllSessions(actor: Actor, input: z.output<typeof EndAllSessionsInput>): Promise<z.output<typeof EndAllSessionsOutput>>;
 }
 
 /** `ctx.controlRoom`: approvals, the cash desk and the metrics wall (`modules/control-room`). */
@@ -637,5 +807,10 @@ export interface ControlRoomPort {
   decide(actor: Actor, input: DecideApprovalInput): Promise<DecideApprovalOutput>;
   finance(actor: Actor, input: z.output<typeof FinanceInput>): Promise<FinanceDeskView>;
   exportSettlement(actor: Actor, input: z.output<typeof SettlementExportInput>): Promise<SettlementExport>;
+  payMerchant(actor: Actor, input: z.output<typeof PayMerchantInput>): Promise<PayoutResult>;
+  payDriver(actor: Actor, input: z.output<typeof PayDriverInput>): Promise<PayoutResult>;
+  adjust(actor: Actor, input: z.output<typeof AdjustInput>): Promise<AdjustResult>;
+  commission(actor: Actor, input: z.output<typeof MerchantCommissionInput>): Promise<MerchantCommissionView>;
+  setCommissionTier(actor: Actor, input: z.output<typeof SetCommissionTierInput>): Promise<MerchantCommissionView>;
   metrics(input: z.output<typeof MetricsInput>): Promise<LaunchMetricsView>;
 }

@@ -10,6 +10,16 @@ import type { LiveMode } from '@driver/contracts/live-client';
  */
 export const OFFER_POLL_DOWN_MS = 5_000;
 
-export function offerPollMs(mode: LiveMode): number {
-  return mode === 'live' ? LIVE_RULES.safetyPollMs : OFFER_POLL_DOWN_MS;
+export function offerPollMs(mode: LiveMode, slowDown: (ms: number) => number = (ms) => ms): number {
+  return mode === 'live' ? slowDown(LIVE_RULES.safetyPollMs) : OFFER_POLL_DOWN_MS;
+}
+
+/**
+ * Partner redesign l2 (data on 3G): the status and job refetch. While the stream is live it is only the
+ * safety net (pushes carry every change, and the 30 s heartbeat answers with his status), so in low-data
+ * mode it runs `slowDown` slower (`liteInterval`: 60 s → 3 min). While the stream is down the poll is
+ * the only source and never slows.
+ */
+export function workPollMs(mode: LiveMode, slowDown: (ms: number) => number = (ms) => ms): number {
+  return mode === 'live' ? slowDown(LIVE_RULES.safetyPollMs) : LIVE_RULES.fallbackPollMs;
 }

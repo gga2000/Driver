@@ -27,3 +27,21 @@ test('budgets.json: every budget has a numeric max and a target (if any) at or u
     }
   }
 });
+
+test('the pinned clock starts at PERF_PIN_CLOCK, keeps running and leaves explicit dates alone', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const clock = new URL('./clock.mjs', import.meta.url).pathname;
+  const out = execFileSync(
+    process.execPath,
+    [
+      '--import',
+      clock,
+      '-e',
+      'const a=Date.now();setTimeout(()=>console.log(JSON.stringify([new Date(a).toISOString(),Date.now()-a>=40,new Date(0).toISOString(),new Date() instanceof Date,typeof Date()])),50)',
+    ],
+    { env: { ...process.env, PERF_PIN_CLOCK: '2026-10-21T14:30:00Z' }, encoding: 'utf8' },
+  );
+  const [start, runs, epoch, isDate, str] = JSON.parse(out);
+  assert.ok(start.startsWith('2026-10-21T14:30:00'));
+  assert.deepEqual([runs, epoch, isDate, str], [true, '1970-01-01T00:00:00.000Z', true, 'string']);
+});

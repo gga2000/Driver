@@ -2,23 +2,27 @@
 
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { AZIZIYAH_ZONES, OrderType as OrderTypeEnum, parseOrderTicket, PaymentMethod as PaymentEnum, type OrderSummary, type OrderType, type PaymentMethod } from '@driver/contracts';
+import { AZIZIYAH_ZONES, classifyOrderQuery, OrderType as OrderTypeEnum, PaymentMethod as PaymentEnum, type OrderSummary, type OrderType, type PaymentMethod } from '@driver/contracts';
 import { t, type MessageKey } from '@driver/i18n';
-import { useDeferredValue, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useDeferredValue, useId, useMemo, useState, type ReactNode } from 'react';
 import { formatIqd } from '@/lib/format';
 import { orderTypeLabel, paymentLabel, zoneName } from '@/lib/labels';
 import { CITY_ID, queryRetry, SLOW_POLL_MS, useMerchants } from '@/lib/live';
-import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
+import { activeFilterCount, EMPTY_FILTER, listInput, ORDER_VIEW_KEYS, ORDER_VIEWS, sortSummaries, type ListFilter, type ListSort, type OrderView } from '@/lib/orders';
 import { PERIOD_PRESETS, rangeWords, stamp, type PeriodPreset } from '@/lib/periods';
 import { countText } from '@/lib/plural';
 import { useRowKeys } from '@/lib/row-keys';
 import { useSignedIn } from '@/lib/session';
+import { readParams, useLinkedFilters, type LinkParams } from '@/lib/url-state';
 import { compactDuration } from '@/lib/support-views';
 import { useTRPC } from '@/lib/trpc';
 import { useNames } from '@/lib/names';
+import { CopyLinkButton } from './copy-link';
+import { OrdersExportButton } from './orders-export';
 import { OrderRef, OrgName, PersonName } from './named';
 import { OrderStatus } from './order-status';
 import { PeriodPicker } from './period-picker';
+import { SavedViewsBar } from './saved-views';
 import {
   Button,
   CountBadge,
@@ -40,7 +44,28 @@ import {
 
 const PAGE = 50;
 const PRESETS: readonly PeriodPreset[] = PERIOD_PRESETS.filter((p) => p !== 'month');
-const VIEW_PARAM = 'view';
+const LINK_DEFAULTS = { view: EMPTY_FILTER.view, period: EMPTY_FILTER.period.preset, from: '', to: '', type: 'all', shop: '', zone: '', pay: 'all', sort: '' };
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const LINK_ALLOWED = {
+  view: ORDER_VIEW_KEYS,
+  period: PRESETS,
+  type: ['all', ...OrderTypeEnum.options],
+  pay: ['all', ...PaymentEnum.options],
+  sort: ['newest', 'late'],
+};
+
+/** The list setup a link (or a saved view) asks for, already checked against LINK_ALLOWED. */
+function fromLink(got: LinkParams): Partial<ListFilter> {
+  const preset = (got['period'] ?? EMPTY_FILTER.period.preset) as PeriodPreset;
+  return {
+    ...(got['view'] ? { view: got['view'] as OrderView } : {}),
+    ...(got['period'] ? { period: { preset, ...(preset === 'custom' ? { fromDay: DAY.test(got['from'] ?? '') ? got['from'] : undefined, toDay: DAY.test(got['to'] ?? '') ? got['to'] : undefined } : {}) } } : {}),
+    ...(got['type'] ? { type: got['type'] as OrderType } : {}),
+    ...(got['shop'] ? { merchantOrgId: got['shop'] } : {}),
+    ...(got['zone'] ? { zoneKey: got['zone'] } : {}),
+    ...(got['pay'] ? { payment: got['pay'] as PaymentMethod } : {}),
+  };
+}
 
 /**
  * Order history (`orders.search`): saved views (الكل، شغّالة، متأخرة، ملغية، نزاعات) over every state,
@@ -56,25 +81,58 @@ export function OrdersPage() {
   const [filter, setFilter] = useState<ListFilter>(EMPTY_FILTER);
   const [sort, setSort] = useState<ListSort | null>(null);
   const q = useDeferredValue(filter.q);
-  const ticket = parseOrderTicket(q);
+  // An order number, the last 4 phone digits or a whole number ignore the period (v7); a name keeps it.
+  const query = classifyOrderQuery(q);
+  const lookup = query && (query.kind === 'ticket' || query.kind === 'tail' || query.kind === 'phone') ? query : null;
   const set = (patch: Partial<ListFilter>) => setFilter((f) => ({ ...f, ...patch }));
 
-  // The view lives in the URL so a view can be linked ("/orders?view=late").
-  useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get(VIEW_PARAM);
-    if (v && (ORDER_VIEW_KEYS as readonly string[]).includes(v)) set({ view: v as OrderView });
-  }, []);
+  // The view, period and filters live in the link, so a teammate opening it sees the same list.
+  const linked: LinkParams = {
+    view: filter.view,
+    period: filter.period.preset,
+    from: filter.period.preset === 'custom' ? (filter.period.fromDay ?? '') : '',
+    to: filter.period.preset === 'custom' ? (filter.period.toDay ?? '') : '',
+    type: filter.type,
+    shop: filter.merchantOrgId,
+    zone: filter.zoneKey,
+    pay: filter.payment,
+    sort: sort ?? '',
+  };
+  useLinkedFilters(
+    linked,
+    LINK_DEFAULTS,
+    (got) => {
+      setFilter((f) => ({ ...f, ...fromLink(got) }));
+      if (got['sort']) setSort(got['sort'] as ListSort);
+    },
+    LINK_ALLOWED,
+  );
+  // A saved view (o5) replaces the whole list setup; the search box keeps what is typed.
+  const openSaved = (params: LinkParams) => {
+    const got = readParams(new URLSearchParams(params).toString(), LINK_DEFAULTS, LINK_ALLOWED);
+    setFilter((f) => ({ ...EMPTY_FILTER, q: f.q, ...fromLink(got) }));
+    setSort((got['sort'] as ListSort | undefined) ?? null);
+  };
+  const merchants = useMerchants();
+  const suggestName = () =>
+    [
+      filter.view !== 'all' ? t(`console.orders_view_${filter.view}` as MessageKey) : null,
+      filter.type !== 'all' ? orderTypeLabel(filter.type) : null,
+      filter.merchantOrgId ? (merchants.data?.find((m) => m.merchantId === filter.merchantOrgId)?.name ?? null) : null,
+      filter.zoneKey ? zoneName(filter.zoneKey) : null,
+      filter.payment !== 'all' ? paymentLabel(filter.payment) : null,
+      filter.period.preset !== EMPTY_FILTER.period.preset && !ORDER_VIEWS[filter.view].now ? rangeWords(filter.period, now) : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+      .slice(0, 40) || t('console.orders_saved_label');
   const setView = (view: OrderView) => {
     set({ view });
     setSort(null);
-    const url = new URL(window.location.href);
-    if (view === 'all') url.searchParams.delete(VIEW_PARAM);
-    else url.searchParams.set(VIEW_PARAM, view);
-    window.history.replaceState(null, '', url);
   };
 
   const dayKey = now.toISOString().slice(0, 13);
-  const input = useMemo(() => listInput(CITY_ID, { ...filter, q }, now, Boolean(ticket), PAGE), [filter, q, ticket, dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const input = useMemo(() => listInput(CITY_ID, { ...filter, q }, now, Boolean(lookup), PAGE), [filter, q, lookup, dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const orders = useInfiniteQuery(
     trpc.orders.search.infiniteQueryOptions(input, {
       enabled: signedIn,
@@ -100,7 +158,7 @@ export function OrdersPage() {
       }
     return out;
   }, [orders.data]);
-  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' ? 'late' : 'newest');
+  const effectiveSort: ListSort = sort ?? (filter.view === 'late' || filter.view === 'active' || filter.view === 'waiting' ? 'late' : 'newest');
   const rows = useMemo(() => sortSummaries(loaded, effectiveSort), [loaded, effectiveSort]);
   // One batched name read for the page (K-01): customers and restaurants.
   useNames({ people: rows.map((o) => o.ordererId), orgs: rows.flatMap((o) => (o.merchantOrgId ? [o.merchantOrgId] : [])) });
@@ -111,9 +169,9 @@ export function OrdersPage() {
     {
       key: 'order',
       header: t('console.col_order'),
-      width: '9.5rem',
+      width: '6.5rem',
       cell: (o) => (
-        <span className="inline-flex items-baseline gap-2 whitespace-nowrap">
+        <span className="flex flex-col whitespace-nowrap">
           <OrderRef id={o.id} strong />
           <span className="text-xs text-muted">{orderTypeLabel(o.type)}</span>
         </span>
@@ -122,7 +180,7 @@ export function OrdersPage() {
     {
       key: 'state',
       header: t('console.col_state'),
-      width: '9rem',
+      width: '8.5rem',
       cell: (o) => <OrderStatus state={o.state} />,
     },
     {
@@ -141,7 +199,7 @@ export function OrdersPage() {
           </span>
         </button>
       ),
-      width: '7rem',
+      width: '6rem',
       cell: (o) =>
         o.lateMin !== null ? (
           <span className="num inline-flex items-center gap-1 whitespace-nowrap font-semibold text-bad" title={t('console.orders_late_by', { time: compactDuration(o.lateMin * 60_000) })}>
@@ -159,28 +217,61 @@ export function OrdersPage() {
     {
       key: 'merchant',
       header: t('console.col_merchant'),
-      cell: (o) => (o.merchantOrgId ? <OrgName id={o.merchantOrgId} copy={false} /> : <span className="text-faint">—</span>),
+      hideOnPhone: true,
+      cell: (o) => (o.merchantOrgId ? <OrgName id={o.merchantOrgId} copy={false} className="block max-w-[8rem] truncate" /> : <span className="text-faint">—</span>),
     },
-    { key: 'customer', header: t('console.col_customer'), cell: (o) => <PersonName id={o.ordererId} copy={false} /> },
-    { key: 'zone', header: t('console.col_zone'), cell: (o) => (o.zoneKey ? <span className="block max-w-[11rem] truncate text-muted" title={zoneName(o.zoneKey)}>{zoneName(o.zoneKey)}</span> : <span className="text-faint">—</span>) },
-    { key: 'payment', header: t('console.col_payment'), width: '6rem', cell: (o) => <span className="text-muted">{paymentLabel(o.paymentMethod)}</span> },
-    { key: 'placed', header: t('console.col_placed'), width: '10rem', cell: (o) => <span className="num whitespace-nowrap text-muted">{stamp(o.placedAt, now)}</span> },
-    { key: 'total', header: <span className="whitespace-nowrap">{t('console.col_total_iqd')}</span>, numeric: true, width: '8rem', cell: (o) => <span className="font-medium">{formatIqd(o.totalIqd)}</span> },
+    {
+      // o6: the zone rides under the customer, the payment under the total (nine columns down to seven).
+      key: 'customer',
+      header: t('console.col_customer'),
+      cell: (o) => (
+        <span className="flex min-w-0 flex-col">
+          <PersonName id={o.ordererId} copy={false} />
+          {o.zoneKey ? (
+            <span className="block max-w-[8rem] truncate text-xs text-muted" title={zoneName(o.zoneKey)}>
+              {zoneName(o.zoneKey)}
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    { key: 'placed', header: t('console.col_placed'), width: '6rem', hideOnPhone: true, cell: (o) => (
+        // Older days stack the date over the clock; a clock never splits.
+        <span className="num flex flex-col text-muted">
+          {stamp(o.placedAt, now).split(' · ').map((part) => (
+            <span key={part} className="whitespace-nowrap">{part}</span>
+          ))}
+        </span>
+      ) },
+    {
+      key: 'total',
+      header: <span className="whitespace-nowrap">{t('console.col_total_iqd')}</span>,
+      numeric: true,
+      width: '7rem',
+      cell: (o) => (
+        <span className="flex flex-col items-end">
+          <span className="font-medium">{formatIqd(o.totalIqd)}</span>
+          <span className="text-xs text-muted">{paymentLabel(o.paymentMethod)}</span>
+        </span>
+      ),
+    },
   ];
 
   const filtersOn = activeFilterCount(filter);
   const empty =
     filter.view === 'late'
       ? { title: t('console.orders_empty_late'), hint: t('console.orders_empty_late_hint') }
-      : {
-          title: t('console.orders_empty'),
-          hint: t('console.orders_empty_hint'),
-          action: filtersOn ? (
-            <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
-              {t('console.orders_filter_clear')}
-            </Button>
-          ) : undefined,
-        };
+      : filter.view === 'waiting'
+        ? { title: t('console.orders_empty_waiting'), hint: t('console.orders_empty_waiting_hint') }
+        : {
+            title: t('console.orders_empty'),
+            hint: t('console.orders_empty_hint'),
+            action: filtersOn ? (
+              <Button size="sm" onClick={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: { preset: 'all' } }))}>
+                {t('console.orders_filter_clear')}
+              </Button>
+            ) : undefined,
+          };
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -211,17 +302,29 @@ export function OrdersPage() {
                   ),
               }))}
             />
-            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(ticket) || filter.view === 'late'} />
+            <PeriodPicker className="mb-2" presets={PRESETS} value={filter.period} onChange={(period) => set({ period })} now={now} disabled={Boolean(lookup) || ORDER_VIEWS[filter.view].now} />
           </div>
 
-          <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn} />
+          <FilterBar filter={filter} set={set} onClear={() => setFilter((f) => ({ ...EMPTY_FILTER, view: f.view, period: f.period, q: f.q }))} count={filtersOn}>
+            <OrdersExportButton input={input} fileTag={`${filter.view}-${filter.period.preset}-${now.toISOString().slice(0, 10)}`} />
+          </FilterBar>
+
+          <SavedViewsBar current={linked} defaults={LINK_DEFAULTS} suggest={suggestName} onOpen={openSaved} />
 
           <div className="mb-2 flex min-h-6 flex-wrap items-center justify-between gap-2 text-dense text-muted">
-            {ticket ? (
-              <p role="status">{t('console.orders_ticket_hint', { ticket: `⁦#${ticket}⁩` })}</p>
+            {lookup ? (
+              <p role="status">
+                {lookup.kind === 'phone'
+                  ? t('console.orders_phone_hint')
+                  : lookup.kind === 'tail'
+                    ? t('console.orders_tail_hint', { tail: `⁦${lookup.tail}⁩` })
+                    : lookup.tail
+                      ? t('console.orders_ticket_tail_hint', { ticket: `⁦#${lookup.ticket}⁩`, tail: `⁦${lookup.tail}⁩` })
+                      : t('console.orders_ticket_hint', { ticket: `⁦#${lookup.ticket}⁩` })}
+              </p>
             ) : (
               <p>
-                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : rangeWords(filter.period, now)}</span>
+                <span className="font-medium text-text">{filter.view === 'late' ? t('console.orders_late_now') : filter.view === 'waiting' ? t('console.orders_waiting_now') : rangeWords(filter.period, now)}</span>
                 {orders.isSuccess ? (
                   <span className="num">
                     {' · '}
@@ -264,7 +367,7 @@ export function OrdersPage() {
   );
 }
 
-function FilterBar({ filter, set, onClear, count }: { filter: ListFilter; set: (p: Partial<ListFilter>) => void; onClear: () => void; count: number }) {
+function FilterBar({ filter, set, onClear, count, children }: { filter: ListFilter; set: (p: Partial<ListFilter>) => void; onClear: () => void; count: number; children?: ReactNode }) {
   const merchants = useMerchants();
   const ids = { q: useId(), type: useId(), merchant: useId(), zone: useId(), payment: useId() };
   const zones = useMemo(() => [...AZIZIYAH_ZONES].map((z) => ({ id: z.id, name: zoneName(z.id) })).sort((a, b) => a.name.localeCompare(b.name, 'ar')), []);
@@ -316,6 +419,10 @@ function FilterBar({ filter, set, onClear, count }: { filter: ListFilter; set: (
           <span className="num text-xs text-faint">{count}</span>
         </Button>
       )}
+      <span className="ms-auto flex flex-wrap items-center gap-1">
+        {children}
+        <CopyLinkButton />
+      </span>
     </div>
   );
 }

@@ -8,8 +8,9 @@ import { useDates } from '@/lib/dates';
 import { useLayout } from '@/lib/layout';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
+import { clock12 } from '@/lib/time';
 import { HourBars, Heatmap, Ring, TrendBars } from './Charts';
-import { bestSellerRows, busiestWindow, canRankBySales, percent, prepVerdict, ratingTone, rejectionTrend, rejectionVerdict, type BestSellerMode, type Verdict } from './logic';
+import { bestSellerRows, busiestWindow, canRankBySales, cityMinute, percent, prepVerdict, ratingTone, rejectionTrend, rejectionVerdict, type BestSellerMode, type Verdict } from './logic';
 
 const VERDICT: Record<Verdict, { fg: 'successText' | 'warningText' | 'dangerText' | 'textMuted'; bg: 'successTint' | 'warningTint' | 'dangerTint' | 'surfaceSunken'; dot: 'success' | 'warning' | 'danger' | 'textMuted'; icon: MIconName }> = {
   good: { fg: 'successText', bg: 'successTint', dot: 'success', icon: 'check' },
@@ -43,10 +44,42 @@ export function InsightsView({ data, wide }: { data: MerchantInsights | undefine
     );
   return (
     <View style={{ gap: wide ? theme.space[5] : theme.space[4] }}>
+      <SoldOutPanel data={data} />
       {row(<PrepPanel data={data} />, <RejectionPanel data={data} />, [1.15, 1])}
       <PeakPanel data={data} wide={wide} />
       {row(<BestSellersPanel data={data} />, <RatingsPanel data={data} />)}
     </View>
+  );
+}
+
+/**
+ * m4 «يخلص قبل وقته»: the dishes that ran out on three or more days lately, with the usual time, so the
+ * kitchen prepares more of them. Shown only when there is something to say.
+ */
+function SoldOutPanel({ data }: { data: MerchantInsights }) {
+  const theme = useTheme();
+  const t = useT();
+  const habits = data.soldOutHabits ?? [];
+  if (habits.length === 0) return null;
+  return (
+    <Panel title={t('merchant.insights.sold_out_title')} icon="flame" flush testID="insights-sold-out">
+      <Text variant="body" color="textMuted" style={{ paddingHorizontal: theme.space[5] }}>
+        {t('merchant.insights.sold_out_hint')}
+      </Text>
+      {habits.map((h, i) => (
+        <PanelRow key={h.itemId} first={i === 0}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="bodyStrong" numberOfLines={1}>
+              {h.nameAr ?? '—'}
+            </Text>
+            <Text variant="footnote" color="textMuted">
+              {t('merchant.insights.sold_out_days', { count: h.days })}
+            </Text>
+          </View>
+          <Tag label={t('merchant.insights.sold_out_at', { time: clock12(cityMinute(h.usualMinute)) })} tone="warning" />
+        </PanelRow>
+      ))}
+    </Panel>
   );
 }
 
@@ -162,7 +195,7 @@ function RejectionPanel({ data }: { data: MerchantInsights }) {
         ) : null}
       </View>
       <Text variant="footnote" color={VERDICT[v].fg} weight={600}>
-        {v === 'good' ? t('merchant.insights.reject_good') : v === 'watch' ? t('merchant.insights.reject_watch') : v === 'bad' ? t('merchant.insights.reject_bad') : t('merchant.insights.no_data')}
+        {v === 'good' ? t('merchant.insights.reject_good') : v === 'watch' ? t('merchant.insights.reject_watch_honest', { percent: r.offered > 0 ? Math.round(((r.offered - r.rejected) / r.offered) * 100) : 0 }) : v === 'bad' ? t('merchant.insights.reject_bad') : t('merchant.insights.no_data')}
       </Text>
       {r.trend.length > 1 ? <TrendBars values={r.trend.map((b) => b.rate)} labels={r.trend.map((b) => dates.dayMonth(b.from))} tone={tone} /> : null}
     </Panel>

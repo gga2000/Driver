@@ -44,8 +44,10 @@ export interface BlobStore {
   /**
    * Signed read URL on the API, stable within the hour so clients can cache it. `validForMs`: still
    * valid that long from now (a feed phones keep for hours, maps program b3); default about an hour.
+   * `exact`: expires `validForMs` from now (rounded up to the minute) instead of on the hour, for
+   * links that must not outlive their use (a shopper's list); `validForMs` must be at least a minute.
    */
-  readUrl(id: string, validForMs?: number): string;
+  readUrl(id: string, validForMs?: number, opts?: { exact?: boolean }): string;
   read(input: { id: string; exp: string | undefined; sig: string | undefined }): Promise<{ contentType: string; bytes: Buffer } | null>;
   /** For a valid signed read: a short-lived presigned URL of the storage itself (direct storage only), else null. */
   readLocation(input: { id: string; exp: string | undefined; sig: string | undefined }): Promise<string | null>;
@@ -74,6 +76,7 @@ export function maxBytesFor(contentType: UploadContentType): number {
 }
 const UPLOAD_TTL_MS = 15 * 60_000;
 const HOUR_MS = 3_600_000;
+const MINUTE_MS = 60_000;
 const DIRECT_READ_TTL_SEC = 300;
 const MAGIC_BYTES = 12;
 
@@ -254,9 +257,10 @@ export class ObjectBlobStore implements BlobStore {
     return { ...rec, state: 'stored', sizeBytes: head.sizeBytes };
   }
 
-  readUrl(id: string, validForMs = 0): string {
+  readUrl(id: string, validForMs = 0, opts: { exact?: boolean } = {}): string {
     const now = this.clock.now().getTime();
-    const exp = Math.ceil((now + validForMs) / HOUR_MS) * HOUR_MS + HOUR_MS;
+    if (opts.exact && !(validForMs >= MINUTE_MS)) throw new RangeError('readUrl exact: validForMs below a minute');
+    const exp = opts.exact ? Math.ceil((now + validForMs) / MINUTE_MS) * MINUTE_MS : Math.ceil((now + validForMs) / HOUR_MS) * HOUR_MS + HOUR_MS;
     return `${this.origin}/files/${id}?exp=${exp}&sig=${this.sign('get', id, exp)}`;
   }
 

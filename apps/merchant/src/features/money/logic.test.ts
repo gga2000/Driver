@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MerchantDispute, StatementOrderLine } from '@driver/contracts';
 import { hour12, hourPeriod, localDayKey, localParts, relativeDay, startOfLocalWeek } from '@/lib/calendar';
-import { balanceState, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, moneyPill, requestBlocker, requestProgress, statementBridge, statementDays, ticketNumber, waitingCount, weekAnchor } from './logic';
+import { balanceState, beforeFirstOrder, canRequest, canSendAnswer, disputeClock, exposure, holderRows, lateMinutes, moneyPill, receiveAmount, receiveCodeReady, requestBlocker, requestProgress, statementBridge, statementDays, ticketNumber, waitingCount, weekAnchor, weekLines } from './logic';
 
 const H = 3_600_000;
 
@@ -41,6 +41,12 @@ describe('cash account', () => {
     expect(requestBlocker({ balanceIqd: -4_250, request: null })).toBe('owe');
     expect(requestBlocker({ balanceIqd: 0, request: null })).toBe('zero');
     expect(requestBlocker({ balanceIqd: 87_500, request: { state: 'on_the_way' } as never })).toBe('open');
+    // UNR-06: every request state — only a finished hand-over lets a new request through.
+    expect(requestBlocker({ balanceIqd: 87_500, request: { state: 'requested' } as never })).toBe('open');
+    expect(requestBlocker({ balanceIqd: 87_500, request: { state: 'handed_over' } as never })).toBeNull();
+    expect(requestBlocker({ balanceIqd: 0, request: { state: 'handed_over' } as never })).toBe('zero');
+    expect(requestBlocker({ balanceIqd: -1, request: { state: 'handed_over' } as never })).toBe('owe');
+    expect(requestBlocker({ balanceIqd: -1, request: { state: 'requested' } as never })).toBe('open');
   });
 
   it('holder rows: couriers then Driver, with shares for the bars', () => {
@@ -93,6 +99,12 @@ describe('weekly statement', () => {
       ['2026-10-02', ['b'], 1, 17_600],
       ['2026-10-01', ['c', 'a'], 2, 13_200],
     ]);
+  });
+
+  it('a cart walk-over ticket is a row of the day (its commission in the net) but not an order', () => {
+    const walkup = { ...line('w1', '2026-10-01T11:00:00Z', 0, 500), commissionTier: 'pickup' as const, commissionPct: 5, walkup: true };
+    const days = statementDays([line('a', '2026-10-01T10:00:00Z', 10_000, 1_200), walkup]);
+    expect(days.map((d) => [d.lines.map((l) => l.orderId), d.orders, d.commissionIqd, d.netIqd])).toEqual([[['w1', 'a'], 1, 1_700, 8_300]]);
   });
 
   it('week anchors step back whole weeks', () => {
@@ -156,5 +168,65 @@ describe('money in one line (S-M5) and the weekly bridge (M-17)', () => {
     ]);
     expect(b.adds).toBe(true);
     expect(statementBridge({ openingIqd: 0, closingIqd: 0, totals: { ...totals, netIqd: 12_750, settledIqd: 12_750, adjustmentsIqd: 0 } }).terms.map((x) => x.key)).toEqual(['opening', 'net', 'settled', 'closing']);
+  });
+});
+
+describe('d12 · before the first delivered order', () => {
+  const fresh = { balanceIqd: 0, lastSettledAt: null, handovers: [], request: null, holders: [], heldByPlatformIqd: 0 };
+  it('a zero balance that never moved says «فلوسك تبين هنا من أول طلب»', () => {
+    expect(beforeFirstOrder(fresh)).toBe(true);
+    expect(moneyPill({ kind: 'zero', amountIqd: 0, arrives: null, by: null }, { firstOrder: true }).main.key).toBe('merchant.money.pill_first');
+  });
+  it('anything that ever moved opens the gate', () => {
+    expect(beforeFirstOrder(undefined)).toBe(false);
+    expect(beforeFirstOrder(fresh, 1)).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, balanceIqd: 4_500 })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, balanceIqd: -500 })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, lastSettledAt: new Date('2026-10-01T10:00:00Z') })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, heldByPlatformIqd: 2_000 })).toBe(false);
+    expect(beforeFirstOrder({ ...fresh, holders: [{ courierId: 'c1', name: 'حيدر', amountIqd: 9_000 }] })).toBe(false);
+    // Settled back to zero: an old shop keeps «ما عندك فلوس عند درايفر هسة».
+    expect(beforeFirstOrder({ ...fresh, handovers: [{ handoverId: 'h1', at: new Date(), courierId: 'c1', courierName: null, amountIqd: 9_000, balanceAfterIqd: 0, confirmedBy: 'pin' }] })).toBe(false);
+    expect(moneyPill({ kind: 'zero', amountIqd: 0, arrives: null, by: null }).main.key).toBe('merchant.money.pill_zero');
+  });
+});
+
+describe('d19 · the week in sentences', () => {
+  const totals = { orders: 104, itemsIqd: 1_088_500, commissionIqd: 131_101, feesIqd: 0, netIqd: 957_399, settledIqd: 1_123_905, adjustmentsIqd: 68_500 };
+  it('the same numbers as the bridge, the words carry the sign', () => {
+    const w = weekLines({ openingIqd: 164_538, closingIqd: 66_532, totals });
+    expect(w.lines).toEqual([
+      { key: 'opening', text: 'merchant.week.opening', amountIqd: 164_538 },
+      { key: 'net', text: 'merchant.week.net', amountIqd: 957_399 },
+      { key: 'settled', text: 'merchant.week.settled', amountIqd: 1_123_905 },
+      { key: 'adjustments', text: 'merchant.week.adjust_plus', amountIqd: 68_500 },
+      { key: 'closing', text: 'merchant.week.closing', amountIqd: 66_532 },
+    ]);
+    expect(w.adds).toBe(true);
+    // Every amount is the bridge's, unsigned.
+    expect(w.lines.map((l) => l.amountIqd)).toEqual(statementBridge({ openingIqd: 164_538, closingIqd: 66_532, totals }).terms.map((x) => Math.abs(x.amountIqd)));
+  });
+  it('owing, nothing and taken off read as words, never a minus', () => {
+    const w = weekLines({ openingIqd: -2_000, closingIqd: -4_250, totals: { ...totals, netIqd: 0, settledIqd: 0, adjustmentsIqd: -2_250 } });
+    expect(w.lines.map((l) => l.text)).toEqual(['merchant.week.opening_owe', 'merchant.week.net_zero', 'merchant.week.settled_zero', 'merchant.week.adjust_minus', 'merchant.week.closing_owe']);
+    expect(w.lines.every((l) => l.amountIqd >= 0)).toBe(true);
+    expect(weekLines({ openingIqd: 0, closingIqd: 0, totals: { ...totals, netIqd: 5_000, settledIqd: 5_000, adjustmentsIqd: 0 } }).lines.map((l) => l.text)).toEqual(['merchant.week.opening_zero', 'merchant.week.net', 'merchant.week.settled', 'merchant.week.closing_zero']);
+  });
+});
+
+describe('«استلمت منه» · taking cash from a courier at the counter', () => {
+  it('starts from what he holds, never more; Arabic digits and separators are read', () => {
+    expect(receiveAmount('12,750', 12_750)).toEqual({ amountIqd: 12_750, problem: null });
+    expect(receiveAmount('١٠٠٠٠', 12_750)).toEqual({ amountIqd: 10_000, problem: null });
+    expect(receiveAmount('13000', 12_750)).toEqual({ amountIqd: 13_000, problem: 'too_much' });
+    expect(receiveAmount('', 12_750).problem).toBe('empty');
+    expect(receiveAmount('0', 12_750).problem).toBe('empty');
+    expect(receiveAmount('12a', 12_750).problem).toBe('empty');
+  });
+
+  it('needs his 4-digit code', () => {
+    expect(receiveCodeReady('0427')).toBe(true);
+    expect(receiveCodeReady('042')).toBe(false);
+    expect(receiveCodeReady('04271')).toBe(false);
   });
 });

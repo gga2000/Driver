@@ -10,6 +10,7 @@
 //   0770 999 0000  staff at خالد and الحاج كريم  → store picker
 //   0770 111 0000  علي, staff at خالد             → straight to the board (staff: no money, no «مين سوّى شنو»)
 //   0770 555 0000  no store                      → "حسابك بعده ما متفعّل"
+//   0770 123 4500  أبو حيدر, owner of the liver cart → the cart screen (scripts/demo/carts.mjs)
 // GET /demo/seed lists stores and people.
 //
 // Sections: every `scripts/demo/*.mjs` is loaded in name order. Each default-exports

@@ -59,6 +59,20 @@ describe('hourFood', () => {
     expect(ids(more)).toEqual(['qeema', 'tikka', 'shawarma', 'fasoulia']);
   });
 
+  it('pots lead at meal times, follow the hour’s dishes at other hours, and stay out when the section promises something else', () => {
+    const input = { pots: [pot('musafir', 'bamia')], picks: [pick('khalid', 'kahi'), pick('sham', 'qaymar')], now: NOON };
+    expect(ids(hourFood(input).slides)).toEqual(['bamia', 'kahi', 'qaymar']);
+    expect(ids(hourFood({ ...input, potPlace: 'first' }).slides)).toEqual(['bamia', 'kahi', 'qaymar']);
+    expect(ids(hourFood({ ...input, potPlace: 'after' }).slides)).toEqual(['kahi', 'qaymar', 'bamia']);
+    expect(hourFood({ ...input, potPlace: 'after' }).slides[2]?.pot).toEqual({ until: null });
+    expect(ids(hourFood({ ...input, potPlace: 'none' }).slides)).toEqual(['kahi', 'qaymar']);
+  });
+
+  it('only the kitchens asked for (the last hours before iftar: the ones that still make it)', () => {
+    const { slides } = hourFood({ pots: [pot('musafir', 'dolma')], picks: [pick('khalid', 'shorba'), pick('sham', 'juice')], now: NOON, only: new Set(['sham', 'musafir']) });
+    expect(ids(slides)).toEqual(['dolma', 'juice']);
+  });
+
   it('a pot that is also a pick keeps the pick’s one-tap add; a pot alone opens its menu', () => {
     const { slides } = hourFood({ pots: [pot('kareem', 'bamia'), pot('musafir', 'dolma')], picks: [pick('kareem', 'bamia', { description: 'مرق بامية' })], now: NOON });
     expect(slides.map((s) => s.dish.quickAdd)).toEqual([true, false]);

@@ -3,9 +3,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import type { BookingView, SeatPayment } from '@driver/contracts';
-import { Button, Card, CountdownRing, EmptyState, PriceLine, Rule, Skeleton, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, CountdownRing, EmptyState, PriceLine, QueryBoundary, Rule, Skeleton, Text, useTheme, useToast } from '@driver/ui';
 import { useWalletBalance } from '@/features/account/queries';
 import { Screen } from '@/components/Screen';
+import { stopNameOf } from '@/features/rajaa/agree';
+import { AgreedNote, FreeLine } from '@/features/rajaa/AgreeParts';
 import { seatsList } from '@/features/rajaa/labels';
 import { boardingOpensAt, clockLabel, holdCountdown, RAJAA_RULES, publicPlaceName } from '@/features/rajaa/logic';
 import { Section } from '@/features/rajaa/Option';
@@ -157,15 +159,32 @@ export default function HoldAndPay() {
           </View>
           <Text variant="footnote" color="textMuted">
             {t('rajaa.seat_label')}: {seatsList(t, b.seatIds)}
-            {b.pickup.kind !== 'garage' && b.pickup.nameAr ? ` · ${publicPlaceName(b.pickup.nameAr)}` : ''}
+            {b.pickup.kind === 'pin'
+              ? ` · ${stopNameOf(b.pickup, garage, { pin: t('rajaa.agree_pin_title'), door: t('rajaa.pickup_door'), place: publicPlaceName })}`
+              : b.pickup.kind !== 'garage' && b.pickup.nameAr
+                ? ` · ${publicPlaceName(b.pickup.nameAr)}`
+                : ''}
           </Text>
           <Rule style={{ marginVertical: theme.space[2] }} />
           <PriceLine label={t('rajaa.line_seats', { n: b.seatIds.length, amount: amountParam(b.seatPriceIqd) })} amount={seatsTotal} />
           {b.frontPremiumIqd > 0 ? <PriceLine label={t('rajaa.line_front')} amount={b.frontPremiumIqd} /> : null}
+          {b.lapChildren > 0 ? <FreeLine label={t('rajaa.line_lap', { n: b.lapChildren })} /> : null}
           {b.pickupFeeIqd > 0 ? (
-            <PriceLine label={b.pickup.kind === 'door' ? t('rajaa.line_pickup_door') : t('rajaa.line_pickup_way')} amount={b.pickupFeeIqd} />
+            <PriceLine
+              label={b.pickup.kind === 'door' ? t('rajaa.line_pickup_door') : b.pickup.kind === 'pin' ? t('rajaa.line_pickup_pin') : t('rajaa.line_pickup_way')}
+              amount={b.pickupFeeIqd}
+            />
           ) : null}
+          {b.pickup.kind === 'pin' && b.pickupFeeIqd === 0 ? <FreeLine label={t('rajaa.line_pickup_pin')} /> : null}
+          {b.dropoffFeeIqd > 0 ? (
+            <PriceLine label={t('rajaa.line_dropoff_door')} amount={b.dropoffFeeIqd} />
+          ) : b.dropoff ? (
+            <FreeLine label={t('rajaa.line_dropoff_door')} />
+          ) : null}
+          {/* Step 5: priced by the server when his seat the other way is still booked; locked at «ثبّت». */}
+          {b.returnDiscountIqd > 0 ? <PriceLine testID="rajaa-hold-return" label={t('rajaa.line_return_bundle')} amount={-b.returnDiscountIqd} /> : null}
           <PriceLine label={t('rajaa.total')} amount={b.totalIqd} strong />
+          {b.pickup.kind === 'pin' || b.dropoff ? <AgreedNote /> : null}
           {b.pickup.status === 'pending' ? (
             <Text variant="caption" color="warningText">
               {t('intercity.pickup_pending')}
@@ -176,6 +195,12 @@ export default function HoldAndPay() {
 
       <Section title={t('rajaa.pay_title')}>
         <PayCompare value={payment} onChange={setPayment} cancelUntil={clockLabel(boardingOpensAt(b.departure.departAt))} totalIqd={b.totalIqd} balanceIqd={balance} />
+        {/* The balance line shows once the wallet read is in; until then a placeholder, and a retry if it failed. */}
+        {wallet.data === undefined ? (
+          <QueryBoundary query={wallet} size="inline" skeleton={<Skeleton height={44} radius={12} />} testID="rajaa-wallet-read">
+            {() => null}
+          </QueryBoundary>
+        ) : null}
       </Section>
     </Screen>
   );

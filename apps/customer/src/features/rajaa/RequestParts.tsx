@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
-import type { RequestDetails } from '@driver/contracts';
+import { pricierThanUsual, type RequestDetails, type UsualRange } from '@driver/contracts';
 import type { MessageKey } from '@driver/i18n';
 import { Avatar, Icon, PlateChip, StatusPill, Text, usePulse, useTheme } from '@driver/ui';
 import { useLocale, useT, type TFn } from '@/lib/i18n';
-import { iqd } from '@/lib/money';
+import { amountParam, iqd } from '@/lib/money';
 import { apiPhoto } from '@/lib/photo';
 import { countKey } from '@/lib/plural';
 import { compactRecord } from './driver-record';
@@ -28,8 +28,10 @@ export function returnDays(when: Date, returnAt: Date): number {
 }
 
 /** y1 as the drivers and the rider read it back: trip kind (with the wait or the day back), bags, car, AC. */
-export function detailPills(t: TFn, d: RequestDetails, when: Date): { key: string; label: string; icon: 'clock' | 'suitcase' | 'car' | 'rajaa' }[] {
+export function detailPills(t: TFn, d: RequestDetails, when: Date, riderName: string | null = null): { key: string; label: string; icon: 'clock' | 'suitcase' | 'car' | 'rajaa' | 'user' }[] {
   const out: ReturnType<typeof detailPills> = [];
+  // k2: «جيب ماما» once the poster named who is fetched, «جيب واحد» otherwise.
+  if (d.trip === 'fetch') out.push({ key: 'trip', icon: 'user', label: riderName ? t('rajaa.req_for', { name: riderName }) : t('rajaa.req_trip.fetch') });
   if (d.trip === 'wait_return' && d.waitHours !== null)
     out.push({ key: 'trip', icon: 'clock', label: `${t('rajaa.req_trip.wait_return')} · ${t('rajaa.req_sum.wait', { hours: t(countKey('rajaa.req_hours', d.waitHours), { n: d.waitHours }) })}` });
   if (d.trip === 'two_days' && d.returnAt) {
@@ -42,10 +44,10 @@ export function detailPills(t: TFn, d: RequestDetails, when: Date): { key: strin
   return out;
 }
 
-export function DetailPills({ details, when, testID }: { details: RequestDetails; when: Date; testID?: string }) {
+export function DetailPills({ details, when, riderName = null, testID }: { details: RequestDetails; when: Date; riderName?: string | null; testID?: string }) {
   const theme = useTheme();
   const t = useT();
-  const pills = detailPills(t, details, when);
+  const pills = detailPills(t, details, when, riderName);
   if (pills.length === 0) return null;
   return (
     <View testID={testID} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
@@ -83,6 +85,37 @@ export function SeenLine({ seenBy, offers }: { seenBy: number; offers: number })
   );
 }
 
+/**
+ * p1: «عادةً بين 30,000 و38,000 دينار», from real finished trips only (the server sends nothing until
+ * there are 5 in 90 days), with how many it comes from so the number earns its trust.
+ */
+export function UsualRangeLine({ range, testID = 'rajaa-usual-range' }: { range: UsualRange; testID?: string }) {
+  const theme = useTheme();
+  const t = useT();
+  const title = t('rajaa.usual_range', { low: amountParam(range.lowIqd), high: amountParam(range.highIqd) });
+  const from = t(countKey('rajaa.usual_range_from', range.trips), { n: range.trips });
+  return (
+    <View testID={testID} accessible accessibilityLabel={`${title}، ${from}`} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], padding: theme.space[3], borderRadius: theme.radius.md, backgroundColor: theme.colors.surfaceSunken }}>
+      <Icon name="receipt" size={20} color="textMuted" />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text variant="label" weight={700} tabular>
+          {title}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          {from}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/** w1: what his price includes on a «يستناك وترجع» trip, said the way the rider asked it. */
+function waitLine(t: TFn, wait: NonNullable<RequestOffer['wait']>): string {
+  const hours = t('rajaa.req_sum.wait', { hours: t(countKey('rajaa.req_hours', wait.includedHours), { n: wait.includedHours }) });
+  const extra = wait.extraHourIqd > 0 ? t('rajaa.offer_extra_hour', { amount: amountParam(wait.extraHourIqd) }) : t('rajaa.offer_extra_free');
+  return `${hours} · ${extra}`;
+}
+
 function missLine(t: TFn, m: Mismatch, offer: RequestOffer): string {
   if (m === 'car_kind' && offer.driver?.vehicle) return t('rajaa.offer_miss.car_kind', { kind: t(`rajaa.vehicle_${offer.driver.vehicle.kind}` as MessageKey) });
   return t(`rajaa.offer_miss.${m}` as MessageKey);
@@ -94,7 +127,7 @@ function missLine(t: TFn, m: Mismatch, offer: RequestOffer): string {
  * against each other; his car with a small plate; his trips; what the car has and anything it lacks
  * of what was asked; the action full width at the bottom.
  */
-export function OfferCard({ offer, details, wins, action, children }: { offer: RequestOffer; details: RequestDetails; wins: readonly OfferSort[]; action: ReactNode; children?: ReactNode }) {
+export function OfferCard({ offer, details, wins, range = null, action, children }: { offer: RequestOffer; details: RequestDetails; wins: readonly OfferSort[]; range?: UsualRange | null; action: ReactNode; children?: ReactNode }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -106,6 +139,9 @@ export function OfferCard({ offer, details, wins, action, children }: { offer: R
   const misses = offerMismatches(details, d?.vehicle);
   const price = iqd(offer.priceIqd, { locale });
   const best = wins.includes('best');
+  // w1: fewer hours included than he asked for is worth a second look, not a block.
+  const waitShort = offer.wait !== null && details.waitHours !== null && offer.wait.includedHours < details.waitHours;
+  const pricier = pricierThanUsual(offer.priceIqd, range);
   return (
     <View
       testID={`offer-card-${offer.id}`}
@@ -160,7 +196,22 @@ export function OfferCard({ offer, details, wins, action, children }: { offer: R
           </Text>
         ) : null}
       </View>
-      {has.length > 0 || misses.length > 0 ? (
+      {offer.wait ? (
+        <View testID={`offer-wait-${offer.id}`} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+          <Icon name="clock" size={16} color={waitShort ? 'warningText' : 'textMuted'} style={{ marginTop: 2 }} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="footnote" weight={600} tabular>
+              {waitLine(t, offer.wait)}
+            </Text>
+            {waitShort ? (
+              <Text variant="caption" weight={600} color="warningText">
+                {t('rajaa.offer_wait_short')}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+      {has.length > 0 || misses.length > 0 || pricier ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
           {has.map((h) => (
             <StatusPill key={h} size="sm" tone="success" icon="check" label={h} />
@@ -168,6 +219,8 @@ export function OfferCard({ offer, details, wins, action, children }: { offer: R
           {misses.map((m) => (
             <StatusPill key={m} testID={`offer-miss-${m}`} size="sm" tone="warning" icon="x" label={missLine(t, m, offer)} />
           ))}
+          {/* p3: information only; nothing is blocked. */}
+          {pricier ? <StatusPill testID={`offer-pricier-${offer.id}`} size="sm" tone="neutral" icon="cash" label={t('rajaa.offer_pricier')} /> : null}
         </View>
       ) : null}
       {action}

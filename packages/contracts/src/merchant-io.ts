@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RoleKind } from './auth.js';
 import { ZoneTier } from './city-config.js';
 import { Iqd, LatLng } from './common.js';
+import { DishKind } from './dish-kind.js';
 import { DayHours, HhMm, HolidayClosure, LocalDate } from './store-hours.js';
 import type { Actor } from './identity-io.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';
@@ -15,8 +16,25 @@ import { ZonePlacement } from './zones-io.js';
  * `ledger.requestSettlement`. Implemented by the API's `merchant` module behind `ctx.merchant`.
  */
 
-/** Busy mode (spec "Driver Merchant"): +10 min on every prep time, switches itself off after an hour. */
-export const MERCHANT_BUSY_RULES = { extraPrepMinutes: 10, durationMinutes: 60 } as const;
+/**
+ * Busy mode (spec "Driver Merchant"): +10 min on every prep time, switches itself off after an hour.
+ * Ali 2026-10-08 (r5): the shop picks +10 or +20 when it switches busy mode on; still for an hour.
+ * `extraPrepMinutes` stays the default (+10) for a switch that names no minutes.
+ */
+export const MERCHANT_BUSY_RULES = { extraPrepMinutes: 10, extraChoices: [10, 20], durationMinutes: 60 } as const;
+/** The busy minutes a shop may pick (r5): only 10 or 20. */
+export const BusyExtraMinutes = z.union([z.literal(10), z.literal(20)]);
+export type BusyExtraMinutes = z.infer<typeof BusyExtraMinutes>;
+
+/**
+ * Prep-time choices on accept (Ali 2026-10-08, t5): a juice bar or café («شنو تبيع؟» = the drinks doors
+ * only) picks 3 / 5 / 8 minutes; every other shop, and one that sells both, 10 / 15 / 25.
+ */
+export const PrepKind = z.enum(['food', 'drinks']);
+export type PrepKind = z.infer<typeof PrepKind>;
+export const PREP_CHOICES: Readonly<Record<PrepKind, readonly number[]>> = { food: [10, 15, 25], drinks: [3, 5, 8] };
+/** A drinks shop's usual prep time when it has none of its own (the setup writes the same 5). */
+export const DRINKS_DEFAULT_PREP_MIN = 5;
 
 /** What a person is at a store: the owner (money, staff) or staff (orders, menu). */
 export const MerchantStoreRole = z.enum(['owner', 'staff']);
@@ -28,6 +46,8 @@ export const MerchantStore = z.object({
   type: z.enum(['restaurant', 'grocer']),
   cityId: z.string(),
   role: MerchantStoreRole,
+  /** أكل بيت: a home cook's kitchen (the app adds its home-kitchen screens). Absent = false. */
+  home: z.boolean().optional(),
 });
 export type MerchantStore = z.infer<typeof MerchantStore>;
 
@@ -58,6 +78,12 @@ export const BoardLine = z.object({
   unitPriceIqd: Iqd,
   totalIqd: Iqd,
   availability: z.enum(['available', 'unavailable', 'removed']),
+  /** The dish on the menu (null for a free-text line), so the kitchen can stop it for the day from the ticket (m5). */
+  menuItemId: z.string().nullable().optional(),
+  /** The owner's ticket kind for this dish (k4/j6 override); absent or null = guess from the name. */
+  kind: DishKind.nullable().optional(),
+  /** A weighed shop line: the grams to weigh out («1.5 كيلو» on the ticket); absent otherwise. */
+  weightG: z.number().int().nullable().optional(),
 });
 export type BoardLine = z.infer<typeof BoardLine>;
 
@@ -93,6 +119,11 @@ export const BoardCourier = z.object({
   distanceM: z.number().int().min(0).nullable().optional(),
   /** Degrees clockwise from north, kitchen → courier, while `on_the_way`. */
   bearingDeg: z.number().min(0).max(360).nullable().optional(),
+  /**
+   * N16 (the tablet sees the courier coming): his approved main photo, a short-lived signed URL (absolute
+   * or relative to the API origin); absent when he has none.
+   */
+  photoUrl: z.string().nullable().optional(),
   /** His plate ("واسط 45678") so the counter can tell couriers apart; null when unknown. */
   plate: z.string().nullable().optional(),
   /**
@@ -102,6 +133,23 @@ export const BoardCourier = z.object({
   pickupCode: z.string().nullable().optional(),
 });
 export type BoardCourier = z.infer<typeof BoardCourier>;
+
+/**
+ * What the customer pays, line by line, for the slip in the bag: `itemsIqd + deliveryFeeIqd +
+ * serviceFeeIqd + smallOrderFeeIqd − discountIqd − pointsIqd + changeIqd = totalIqd` (the order's own
+ * fields; `changeIqd` is a cash order's rounding up to 250, which goes back to his wallet).
+ */
+export const BoardBill = z.object({
+  itemsIqd: Iqd,
+  deliveryFeeIqd: Iqd,
+  serviceFeeIqd: Iqd,
+  smallOrderFeeIqd: Iqd,
+  discountIqd: Iqd,
+  pointsIqd: Iqd,
+  changeIqd: Iqd,
+  totalIqd: Iqd,
+});
+export type BoardBill = z.infer<typeof BoardBill>;
 
 export const BoardOrder = z.object({
   id: z.string(),
@@ -114,6 +162,12 @@ export const BoardOrder = z.object({
   offeredAt: z.coerce.date().nullable(),
   /** End of the 90-s acceptance window (new orders only; null for auto-accepted or not yet offered). */
   acceptBy: z.coerce.date().nullable(),
+  /**
+   * Offered while the store was already closed (out of hours, or closed by hand before the offer): a
+   * pre-order for opening time. It rings even though the store is closed — the quiet rule (m6a) is
+   * only for orders that were waiting when the store closed. Absent on an older API = false.
+   */
+  offeredWhileClosed: z.boolean().optional(),
   acceptedAt: z.coerce.date().nullable(),
   promisedReadyAt: z.coerce.date().nullable(),
   readyAt: z.coerce.date().nullable(),
@@ -143,6 +197,12 @@ export const BoardOrder = z.object({
   handedOverAt: z.coerce.date().nullable().optional(),
   /** «عزيمة» (joy g1): a gift; `hidePrices` → the ticket prints no amounts. Null/absent = not a gift. */
   gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
+  /**
+   * The customer slip's money (print redesign, Ali 2026-10-08 k2): every amount exactly as the server
+   * fixed it on the order, so the slip in the bag adds up without the tablet doing any sums. Absent on
+   * an older API and on a gift whose sender hid the prices (the slip then prints no amounts).
+   */
+  bill: BoardBill.optional(),
 });
 export type BoardOrder = z.infer<typeof BoardOrder>;
 
@@ -174,6 +234,34 @@ export const MissedSummary = z.object({
 });
 export type MissedSummary = z.infer<typeof MissedSummary>;
 
+/**
+ * States in which the kitchen has said yes and still holds the order (cooking, or bagged on the pass).
+ * An order cancelled from one of these is one the kitchen must be told about: it may be cooking it.
+ */
+export const KITCHEN_HELD_STATES = ['merchant_accepted', 'preparing', 'ready'] as const satisfies readonly OrderState[];
+export function kitchenHeld(state: unknown): boolean {
+  return typeof state === 'string' && (KITCHEN_HELD_STATES as readonly string[]).includes(state);
+}
+
+/** How long a cancelled-after-accept order stays on the board as a red card (unless dismissed sooner). */
+export const CANCELLED_CARD_MIN = 15;
+
+/**
+ * An order the kitchen had accepted and that was then cancelled (by the customer, or by us), in the
+ * last `CANCELLED_CARD_MIN` minutes: the board shows it as a red card «انلغى، لا تكمل» until the
+ * kitchen taps it away, so it never just vanishes while the grill is going.
+ */
+export const CancelledOrder = z.object({
+  orderId: z.string(),
+  number: z.string(),
+  /** It was already marked ready (bagged on the pass) when it was cancelled; otherwise it was cooking. */
+  wasReady: z.boolean(),
+  cancelledAt: z.coerce.date(),
+  itemCount: z.number().int(),
+  totalIqd: Iqd,
+});
+export type CancelledOrder = z.infer<typeof CancelledOrder>;
+
 export const MerchantBoard = z.object({
   merchantOrgId: z.string(),
   /** Server time, so card timers don't drift with the tablet's clock. */
@@ -182,6 +270,8 @@ export const MerchantBoard = z.object({
   orders: z.array(BoardOrder),
   /** Orders missed today (M-01): they never vanish silently. */
   missed: MissedSummary.optional(),
+  /** Accepted orders cancelled in the last 15 minutes, newest first; absent on an older API. */
+  cancelled: z.array(CancelledOrder).optional(),
 });
 export type MerchantBoard = z.infer<typeof MerchantBoard>;
 
@@ -217,6 +307,8 @@ export const StoreStatusView = z.object({
     until: z.coerce.date().nullable(),
     extraPrepMinutes: z.number().int(),
   }),
+  /** Which prep choices the accept sheet offers (t5); absent on an older API = food. */
+  prepKind: PrepKind.optional(),
   printer: z.object({ state: PrinterState, name: z.string().nullable(), updatedAt: z.coerce.date().nullable() }),
   lastHeartbeatAt: z.coerce.date().nullable(),
   defaultPrepMinutes: z.number().int(),
@@ -232,6 +324,20 @@ export const StoreStatusView = z.object({
       opensAt: z
         .object({ date: LocalDate, dow: z.number().int().min(0).max(6), time: HhMm })
         .nullable(),
+    })
+    .nullable()
+    .optional(),
+  /**
+   * «جهّز محلك» (merchant setup): only for shops that went through setup. Before the shutter goes up
+   * the shop takes no orders (`live: false`); after it, the first real order wears the gold ribbon
+   * until the owner has seen it through. Absent/null: an older shop, nothing changes for it.
+   */
+  setup: z
+    .object({
+      live: z.boolean(),
+      percent: z.number().int().min(0).max(100),
+      left: z.number().int().min(0),
+      firstOrderId: z.string().nullable(),
     })
     .nullable()
     .optional(),
@@ -251,7 +357,11 @@ export const SetStoreOpenInput = MerchantOrgInput.extend({
 }).refine((v) => v.open || v.reason !== undefined, { message: 'closing needs a reason', path: ['reason'] });
 export type SetStoreOpenInput = z.infer<typeof SetStoreOpenInput>;
 
-export const SetBusyInput = MerchantOrgInput.extend({ on: z.boolean() });
+export const SetBusyInput = MerchantOrgInput.extend({
+  on: z.boolean(),
+  /** Switching on: +10 or +20 (r5); absent = +10. Ignored when switching off. */
+  extraMinutes: BusyExtraMinutes.optional(),
+});
 export type SetBusyInput = z.infer<typeof SetBusyInput>;
 
 export const SetPrinterStatusInput = MerchantOrgInput.extend({
@@ -364,6 +474,11 @@ export const PickupStoreRow = z.object({
   note: z.string().nullable(),
   photos: z.number().int().min(0).max(PICKUP_SPOT_RULES.maxPhotos),
   updatedAt: z.coerce.date().nullable(),
+  /** k6 «للتكملة»: the storefront has its shop photo (customers see it on the card). */
+  shopPhoto: z.boolean(),
+  /** Dishes on the menu, and how many show no picture at all (neither the kitchen's nor a library one). */
+  dishes: z.number().int().min(0),
+  dishesNoPhoto: z.number().int().min(0),
 });
 export type PickupStoreRow = z.infer<typeof PickupStoreRow>;
 
@@ -375,8 +490,21 @@ export type PickupStoreRow = z.infer<typeof PickupStoreRow>;
 export const ConsolePickupSpotView = PickupSpotView.extend({
   storeName: z.string(),
   consoleEdit: z.object({ at: z.coerce.date(), byName: z.string().nullable() }).nullable(),
+  /**
+   * Where the kitchen is on file: its zone (the server's reading of the pin; every delivery fee starts
+   * there) and the pin. Null when the store has no place on file; absent on an older API.
+   */
+  kitchen: z.object({ zoneKey: z.string(), zoneName: z.string(), pin: LatLng.nullable() }).nullable().optional(),
 });
 export type ConsolePickupSpotView = z.infer<typeof ConsolePickupSpotView>;
+
+/**
+ * «حرّك مكان المطعم»: field ops or an admin put the kitchen's pin where it really is (it was saved in
+ * the wrong spot, or the shop moved). The server reads the zone from the pin and refuses one outside
+ * the service area (`outside_zone`); the change is written to the Console audit log.
+ */
+export const MoveKitchenInput = MerchantOrgInput.extend({ pin: LatLng });
+export type MoveKitchenInput = z.infer<typeof MoveKitchenInput>;
 
 /** What the API supplies to `ops.pickupSpots.*` (implemented in `modules/ops` over the merchant module). */
 export interface PickupSpotsOpsPort {
@@ -384,6 +512,8 @@ export interface PickupSpotsOpsPort {
   get(actor: Actor, input: MerchantOrgInput): Promise<ConsolePickupSpotView>;
   /** Same rules as the owner's save (photos the caller uploaded, 2 at most, 140 characters); audited. */
   set(actor: Actor, input: SetPickupSpotInput): Promise<ConsolePickupSpotView>;
+  /** «حرّك مكان المطعم»: the kitchen's pin and the zone read from it; audited. */
+  moveKitchen(actor: Actor, input: MoveKitchenInput): Promise<ConsolePickupSpotView>;
 }
 
 // ───────────────────────── delivery area and fees (maps program r5) ─────────────────────────

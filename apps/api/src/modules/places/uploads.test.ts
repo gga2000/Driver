@@ -68,6 +68,26 @@ describe('voice-note uploads', () => {
   });
 });
 
+describe('read URL expiry', () => {
+  const expOf = (url: string) => Number(new URL(url, 'http://x').searchParams.get('exp'));
+
+  it('default: on the hour plus an hour, stable within the hour', () => {
+    const clock = new FakeClock('2026-10-07T09:10:00Z');
+    const blobs = new DevBlobStore(clock, { secret: 'test' });
+    const first = blobs.readUrl('up_a');
+    expect(expOf(first)).toBe(Date.parse('2026-10-07T11:00:00Z'));
+    clock.set(new Date('2026-10-07T09:50:00Z'));
+    expect(blobs.readUrl('up_a')).toBe(first);
+  });
+
+  it('exact: now plus validForMs rounded up to the minute; under a minute is refused', () => {
+    const clock = new FakeClock('2026-10-07T09:10:20Z');
+    const blobs = new DevBlobStore(clock, { secret: 'test' });
+    expect(expOf(blobs.readUrl('up_a', 15 * 60_000, { exact: true }))).toBe(Date.parse('2026-10-07T09:26:00Z'));
+    expect(() => blobs.readUrl('up_a', 59_000, { exact: true })).toThrow(RangeError);
+  });
+});
+
 describe('byteRange (audio players ask for ranges)', () => {
   it('reads a-b, a- and -n; clamps the end to the file', () => {
     expect(byteRange('bytes=0-1', 100)).toEqual({ start: 0, end: 1 });

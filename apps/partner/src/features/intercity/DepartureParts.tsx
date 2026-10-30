@@ -1,10 +1,11 @@
 import { Linking, Pressable, View } from 'react-native';
 import { openNav, useNavApp } from '@/features/work/nav';
 import type { DriverBookingRow } from '@driver/contracts';
-import { Avatar, Button, Icon, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
+import { Avatar, Button, Icon, IconButton, StatusPill, Text, useTheme, withAlpha, type IconName, type StatusTone } from '@driver/ui';
+import { DigitPad } from '@/components/DigitPad';
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
-import { paymentLabel, pickupLabel, riderName, seatsList, statusLabel } from './labels';
+import { dropLabel, paymentLabel, pickupLabel, riderName, seatsList, statusLabel } from './labels';
 import { mapsUrl, riderStatus, type PickupStop, type RiderStatus } from './logic';
 
 // ───────────────────────── rider status tones ─────────────────────────
@@ -30,7 +31,6 @@ export function statusTone(s: RiderStatus): StatusTone {
 export function PinPad({ pin, onKey, busy, error }: { pin: string; onKey: (key: string) => void; busy: boolean; error: boolean }) {
   const theme = useTheme();
   const t = useT();
-  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', ''];
   return (
     <View style={{ gap: theme.space[4] }}>
       <View style={{ flexDirection: 'row', justifyContent: 'center', gap: theme.space[3], direction: 'ltr' }} testID="pin-boxes">
@@ -58,37 +58,8 @@ export function PinPad({ pin, onKey, busy, error }: { pin: string; onKey: (key: 
           );
         })}
       </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: theme.space[2], direction: 'ltr', maxWidth: 3 * 96 + 2 * 8, alignSelf: 'center' }}>
-        {keys.map((k, i) =>
-          k === '' ? (
-            <View key={i} style={{ width: 96, height: 64 }} />
-          ) : (
-            <Pressable
-              key={i}
-              testID={`pin-key-${k}`}
-              accessibilityRole="button"
-              accessibilityLabel={k === 'back' ? t('partner.ic_pin_clear') : k}
-              disabled={busy}
-              onPress={() => {
-                theme.haptic('light');
-                onKey(k);
-              }}
-              style={({ pressed }) => ({
-                width: 96,
-                height: 64,
-                borderRadius: theme.radius.lg,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: pressed ? theme.colors.accentTint : k === 'back' ? 'transparent' : theme.colors.surface,
-                borderWidth: k === 'back' ? 0 : 1,
-                borderColor: theme.colors.border,
-              })}
-            >
-              {k === 'back' ? <Icon name="arrow-forward" size={22} color="textMuted" /> : <Text variant="heading" tabular>{k}</Text>}
-            </Pressable>
-          ),
-        )}
-      </View>
+      {/* Check-up item 8: the app's one keypad. */}
+      <DigitPad keyTestID={(k) => `pin-key-${k}`} deleteLabel={t('partner.ic_pin_clear')} disabled={busy} onKey={onKey} />
     </View>
   );
 }
@@ -101,12 +72,15 @@ export function RiderRow({
   firstName,
   onNoShow,
   onPickup,
+  onMessage,
   busy,
 }: {
   booking: DriverBookingRow;
   firstName: string | null;
   onNoShow: () => void;
   onPickup: (accept: boolean) => void;
+  /** Step 4c: his chat with this rider. */
+  onMessage?: () => void;
   busy: boolean;
 }) {
   const theme = useTheme();
@@ -123,10 +97,11 @@ export function RiderRow({
             {`${name} · ${seatsList(t, booking.seatIds)}`}
           </Text>
           <Text variant="caption" color="textMuted" numberOfLines={2} tabular>
-            {[paymentLabel(t, booking), pickupLabel(t, booking), booking.largeBags ? t('partner.ic_bags') : null].filter(Boolean).join(' · ')}
+            {[paymentLabel(t, booking), pickupLabel(t, booking), dropLabel(t, booking), booking.largeBags ? t('partner.ic_bags') : null, booking.lapChildren > 0 ? t('partner.ic_lap', { n: booking.lapChildren }) : null].filter(Boolean).join(' · ')}
           </Text>
         </View>
         <StatusPill label={statusLabel(t, s, booking)} tone={STATUS_TONE[s]} size="sm" live={s === 'late'} />
+        {onMessage ? <IconButton icon="chat" variant="tonal" accessibilityLabel={t('chat.trip.message_rider')} onPress={onMessage} testID={`rider-chat-${booking.bookingId}`} /> : null}
       </View>
       {doorPending ? (
         <View style={{ gap: theme.space[2], backgroundColor: theme.colors.warningTint, borderRadius: theme.radius.md, padding: theme.space[3] }}>
@@ -169,12 +144,20 @@ export function PickupRoute({ stops, garageName, names }: { stops: readonly Pick
       {stops.map((s, i) => {
         const last = i === stops.length - 1;
         const who = s.bookings.map((b) => riderName(t, names.get(b.bookingId))).join('، ');
-        const title = s.kind === 'garage' ? `${t('partner.ic_route_garage')} · ${garageName}` : s.kind === 'door' ? t('partner.ic_route_door', { name: riderName(t, names.get(s.bookings[0]!.bookingId)) }) : (s.nameAr ?? '');
+        const rider = s.bookings[0] ? riderName(t, names.get(s.bookings[0].bookingId)) : '';
+        const title =
+          s.kind === 'garage'
+            ? `${t('partner.ic_route_garage')} · ${garageName}`
+            : s.kind === 'door'
+              ? t('partner.ic_route_door', { name: rider })
+              : s.kind === 'pin'
+                ? t('partner.ic_route_pin', { name: rider })
+                : (s.nameAr ?? '');
         return (
           <View key={s.key} style={{ flexDirection: 'row', gap: theme.space[3] }}>
             <View style={{ alignItems: 'center', width: 28 }}>
-              <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: s.kind === 'garage' ? theme.colors.text : s.kind === 'door' ? theme.colors.accent : theme.colors.info }}>
-                <Text variant="caption" weight={700} color={s.kind === 'door' ? 'onAccent' : 'surface'} tabular>
+              <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: s.kind === 'garage' ? theme.colors.text : s.kind === 'door' || s.kind === 'pin' ? theme.colors.accent : theme.colors.info }}>
+                <Text variant="caption" weight={700} color={s.kind === 'door' || s.kind === 'pin' ? 'onAccent' : 'surface'} tabular>
                   {String(i + 1)}
                 </Text>
               </View>

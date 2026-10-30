@@ -7,6 +7,7 @@ import {
 import { t, type MessageKey } from '@driver/i18n';
 import type { ChipTone } from '@/components/ui';
 import { formatIqd } from './format';
+import { countText } from './plural';
 
 /**
  * Console › اليوم (E1, CON-12): how each row of the Today list reads, how urgent it looks, and where
@@ -21,9 +22,12 @@ export const KIND_KEY: Record<InboxKind, MessageKey> = {
   unreachable: 'console.today.kind_unreachable',
   stuck: 'console.today.kind_stuck',
   cash_cap: 'console.today.kind_cash_cap',
+  low_rating: 'console.today.kind_low_rating',
   sweep: 'console.today.kind_sweep',
   pin_alert: 'console.today.kind_pin_alert',
   approval: 'console.today.kind_approval',
+  late_departure: 'console.today.kind_late_departure',
+  over_ceiling: 'console.today.kind_over_ceiling',
 };
 
 export const KIND_TONE: Record<InboxKind, ChipTone> = {
@@ -37,12 +41,20 @@ export const KIND_TONE: Record<InboxKind, ChipTone> = {
   store_silent: 'warn',
   late: 'warn',
   cash_cap: 'warn',
+  low_rating: 'warn',
   approval: 'neutral',
+  late_departure: 'warn',
+  over_ceiling: 'warn',
 };
 
-/** A row's chip colour: a booked ride the system lost track of is red, not amber (nobody is looking for a driver). */
+/**
+ * A row's chip colour: a booked ride the system lost track of is red, not amber (nobody is looking for
+ * a driver), and so is a الرجعة driver who never came while riders wait at the garage.
+ */
 export function rowTone(row: { kind: InboxKind; facts: Record<string, unknown> }): ChipTone {
-  return row.kind === 'no_driver' && row.facts['reason'] === 'request_lost' ? 'bad' : KIND_TONE[row.kind];
+  if (row.kind === 'no_driver' && row.facts['reason'] === 'request_lost') return 'bad';
+  if (row.kind === 'late_departure' && row.facts['reason'] === 'driver_no_show' && Number(row.facts['riders']) > 0) return 'bad';
+  return KIND_TONE[row.kind];
 }
 
 const REASON_KEY: Record<string, MessageKey> = {
@@ -92,6 +104,11 @@ const CHANNEL_KEY: Record<string, MessageKey> = {
   system: 'console.sup_channel_system',
   chat: 'console.sup_channel_chat',
 };
+
+const RIDE_ORDER_TYPES: ReadonlySet<string> = new Set(['ride', 'seat', 'subscription']);
+
+/** A bad-rating case closes only with a note saying what each side said (Ali, 2026-10-08). */
+export const noteRequired = (row: Pick<InboxRow, 'kind'>): boolean => row.kind === 'low_rating';
 
 /** The second line of a row: what we know about it, in a few words. */
 export function detailText(
@@ -158,6 +175,28 @@ export function detailText(
       if (c) parts.push(t(c));
       break;
     }
+    case 'low_rating': {
+      // Both scores when the food was rated too; a ride names the driver, food the courier.
+      const ride = typeof f['orderType'] === 'string' && RIDE_ORDER_TYPES.has(f['orderType']);
+      if (typeof f['stars'] === 'number') parts.push(t('console.today.rating_stars', { n: f['stars'] }));
+      if (typeof f['food'] === 'number')
+        parts.push(t('console.today.rating_food', { n: f['food'] }));
+      if (typeof f['delivery'] === 'number')
+        parts.push(
+          t(ride ? 'console.today.rating_driver' : 'console.today.rating_courier', {
+            n: f['delivery'],
+          }),
+        );
+      break;
+    }
+    case 'late_departure':
+      parts.push(t(f['reason'] === 'not_arrived' ? 'console.garage.late_not_arrived' : 'console.garage.late_no_show'));
+      if (typeof f['riders'] === 'number') parts.push(countText('console.today.late_departure_riders', f['riders']));
+      break;
+    case 'over_ceiling':
+      if (typeof f['receiptIqd'] === 'number' && typeof f['ceilingIqd'] === 'number')
+        parts.push(t('console.today.over_ceiling_detail', { receipt: formatIqd(f['receiptIqd']), ceiling: formatIqd(f['ceilingIqd']) }));
+      break;
     case 'pin_alert':
       parts.push(
         t(f['alert'] === 'cross_use' ? 'console.today.pin_cross_use' : 'console.today.pin_wrong'),
@@ -182,6 +221,8 @@ export function rowHref(row: Pick<InboxRow, 'kind' | 'subjectId' | 'orderId'>): 
       return '/safety';
     case 'approval':
       return '/approvals';
+    case 'late_departure':
+      return '/garage';
     case 'no_driver':
       return '/dispatch';
     case 'cash_cap':
@@ -206,3 +247,86 @@ export const OUTCOME_KEY: Record<InboxStaffOutcome | 'auto', MessageKey> = {
   duplicate: 'console.today.outcome_duplicate',
   auto: 'console.today.outcome_auto',
 };
+
+/**
+ * While someone works the list (a row highlighted with the keys, or the mouse over it), rows that
+ * arrive by themselves wait behind «N جديد · اعرضها» so the row under their hand doesn't jump.
+ * Rows already on screen keep updating; an SOS never waits.
+ */
+export function holdRows<R extends Pick<InboxRow, 'id' | 'kind'>>(
+  rows: readonly R[],
+  onScreen: ReadonlySet<string> | null,
+  holding: boolean,
+): { shown: R[]; held: number } {
+  if (!holding || onScreen === null) return { shown: [...rows], held: 0 };
+  const shown = rows.filter((r) => onScreen.has(r.id) || r.kind === 'sos');
+  return { shown, held: rows.length - shown.length };
+}
+
+// ───────────────────────── h7: one service at a time ─────────────────────────
+
+/** The service chips at the top of Today: a خطوط-only person narrows the page to خطوط. */
+export const SERVICES = ['delivery', 'ride', 'intercity', 'khat'] as const;
+export type Service = (typeof SERVICES)[number];
+
+export const SERVICE_KEY: Record<Service, MessageKey> = {
+  delivery: 'console.today.svc_delivery',
+  ride: 'console.today.svc_ride',
+  intercity: 'console.today.svc_intercity',
+  khat: 'console.today.svc_khat',
+};
+
+const BY_VERTICAL: Record<string, Service> = {
+  food: 'delivery',
+  grocery: 'delivery',
+  errand: 'delivery',
+  parcel: 'delivery',
+  taxi: 'ride',
+  tuktuk: 'ride',
+  intercity: 'intercity',
+  khat: 'khat',
+};
+const BY_ORDER_TYPE: Record<string, Service> = {
+  food: 'delivery',
+  grocery_catalog: 'delivery',
+  errand: 'delivery',
+  parcel: 'delivery',
+  ride: 'ride',
+  seat: 'intercity',
+  subscription: 'khat',
+};
+
+/**
+ * Which service a Today row belongs to, or null when it belongs to everyone (an SOS, a safety
+ * report, an approval) or the row doesn't say (a trip nobody answers). Null rows show under every
+ * chip, so narrowing the page never hides an emergency.
+ */
+export function serviceOf(row: Pick<InboxRow, 'kind' | 'facts'>): Service | null {
+  const f = row.facts;
+  switch (row.kind) {
+    case 'store_silent':
+    case 'late':
+    case 'stuck':
+    case 'cash_cap':
+    case 'over_ceiling':
+      return 'delivery';
+    case 'late_departure':
+      return 'intercity';
+    case 'sweep':
+    case 'pin_alert':
+      return 'khat';
+    case 'no_driver':
+      return typeof f['vertical'] === 'string' ? (BY_VERTICAL[f['vertical']] ?? null) : null;
+    case 'low_rating':
+      return typeof f['orderType'] === 'string' ? (BY_ORDER_TYPE[f['orderType']] ?? null) : null;
+    default:
+      return null;
+  }
+}
+
+/** Rows a service chip keeps: its own and everyone's. */
+export function inService(row: Pick<InboxRow, 'kind' | 'facts'>, service: Service | null): boolean {
+  if (service === null) return true;
+  const own = serviceOf(row);
+  return own === null || own === service;
+}

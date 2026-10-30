@@ -17,7 +17,7 @@ import { DevWhatsAppProvider } from '../notify/providers/whatsapp.js';
 import { InMemorySafetyRepository } from './safety.repository.js';
 import type { OnCallPort } from './on-call.js';
 import { SafetyService } from './safety.service.js';
-import type { SafetySources } from './safety.subjects.js';
+import { requestPassengers, rideRiderOf, type SafetySources } from './safety.subjects.js';
 
 const RIDER: Actor = { personId: 'p_rider', sessionId: 's-rider' };
 const DRIVER: Actor = { personId: 'p_driver', sessionId: 's-driver' };
@@ -28,7 +28,7 @@ const POS = { lat: 32.9095, lng: 45.0635, accuracyM: 12, at: new Date('2026-10-0
 const NAMES: Record<string, string> = { p_rider: 'زينب علي', p_driver: 'حيدر كاظم', p_haider: 'حيدر جاسم', p_ali: 'علي أحمد' };
 const PHONES: Record<string, string> = { p_rider: '+9647702223344', p_driver: '+9647701110002', p_haider: '+9647700000002', p_ali: '+9647700000001' };
 
-function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: OnCallPort | null } = {}) {
+function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: OnCallPort | null; consoleBase?: string | null; linkBase?: string | null } = {}) {
   const clock = new FakeClock('2026-10-05T18:00:00Z');
   const ev = createInMemoryEvents({ clock });
   const vault: string[] = [];
@@ -83,16 +83,19 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
   const staff = new StaffNames(identity, clock);
   const calls: Array<{ calleeId: string; callerId: string }> = [];
 
-  const order: Pick<Order, 'id' | 'cityId' | 'type' | 'state' | 'ordererId' | 'deliveredAt' | 'closedAt' | 'cancelledAt'> = {
+  const order: Pick<Order, 'id' | 'cityId' | 'type' | 'state' | 'ordererId' | 'deliveredAt' | 'closedAt' | 'cancelledAt'> & { riderId: string | null } = {
     id: 'ord_ride_1',
     cityId: 'aziziyah',
     type: 'ride',
     state: 'matched',
     ordererId: RIDER.personId,
+    riderId: null,
     deliveredAt: null,
     closedAt: null,
     cancelledAt: null,
   };
+  // A private-car request (Baghdad/Kut) picked by the driver; `passengerIds` are the others in the car.
+  const request = { id: 'rq_1', riderId: RIDER.personId, cityId: 'aziziyah', state: 'matched', pickedDriverId: DRIVER.personId, passengerIds: [] as string[], from: 'العزيزية', to: 'بغداد', closedAt: null };
   const trip: Pick<Trip, 'id' | 'cityId' | 'vertical' | 'state' | 'courierId' | 'vehicleId' | 'completedAt' | 'cancelledAt' | 'stops'> = {
     id: 'trp_1',
     cityId: 'aziziyah',
@@ -111,7 +114,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
     departure: async () => null,
     riders: async () => [],
     booking: async () => null,
-    request: async () => null,
+    request: async (id) => (id === request.id ? { ...request, passengerIds: [...request.passengerIds] } : null),
     vehicle: async () => ({ plate: '12345 واسط', label: 'تكتك باجاج' }),
     tripFix: async (id) => (id === trip.id ? { lat: 32.8995, lng: 45.0702, at: new Date('2026-10-05T17:59:50Z') } : null),
   };
@@ -124,7 +127,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
         return { mode: 'proxy', dial: '+9647800000000', expiresAt: new Date(now.getTime() + 120_000) };
       },
     },
-    { secret: 'test-secret', linkBase: 'https://driver.iq/sos/', consoleBase: 'https://console.driver.iq', timers: false, sweepMs: 0 },
+    { secret: 'test-secret', linkBase: opts.linkBase === undefined ? 'https://app.example.com/sos/' : opts.linkBase, consoleBase: opts.consoleBase === undefined ? 'https://console.example.com' : opts.consoleBase, timers: false, sweepMs: 0 },
     bus,
     identity,
     notify,
@@ -142,7 +145,7 @@ function harness(opts: { contact?: boolean; driverContact?: boolean; onCall?: On
     if (ms > 0) clock.advance(ms);
     await queue.drain();
   };
-  return { svc, clock, ev, vault, published, controls, calls, order, trip, raise, deliveries, run, whatsapp, sms, notify };
+  return { svc, clock, ev, vault, published, controls, calls, order, trip, request, raise, deliveries, run, whatsapp, sms, notify };
 }
 
 describe('SafetyService — raising an SOS', () => {
@@ -172,6 +175,21 @@ describe('SafetyService — raising an SOS', () => {
     expect(c.lastPosition).toMatchObject({ lat: POS.lat, lng: POS.lng, accuracyM: 12, deviceAt: POS.at });
   });
 
+  it('links the dispatchers to the Console page only when the Console address is set', async () => {
+    const linked = harness();
+    const a = await linked.raise();
+    await linked.run();
+    const wa = (await linked.deliveries('p_haider')).find((d) => d.channel === 'whatsapp');
+    expect(wa?.payload.body).toContain(`https://console.example.com/safety/${a.incidentId}`);
+
+    const unset = harness({ consoleBase: null });
+    const b = await unset.raise();
+    await unset.run();
+    const body = (await unset.deliveries('p_haider')).find((d) => d.channel === 'whatsapp')?.payload.body ?? '';
+    expect(body).not.toMatch(/https?:\/\//);
+    expect(body).toContain(`رقم التنبيه: ${b.incidentId}، افتح الكونسول من الكمبيوتر`);
+  });
+
   it('is idempotent: a retried press and a second hold return the same incident', async () => {
     const h = harness();
     const a = await h.raise(RIDER, 'press-0001');
@@ -188,6 +206,43 @@ describe('SafetyService — raising an SOS', () => {
     const c = await h.svc.get(HAIDER, { id: v.incidentId });
     expect(c).toMatchObject({ raiser: { role: 'driver', personId: 'p_driver' }, counterpart: { personId: 'p_rider', role: 'customer' }, lastPosition: { lat: 32.8995, lng: 45.0702, accuracyM: null }, contact: { set: false, status: 'none' } });
     expect(c.timeline.map((e) => e.kind)).toContain('contact');
+  });
+
+  it('the person riding a ride booked for someone else can raise it, on the order and on the trip', async () => {
+    const h = harness();
+    const BOOKER: Actor = { personId: 'p_booker', sessionId: 's-b' };
+    h.order.ordererId = BOOKER.personId;
+    h.order.riderId = RIDER.personId;
+    const byOrder = await h.raise(RIDER, 'rider-press-1');
+    expect(await h.svc.get(HAIDER, { id: byOrder.incidentId })).toMatchObject({ raiser: { role: 'customer', personId: RIDER.personId }, counterpart: { personId: DRIVER.personId, role: 'driver' } });
+    // By the trip (a fresh trip, her open incident aside): she is in the car, so without GPS it starts from the car's last fix.
+    const h2 = harness();
+    h2.order.ordererId = BOOKER.personId;
+    h2.order.riderId = RIDER.personId;
+    const byTrip = await h2.svc.sos(RIDER, { subject: { kind: 'trip', id: h2.trip.id }, position: null, clientId: 'rider-press-2' });
+    expect(await h2.svc.get(HAIDER, { id: byTrip.incidentId })).toMatchObject({ raiser: { role: 'customer' }, counterpart: { personId: DRIVER.personId }, lastPosition: { lat: 32.8995, lng: 45.0702 } });
+    // The booker still can; a stranger still cannot.
+    await expect(h.raise(BOOKER, 'booker-press-1')).resolves.toMatchObject({ state: 'open' });
+    await expect(h.raise(STRANGER, 'stranger-press-1')).rejects.toMatchObject({ code: 'sos_not_party' });
+  });
+
+  it('a friend with a place on a shared private car, or the person fetched for the rider, can raise it on the request', async () => {
+    const h = harness();
+    const FRIEND: Actor = { personId: 'p_friend', sessionId: 's-f' };
+    const subject = { kind: 'request' as const, id: h.request.id };
+    await expect(h.svc.sos(FRIEND, { subject, position: POS, clientId: 'friend-press-1' })).rejects.toMatchObject({ code: 'sos_not_party' });
+    h.request.passengerIds.push(FRIEND.personId);
+    const v = await h.svc.sos(FRIEND, { subject, position: POS, clientId: 'friend-press-2' });
+    expect(await h.svc.get(HAIDER, { id: v.incidentId })).toMatchObject({ raiser: { role: 'customer', personId: FRIEND.personId }, counterpart: { personId: DRIVER.personId, role: 'driver' } });
+    await expect(h.svc.sos(STRANGER, { subject, position: POS, clientId: 'stranger-press-2' })).rejects.toMatchObject({ code: 'sos_not_party' });
+  });
+
+  it('reads the rider of a ride for someone else and the others in a private car from their records', () => {
+    expect(rideRiderOf([{ role: 'orderer', personId: 'p_booker' }, { role: 'rider', personId: RIDER.personId }])).toBe(RIDER.personId);
+    expect(rideRiderOf([{ role: 'orderer', personId: 'p_booker' }])).toBeNull();
+    const share = { members: [{ personId: 'p_joined', state: 'joined' }, { personId: 'p_paid', state: 'paid' }, { personId: 'p_left', state: 'left' }] };
+    expect(requestPassengers({ riderId: RIDER.personId, fetchPersonId: 'p_fetched', share })).toEqual(['p_joined', 'p_paid', 'p_fetched']);
+    expect(requestPassengers({ riderId: RIDER.personId, fetchPersonId: null, share: null })).toEqual([]);
   });
 
   it('refuses a stranger, an unknown trip and a trip that ended long ago', async () => {
@@ -265,7 +320,7 @@ describe('SafetyService — cancel window, contact, positions, escalation', () =
     await h.run();
     const rows = await h.deliveries('ec:p_rider');
     expect(rows.map((r) => [r.template, r.channel, r.status])).toEqual([['sos_emergency_contact', 'whatsapp', 'delivered']]);
-    const link = rows[0]!.payload.body!.match(/https:\/\/driver\.iq\/sos\/(\S+)/)?.[1];
+    const link = rows[0]!.payload.body!.match(/https:\/\/app\.example\.com\/sos\/(\S+)/)?.[1];
     expect(rows[0]!.payload.body).toContain('زينب');
     expect(link).toBeTruthy();
     // Vault reads: the contact's number is read by notify, logged against the person.
@@ -275,6 +330,22 @@ describe('SafetyService — cancel window, contact, positions, escalation', () =
     await expect(h.svc.shared({ token: `${v.incidentId}.forged` })).rejects.toMatchObject({ code: 'share_link_invalid' });
     expect((await h.svc.get(HAIDER, { id: v.incidentId })).contact).toMatchObject({ set: true, name: 'أم زينب', status: 'delivered' });
     expect((await h.svc.status(RIDER, {}))!.contactStatus).toBe('sent');
+  });
+
+  it('with no live-location address, the emergency contact still gets the message at the same moment, with where the phone was as text', async () => {
+    const h = harness({ linkBase: null });
+    const v = await h.raise();
+    h.clock.advance(10_001);
+    expect((await h.svc.sweep()).contacts).toBe(1);
+    await h.run();
+    const rows = await h.deliveries('ec:p_rider');
+    expect(rows.map((r) => [r.template, r.channel, r.status])).toEqual([['sos_emergency_contact', 'whatsapp', 'delivered']]);
+    const body = rows[0]!.payload.body!;
+    expect(body).toContain('زينب');
+    expect(body).toContain('تنبيه طوارئ');
+    expect(body).toContain(`${POS.lat.toFixed(5)}, ${POS.lng.toFixed(5)}`);
+    expect(body).not.toMatch(/https?:\/\//);
+    expect((await h.svc.get(HAIDER, { id: v.incidentId })).shareUrl).toBeNull();
   });
 
   it("a driver's SOS reaches the driver's own emergency contact (Partner الحساب → رقم للطوارئ)", async () => {

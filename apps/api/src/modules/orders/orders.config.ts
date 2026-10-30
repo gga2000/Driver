@@ -25,10 +25,10 @@ export const ORDERS_RULES = {
   /** Spec §4: merchant rejects after accepting → 500 customer credit funded by the merchant. */
   merchantLateRejectCreditIqd: 500,
   /**
-   * Money §1 tier for merchants without one on file: `featured` (15 %) keeps the worked example
-   * (2,250 on 15,000) and the pre-tier default. The rate itself comes from the money rules.
+   * Money §1 tier for merchants without one on file: `starter` (5 %, Ali 2026-10-11 — a new
+   * restaurant's first two months). The rate itself comes from the money rules.
    */
-  defaultCommissionTier: 'featured' as CommissionTier,
+  defaultCommissionTier: 'starter' as CommissionTier,
   /** Money §3: car in city 12 %. Ride orders do not carry their vertical yet, so cars set the rate. */
   rideTakePct: 12,
   /** Edge-case §2: 1 point per 100 IQD of platform revenue (rides 1 per 200), capped per order. */

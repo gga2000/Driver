@@ -93,7 +93,7 @@ export default function OpsHome() {
           <View testID="ops-stale" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[1] }}>
             <Icon name="wifi-off" size={16} color="warningText" />
             <Text variant="footnote" color="warningText" tabular style={{ flex: 1 }}>
-              {t('partner.f5_ops_stale', { time: clockTime(new Date(tasks.dataUpdatedAt)) })}
+              {t('partner.f5_ops_stale', { time: clockTime(new Date(tasks.dataUpdatedAt), locale) })}
             </Text>
           </View>
         ) : null}

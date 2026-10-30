@@ -74,7 +74,7 @@ describe('bounds', () => {
 
 describe('garages', () => {
   it('lists the four garages; the town map drops Baghdad', () => {
-    expect(GARAGES.map((g) => g.name_ar)).toEqual(['كراج البوابة ١', 'كراج البوابة ٢', 'كراج السوق', 'كراج النهضة']);
+    expect(GARAGES.map((g) => g.name_ar)).toEqual(['كراج البوابة 1', 'كراج البوابة 2', 'كراج السوق', 'كراج النهضة']);
     expect(buildGaragesGeoJSON().features).toHaveLength(4);
     expect(buildGaragesGeoJSON({ onlyInCity: true }).features).toHaveLength(3);
   });
@@ -90,6 +90,15 @@ describe('style', () => {
     const ids = style.layers.map((l) => l.id);
     expect(ids).toContain(LAYER.zoneFill);
     expect(ids.indexOf(LAYER.drivers)).toBeGreaterThan(ids.indexOf(LAYER.zoneFill));
+  });
+  it('without the OSM street picture (our own map configured) still draws background and zones, and asks OSM for nothing', () => {
+    const style = buildMapStyle({ theme: 'light', osmRaster: false });
+    expect(validateStyleMin(style)).toEqual([]);
+    expect(style.sources[SOURCE.osm]).toBeUndefined();
+    expect(JSON.stringify(style)).not.toContain('tile.openstreetmap.org');
+    const ids = style.layers.map((l) => l.id);
+    expect(ids).not.toContain(LAYER.osm);
+    expect(ids.slice(0, 3)).toEqual([LAYER.background, LAYER.zoneFill, LAYER.zoneLine]);
   });
   it('switches to the PMTiles vector base with Arabic-first labels when a URL is given', () => {
     const style = buildMapStyle({ pmtilesUrl: 'pmtiles://example.test/aziziyah.pmtiles' });

@@ -1,7 +1,9 @@
 import { decodeDomainEvent } from '@driver/contracts';
 import { LedgerService, PostingService, MerchantCashService } from '../ledger/index.js';
+import type { OrdersUploadsPort } from './catalog.port.js';
 import { CashLimits } from './cash-limits.js';
 import { OrdersStaffService, STUCK_BOARD, type OrderEventLog, type OrdersStaffPorts } from './orders.staff.js';
+import { InMemoryRefundApprovalsRepository, RefundApprovalsService } from './refund-approvals.js';
 import { outcomeRules, type OrderOutcomeRules } from './outcomes.config.js';
 import { ordersHarness } from './test-harness.js';
 
@@ -12,8 +14,8 @@ type Patch = Parameters<typeof outcomeRules>[0];
  * posted into it by `settle()`, as the ledger's outbox subscribers would), the Console audit log as
  * a list, admins by id, and the order event log read from the recorded events.
  */
-export function staffHarness(patch: Patch = {}, opts: { ledger: { ledger: LedgerService; posting: PostingService; merchantCash?: MerchantCashService } }) {
-  const h = ordersHarness();
+export function staffHarness(patch: Patch = {}, opts: { ledger: { ledger: LedgerService; posting: PostingService; merchantCash?: MerchantCashService }; approvals?: boolean; uploads?: OrdersUploadsPort }) {
+  const h = ordersHarness(undefined, opts.uploads ? { uploads: opts.uploads } : {});
   const rules: OrderOutcomeRules = outcomeRules(patch);
   const { ledger, posting } = opts.ledger;
   const audits: Array<{ id: string; action: string; actorId: string; subjectId: string; summaryAr: string; detail: Record<string, unknown> }> = [];
@@ -37,6 +39,9 @@ export function staffHarness(patch: Patch = {}, opts: { ledger: { ledger: Ledger
       emit: (tx, event) => h.events.emit(tx, event, STUCK_BOARD),
     },
   };
+  // Complaint refunds over the limit wait for a second OK (off unless the test asks for it).
+  const approvals = opts.approvals ? new RefundApprovalsService(new InMemoryRefundApprovalsRepository(), h.uow, h.clock) : undefined;
+  if (approvals) ports.approvals = approvals;
   const staff = new OrdersStaffService(h.orders, h.repo, h.uow, h.clock, h.trips, h.merchants, rules, ports);
   h.orders.bindPlatformFailure(staff);
   const cashLimits = new CashLimits(h.cashRisk, h.repo, { balanceIqd: async (a) => (await ledger.balance(a)).amount, eventsFor: (a) => ledger.eventsFor(a) }, eventLog, rules);
@@ -76,5 +81,5 @@ export function staffHarness(patch: Patch = {}, opts: { ledger: { ledger: Ledger
     return { order: await h.orders.get(o.id), trip: t };
   }
 
-  return { ...h, rules, staff, cashLimits, audits, admins, eventLog, ledger, settle, balance, delivered };
+  return { ...h, rules, staff, cashLimits, audits, admins, eventLog, ledger, settle, balance, delivered, approvals };
 }

@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import type { RoleKind } from './auth.js';
 import { CityId, Iqd, LatLng } from './common.js';
 import { Event } from './event.js';
 import { CapRole, SettlementMode } from './ledger-rules.js';
+import { LedgerEventType } from './ledger.js';
 import { OrderState, OrderType, PaymentMethod } from './order.js';
 import { VehicleClass } from './trip.js';
 
@@ -132,9 +134,12 @@ export const OrderSearchInput = z.object({
   /** Only active orders behind their promise (the lateness rule of the orders module). */
   late: z.boolean().optional(),
   /**
-   * Matches order, orderer or merchant id, or the note (case-insensitive substring). An order
-   * number — "1284", "#1284" or "١٢٨٤" (see `parseOrderTicket`) — instead finds every order with
-   * that ticket number; without `from` it looks back over today and yesterday (Baghdad).
+   * Read by `classifyOrderQuery`. An order number — "1284", "#1284" or "١٢٨٤" — finds every order
+   * with that ticket number, and four bare digits also every order whose customer's phone ends in
+   * them; without `from` both look back over today and yesterday (Baghdad). A whole phone number
+   * finds that customer's orders (any date unless `from`/`to`), a name (Arabic letters) the orders
+   * whose customer's display name matches. Anything else matches order, orderer or merchant id, or
+   * the note (case-insensitive substring). Phone and name reads are logged vault reads.
    */
   text: z.string().trim().max(100).optional(),
   /** Placed at or after (inclusive). */
@@ -174,6 +179,26 @@ export type OrderSummary = z.infer<typeof OrderSummary>;
 /** Newest first; `nextCursor` continues the same query. */
 export const OrderSearchPage = z.object({ rows: z.array(OrderSummary), nextCursor: z.string().nullable() });
 export type OrderSearchPage = z.infer<typeof OrderSearchPage>;
+
+// ───────────────────────── customer history (support card, Yes-list s5) ─────────────────────────
+
+export const CustomerHistoryInput = z.object({ cityId: CityId.default('aziziyah'), customerId: z.string().min(1).max(60) });
+
+/**
+ * The support card's history of one customer: the last orders they placed (newest first, any state)
+ * and the credits they received this month (Baghdad), each with what it was for. Read only.
+ */
+export const CustomerHistory = z.object({
+  recentOrders: z.array(OrderSummary),
+  credits: z.object({
+    /** Start of this month (Baghdad). */
+    from: z.coerce.date(),
+    totalIqd: Iqd,
+    /** Newest first, at most 5; `totalIqd` counts them all. */
+    lines: z.array(z.object({ id: z.string(), at: z.coerce.date(), type: LedgerEventType, label_ar: z.string(), amountIqd: Iqd, orderId: z.string().nullable() })),
+  }),
+});
+export type CustomerHistory = z.infer<typeof CustomerHistory>;
 
 // ───────────────────────── event logs (orders.events / trips.events) ─────────────────────────
 
@@ -245,6 +270,60 @@ export const OutboxView = z.object({
   recentFailed: z.array(OutboxFailedRow),
 });
 export type OutboxView = z.infer<typeof OutboxView>;
+
+/** Who may put failed outbox rows back on the queue (money may post again: admin only, audited). */
+export const OUTBOX_REQUEUE_ROLES: readonly RoleKind[] = ['admin'];
+/** Who sees the money alarm (a ledger posting stuck in the outbox). */
+export const MONEY_ALARM_ROLES: readonly RoleKind[] = ['finance', 'admin'];
+
+/** At most this many failed rows go back on one requeue. */
+export const OUTBOX_REQUEUE_MAX = 500;
+
+/**
+ * `system.requeueOutbox` (admin): failed outbox rows back to pending with their attempts reset, either
+ * the rows named, or every failed row of one event type written in [from, to). Each subscriber that
+ * already delivered a row is skipped on the retry, so only the one that failed runs again.
+ */
+export const OutboxRequeueInput = z.union([
+  z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(OUTBOX_REQUEUE_MAX) }).strict(),
+  z
+    .object({ type: z.string().min(1).max(80), from: z.coerce.date(), to: z.coerce.date() })
+    .strict()
+    .refine((r) => r.from.getTime() < r.to.getTime(), { message: 'from must be before to', path: ['to'] }),
+]);
+export type OutboxRequeueInput = z.infer<typeof OutboxRequeueInput>;
+
+export const OutboxRequeueResult = z.object({ requeued: z.number().int().nonnegative() });
+export type OutboxRequeueResult = z.infer<typeof OutboxRequeueResult>;
+
+/** Money stuck in the outbox: a ledger posting that failed for good, or a row waiting longer than `MONEY_ALARM_PENDING_SEC`. */
+export const MONEY_ALARM_PENDING_SEC = 120;
+export const MoneyAlarm = z.object({
+  /** Failed outbox rows a ledger subscriber has not posted. */
+  ledgerFailed: z.number().int().nonnegative(),
+  /** Seconds since the oldest still-pending outbox row was written (0 when none is pending). */
+  oldestPendingSec: z.number().int().nonnegative(),
+  alarm: z.boolean(),
+});
+export type MoneyAlarm = z.infer<typeof MoneyAlarm>;
+
+/** A message claimed for a send longer ago than this, with no answer recorded, is stuck. */
+export const NOTIFY_STUCK_AFTER_SEC = 300;
+/** Outgoing messages (push, SMS, WhatsApp) claimed for a send that never recorded an outcome. Read only. */
+export const NotifyStuck = z.object({
+  /** Rows claimed more than `NOTIFY_STUCK_AFTER_SEC` ago and still queued: the send may or may not have gone. */
+  stuck: z.number().int().nonnegative(),
+  /** Seconds since the oldest of them was claimed (0 when none). */
+  oldestSec: z.number().int().nonnegative(),
+});
+export type NotifyStuck = z.infer<typeof NotifyStuck>;
+
+/** SMS sent in the last 24 hours (sign-in codes and notification texts together) against the day's budget. */
+export const SmsDayView = z.object({
+  sent: z.number().int().nonnegative(),
+  budget: z.number().int().positive(),
+});
+export type SmsDayView = z.infer<typeof SmsDayView>;
 
 /** Live simulator progress (sim time and counts) while a Console-started run is going. */
 export const SimulatorProgress = z.object({
@@ -419,7 +498,8 @@ export interface ConsolePort {
   driverPositions(cityId: string): Promise<DriverPositions>;
   /** `accessorId` (the staff member) is logged for the vault reads of a name search. */
   driversList(input: z.infer<typeof DriversListInput>, accessorId?: string): Promise<DriversPage>;
-  searchOrders(input: z.infer<typeof OrderSearchInput>): Promise<OrderSearchPage>;
+  /** `accessorId`: the staff member, logged as the reader when a phone or name search reads the vault. */
+  searchOrders(input: z.infer<typeof OrderSearchInput>, accessorId: string): Promise<OrderSearchPage>;
   orderEvents(orderId: string): Promise<EventLogEntry[]>;
   /** Every ledger line carrying this order id, in time order (the money story on the order page). */
   orderLedger(orderId: string): Promise<OrderLedgerLine[]>;
@@ -427,7 +507,14 @@ export interface ConsolePort {
   /** The order's courier path and its moments (maps program o2). */
   orderReplay(orderId: string): Promise<OrderReplay>;
   rightNow(cityId: string): Promise<RightNow>;
+  /** s5: a customer's last orders and this month's credits, for the support card. */
+  customerHistory(input: z.infer<typeof CustomerHistoryInput>): Promise<CustomerHistory>;
   outbox(): Promise<OutboxView>;
+  /** Failed rows back to pending; the audit row (against `actorId`, the admin) commits with the change. */
+  requeueOutbox(input: OutboxRequeueInput, actorId: string): Promise<OutboxRequeueResult>;
+  moneyAlarm(): Promise<MoneyAlarm>;
+  notifyStuck(): Promise<NotifyStuck>;
+  smsDay(): Promise<SmsDayView>;
   merchants(cityId: string): Promise<MerchantRow[]>;
   simulatorStatus(): Promise<z.input<typeof SimulatorStatus>>;
   simulatorStart(input: z.infer<typeof SimulatorStartInput>): Promise<z.input<typeof SimulatorStatus>>;

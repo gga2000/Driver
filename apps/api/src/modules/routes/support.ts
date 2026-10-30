@@ -48,8 +48,16 @@ export async function walletHolds(
     .reduce((s, b) => s + bookingTotal(b), 0);
   const deposits = (
     await repo.listRequests({ riderId, states: ['matched', 'driver_arrived'] }, tx)
-  ).reduce((s, r) => s + (r.depositIqd ?? 0), 0);
-  return seats + deposits;
+  )
+    // A cash reservation (step 4b) holds nothing on the wallet.
+    .filter((r) => !r.cashReserved)
+    .reduce((s, r) => s + (r.depositIqd ?? 0), 0);
+  // Step 6: places he took in a friend's shared car, held until that trip ends.
+  const shares = (await repo.listRequests({ memberId: riderId, states: ['matched', 'driver_arrived'] }, tx))
+    .flatMap((r) => r.share?.members ?? [])
+    .filter((m) => m.personId === riderId && m.state === 'joined')
+    .reduce((s, m) => s + m.amountIqd, 0);
+  return seats + deposits + shares;
 }
 
 export function roundUpTo(amount: number, step: number): number {

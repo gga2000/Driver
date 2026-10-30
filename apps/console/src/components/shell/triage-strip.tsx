@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { t } from '@driver/i18n';
 import { useEffect, useState } from 'react';
-import { formatCountdown } from '@/lib/format';
+import { ageText } from '@/lib/safety';
 import { useNavCounts } from '@/lib/nav-counts';
 import { buttonCls, IconAlert } from '../ui';
 
@@ -41,12 +41,12 @@ export function GlobalTriageStrip() {
   return <TriageStripView n={n} oldestSec={oldest} />;
 }
 
-/** The strip itself: "طلبين يحتاجون ديسباتشر · أقدم واحد من 2:10" and "روح للتوزيع". */
+/** The strip itself: "طلبين يحتاجون ديسباتشر · أقدم واحد من 2 د" and "روح للتوزيع". */
 export function TriageStripView({ n, oldestSec }: { n: number; oldestSec: number | null }) {
   return (
     <div role="status" aria-live="polite" data-testid="global-triage" className="flex h-11 shrink-0 items-center gap-3 border-b border-bad/50 bg-bad-tint px-4 text-bad lg:px-8">
       <IconAlert size={18} />
-      <p className="num min-w-0 flex-1 truncate text-sm font-semibold">{oldestSec === null ? t('console.triage_global_short', { count: n }) : t('console.triage_global', { count: n, time: formatCountdown(oldestSec) })}</p>
+      <p className="num min-w-0 flex-1 truncate text-sm font-semibold">{oldestSec === null ? t('console.triage_global_short', { count: n }) : t('console.triage_global', { count: n, time: ageText(oldestSec * 1000) })}</p>
       <Link href="/dispatch" className={buttonCls('danger', 'sm')}>
         {t('console.triage_go')}
       </Link>

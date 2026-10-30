@@ -88,7 +88,7 @@ export default async function run(s) {
   await s.demoPost('/demo/clear?who=courier');
   await c.goto('/earnings');
   await c.wait('earnings-tab');
-  await c.shot('tab-earnings');
+  await c.shot('tab-earnings', { settle: 1500 }); // the total counts up over 900 ms
   await c.goto('/account');
   await c.wait('account-tab');
   await c.shot('tab-account');

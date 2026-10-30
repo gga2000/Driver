@@ -6,7 +6,8 @@ import type { Actor } from './identity-io.js';
  *
  * Rows are opened by the server from domain events (an SOS, a trip nobody took, a shop that went
  * quiet, a late order, a courier who can't reach the door, an order on the stuck list, a courier over
- * his cash cap, a document or a new shop waiting, a خطوط empty-car check missed, a seat PIN alert). A row closes by itself when the problem ends (the order
+ * his cash cap, a document or a new shop waiting, a خطوط empty-car check missed, a seat PIN alert, a bad
+ * rating). A row closes by itself when the problem ends (the order
  * is delivered, someone took the trip, the SOS is resolved); otherwise a person closes it, always with
  * an outcome. Anyone on a desk can take a row (it is then theirs), hand it to someone, snooze it for a
  * few minutes or close it. The row keeps ids and short facts only; names are read from the vault when
@@ -21,9 +22,12 @@ export const INBOX_KINDS = [
   'unreachable',
   'stuck',
   'cash_cap',
+  'low_rating',
   'sweep',
   'pin_alert',
   'approval',
+  'late_departure',
+  'over_ceiling',
 ] as const;
 export const InboxKind = z.enum(INBOX_KINDS);
 export type InboxKind = z.infer<typeof InboxKind>;
@@ -34,13 +38,18 @@ export const INBOX_PRIORITY: Record<InboxKind, number> = {
   safety_report: 1,
   sweep: 2,
   pin_alert: 3,
-  no_driver: 4,
-  unreachable: 5,
-  stuck: 6,
-  store_silent: 7,
-  late: 8,
-  cash_cap: 9,
-  approval: 10,
+  // Riders standing at a garage with no car, or a car out on the road that never said «وصلت».
+  late_departure: 4,
+  no_driver: 5,
+  // «دوّرلي»: the shopper stands at the shop with a receipt over the customer's ceiling.
+  over_ceiling: 6,
+  unreachable: 7,
+  stuck: 8,
+  store_silent: 9,
+  late: 10,
+  cash_cap: 11,
+  low_rating: 12,
+  approval: 13,
 };
 
 export const InboxSubjectKind = z.enum([
@@ -53,6 +62,7 @@ export const InboxSubjectKind = z.enum([
   'pin_attempt',
   'courier',
   'ticket',
+  'departure',
 ]);
 export type InboxSubjectKind = z.infer<typeof InboxSubjectKind>;
 
@@ -64,6 +74,12 @@ export const INBOX_READ_ROLES = ['admin', 'dispatcher', 'support', 'field_ops', 
 export const INBOX_WORK_ROLES = ['admin', 'dispatcher', 'support', 'field_ops'] as const;
 
 export const INBOX_RULES = {
+  /**
+   * A rating this low or lower (food or courier, 1–5) opens a case: staff hear the customer, the
+   * restaurant and the courier or driver before closing it, and close it with a note (Ali, 2026-10-08:
+   * every bad rating, not only repeats).
+   */
+  lowRatingMaxStars: 2,
   /** The snooze choices, minutes. */
   snoozeMinutes: [5, 15, 30, 60] as const,
   /** Closed rows stay visible under "done" this long. */

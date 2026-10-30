@@ -24,6 +24,14 @@ it by rebuilding. `NEXT_PUBLIC_SENTRY_DSN` (optional build argument, from the Gi
 `next build` is unaffected (no `NEXT_OUTPUT`). Checked on 2026-10-04: the
 standalone build serves `/login` and `/orders/<id>` with the headers below.
 
+`NEXT_PUBLIC_UPLOADS_ORIGIN` (optional): the exact origin photo uploads go to straight from the
+browser, the Supabase Storage host of `S3_ENDPOINT` without its path ([supabase.md](supabase.md)
+step 5), e.g. `https://abcdefghijkl.storage.supabase.co`. The Console's Content-Security-Policy lets
+the page send only to the API, the map hosts, the crash reports and this origin; while it is unset a
+deployed Console allows `https://*.storage.supabase.co` instead, so uploads keep working. It reaches
+the build like the map variables (a build argument), so the Dockerfile and the Deploy workflow need it
+passed before the exact origin takes effect.
+
 Every response carries `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` and
 `X-Robots-Tag: noindex` (staff tool: never framed, never indexed).
 

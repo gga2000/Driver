@@ -132,3 +132,6 @@ export function useSafetyAlarm(ringing: boolean): { blocked: boolean } {
   }, [ringing]);
   return { blocked: blocked && ringing };
 }
+
+/** The alarm's audio context, for the «شغّل صوت الإنذار» button (components/safety/alarm-gate.tsx). */
+export { audio as alarmAudio };

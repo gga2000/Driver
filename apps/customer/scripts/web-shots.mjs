@@ -18,9 +18,20 @@
 //   track-*  live order screen: preparing, on the way (collapsed/expanded), unreachable, late (promise bar),
 //            late credit (+ receipt line),
 //            signal lost, reassigning, arrival, rating, points           POST /demo/track
+//   cash-*   step 4b «احجز وادفع كاش» on a private car: owed first, the ask, waiting, his yes on the
+//            offer, the panel with the no-show line, booked with no deposit     POST /demo/rajaa/cash
+//   return-* step 5: the way-back offer on the pass, the board and seat screen of the way back (a child
+//            on the lap), the hold with the saving, the paired pass            POST /demo/rajaa/return
+//   tripchat-*  step 4c Baghdad/Kut chat: «اسأل السايق», his question, the asks and prices as cards,
+//            the pinned strip, agreed                                         POST /demo/rajaa/trip-chat
+//   agree-*  step 4 agreed prices: ask the driver about a pin on the road and a door drop, his prices,
+//            agreed, and the hold with the locked lines                    POST /demo/rajaa/agreements
+//   carts-*  food carts «عربانات»: the list (followed strip, near you, all), a cart's page with dishes picked,
+//            a closed cart, the walk-over ticket (cooking, ready), the carts map           POST /demo/carts
 //   rajaa-*  board, seat screen on the driver's car, blocked seat, hold, pass, the board and «نبّهني» going out,
 //            demand, request board, home                                POST /demo/rajaa/*
 //   deals-*  مطعم خالد with its deal badges, the cart with line savings, checkout's deal line
+//   owed-*   M-3: an earlier unpaid 500 دينار as its own line under checkout's total   POST /demo/owe
 //                                                                         POST /demo/deals
 //   topup-*  wallet button, amount, code + QR, the ops agent's lookup and confirmation (Partner app
 //            web export in PARTNER_DIST_DIR, built against the same demo API), the customer's receipt
@@ -47,6 +58,8 @@
 //            box (on the way, the range option, late), delivered with the courier, the compliment chips
 //            (picked, sent) before the tip card            POST /demo/track (kitchen, on_the_way, late; rated=1)
 //            and the ride reveal (a taxi accepted while the screen is open)    POST /demo/ride
+//   stats-*  «دفترك ويا درايفر» on a fresh account with a year of history: the year (+ full page), a month
+//            column picked, «شلون نحسبها؟», بالتفصيل, this month, since the start      POST /demo/stats
 //   trips-*  joy J7d on a fresh account: the ride tab (a regular trip asking, «خليه سايقك المفضل؟»),
 //            «رحلاتي الثابتة», a day to confirm (ride, الرجعة) and confirmed, the editor (ride, الرجعة),
 //            «سواقي المفضلين», the booked ride (+ home card), booking for later with a favourite, the
@@ -131,18 +144,20 @@ page.on('response', (r) => {
 // order / chat screens keep an SSE stream open and the map keeps fetching tiles, so the network is
 // never idle there.
 const LOADED = { waitUntil: 'load' };
-const byTestId = (id) => page.locator(`[data-testid="${id}"]`).first();
+// Visible matches only: screens stay mounted under the one on top (home's basket bar sits under a
+// restaurant's), and the first match in the page would be the hidden one.
+const byTestId = (id) => page.locator(`[data-testid="${id}"]`).filter({ visible: true }).first();
 const settle = async (ms = 700) => {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(ms);
 };
-const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'driver', 'deals', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'waves'];
+const GROUPS = ['battery', 'partial', 'app', 'acct', 'food', 'track', 'rajaa', 'agree', 'tripchat', 'cash', 'return', 'share', 'driver', 'deals', 'owed', 'topup', 'chat', 'ride', 'season', 'family', 'habits', 'gift', 'live', 'trips', 'crash', 'booked', 'stats', 'carts', 'waves'];
 const selected = (process.env.SHOTS ?? process.env.ONLY ?? process.env.SHOTS_PREFIX ?? 'all')
   .split(',')
   .map((s) => s.trim().replace(/-$/, ''))
   .filter(Boolean);
 // Taxi/tuktuk step 4: booked rides (c10), the simple mode (v2) and the الرجعة-linked taxis (x2–x4); they run right after the ride flow.
-const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors'];
+const RIDE_GROUPS = ['later', 'simple', 'rajaa-taxi', 'ride-errors', 'ride-walk'];
 const known = [...GROUPS, ...RIDE_GROUPS];
 const groups = new Set(selected.includes('all') ? known : selected);
 for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS group "${g}" (expected ${known.join(', ')} or all)`);
@@ -150,6 +165,38 @@ for (const g of groups) if (!known.includes(g)) throw new Error(`Unknown SHOTS g
 const wants = (group) => groups.has(group);
 const groupOf = (name) => known.filter((g) => name === g || name.startsWith(`${g}-`)).sort((a, b) => b.length - a.length)[0] ?? name.split('-')[0];
 const wanted = (name) => wants(groupOf(name));
+
+/**
+ * The map-led where-to (Ali 2026-10-17): the pickup is the place under the pin, confirmed with «هنا،
+ * تمام» once the server named its area; then the drop-off step, its search panel opened.
+ */
+async function rideConfirmReady() {
+  await page
+    .waitForFunction(() => {
+      const b = [...document.querySelectorAll('[data-testid="ride-map-confirm"]')].find((e) => e.offsetParent);
+      return b && b.getAttribute('aria-disabled') !== 'true';
+    }, null, { timeout: 20_000 })
+    .catch(() => errors.push('«هنا، تمام» never became ready'));
+}
+async function ridePickupHere() {
+  await byTestId('ride-step-pickup').waitFor({ timeout: 15_000 });
+  await rideConfirmReady();
+  await byTestId('ride-map-confirm').click();
+  await byTestId('ride-step-dropoff').waitFor({ timeout: 15_000 });
+}
+async function rideOpenSearch() {
+  await byTestId('ride-search').click();
+  await byTestId('ride-search-panel').waitFor({ timeout: 10_000 });
+  await settle(400);
+}
+/** Pickup where the pin opened (his home), then a drop-off picked in the search panel. */
+async function rideTo(target) {
+  await ridePickupHere();
+  await rideOpenSearch();
+  await target().first().click({ timeout: 15_000 });
+}
+const savedPlace = (title) => () => page.locator('[data-testid="ride-search-panel"] [data-testid^="ride-saved-"]', { hasText: title });
+const firstLandmark = () => page.locator('[data-testid="ride-search-panel"] [data-testid^="ride-spot-landmark:"]');
 const shot = async (name) => {
   if (!wanted(name)) return;
   await settle();
@@ -234,8 +281,7 @@ try {
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
       await settle(1600);
       await shot('app-welcome-home');
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => errors.push('welcome-home did not close'));
+      if (!(await dismissWelcome())) errors.push('welcome-home did not close');
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -279,14 +325,21 @@ try {
   if (wants('battery')) await batteryShots();
   if (wants('track')) await trackShots(personId);
   if (wants('rajaa')) await rajaaShots(personId);
+  if (wants('agree')) await agreeShots(personId);
+  if (wants('cash')) await cashShots(personId);
+  if (wants('return')) await returnShots(personId);
+  if (wants('tripchat')) await tripChatShots(personId);
+  if (wants('share')) await shareShots(personId);
   if (wants('driver')) await driverShots(personId);
   if (wants('deals')) await dealsShots(khalid);
+  if (wants('owed')) await owedShots(personId, khalid);
   if (wants('topup')) await topupShots();
   if (wants('chat')) await chatShots(personId);
   // c9/s3 «لمنو المشوار؟» runs after the ride flow (its recent destination would change that flow's searches), even when that flow stops early.
   if (wants('ride')) await rideShots().finally(() => rideForShots());
   if (wants('later')) await laterShots();
   if (wants('ride-errors')) await rideErrorShots();
+  if (wants('ride-walk')) await rideWalkShots();
   // Signs in as its own fresh account with the phone's position granted, then puts the demo account back.
   if (wants('simple')) await asOtherAccount(simpleShots);
   if (wants('rajaa-taxi')) await rajaaTaxiShots(personId);
@@ -298,6 +351,8 @@ try {
   if (wants('trips')) await tripsShots(khalid);
   if (wants('crash')) await crashShots();
   if (wants('booked')) await bookedShots();
+  if (wants('stats')) await asOtherAccount(statsShots);
+  if (wants('carts')) await asOtherAccount(cartsShots);
   if (wants('waves')) await wavesShots();
 } catch (err) {
   errors.push(err.stack ?? String(err));
@@ -452,8 +507,7 @@ async function simpleShots() {
     await page.locator('[data-testid="setup-name"]').fill('كاظم');
     await byTestId('setup-skip').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -526,6 +580,74 @@ async function tripsShots(khalid) {
   await tripsFlow(khalid, personId, seed);
 }
 
+/**
+ * Food carts «عربانات»: a fresh account standing near the souq garage (position granted) follows the
+ * liver and corn carts; the list, the liver cart with a size and an extra picked («شلون تريده؟»), the walk-over ticket cooking
+ * and ready, a closed cart, and the carts on the golden map.
+ */
+async function cartsShots() {
+  const ctx = page.context();
+  await ctx.grantPermissions(['geolocation'], { origin });
+  await ctx.setGeolocation({ latitude: 32.9046, longitude: 45.0628, accuracy: 15 });
+  const personId = await freshSignIn(process.env.CARTS_PHONE ?? '0770 456 7711');
+  const seed = await demoPost(`/demo/carts?personId=${encodeURIComponent(personId)}`);
+  if (!seed) return;
+  const cart = (key) => seed.carts.find((c) => c.key === key).cartId;
+  await page.goto(`${origin}/food-carts`, LOADED);
+  await byTestId('carts-followed').waitFor({ timeout: 20_000 });
+  await shot('carts-list');
+  await byTestId('carts-show-all').click();
+  await fullShot('carts-list-all');
+  await page.goto(`${origin}/food-carts/${cart('liver')}`, LOADED);
+  await byTestId('cart-menu').waitFor({ timeout: 20_000 });
+  await shot('carts-cart');
+  const liver = seed.carts.find((c) => c.key === 'liver');
+  const plus = (item) => page.locator(`[data-testid="cart-dish-${liver.orgId}_${item}"]`).locator('[data-testid="cart-dish-add"], [data-testid="stepper-inc"]').first();
+  // A dish with sizes or extras asks «شلون تريده؟» first (Ali 2026-10-12).
+  const choose = async (item, names, name) => {
+    await plus(item).click();
+    await byTestId('cart-choice').waitFor({ timeout: 10_000 });
+    for (const n of names) await page.locator('[data-testid^="cart-choice-"]').filter({ hasText: n }).first().click();
+    if (name) await shot(name);
+    await byTestId('cart-choice-add').click();
+    await byTestId('cart-choice').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+  };
+  await choose('plate', ['صحن كامل'], 'carts-choice-size');
+  await choose('laffa', ['بيض'], 'carts-choice-extras');
+  await choose('laffa', [], null);
+  await plus('maalak').click();
+  await shot('carts-cart-picked');
+  await fullShot('carts-cart-picked-full');
+  await byTestId('cart-order').click();
+  await byTestId('cart-ticket-card').waitFor({ timeout: 20_000 });
+  await shot('carts-ticket');
+  const ready = await demoPost(`/demo/carts?personId=${encodeURIComponent(personId)}&ticket=ready`);
+  if (ready?.walkupId) {
+    await page.goto(`${origin}/food-carts/ticket/${ready.walkupId}`, LOADED);
+    await byTestId('cart-ticket-card').waitFor({ timeout: 20_000 });
+    await shot('carts-ticket-ready');
+  }
+  await page.goto(`${origin}/food-carts`, LOADED);
+  await byTestId('carts-followed').waitFor({ timeout: 20_000 });
+  await shot('carts-list-tickets');
+  await page.goto(`${origin}/food-carts/${cart('corn')}`, LOADED);
+  await byTestId('cart-closed-note').waitFor({ timeout: 20_000 });
+  await shot('carts-closed');
+  await page.goto(`${origin}/food-carts/map`, LOADED);
+  await byTestId('carts-map-card').waitFor({ timeout: 30_000 }).catch(() => {});
+  await settle(4000);
+  await shot('carts-map');
+}
+
+/** The sunrise welcome (map N4) can take a few taps while its map loads: tap until it goes, up to 30 s. */
+async function dismissWelcome() {
+  for (let i = 0; i < 10; i++) {
+    await byTestId('welcome-home').click({ timeout: 3_000 }).catch(() => {});
+    if (await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 3_000 }).then(() => true).catch(() => false)) return true;
+  }
+  return false;
+}
+
 /** Signs out, then in as that number (name and area on a first sign-in); the person's id. */
 async function freshSignIn(phoneNumber) {
   await page.goto(`${origin}/`, LOADED);
@@ -552,8 +674,7 @@ async function freshSignIn(phoneNumber) {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -608,6 +729,11 @@ async function bookedShots() {
   await byTestId('booked-looking').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked screen «نأكدلك قبل» not shown'));
   await shot('booked-looking');
   await byTestId('booked-cancel').click();
+  // W11: it asks first (free or with a fee), then cancels.
+  await byTestId('booked-cancel-sheet-yes').waitFor({ timeout: 15_000 });
+  await settle(400);
+  await shot('booked-cancel-ask');
+  await byTestId('booked-cancel-sheet-yes').click();
   await byTestId('booked-new').waitFor({ timeout: 15_000 }).catch(() => errors.push('booked ride not cancelled'));
 
   const confirmed = await demoPost(`/demo/booked-ride?personId=${encodeURIComponent(personId)}&state=confirmed`);
@@ -631,6 +757,8 @@ async function tripsFlow(khalid, personId, seed) {
 
   // The ride tab: the regular trip asking now, the last good driver, «رحلاتي الثابتة».
   await page.goto(`${origin}/ride`, LOADED);
+  await ridePickupHere();
+  await rideOpenSearch();
   await byTestId(`regular-due-${seed.regularRideId}`).waitFor({ timeout: 15_000 }).catch(() => errors.push('regular due card not shown'));
   await byTestId('recent-driver').waitFor({ timeout: 15_000 }).catch(() => errors.push('recent driver card not shown'));
   await shot('trips-ride-tab');
@@ -686,10 +814,7 @@ async function tripsFlow(khalid, personId, seed) {
 
   // Booking a ride for later with the favourite: home → work, «بعدين» (its picker's first time), حسين.
   await page.goto(`${origin}/ride`, LOADED);
-  // The where-to screen may open on «من» or on «إلى»: الدائرة, then البيت if it was the pickup.
-  await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
-  await settle(600);
-  if (!(await byTestId('ride-choose').isVisible().catch(() => false))) await page.locator('[data-testid^="ride-saved-"]', { hasText: 'البيت' }).first().click();
+  await rideTo(savedPlace('الدائرة'));
   await byTestId('ride-choose').waitFor({ timeout: 15_000 }).catch(async () => {
     errors.push('choose screen not shown');
     await page.screenshot({ path: join(outDir, 'trips-debug-choose.png') });
@@ -734,7 +859,8 @@ async function tripsFlow(khalid, personId, seed) {
   await shot('trips-dinner-list');
   // Screens stay mounted under the new one on web: the visible copy of each element.
   const visible = (id) => page.locator(`[data-testid="${id}"]:visible`).first();
-  await visible(`restaurant-row-${khalid}`).click();
+  // «سوق العزيزية» opens on the street of shopfronts (p3).
+  await visible(`shop-front-${khalid}`).click();
   await visible(`dish-add-${khalid}_pepsi`).waitFor({ timeout: 15_000 });
   await visible(`dish-add-${khalid}_pepsi`).click();
   if (await visible('item-sheet').isVisible().catch(() => false)) {
@@ -777,6 +903,34 @@ async function tripsFlow(khalid, personId, seed) {
  * and after a touch that never moves the map. Each failure is one procedure's request answered as a
  * network failure (a batch carrying it fails as a whole, as it would on a phone).
  */
+/**
+ * Map idea N10 «امشي دقيقة للشارع العام»: the dev walk flag puts a safe stop 60 m from the pickup,
+ * so the choose screen offers the walk; then the walk chosen (the pickup is the stop) and undone.
+ */
+async function rideWalkShots() {
+  await demoPost('/demo/ride?acceptMs=0');
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => globalThis.sessionStorage.setItem('driver.dev.walk', 'demo'));
+  await byTestId('service-taxi').click({ timeout: 15_000 });
+  await rideTo(firstLandmark);
+  await byTestId('ride-walk-offer').waitFor({ timeout: 15_000 });
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1800);
+  await shot('ride-walk-offer');
+  await byTestId('ride-walk-go').click();
+  await byTestId('ride-walk-chosen').waitFor();
+  await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
+  await settle(1800);
+  await shot('ride-walk-chosen');
+  await byTestId('ride-walk-undo').click();
+  await byTestId('ride-walk-offer').waitFor();
+  await byTestId('ride-walk-door').click();
+  await byTestId('ride-walk-offer').waitFor({ state: 'detached' });
+  await settle(600);
+  await shot('ride-walk-door');
+  await page.evaluate(() => globalThis.sessionStorage.removeItem('driver.dev.walk'));
+}
+
 async function rideErrorShots() {
   const failing = (proc) => async (route) => (route.request().url().includes(proc) ? route.abort('failed') : route.continue());
   const withFailure = async (proc, flow) => {
@@ -791,6 +945,7 @@ async function rideErrorShots() {
 
   await withFailure('places.landmarks', async () => {
     await page.goto(`${origin}/ride`, LOADED);
+    await rideOpenSearch();
     await byTestId('ride-landmarks-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('known places: no failed state'));
     await byTestId('ride-landmarks-failed').scrollIntoViewIfNeeded().catch(() => undefined);
     await settle(700);
@@ -806,8 +961,8 @@ async function rideErrorShots() {
 
   await withFailure('pricing.quote', async () => {
     await page.goto(`${origin}/ride`, LOADED);
-    // A saved place that isn't the pickup (البيت is): the choose screen opens with both ends.
-    await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
+    // A known place that isn't the pickup: the choose screen opens with both ends.
+    await rideTo(firstLandmark);
     await byTestId('ride-choose').waitFor({ timeout: 15_000 }).catch(() => errors.push('choose not opened'));
     await byTestId('ride-quote-failed').waitFor({ timeout: 40_000 }).catch(() => errors.push('choose: no price failed line'));
     await settle(700);
@@ -873,8 +1028,7 @@ async function laterShots() {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -887,9 +1041,7 @@ async function laterShots() {
 
   // Choose: البيت → الدائرة, then «بعدين».
   await page.goto(`${origin}/ride`, LOADED);
-  await page.locator('[data-testid^="ride-saved-"]', { hasText: 'الدائرة' }).first().click();
-  await settle(600);
-  if (!(await byTestId('ride-choose').isVisible().catch(() => false))) await page.locator('[data-testid^="ride-saved-"]', { hasText: 'البيت' }).first().click();
+  await rideTo(savedPlace('الدائرة'));
   await byTestId('ride-choose').waitFor({ timeout: 15_000 });
   // «هسة / بعدين» lives in the trip options sheet (ride idea c7).
   await byTestId('ride-options').click();
@@ -963,6 +1115,72 @@ async function laterShots() {
  * followed pot, Thursday 20:00 «باچر الجمعة» and its booking sheet, the restaurant page with the pot
  * banner and «مطاعمنا», the item sheet's follow row, and the «قدر اليوم» switch.     POST /demo/usuals
  */
+/** «دفترك ويا درايفر» (docs/api/stats.md): a fresh account with a year of meals, rides, seats and savings. */
+async function statsShots() {
+  await page.goto(`${origin}/`, LOADED);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/phone`, LOADED);
+  await page.locator('[data-testid="phone-input"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-testid="phone-input"]').fill(process.env.STATS_PHONE ?? '0770 456 9911');
+  await byTestId('phone-submit').click();
+  await byTestId('otp-dev-strip').waitFor({ timeout: 15_000 });
+  const code = (await byTestId('otp-dev-strip').innerText()).match(/\d{6}/)?.[0];
+  if (!code) throw new Error('dev code not shown');
+  await page.locator('[data-testid="otp-input"]').fill(code);
+  const landed = await Promise.race([byTestId('setup-name').waitFor({ timeout: 15_000 }).then(() => 'setup'), byTestId('home').waitFor({ timeout: 15_000 }).then(() => 'home')]);
+  if (landed === 'setup') {
+    await page.locator('[data-testid="setup-name"]').fill('حيدر');
+    const box = await byTestId('place-map').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 25, { steps: 8 });
+    await page.mouse.up();
+    await settle(1000);
+    await byTestId('setup-save').click();
+    if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
+      await dismissWelcome();
+    }
+  }
+  await byTestId('home').waitFor({ timeout: 15_000 });
+  const personId = await page.evaluate(() => JSON.parse(localStorage.getItem('driver.customer.session') ?? '{}').personId ?? null);
+  if (!personId) throw new Error('stats: no person after sign-in');
+  await demoPost(`/demo/stats?personId=${encodeURIComponent(personId)}`);
+  await page.goto(`${origin}/month`, LOADED);
+  await byTestId('stats-saved').waitFor({ timeout: 20_000 });
+  await settle(1500);
+  await shot('stats-year');
+  await fullShot('stats-year-full');
+  const cols = page.locator('[data-testid^="stats-col-"]');
+  if ((await cols.count()) > 2) {
+    await cols.nth((await cols.count()) - 3).click();
+    await settle(500);
+    await byTestId('stats-columns').screenshot({ path: join(outDir, 'stats-year-picked.png') }).catch(() => errors.push('stats: picked column shot'));
+  }
+  await byTestId('stats-how').click();
+  await settle(800);
+  await shot('stats-how');
+  await page.keyboard.press('Escape');
+  await settle(500);
+  await byTestId('stats-tab-detail').click();
+  await byTestId('stats-detail-food').waitFor({ timeout: 10_000 }).catch(() => errors.push('stats: detail not shown'));
+  await settle(1200);
+  await fullShot('stats-detail-full');
+  await byTestId('stats-tab-ledger').click();
+  await byTestId('stats-period-month').click();
+  await byTestId('stats-month').waitFor({ timeout: 10_000 });
+  await settle(1500);
+  await fullShot('stats-month-full');
+  await byTestId('stats-period-all').click();
+  await settle(1800);
+  await fullShot('stats-all-full');
+  await byTestId('stats-period-year').click();
+  await byTestId('stats-tab-map').click();
+  // The lines draw once (1.2 s), then the pins; the map files load first.
+  await byTestId('stats-map-legend').waitFor({ timeout: 15_000 }).catch(() => errors.push('stats: map legend not shown'));
+  await settle(4500);
+  await shot('stats-map');
+}
+
 async function habitsShots() {
   await page.goto(`${origin}/`, LOADED);
   await page.evaluate(() => localStorage.clear());
@@ -989,8 +1207,7 @@ async function habitsShots() {
     }
     await byTestId('setup-save').click();
     if (await byTestId('welcome-home').waitFor({ timeout: 8_000 }).then(() => true).catch(() => false)) {
-      await byTestId('welcome-home').click();
-      await byTestId('welcome-home').waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {});
+      await dismissWelcome();
     }
   }
   await byTestId('home').waitFor({ timeout: 15_000 });
@@ -1357,7 +1574,245 @@ async function trackShots(personId) {
   await shot('track-rating-points');
 }
 
+/** Runs `flow` with one procedure's requests answered as a network failure (a batch carrying it fails whole). */
+async function whileFailing(proc, flow) {
+  const handler = async (route) => (route.request().url().includes(proc) ? route.abort('failed') : route.continue());
+  await page.route('**/trpc/**', handler);
+  try {
+    await flow();
+  } finally {
+    await page.unroute('**/trpc/**', handler);
+  }
+}
+
 /** الرجعة: board → seat booking (blocked seat) → hold → boarding pass → demand → request board → home. */
+/**
+ * Step 4b a6 «احجز وادفع كاش» (docs/api/agreed-trip-prices.md): a rider with no wallet money posts a
+ * private car, owes from an earlier no-show first, then asks the 42,000 driver, waits, and books on his
+ * yes with no deposit. The demo hook switches the rule on for this demo only.
+ */
+async function cashShots(personId) {
+  if (!personId) throw new Error('cash: no person');
+  const q = `personId=${encodeURIComponent(personId)}`;
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
+  await byTestId('req-from-aziziyah').click();
+  await byTestId('req-place-najaf').click();
+  await byTestId('rajaa-request-submit').click();
+  await page.locator('[data-testid^="request-"]').first().waitFor({ timeout: 15_000 });
+  await demoPost(`/demo/rajaa/offers?${q}`);
+  const { offers } = await demoPost(`/demo/rajaa/cash?${q}&answer=none&owe=5000`);
+  const id = offers[0];
+  const open = async () => {
+    await page.reload(LOADED);
+    await byTestId(`offer-${id}`).waitFor({ timeout: 20_000 });
+    await byTestId(`offer-${id}`).click();
+  };
+  const show = async (testId, name) => {
+    await byTestId(testId).waitFor({ timeout: 15_000 });
+    await byTestId(testId).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await settle(600);
+    await shot(name);
+  };
+  await open();
+  await show('rajaa-cash-owed', 'cash-owed');
+  // He pays what he owed; the wallet is back to 0, short of the deposit, so the ask shows.
+  await demoPost(`/demo/rajaa/topup?${q}&amount=5000`);
+  await open();
+  await show('rajaa-cash-ask', 'cash-ask');
+  await byTestId('rajaa-cash-ask').click();
+  await show('rajaa-cash-asked', 'cash-asked');
+  await demoPost(`/demo/rajaa/cash?${q}&answer=accept`);
+  await page.reload(LOADED);
+  await show(`offer-cash-${id}`, 'cash-offer-yes');
+  await byTestId(`offer-${id}`).click();
+  await show('rajaa-cash-accepted', 'cash-accepted');
+  await byTestId('rajaa-cash-book').click();
+  await show('rajaa-req-deposit', 'cash-matched');
+}
+
+/**
+ * Step 5 «رايح وراجع» (docs/api/return-bundle.md): a cash seat out to Baghdad; its pass offers the way back
+ * for 10 % off both seats; the board and the seat screen back say so; he adds a child on his lap (free),
+ * holds (the server's saving shows), books, and the pass says what he saved.
+ */
+async function returnShots(personId) {
+  if (!personId) throw new Error('return: no person');
+  const q = `personId=${encodeURIComponent(personId)}`;
+  const { bookingId, backDepartureIds } = await demoPost(`/demo/rajaa/return?${q}`);
+  const show = async (testId, name) => {
+    await byTestId(testId).waitFor({ timeout: 15_000 });
+    await byTestId(testId).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await settle(600);
+    await shot(name);
+  };
+  await page.goto(`${origin}/rajaa/pass/${bookingId}`, LOADED);
+  await show('rajaa-return-offer', 'return-offer');
+  await byTestId('rajaa-return-offer-cta').click();
+  await page.waitForURL(/\/rajaa(\?|$)/, { timeout: 15_000 });
+  await byTestId('rajaa-return-strip').waitFor({ timeout: 15_000 });
+  await settle(800);
+  await shot('return-board');
+  await page.goto(`${origin}/rajaa/departure/${backDepartureIds[0]}?corridor=aziziyah_baghdad&direction=to_aziziyah`, LOADED);
+  await byTestId('rajaa-lap').waitFor({ timeout: 20_000 });
+  await byTestId('rajaa-lap').locator('[data-testid="stepper-inc"]').click();
+  await show('rajaa-lap', 'return-lap');
+  await show('rajaa-quote', 'return-quote');
+  await byTestId('rajaa-hold').click();
+  await show('rajaa-hold-return', 'return-hold');
+  await byTestId('rajaa-confirm').click();
+  await show('rajaa-return-paired', 'return-paired');
+}
+
+/**
+ * Step 6 «تقاسم السيارة» (docs/api/request-sharing.md): the booker opens the link on his picked private
+ * car, a friend (كرار) pays his place, and the panel shows who is in and the cash left. Then the other
+ * side: a friend's link from أحمد, before and after he takes a place.
+ */
+/**
+ * Step 4c, the Baghdad/Kut chat (docs/api/trip-chat.md): «اسأل السايق» on a car from Baghdad, the
+ * empty chat, his question, then (demo hook) his asks as cards, the driver's words and prices with
+ * «موافق / لا» and the pinned «اللي اتفقنا عليه» strip; he agrees the pin.
+ */
+async function tripChatShots(personId) {
+  if (!personId) throw new Error('tripchat: no person');
+  await page.goto(`${origin}/rajaa`, LOADED);
+  const car = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').nth(1);
+  await car.waitFor({ timeout: 15_000 });
+  await car.click();
+  await byTestId('trip-chat-entry').waitFor({ timeout: 15_000 });
+  const departureId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop() ?? '');
+  await byTestId('trip-chat-entry').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(500);
+  await shot('tripchat-entry');
+  await byTestId('trip-chat-entry').click();
+  await byTestId('chat-screen').waitFor({ timeout: 15_000 });
+  await byTestId('chat-input').waitFor({ timeout: 15_000 });
+  await settle(800);
+  await shot('tripchat-empty');
+  await byTestId('chat-input').fill('تگدر تاخذني من سيطرة المدائن؟ وتنزلني بباب البيت بحي العسكري');
+  await byTestId('chat-send').click();
+  await page.locator('[data-testid^="chat-msg-"]').first().waitFor({ timeout: 15_000 });
+  await demoPost(`/demo/rajaa/trip-chat?personId=${encodeURIComponent(personId)}&departureId=${encodeURIComponent(departureId)}`);
+  await page.locator('[data-testid^="trip-card-"][data-testid$="-yes"]').nth(1).waitFor({ timeout: 25_000 }).catch(() => errors.push('tripchat: the driver\'s prices did not come in as cards'));
+  await byTestId('trip-deal').waitFor({ timeout: 15_000 }).catch(() => errors.push('tripchat: no pinned strip'));
+  await settle(800);
+  await shot('tripchat-cards');
+  await fullShot('tripchat-cards-full');
+  await page.locator('[data-testid^="trip-card-"][data-testid$="-yes"]').first().click();
+  await page.locator('[data-testid^="trip-card-"][data-testid$="-yes"]').nth(1).waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('tripchat: the pin was not agreed'));
+  await settle(800);
+  await shot('tripchat-agreed');
+}
+
+async function shareShots(personId) {
+  if (!personId) throw new Error('share: no person');
+  const q = `personId=${encodeURIComponent(personId)}`;
+  const show = async (testId, name, block = 'center') => {
+    await byTestId(testId).waitFor({ timeout: 15_000 });
+    await byTestId(testId).evaluate((el, b) => el.scrollIntoView({ block: b }), block);
+    await settle(600);
+    await shot(name);
+  };
+  const { postId } = await demoPost(`/demo/rajaa/share?${q}&as=booker&open=0`);
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await show('rajaa-carshare-offer', 'share-offer');
+  await byTestId('rajaa-carshare-open').click();
+  await byTestId('rajaa-carshare').waitFor({ timeout: 15_000 });
+  await demoPost(`/demo/rajaa/share?${q}&postId=${encodeURIComponent(postId)}`);
+  await page.reload(LOADED);
+  await byTestId('rajaa-carshare-friend-0').waitFor({ timeout: 20_000 }).catch(() => errors.push('share: كرار did not show on the panel'));
+  await show('rajaa-carshare', 'share-panel', 'start');
+  await show('rajaa-carshare-send', 'share-panel-send');
+  const { code } = await demoPost(`/demo/rajaa/share?${q}&as=friend`);
+  await page.goto(`${origin}/rajaa/join/${code}`, LOADED);
+  await byTestId('rajaa-join-form').waitFor({ timeout: 20_000 });
+  await settle(800);
+  await shot('share-join');
+  await show('rajaa-join-total', 'share-join-total');
+  await byTestId('rajaa-join-cta').click();
+  await show('rajaa-join-joined', 'share-joined');
+  await page.goto(`${origin}/rajaa`, LOADED);
+  await show('rajaa-shared-strip', 'share-board-strip');
+
+  // Way C (Ali 2026-10-09): the driver is at the door; the friend says «صعدت» next to the car.
+  const ctx = page.context();
+  try {
+    const arrived = await demoPost(`/demo/rajaa/share?${q}&as=friend&joined=1&arrived=1`);
+    await ctx.grantPermissions(['geolocation'], { origin });
+    await ctx.setGeolocation({ latitude: arrived.carAt.lat + 0.0004, longitude: arrived.carAt.lng, accuracy: 10 });
+    await page.goto(`${origin}/rajaa/join/${arrived.code}`, LOADED);
+    await byTestId('rajaa-join-board').waitFor({ timeout: 20_000 });
+    await settle(800);
+    await shot('share-board-ready');
+    await byTestId('rajaa-join-board').click();
+    await byTestId('rajaa-join-board').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => errors.push('share: «صعدت» did not go through'));
+    await settle(800);
+    await shot('share-boarded-self');
+    // The driver confirmed for him: he can answer «ما صعدت».
+    const byDriver = await demoPost(`/demo/rajaa/share?${q}&as=friend&joined=1&arrived=1&board=driver`);
+    await page.goto(`${origin}/rajaa/join/${byDriver.code}`, LOADED);
+    await byTestId('rajaa-join-not-boarded').waitFor({ timeout: 20_000 }).catch(() => errors.push('share: «ما صعدت» not shown'));
+    await settle(800);
+    await shot('share-boarded-driver');
+  } finally {
+    await ctx.clearPermissions();
+  }
+  // The booker's panel: كرار said «صعدت».
+  await demoPost(`/demo/rajaa/share?${q}&as=booker&arrived=1&board=self`);
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await show('rajaa-carshare-friend-0', 'share-booker-boarded');
+}
+
+/**
+ * Step 4 agreed trip prices (docs/api/agreed-trip-prices.md): on a car from Baghdad the rider asks the
+ * driver about his own spot on the road (the pin screen), the driver prices it and a door drop near
+ * the garage at home (demo hook), the rider agrees, and the hold shows both lines, locked.
+ */
+async function agreeShots(personId) {
+  if (!personId) throw new Error('agree: no person');
+  await page.goto(`${origin}/rajaa`, LOADED);
+  const firstCar = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-"]').first();
+  await firstCar.waitFor({ timeout: 15_000 });
+  await firstCar.click();
+  await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
+  const departureId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop() ?? '');
+  await byTestId('pickup-tile-way').click();
+  await byTestId('agree-pin_pickup-ask').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await settle(500);
+  await shot('agree-seat-ask');
+  await byTestId('agree-pin_pickup-ask').click();
+  await byTestId('rajaa-agree').waitFor({ timeout: 15_000 });
+  await settle(1500);
+  await byTestId('rajaa-agree-note').fill('جنب سيطرة المدائن، صوب الكازية');
+  await shot('agree-map-pin');
+  await byTestId('rajaa-agree-send').click();
+  await byTestId('rajaa-book').waitFor({ timeout: 15_000 });
+  await byTestId('agree-pin_pickup-waiting').waitFor({ timeout: 15_000 }).catch(() => errors.push('agree: the ask is not waiting'));
+  await byTestId('agree-pin_pickup-waiting').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await settle(400);
+  await shot('agree-waiting');
+  await demoPost(`/demo/rajaa/agreements?personId=${encodeURIComponent(personId)}&departureId=${encodeURIComponent(departureId)}`);
+  await byTestId('agree-pin_pickup-priced').waitFor({ timeout: 20_000 }).catch(() => errors.push('agree: the driver\'s price did not show'));
+  await byTestId('agree-pin_pickup-priced').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await settle(500);
+  await shot('agree-priced');
+  await byTestId('agree-pin_pickup-priced-accept').click();
+  await byTestId('agree-pin_pickup-agreed').waitFor({ timeout: 15_000 }).catch(() => errors.push('agree: pin not agreed'));
+  await byTestId('agree-door_drop-priced-accept').click();
+  await byTestId('agree-door_drop-agreed').waitFor({ timeout: 15_000 }).catch(() => errors.push('agree: door not agreed'));
+  await byTestId('rajaa-quote').evaluate((el) => el.scrollIntoView({ block: 'end' }));
+  await settle(500);
+  await shot('agree-agreed');
+  await fullShot('agree-agreed-full');
+  await byTestId('rajaa-hold').click();
+  await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
+  await byTestId('rajaa-agreed-note').waitFor({ timeout: 10_000 }).catch(() => errors.push('agree: no locked note on the hold'));
+  await page.waitForTimeout(1500);
+  await shot('agree-hold');
+  await fullShot('agree-hold-full');
+}
+
 async function rajaaShots(personId) {
   await page.goto(`${origin}/rajaa`, LOADED);
   await byTestId('rajaa-board').waitFor({ timeout: 15_000 });
@@ -1365,6 +1820,15 @@ async function rajaaShots(personId) {
   await firstCar.waitFor({ timeout: 15_000 });
   await shot('rajaa-board');
   await fullShot('rajaa-board-full');
+  // W8: the Kut line's count didn't load → its card leaves the count out, one retry under the cards.
+  await whileFailing('aziziyah_kut', async () => {
+    await page.reload(LOADED);
+    await page.locator('[data-testid="rajaa-lines-read-error"]').first().waitFor({ timeout: 90_000 }).catch(() => errors.push('board: no line failed state'));
+    await settle(500);
+    await shot('rajaa-errors-lines');
+  });
+  await page.reload(LOADED);
+  await firstCar.waitFor({ timeout: 15_000 });
 
   // Narrowing (s2, s5, s7, x3): tomorrow's cars, then tomorrow night with none → one-tap «نبّهني».
   await byTestId('board-day-tomorrow').click();
@@ -1413,6 +1877,16 @@ async function rajaaShots(personId) {
   await settle(400);
   await shot('rajaa-pay-wallet');
   await byTestId('pay-cash').click();
+  // W8: the wallet balance didn't load → a retry under the choice, never a silent gap.
+  await whileFailing('wallet.balance', async () => {
+    await page.reload(LOADED);
+    await page.locator('[data-testid="rajaa-wallet-read-error"]').first().waitFor({ timeout: 90_000 }).catch(() => errors.push('hold: no wallet failed state'));
+    await page.locator('[data-testid="rajaa-wallet-read-error"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+    await settle(500);
+    await shot('rajaa-errors-wallet');
+  });
+  await page.reload(LOADED);
+  await byTestId('rajaa-hold-ring').waitFor({ timeout: 15_000 });
 
   // Cash reservation → boarding pass (boarding is open on this car: live position shows).
   await byTestId('rajaa-confirm').click();
@@ -1443,6 +1917,14 @@ async function rajaaShots(personId) {
       await settle(300);
       await shot('rajaa-road');
       await fullShot('rajaa-road-full');
+      // W8: the profile didn't load → a retry where the names go, never «ماكو أحد يتابع».
+      await whileFailing('identity.me', async () => {
+        await page.reload(LOADED);
+        await page.locator('[data-testid="rajaa-watching-read-error"]').first().waitFor({ timeout: 90_000 }).catch(() => errors.push('road: no who-follows failed state'));
+        await page.locator('[data-testid="rajaa-watching-read-error"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+        await settle(500);
+        await shot('rajaa-errors-watching');
+      });
     }
   }
 
@@ -1472,15 +1954,17 @@ async function rajaaShots(personId) {
   }
 
   // Request board: post → offers arrive → pick one → deposit rules → matched.
+  await demoPost('/demo/rajaa/history');
   await page.goto(`${origin}/rajaa/request`, LOADED);
   await byTestId('rajaa-request-form').waitFor({ timeout: 15_000 });
-  // y1, y2: the places as chips, there and back with a 4-hour wait, AC.
+  // y1, y2: the places as chips, there and back with a 4-hour wait, AC; p1: the usual range shows.
   await byTestId('req-from-aziziyah').click();
   await byTestId('req-place-najaf').click();
   await byTestId('req-trip-wait_return').click();
   await byTestId('req-wait').waitFor({ timeout: 5_000 });
   await page.locator('[data-testid="req-wait"] [aria-label="زيد واحد"]').first().click();
   await byTestId('req-ac').click();
+  await byTestId('rajaa-form-usual-range').waitFor({ timeout: 10_000 }).catch(() => errors.push('usual range not shown on the form'));
   await shot('rajaa-request-form');
   await fullShot('rajaa-request-form-full');
   await byTestId('req-trip-two_days').click();
@@ -1502,7 +1986,7 @@ async function rajaaShots(personId) {
     await shot('rajaa-request-offers-cheapest');
     await byTestId('offer-sort-best').click();
     // The pick button (offer-<id>) of the top card, not the driver row, price or card inside it.
-    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"])').first();
+    const offer = page.locator('[data-testid^="offer-"]:not([data-testid^="offer-driver-"]):not([data-testid^="offer-price-"]):not([data-testid^="offer-card-"]):not([data-testid^="offer-record-"]):not([data-testid^="offer-win-"]):not([data-testid^="offer-miss-"]):not([data-testid^="offer-sort-"]):not([data-testid^="offer-wait-"]):not([data-testid^="offer-pricier-"])').first();
     await offer.waitFor({ timeout: 20_000 });
     await offer.click();
     await byTestId('rajaa-deposit').waitFor({ timeout: 10_000 });
@@ -1511,7 +1995,40 @@ async function rajaaShots(personId) {
     await byTestId('rajaa-deposit').waitFor({ state: 'detached', timeout: 15_000 });
     await page.waitForTimeout(1000);
     await shot('rajaa-request-matched');
+    // w2/w3/w4: the driver waits; the same clock as his. 1 h in, then 10 minutes before the included
+    // 4 hours end, then 5 h 20 min with the charge as it will look once switched on (2 extra hours).
+    for (const [min, name, charged] of [[62, 'rajaa-wait-clock', 0], [231, 'rajaa-wait-ending', 0], [320, 'rajaa-wait-extra', 1]]) {
+      await demoPost(`/demo/rajaa/waiting?personId=${encodeURIComponent(personId)}&min=${min}&charged=${charged}`);
+      await page.reload(LOADED);
+      await byTestId('rajaa-wait-clock').waitFor({ timeout: 20_000 }).catch(() => errors.push(`${name}: no waiting clock`));
+      await byTestId('rajaa-wait-clock').evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+      await settle(500);
+      await shot(name);
+    }
   }
+
+  // k1–k4 «جيب واحد»: the four kinds as cards; who to fetch (a typed name and number), where they are
+  // (a known place), brought home or somewhere else; posted, the card says who it is for.
+  await page.goto(`${origin}/rajaa/request`, LOADED);
+  await byTestId('rajaa-request-new').click().catch(() => {});
+  await byTestId('req-trip-fetch').waitFor({ timeout: 15_000 });
+  await byTestId('req-trip-fetch').click();
+  await byTestId('req-fetch-who').waitFor({ timeout: 5_000 });
+  await byTestId('chip-other').click();
+  await page.locator('[data-testid="req-fetch-name"]').fill('ماما');
+  await page.locator('[data-testid="req-fetch-phone"]').fill('07701239876');
+  await byTestId('req-fetch-from-baghdad_airport').click();
+  await byTestId('rajaa-request-form').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await shot('rajaa-fetch-form');
+  await fullShot('rajaa-fetch-form-full');
+  await byTestId('req-fetch-drop-other').click();
+  await page.locator('[data-testid="rajaa-req-to"]').fill('مستشفى الكوت');
+  await byTestId('req-fetch-drop-other').scrollIntoViewIfNeeded();
+  await shot('rajaa-fetch-other-place');
+  await byTestId('rajaa-request-submit').click();
+  await page.getByText('جيب ماما').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('fetch: «جيب ماما» not on the posted request'));
+  await page.getByText('جيب ماما').first().evaluate((el) => el.scrollIntoView({ block: 'center' })).catch(() => {});
+  await shot('rajaa-fetch-posted');
 
   // Home: the الرجعة card now reads the live board (and the booked trip).
   await page.goto(`${origin}/`, LOADED);
@@ -1543,8 +2060,9 @@ async function driverShots(personId) {
   // A new driver (أحمد, the تاهو: no trips yet): «جديد» instead of a rating, no bars, no reviews yet.
   await page.goto(`${origin}/rajaa`, LOADED);
   await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').first().waitFor({ timeout: 15_000 });
-  const tiles = await page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
-  const newId = tiles[2]?.replace(/^departure-/, '');
+  // Found by its car, not its place on the board (cars before 4 am sit on the night before).
+  const tahoe = page.locator('[data-testid="garage-mp_garage_nahdha"] [data-testid^="departure-dep_"]').filter({ hasText: 'تاهو' }).first();
+  const newId = (await tahoe.getAttribute('data-testid'))?.replace(/^departure-/, '');
   await page.goto(`${origin}/rajaa/driver/${newId}`, LOADED);
   await byTestId('driver-profile-qualities-wait').waitFor({ timeout: 15_000 }).catch(() => errors.push('new driver profile not shown'));
   await settle();
@@ -1611,6 +2129,23 @@ async function dealsShots(khalid) {
   });
   await shot('deals-checkout');
   await fullShot('deals-checkout-full');
+}
+
+/** M-3: an earlier unpaid amount (500 دينار) shows as its own line under checkout's total, cash only. */
+async function owedShots(personId, khalid) {
+  if (!personId) return void errors.push('owed: no person');
+  await demoPost(`/demo/owe?personId=${encodeURIComponent(personId)}&amount=500`);
+  await demoPost('/demo/deals');
+  await page.goto(`${origin}/restaurant/${khalid}`, LOADED);
+  await byTestId(`dish-add-${khalid}_lentil_soup`).click();
+  await page.waitForTimeout(300);
+  await byTestId('cart-bar').click();
+  await byTestId('cart-checkout').click();
+  await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  await byTestId('checkout-owed').waitFor({ timeout: 15_000 }).catch(() => errors.push('owed line at checkout not shown'));
+  await byTestId('checkout-owed').scrollIntoViewIfNeeded().catch(() => {});
+  await shot('owed-checkout');
+  await fullShot('owed-checkout-full');
 }
 
 /**
@@ -1856,7 +2391,30 @@ async function chatShots(personId) {
  */
 async function seasonShots(khalid) {
   const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
-  await page.clock.setFixedTime(new Date(`${today}T13:00:00+03:00`));
+  const at = new Date(`${today}T13:00:00+03:00`).getTime();
+  // Only Date is frozen (while the flag is set): Playwright's clock also fakes requestAnimationFrame,
+  // and Reanimated's frame callbacks (home's drifting tiles) throw under it («setting 'startTime'»).
+  await page.addInitScript(() => {
+    const fixed = Number(globalThis.sessionStorage.getItem('shots.fixedNow'));
+    if (!fixed) return;
+    const Real = Date;
+    globalThis.Date = class extends Real {
+      constructor(...a) {
+        super(...(a.length ? a : [fixed]));
+      }
+      static now() {
+        return fixed;
+      }
+    };
+  });
+  await page.evaluate((t) => globalThis.sessionStorage.setItem('shots.fixedNow', String(t)), at);
+  // The countdown reads the server's clock (THIN-10): the API's Date header says 13:00 too (not the live stream).
+  const apiClock = async (route) => {
+    if (route.request().headers().accept === 'text/event-stream') return route.continue();
+    const res = await route.fetch();
+    await route.fulfill({ response: res, headers: { ...res.headers(), date: new Date(at).toUTCString() } });
+  };
+  await page.route(`${apiBase}/**`, apiClock);
   await page.evaluate(() => localStorage.removeItem('driver.customer.ramadan_timetable'));
   await demoPost('/demo/season?kind=ramadan');
   await page.goto(`${origin}/`, LOADED);
@@ -1881,6 +2439,8 @@ async function seasonShots(khalid) {
   await byTestId('cart-bar').click();
   await byTestId('cart-checkout').click();
   await byTestId('checkout-price-total').waitFor({ timeout: 15_000 });
+  // «وكت التوصيل» is a folded row now: open it for the chips.
+  await byTestId('checkout-row-when').click();
   await byTestId('chip-later').click();
   const iftarChip = page.getByText(/على الفطور/).first();
   await iftarChip.waitFor({ timeout: 10_000 });
@@ -1895,6 +2455,8 @@ async function seasonShots(khalid) {
   await byTestId('home-season').waitFor({ timeout: 15_000 });
   await shot('season-home-eid');
   await demoPost('/demo/season?kind=off');
+  await page.unroute(`${apiBase}/**`, apiClock);
+  await page.evaluate(() => globalThis.sessionStorage.removeItem('shots.fixedNow'));
 }
 
 /**
@@ -1913,35 +2475,39 @@ async function rideShots() {
 
   await byTestId('service-taxi').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
-  await page.locator('[data-testid^="ride-spot-landmark:"]').first().waitFor({ timeout: 15_000 });
-  // Ride ideas w1–w8: the live map with the free cars, the smart picks with their prices.
+  // Map-led (Ali 2026-10-17, the "Mix"): step 1, the full day map asks where to pick him up.
   await byTestId('ride-where-map').waitFor({ timeout: 15_000 });
-  await page.locator('[data-testid="nearby-vehicle"]').first().waitFor({ timeout: 15_000 }).catch(() => errors.push('no free cars on the where-to map'));
-  await settle(1200);
+  await rideConfirmReady();
+  await settle(1800);
   await shot('ride-where');
+  await rideOpenSearch();
+  await shot('ride-where-pickup');
+  await byTestId('ride-search-input-close').click();
+  await byTestId('ride-search-panel').waitFor({ state: 'detached' });
+  // Step 2: the drop-off, with its quick places.
+  await ridePickupHere();
+  await rideConfirmReady();
+  await settle(1800);
+  await shot('ride-where-dropoff');
+  await rideOpenSearch();
+  await shot('ride-where-search');
   await fullShot('ride-where-full');
   await byTestId('ride-zones-toggle').click();
   await byTestId('ride-zones').waitFor();
   await byTestId('ride-zones-toggle').scrollIntoViewIfNeeded();
   await shot('ride-where-zones');
   await byTestId('ride-zones-toggle').click();
-  await byTestId('ride-pickup').click();
-  await byTestId('ride-my-location').waitFor();
-  await page.mouse.click(5, 5);
-  await settle(400);
-  await shot('ride-where-pickup');
-  await byTestId('ride-dropoff').click();
   // w7: a restaurant by name.
-  await page.locator('[data-testid="ride-dropoff-input"]').fill('خالد');
+  await page.locator('[data-testid="ride-search-input"]').fill('خالد');
   await page.locator('[data-testid="ride-results"]').waitFor();
   await settle(500);
   await shot('ride-search-shop');
-  await page.locator('[data-testid="ride-dropoff-input"]').fill('');
+  await page.locator('[data-testid="ride-search-input"]').fill('');
 
-  await page.locator('[data-testid="ride-dropoff-input"]').fill('الشاشه');
+  await page.locator('[data-testid="ride-search-input"]').fill('الشاشه');
   await page.locator('[data-testid="ride-results"]').waitFor();
   await shot('ride-search');
-  await page.locator('[data-testid^="ride-spot-landmark:"]').first().click();
+  await page.locator('[data-testid="ride-results"] [data-testid^="ride-spot-landmark:"]').first().click();
   await byTestId('ride-choose').waitFor({ timeout: 15_000 });
   await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
   await byTestId('ride-price-tuktuk').waitFor({ timeout: 15_000 });
@@ -1953,7 +2519,9 @@ async function rideShots() {
     at: Date.UTC(2026, 6, 14, 11),
     act: async (p) => {
       await p.locator('[data-testid="service-taxi"]').click({ timeout: 15_000 });
-      await p.locator('[data-testid^="ride-spot-landmark:"]').first().click({ timeout: 15_000 });
+      await p.locator('[data-testid="ride-map-confirm"]:not([aria-disabled="true"])').first().click({ timeout: 20_000 });
+      await p.locator('[data-testid="ride-search"]').first().click({ timeout: 15_000 });
+      await p.locator('[data-testid="ride-search-panel"] [data-testid^="ride-spot-landmark:"]').first().click({ timeout: 15_000 });
       await p.locator('[data-testid="ride-price-taxi"]').waitFor({ timeout: 15_000 });
     },
   });
@@ -1978,8 +2546,8 @@ async function rideShots() {
 
   // An edge zone: the tuktuk is off, with the reason and "try anyway".
   await byTestId('ride-edit-route').click();
-  await byTestId('ride-where').waitFor({ timeout: 15_000 });
-  await byTestId('ride-dropoff').click();
+  await byTestId('ride-step-dropoff').waitFor({ timeout: 15_000 });
+  await rideOpenSearch();
   await byTestId('ride-zones-toggle').click();
   await byTestId('ride-zone-mashrou_owaid').scrollIntoViewIfNeeded();
   await byTestId('ride-zone-mashrou_owaid').click();
@@ -1993,22 +2561,26 @@ async function rideShots() {
   await page.goto(`${origin}/`, LOADED);
   await byTestId('service-tuktuk').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
-  await byTestId('ride-on-map').first().click();
-  await byTestId('ride-pin').waitFor({ timeout: 15_000 });
+  await ridePickupHere();
   await page.waitForTimeout(1200);
-  const box = await byTestId('ride-pin-map').boundingBox();
+  const box = await byTestId('ride-where-map').boundingBox();
   if (box) {
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    for (let i = 1; i <= 14; i++) await page.mouse.move(x + i * 12, y + i * 22, { steps: 2 });
-    await page.mouse.up();
+    // Step 2 opens at zoom 15.6 (room for the street line), so two shorter drags carry the pin the same ~800 m.
+    for (let n = 0; n < 2; n++) {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      for (let i = 1; i <= 14; i++) await page.mouse.move(x + i * 9, y + i * 16.5, { steps: 2 });
+      await page.mouse.up();
+      await settle(300);
+    }
   }
-  await page.waitForFunction(() => !document.querySelector('[data-testid="ride-pin-confirm"]')?.getAttribute('aria-disabled')?.includes('true'), null, { timeout: 15_000 }).catch(() => undefined);
+  await settle(1700);
+  await rideConfirmReady();
   await settle(900);
   await shot('ride-pin');
-  await byTestId('ride-pin-confirm').click();
+  await byTestId('ride-map-confirm').click();
   await byTestId('ride-choose').waitFor({ timeout: 15_000 });
   await byTestId('ride-price-tuktuk').waitFor({ timeout: 15_000 });
 
@@ -2235,6 +2807,8 @@ async function rideShots() {
   await settle(1200);
   await shot('ride-lost-item-chat');
   await page.goto(`${origin}/ride`, LOADED);
+  await ridePickupHere();
+  await rideOpenSearch();
   await byTestId('ride-picks').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart picks not shown after a ride'));
   await page.locator('[data-testid="ride-pick-price-0"]').waitFor({ timeout: 15_000 }).catch(() => errors.push('smart pick prices not shown'));
   await settle(900);
@@ -2253,8 +2827,9 @@ async function rideForShots() {
   await page.goto(`${origin}/`, LOADED);
   await byTestId('service-taxi').click({ timeout: 15_000 });
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
-  await byTestId('ride-dropoff').click();
-  await page.locator('[data-testid="ride-dropoff-input"]').fill('الشاشه');
+  await ridePickupHere();
+  await rideOpenSearch();
+  await page.locator('[data-testid="ride-search-input"]').fill('الشاشه');
   await page.locator('[data-testid="ride-results"]').waitFor();
   await page.locator('[data-testid="ride-results"] [data-testid^="ride-spot-"]').first().click();
   await byTestId('ride-choose').waitFor({ timeout: 15_000 });
@@ -2548,7 +3123,7 @@ async function liveShots(personId) {
   await page.goto(`${origin}/`, LOADED);
   await byTestId('service-taxi').click();
   await byTestId('ride-where').waitFor({ timeout: 15_000 });
-  await page.locator('[data-testid^="ride-spot-landmark:"]').first().click();
+  await rideTo(firstLandmark);
   await byTestId('ride-price-taxi').waitFor({ timeout: 15_000 });
   await byTestId('ride-request').click();
   await page.waitForURL(/\/order\//, { timeout: 15_000 });
@@ -2556,7 +3131,13 @@ async function liveShots(personId) {
   await byTestId('ride-search-counter').waitFor({ timeout: 15_000 });
   await page.waitForTimeout(2500);
   await demoPost(`/demo/ride/accept?orderId=${rideId}`);
-  if (await byTestId('driver-reveal').waitFor({ timeout: 25_000 }).then(() => true).catch(() => false)) {
+  // A demo driver a minute away gets «قريب، اطلع هسة» first, which holds the reveal back: close it.
+  const first = await Promise.race([
+    byTestId('driver-reveal').waitFor({ timeout: 25_000 }).then(() => 'reveal', () => null),
+    byTestId('ride-near').waitFor({ timeout: 25_000 }).then(() => 'near', () => null),
+  ]);
+  if (first === 'near') await byTestId('ride-near-close').click();
+  if (first && (await byTestId('driver-reveal').waitFor({ timeout: 5_000 }).then(() => true).catch(() => false))) {
     await settle(1500);
     await shot('live-reveal-ride');
   } else errors.push('ride reveal did not show');

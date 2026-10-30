@@ -1,7 +1,8 @@
 import { createHmac, generateKeyPairSync } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
 import type { FetchLike, HttpRequest } from '../../shared/messaging/http.js';
-import { HttpSmsProvider, httpSmsConfigFromEnv, smsPortFromEnv, TwilioSmsProvider, DevSmsProvider, formatNumber } from '../../shared/messaging/sms.js';
+import { HttpSmsProvider, httpSmsConfigFromEnv, OtpiqSmsProvider, otpiqConfigFromEnv, smsPortFromEnv, TwilioSmsProvider, DevSmsProvider, devSmsRedacts, formatNumber } from '../../shared/messaging/sms.js';
 import { DevPushProvider, ExpoPushProvider, FcmPushProvider, pushPortsFromEnv, UnconfiguredPushProvider, type PushMessage } from './providers/push.js';
 import { cloudTemplateBody, DevWhatsAppProvider, parseStatusWebhook, verifyWebhookSignature, WhatsAppCloudProvider, whatsAppPortFromEnv } from './providers/whatsapp.js';
 
@@ -209,6 +210,13 @@ describe('SMS providers', () => {
     expect(formatNumber('+9647701234567', 'e164')).toBe('+9647701234567');
   });
 
+  it('the dev SMS log keeps the code in development and on staging (its admin signs in from it), nowhere else', () => {
+    expect(devSmsRedacts({ NODE_ENV: 'development' })).toBe(false);
+    expect(devSmsRedacts({ NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'staging' })).toBe(false);
+    expect(devSmsRedacts({ NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'production' })).toBe(true);
+    expect(devSmsRedacts({ NODE_ENV: 'production' })).toBe(true);
+  });
+
   it('Twilio-compatible: form-encoded POST with Basic auth; invalid numbers are permanent', async () => {
     const f = fakeFetch({ status: 201, body: { sid: 'SM123', status: 'queued' } }, { status: 400, body: { code: 21211, message: "The 'To' number is not a valid phone number." } });
     const sms = new TwilioSmsProvider({ accountSid: 'AC1', authToken: 'tok', from: 'Driver', baseUrl: 'https://api.twilio.com' }, f.fetchImpl);
@@ -217,6 +225,48 @@ describe('SMS providers', () => {
     expect(f.calls[0]!.init.headers).toMatchObject({ authorization: `Basic ${Buffer.from('AC1:tok').toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' });
     expect(Object.fromEntries(new URLSearchParams(f.calls[0]!.init.body!))).toEqual({ To: '+9647701234567', Body: 'رمز: 1', From: 'Driver' });
     await expect(sms.send({ to: '+9640', body: 'x' })).rejects.toMatchObject({ code: 'twilio_21211', permanent: true, invalidRecipient: true });
+  });
+});
+
+describe('OTPIQ', () => {
+  const ok = { status: 200, body: { message: 'Sent', smsId: 'sms-0123456789abcdef01234567', remainingCredit: 9975, cost: 25, canCover: true, paymentType: 'prepaid' } };
+
+  it('a sign-in code goes as a verification with our own code, by SMS', async () => {
+    const f = fakeFetch(ok);
+    const sms = new OtpiqSmsProvider(otpiqConfigFromEnv({ OTPIQ_API_KEY: 'sk_live_x', SMS_SENDER_ID: 'Driver' }), f.fetchImpl);
+    expect(await sms.send({ to: '+9647701234567', body: 'رمز دخول درايفر: 482913', code: '482913' })).toEqual({ provider: 'otpiq', messageId: 'sms-0123456789abcdef01234567' });
+    expect(f.calls[0]!.url).toBe('https://api.otpiq.com/api/sms');
+    expect(f.calls[0]!.init.headers).toMatchObject({ authorization: 'Bearer sk_live_x', 'content-type': 'application/json' });
+    expect(f.calls[0]!.json).toEqual({ phoneNumber: '9647701234567', smsType: 'verification', verificationCode: '482913', provider: 'sms', senderId: 'Driver' });
+  });
+
+  it('other texts go as a plain SMS; the channel is configurable', async () => {
+    const f = fakeFetch(ok);
+    const sms = new OtpiqSmsProvider(otpiqConfigFromEnv({ OTPIQ_API_KEY: 'k', OTPIQ_CODE_CHANNEL: 'whatsapp-sms' }), f.fetchImpl);
+    await sms.send({ to: '+9647701234567', body: 'الدليفري قريب' });
+    expect(f.calls[0]!.json).toEqual({ phoneNumber: '9647701234567', smsType: 'custom', customMessage: 'الدليفري قريب', provider: 'sms' });
+    expect(otpiqConfigFromEnv({ OTPIQ_CODE_CHANNEL: 'pigeon' }).codeChannel).toBe('sms');
+    expect(otpiqConfigFromEnv({ OTPIQ_CODE_CHANNEL: 'whatsapp-sms' }).codeChannel).toBe('whatsapp-sms');
+  });
+
+  it('failures: no key is not configured, an empty balance is permanent, a bad number is invalid, 429 and 5xx retry', async () => {
+    await expect(new OtpiqSmsProvider(otpiqConfigFromEnv({})).send({ to: '+9647701234567', body: 'x', code: '1' })).rejects.toMatchObject({ code: 'not_configured', permanent: true });
+    const f = fakeFetch(
+      { status: 400, body: { message: 'Insufficient credit', yourCredit: 0, requiredCredit: 25, canCover: false } },
+      { status: 400, body: { message: 'Invalid phone number format' } },
+      { status: 429, body: { message: 'Rate limit exceeded', waitMinutes: 10 } },
+      { status: 503, body: 'down' },
+    );
+    const sms = new OtpiqSmsProvider(otpiqConfigFromEnv({ OTPIQ_API_KEY: 'k' }), f.fetchImpl);
+    const send = () => sms.send({ to: '+9647701234567', body: 'x', code: '1' });
+    await expect(send()).rejects.toMatchObject({ code: 'http_400', permanent: true, invalidRecipient: false, message: expect.stringContaining('Insufficient credit') });
+    await expect(send()).rejects.toMatchObject({ code: 'http_400', permanent: true, invalidRecipient: true });
+    await expect(send()).rejects.toMatchObject({ code: 'http_429', permanent: false });
+    await expect(send()).rejects.toMatchObject({ code: 'http_503', permanent: false });
+  });
+
+  it('SMS_PROVIDER=otpiq picks it', () => {
+    expect(smsPortFromEnv({ SMS_PROVIDER: 'otpiq', OTPIQ_API_KEY: 'k' })).toBeInstanceOf(OtpiqSmsProvider);
   });
 });
 
@@ -235,8 +285,31 @@ describe('provider selection by env', () => {
     expect(pushPortsFromEnv({ PUSH_PROVIDER: 'expo' }).expo).toBeInstanceOf(ExpoPushProvider);
     const wa = whatsAppPortFromEnv({ WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1', WHATSAPP_APP_SECRET: 's' });
     expect(wa).toBeInstanceOf(WhatsAppCloudProvider);
-    expect(wa.statusCallbacks).toBe(true);
-    expect(whatsAppPortFromEnv({ WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1' }).statusCallbacks).toBe(false);
+    expect(wa?.statusCallbacks).toBe(true);
+    expect(whatsAppPortFromEnv({ WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1' })?.statusCallbacks).toBe(false);
+  });
+
+  it('outside development, no WHATSAPP_TOKEN means no WhatsApp at all (never a sender that only logs)', () => {
+    for (const env of [{ NODE_ENV: 'production' }, { NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'staging' }, { NODE_ENV: 'production', WHATSAPP_PROVIDER: 'dev' }, { NODE_ENV: 'production', WHATSAPP_PROVIDER: 'meta' }]) {
+      expect(whatsAppPortFromEnv(env, { log: false })).toBeNull();
+    }
+    expect(whatsAppPortFromEnv({ NODE_ENV: 'production', WHATSAPP_TOKEN: 't', WHATSAPP_PHONE_NUMBER_ID: '1' })).toBeInstanceOf(WhatsAppCloudProvider);
+    expect(whatsAppPortFromEnv({ NODE_ENV: 'development' }, { log: false })).toBeInstanceOf(DevWhatsAppProvider);
+  });
+
+  it('outside development the dev senders log a masked number only: no text, no code', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(Logger.prototype, 'log').mockImplementation((m: unknown) => void lines.push(String(m)));
+    try {
+      await smsPortFromEnv({ NODE_ENV: 'production' }).send({ to: '+9647701234567', body: 'رمز دخول درايفر: 123456', code: '123456' });
+      await new DevWhatsAppProvider(true, true).send({ to: '+9647701234567', template: 'otp_login', language: 'ar', params: ['123456'], preview: 'رمز دخول درايفر: 123456' });
+      expect(lines).toEqual(['→ +96477*****67', '→ +96477*****67 [otp_login/ar]']);
+      lines.length = 0;
+      await smsPortFromEnv({ NODE_ENV: 'development' }).send({ to: '+9647701234567', body: 'رمز دخول درايفر: 123456', code: '123456' });
+      expect(lines[0]).toContain('123456');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('OPS-02: a live host refuses to boot on the dev push; staging may keep it', () => {

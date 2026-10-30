@@ -194,12 +194,12 @@ export default function Hours() {
             testID="hours-busy"
             icon="flame"
             title={t('merchant.busy_mode')}
-            hint={s.busy.on && s.busy.until ? `${t('merchant.busy.ends_at', { time: clock12(s.busy.until) })} · ${t('merchant.common.minutes', { minutes: minutesLeft(s.busy.until, now) })}` : t('merchant.busy.sheet_body')}
+            hint={s.busy.on && s.busy.until ? `${t('merchant.busy.ends_at', { time: clock12(s.busy.until) })} · ${t('merchant.common.minutes', { minutes: minutesLeft(s.busy.until, now) })}` : t('merchant.busy.sheet_body_pick_short')}
             onPress={() => setSheet('busy')}
             trailing={
               <StatusPill
                 tone={s.busy.on ? 'warning' : 'neutral'}
-                label={s.busy.on ? '⁦+10⁩' : t('merchant.busy.turn_on')}
+                label={s.busy.on ? `\u2066+${s.busy.extraPrepMinutes}\u2069` : t('merchant.busy.turn_on')}
               />
             }
           />

@@ -1,6 +1,6 @@
 import { Pressable, View } from 'react-native';
 import { VEHICLE_COLOUR_HEX, type VehicleColour, type VehicleFeature } from '@driver/contracts';
-import { Icon, StatusPill, STATUS_TONES, Text, useTheme, type StatusTone } from '@driver/ui';
+import { Icon, StatusPill, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { COLOUR_ORDER, colourKey, FEATURE_HINT_KEY, featureKey, type FeatureState } from './logic';
 
@@ -59,9 +59,6 @@ export function ColourSwatches({ value, onChange, testID }: { value: VehicleColo
   );
 }
 
-/** AC reads icy, heating warm ember; the quiet features stay plain when ticked. */
-const LOUD_TONE: Partial<Record<VehicleFeature, StatusTone>> = { ac: 'info', heating: 'accent' };
-
 /** Where a saved feature stands, as a pill: riders see it, or it waits for the car check. */
 export function FeatureStatePill({ state }: { state: FeatureState }) {
   const t = useT();
@@ -75,12 +72,12 @@ export function FeatureStatePill({ state }: { state: FeatureState }) {
 
 /**
  * One feature he can tick: its name and what it promises, a check box, and (once saved) whether
- * riders see it yet. A ticked AC row turns icy, a heating row warm.
+ * riders see it yet. Every ticked row looks the same — the app's one "ticked" style (check-up item 8,
+ * Ali 2026-10-09): saffron edge, soft saffron fill, saffron box with the check.
  */
 export function FeatureToggle({ feature, on, saved, onPress }: { feature: VehicleFeature; on: boolean; saved: FeatureState; onPress: () => void }) {
   const theme = useTheme();
   const t = useT();
-  const tone = STATUS_TONES[LOUD_TONE[feature] ?? 'neutral'];
   return (
     <Pressable
       testID={`feature-${feature}`}
@@ -96,13 +93,13 @@ export function FeatureToggle({ feature, on, saved, onPress }: { feature: Vehicl
         minHeight: 64,
         borderRadius: theme.radius.lg,
         borderWidth: on ? 2 : 1,
-        borderColor: on ? theme.colors[tone.dot] : theme.colors.border,
-        backgroundColor: on ? theme.colors[tone.bg] : theme.colors.surface,
+        borderColor: on ? theme.colors.selectedBorder : theme.colors.border,
+        backgroundColor: on ? theme.colors.selectedSoft : theme.colors.surface,
       }}
     >
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: theme.space[2] }}>
-          <Text variant="bodyStrong" color={on ? tone.fg : 'text'}>
+          <Text variant="bodyStrong" color={on ? 'onSelectedSoft' : 'text'}>
             {t(featureKey(feature))}
           </Text>
           {on ? <FeatureStatePill state={saved} /> : null}
@@ -118,12 +115,12 @@ export function FeatureToggle({ feature, on, saved, onPress }: { feature: Vehicl
           borderRadius: 8,
           borderWidth: on ? 0 : 1.5,
           borderColor: theme.colors.borderStrong,
-          backgroundColor: on ? theme.colors[tone.fg] : theme.colors.surface,
+          backgroundColor: on ? theme.colors.selectedMark : theme.colors.surface,
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        {on ? <Icon name="check" size={16} color="surface" strokeWidth={2.5} /> : null}
+        {on ? <Icon name="check" size={16} color="onSelectedMark" strokeWidth={2.5} /> : null}
       </View>
     </Pressable>
   );

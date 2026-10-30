@@ -16,20 +16,24 @@ import { countText } from '@/lib/plural';
 import { flattenRoster, PRESENCE_FILTERS, rosterInput, sortRoster, type PresenceFilter, type RosterFilter } from '@/lib/roster';
 import { useRowKeys } from '@/lib/row-keys';
 import { useSignedIn } from '@/lib/session';
+import { useLinkedFilters } from '@/lib/url-state';
 import { useTRPC } from '@/lib/trpc';
 import { CashCapBar } from './cash-cap';
+import { CopyLinkButton } from './copy-link';
 import { StateGlyph } from './map-cards';
 import { Avatar, Button, Chip, cx, DataTable, IconAlert, IconSearch, Input, KeyboardHint, LiveBadge, NeedLogin, PageHeader, QueryError, Segmented, Select, useNow, type Column } from './ui';
 
 const PAGE = 50;
 const POLL_MS = LIVE_POLL_MS * 5;
 const EMPTY: Required<RosterFilter> = { presence: 'all', role: 'all', q: '', tier: 'all', docsExpiring: false };
+const LINK_DEFAULTS = { presence: 'all', role: 'all', tier: 'all', docs: '' };
+const LINK_ALLOWED = { presence: PRESENCE_FILTERS, role: ['all', ...RosterRole.options], tier: ['all', ...DriverTierEnum.options], docs: ['1'] };
 
 /**
  * Everyone with a driving role (`drivers.list`): search by name (a logged vault match on the API),
  * filters for the service, presence, tier and papers that are running out; each row says who he is
  * (initials, name, vehicle and plate), his state as the map draws it, today's jobs and earnings, his
- * cash against the cap and his tier. A row opens his ledger.
+ * cash against the cap and his tier. A row opens his profile («الناس»).
  */
 export function DriversPage() {
   const signedIn = useSignedIn();
@@ -40,6 +44,18 @@ export function DriversPage() {
   const q = useDeferredValue(filter.q);
   const ids = { q: useId(), role: useId(), tier: useId() };
   const set = (patch: Partial<RosterFilter>) => setFilter((f) => ({ ...f, ...patch }));
+  useLinkedFilters(
+    { presence: filter.presence, role: filter.role, tier: filter.tier, docs: filter.docsExpiring ? '1' : '' },
+    LINK_DEFAULTS,
+    (got) =>
+      set({
+        ...(got['presence'] ? { presence: got['presence'] as PresenceFilter } : {}),
+        ...(got['role'] ? { role: got['role'] as RosterRoleT } : {}),
+        ...(got['tier'] ? { tier: got['tier'] as DriverTier } : {}),
+        ...(got['docs'] ? { docsExpiring: true } : {}),
+      }),
+    LINK_ALLOWED,
+  );
   const input = rosterInput(CITY_ID, { ...filter, q: q.trim().length === 1 ? '' : q }, PAGE);
 
   const roster = useInfiniteQuery(
@@ -58,7 +74,7 @@ export function DriversPage() {
   const names = useNames({ people: rows.map((r) => r.personId) });
   const docsCount = docs.data?.total ?? 0;
   const onlineCount = online.data?.total ?? 0;
-  const open = (d: DriverRosterRow) => router.push(`/drivers/${encodeURIComponent(d.personId)}/ledger`);
+  const open = (d: DriverRosterRow) => router.push(`/drivers/${encodeURIComponent(d.personId)}`);
   const [activeKey, setActiveKey] = useRowKeys(rows, (d) => d.personId, open, signedIn);
 
   const columns: Column<DriverRosterRow>[] = [
@@ -73,7 +89,7 @@ export function DriversPage() {
             <Avatar id={d.personId} name={p?.displayName} />
             <span className="min-w-0 leading-5">
               <Link
-                href={`/drivers/${encodeURIComponent(d.personId)}/ledger`}
+                href={`/drivers/${encodeURIComponent(d.personId)}`}
                 onClick={(e) => e.stopPropagation()}
                 className="block truncate font-semibold text-text hover:text-accent-text hover:underline"
                 title={d.personId}
@@ -227,6 +243,9 @@ export function DriversPage() {
                 {t('console.orders_filter_clear')}
               </Button>
             ) : null}
+            <span className="ms-auto">
+              <CopyLinkButton />
+            </span>
           </div>
 
           <div className="mb-2 flex min-h-6 flex-wrap items-center justify-between gap-2 text-dense text-muted">

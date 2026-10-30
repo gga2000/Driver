@@ -5,6 +5,8 @@ import { Card, ChipGroup, Icon, Text, useNow, useTheme } from '@driver/ui';
 import { useLocale, useT } from '@/lib/i18n';
 import { serverClock } from '@/lib/server-clock';
 import { useSeason } from '@/lib/use-season';
+import type { RestaurantSummary } from '@/features/home/restaurant-summary';
+import { IftarCard } from './IftarCard';
 import { seasonCard, type RamadanLine } from './ramadan';
 import { useTimetable } from './use-timetable';
 
@@ -14,10 +16,12 @@ const TIMETABLES: Timetable[] = ['sunni', 'shia'];
  * The calm season card on home (customer joy J6): in Ramadan the countdown to iftar (or until when
  * suhoor runs) on the timetable the person follows, and the two neutral choices until they pick one;
  * at Eid «عيدكم مبارك» without naming the day; on a special Friday ops' own line. Nothing festive on a
- * quiet day: the Ramadan card stays (it is service), plain, and Eid's hides (the server decides).
+ * quiet day: the Ramadan card stays (it is service), plain, and Eid's hides (the server decides). On a
+ * festive Ramadan day, once the timetable is picked, the countdown is the gold lantern strip with the open
+ * `kitchens` that make it before the adhan (`IftarCard`).
  * Renders nothing on an ordinary day, and before the first season read (an ordinary day).
  */
-export function SeasonCard() {
+export function SeasonCard({ kitchens }: { kitchens: readonly RestaurantSummary[] }) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -34,6 +38,7 @@ export function SeasonCard() {
   if (model.kind === 'ramadan') {
     const title = model.title ?? t('season.ramadan_title');
     const line = model.line;
+    if (model.accent && line !== 'pick' && line.kind !== 'none') return <IftarCard line={line} timetable={pick === null ? null : label(pick)} kitchens={kitchens} />;
     return (
       <Card testID="home-season" tone={tone} elevation={0} padding={4}>
         <View style={{ gap: theme.space[2] }}>

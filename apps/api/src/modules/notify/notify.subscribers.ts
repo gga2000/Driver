@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, MonthKey, orderTicketNumber, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { baghdadHour, ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, kitchenHeld, MonthKey, orderTicketNumber, QUIET_HOURS, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
 import { cityDayDiff, formatDay, formatHourPart, t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
@@ -29,6 +29,19 @@ export function missingItemsAr(names: readonly string[], count: number): string 
  * event id + template + person, so an at-least-once redelivery sends nothing twice.
  */
 export const NOTIFY_SUBSCRIBER = 'notify:deliveries';
+
+/**
+ * Whether a message's SMS twin is still worth sending when it falls due (the engine's `twinWanted`).
+ * «طلب جديد! اقبله خلال 90 ثانية» only while the order still waits for the kitchen: once anyone at
+ * the store accepted or rejected it, or it timed out or was cancelled, the text would be wrong. Fails
+ * safe: when the order can't be read, the text still goes; it is dropped only for an order known to
+ * be answered.
+ */
+export async function twinStillWanted(L: Pick<NotifyLookups, 'order'>, row: { template: string; orderId: string | null }): Promise<boolean> {
+  if (row.template !== 'merchant_new_order' || !row.orderId) return true;
+  const order = await L.order(row.orderId).catch(() => null);
+  return order?.waitingForKitchen !== false;
+}
 
 /** Review #28: what a booked ride's pre-assignment tells the rider and the drivers (`bookedRideRequests`). */
 export const BOOKED_RIDE_EVENTS = [
@@ -84,6 +97,7 @@ export const NOTIFY_EVENT_TYPES = [
   'merchant.paid_by_courier',
   'merchant.activated',
   'menu_photos.shot',
+  'stores.console_changed',
   'ops.cash_received',
   'wallet.topped_up',
   'order.change_to_wallet',
@@ -106,7 +120,13 @@ export const NOTIFY_EVENT_TYPES = [
   'dispatch.offer_nudged',
   // Joy h2: a dish people follow is today's pot.
   'catalog.pot_posted',
+  // Food carts: a followed cart opened; a walk-over ticket is ready or called off.
+  'food_cart.opened',
+  'food_cart.walkup_ready',
+  'food_cart.walkup_rejected',
   'session.signed_out',
+  // A staff account on a device it was never seen on: every admin hears of it.
+  'staff.new_device',
   // Joy w4 / w6: the payer is asked; «شهرك» is ready on the 1st.
   'org.payer_approval_requested',
   'insights.month_ready',
@@ -124,20 +144,31 @@ export const NOTIFY_EVENT_TYPES = [
   ...BOOKED_RIDE_EVENTS,
   // W3 staff way-out: staff ended the order, a complaint's outcome, a free cancel when we failed, food lost.
   ...STAFF_OUTCOME_EVENTS,
+  // The desk took a job off its driver before pickup: he hears it, so he stops driving to it.
+  'trip.cancelled',
 ] as const;
 
 export interface NotifySubscriberDeps {
   engine: Pick<NotifyEngine, 'dispatch'>;
   repo: Pick<NotifyRepository, 'deleteSessionTokens'>;
   lookups: NotifyLookups;
-  /** Public base of the receipt links in WhatsApp receipts (`https://driver.iq/r/`). */
-  receiptBaseUrl: string;
+  /** Public base of the receipt links in WhatsApp receipts (`NOTIFY_RECEIPT_BASE_URL`); null: unset, no link («تلگاه بالتطبيق»). */
+  receiptBaseUrl: string | null;
   /** The merchant app's web address (`MERCHANT_APP_URL`); the activation SMS links to its `/setup`. Unset = no link. */
   merchantAppUrl?: string | null;
 }
 
 const MERCHANT_STAFF = ['merchant_staff', 'merchant_owner'] as const;
 const MERCHANT_OWNERS = ['merchant_owner'] as const;
+/** The kinds of Console change the owner's push may name, one fixed phrase each (never free text). */
+const STAFF_CHANGE_PHRASES: Readonly<Record<string, MessageKey>> = {
+  menu: 'push.merchant_staff_changed.menu',
+  prices: 'push.merchant_staff_changed.prices',
+  photos: 'push.merchant_staff_changed.photos',
+  hours: 'push.merchant_staff_changed.hours',
+  open: 'push.merchant_staff_changed.open',
+  setup: 'push.merchant_staff_changed.setup',
+};
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
 /** A support reply in a push body: one line, at most 140 characters. */
@@ -227,16 +258,16 @@ async function safeArrival(deps: NotifySubscriberDeps, e: PublishedEvent, order:
 async function rideForRider(deps: NotifySubscriberDeps, e: PublishedEvent, order: OrderFacts, driver: string): Promise<NotifyRequest[]> {
   const L = deps.lookups;
   const riderId = order.riderId;
-  if (!riderId || !L.shareLink) return [];
+  if (!riderId) return [];
   const tripId = str(e.payload['tripId']);
   const [link, booker, car, code] = await Promise.all([
-    L.shareLink(riderId, { orderId: order.id }),
+    L.shareLink ? L.shareLink(riderId, { orderId: order.id }) : null,
     L.firstName(order.customerId, 'notify_ride_for_rider'),
     tripId && L.driverCar ? L.driverCar(tripId, e.actorId) : null,
     L.startCode ? L.startCode(order.id) : null,
   ]);
-  if (!link) return [];
-  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', link, orderId: order.id, ...(code ? { code } : {}) };
+  // No link (no SHARE_LINK_BASE_URL, or the page could not be made): the same message without «تابع المشوار».
+  const params = { booker: booker ?? t('push.ride_for_rider.someone'), driver, car: car?.car ?? t('ride.vehicle_taxi'), plate: car?.plate ?? '—', orderId: order.id, ...(link ? { link } : {}), ...(code ? { code } : {}) };
   return [{ eventId: e.id, template: 'ride_for_rider', to: riderId, orderId: order.id, params, data: { orderId: order.id } }];
 }
 
@@ -251,6 +282,17 @@ async function riderArrived(deps: NotifySubscriberDeps, e: PublishedEvent, order
 /** The dedupe event id of the «قدر اليوم» push: one per person per Baghdad day, whichever kitchen. */
 export function dishPotEventId(localDate: string): string {
   return `dish_pot:${localDate}`;
+}
+
+/** The dedupe event id of «{cart} فتح»: one per cart per Baghdad day, however often it opens. */
+export function foodCartOpenEventId(cartId: string, localDate: string): string {
+  return `food_cart_open:${cartId}:${localDate}`;
+}
+
+/** Quiet hours by the event's own Baghdad clock (an opening at 23:30 is not news at 08:00). */
+function inQuietHours(at: Date): boolean {
+  const h = baghdadHour(at);
+  return h >= QUIET_HOURS.startHour || h < QUIET_HOURS.endHour;
 }
 
 /** Turns one event into the notifications it implies. Exported for tests. */
@@ -320,11 +362,19 @@ export async function bookedRideRequests(e: PublishedEvent, L: Pick<NotifyLookup
   }
 }
 
+/** «انلغى طلب #4821» to the store's people when the cancelled order was one the kitchen had accepted. */
+async function kitchenCancelled(order: OrderFacts, from: unknown, base: { eventId: string }, L: NotifyLookups): Promise<NotifyRequest[]> {
+  const orgId = order.merchantOrgId;
+  if (!orgId || order.type === 'ride' || typeof from !== 'string' || !kitchenHeld(from)) return [];
+  const staff = await L.orgPeople(orgId, MERCHANT_STAFF);
+  return staff.map((to) => ({ ...base, template: 'merchant_order_cancelled' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), orderId: order.id }, data: { orderId: order.id, merchantOrgId: orgId } }));
+}
+
 async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promise<NotifyRequest[]> {
   const p = e.payload;
   const base = { eventId: e.id };
   const L = deps.lookups;
-  const receipt = (orderId: string) => `${deps.receiptBaseUrl.replace(/\/?$/, '/')}${orderId}`;
+  const receipt = (orderId: string) => (deps.receiptBaseUrl ? `${deps.receiptBaseUrl.replace(/\/?$/, '/')}${orderId}` : t('notify.receipt_in_app'));
   switch (e.type) {
     case 'order.accepted':
     case 'order.auto_accepted': {
@@ -355,12 +405,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       return [{ ...base, template: 'order_partial_ask', to: order.customerId, orderId: order.id, params: { items: missingItemsAr(names, lineIds.length), merchant: merchant ?? 'المطعم', amount: iqd(reduced), orderId: order.id }, data: { orderId: order.id } }];
     }
     case 'order.cancelled': {
+      // The kitchen first: an order it already accepted (cooking, or bagged on the pass) is cancelled —
+      // «انلغى طلب #4821» to everyone at the store, whoever cancelled (staff cancels included: their
+      // `order.ops_cancelled` rides on this same `order.cancelled`, so the kitchen hears it once).
+      const order = e.orderId ? await L.order(e.orderId) : null;
+      const kitchen = order ? await kitchenCancelled(order, p['from'], base, L) : [];
       // Only what we cancelled: his own cancel needs no message. The household payer's answer (or the
       // lack of one) is named; anything else is the calm «آسفين، انلغى طلبك» with the details in the app.
-      if (p['cancelledState'] !== 'platform_cancelled') return [];
+      if (p['cancelledState'] !== 'platform_cancelled') return kitchen;
       // Staff ending an order (W3) is told by its own `order.ops_cancelled` «آسفين، ألغينا طلبك»: never twice.
-      if (p['reason'] === 'staff_cancelled') return [];
-      const order = e.orderId ? await L.order(e.orderId) : null;
+      if (p['reason'] === 'staff_cancelled') return kitchen;
       if (!order) return [];
       const template =
         p['reason'] === 'payer_declined'
@@ -370,7 +424,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
             : p['reason'] === 'partial_timeout'
               ? ('order_partial_no_answer' as const)
               : ('order_cancelled' as const);
-      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }];
+      return [{ ...base, template, to: order.customerId, orderId: order.id, params: { orderId: order.id }, data: { orderId: order.id } }, ...kitchen];
     }
     case 'order.picked_up': {
       // «حيدر استلم طلبك ويوصلك الساعة 8:40» — the order screen's own ETA; without one, no time at all.
@@ -379,6 +433,14 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const [courier, eta] = await Promise.all([L.firstName(e.actorId, 'notify_order_picked_up'), L.deliveryEta ? L.deliveryEta(order.id, e.occurredAt) : null]);
       const params = { courier: courier ?? 'الدليفري', orderId: order.id, ...(eta ? { time: localTime(eta) } : {}) };
       return [{ ...base, template: eta ? 'order_picked_up' : 'order_on_the_way', to: order.customerId, orderId: order.id, params, data: { orderId: order.id } }];
+    }
+    case 'trip.cancelled': {
+      // Only a person on the desk cancelling for the platform (not the trip emptied by an order's own
+      // cancel, not the system releasing him at a silent kitchen, which the merchant's money covers).
+      const courierId = str(p['courierId']);
+      if (p['by'] !== 'platform' || !courierId || e.actorId === 'system' || p['reason'] === 'all_orders_detached') return [];
+      const orderId = Array.isArray(p['orderIds']) ? str(p['orderIds'][0]) : null;
+      return [{ ...base, template: 'partner_job_taken_off', to: courierId, params: { id: orderId ? orderTicketNumber(orderId) : '' }, data: { tripId: e.tripId ?? '' } }];
     }
     case 'trip.unreachable_started':
     case 'trip.unreachable_escalated': {
@@ -432,7 +494,7 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const orgId = str(p['merchantOrgId']) ?? order?.merchantOrgId ?? null;
       if (!order || !orgId) return [];
       const staff = await L.orgPeople(orgId, MERCHANT_STAFF);
-      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), items: itemsAr(order.itemCount), orderId: order.id }, data: { orderId: order.id } }));
+      return staff.map((to) => ({ ...base, template: 'merchant_new_order' as const, to, orderId: order.id, params: { id: orderTicketNumber(order.id), items: itemsAr(order.itemCount), orderId: order.id }, data: { orderId: order.id, merchantOrgId: orgId } }));
     }
     case 'order.delivered': {
       const order = e.orderId ? await L.order(e.orderId) : null;
@@ -505,8 +567,14 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!orgId) return [];
       const [owners, shop] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId)]);
       const base_ = deps.merchantAppUrl?.trim().replace(/\/+$/, '');
-      const next = base_ ? t('sms.merchant_activated_link', { link: `${base_}/setup` }, 'ar-IQ') : t('sms.merchant_activated_app', {}, 'ar-IQ');
-      return owners.map((to) => ({ ...base, template: 'merchant_activated' as const, to, params: { shop: shop ?? '', next } }));
+      // أكل بيت: a cook's kitchen opens on «أكلاتي», not shop setup; any other or missing type keeps /setup.
+      // Her texts say «ضيف أكلاتك», not «كمّل تجهيز محلك».
+      const home = p['type'] === 'home_kitchen';
+      const next = base_
+        ? t(home ? 'sms.home_kitchen_activated_link' : 'sms.merchant_activated_link', { link: `${base_}${home ? '/home-kitchen' : '/setup'}` }, 'ar-IQ')
+        : t(home ? 'sms.home_kitchen_activated_app' : 'sms.merchant_activated_app', {}, 'ar-IQ');
+      const template = home ? ('home_kitchen_activated' as const) : ('merchant_activated' as const);
+      return owners.map((to) => ({ ...base, template, to, params: { shop: shop ?? '', next } }));
     }
     case 'merchant.paid_by_courier': {
       const orgId = str(p['merchantId']);
@@ -515,6 +583,16 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       const [owners, store, courier] = await Promise.all([L.orgPeople(orgId, MERCHANT_OWNERS), L.storeName(orgId), str(p['courierId']) ? L.firstName(String(p['courierId']), 'merchant_cash_handover') : null]);
       const params = { store: store ?? '', amount: iqd(amount), courier: courier ?? '', date: localDate(e.occurredAt), balance: iqd(Math.max(0, num(p['merchantBalanceIqd']) ?? 0)), reference: str(p['handoverId']) ?? e.id };
       return owners.map((to) => ({ ...base, template: 'merchant_cash_handover' as const, to, params }));
+    }
+    case 'stores.console_changed': {
+      // «فريقنا عدّل بمحلك»: the team changed the shop from the Console (sent once per sitting by the
+      // stores module). The push names only a fixed kind of change; dishes, prices and names stay in the app.
+      const orgId = str(p['merchantOrgId']);
+      const kind = str(p['kind']);
+      const phrase = kind && Object.hasOwn(STAFF_CHANGE_PHRASES, kind) ? STAFF_CHANGE_PHRASES[kind] : undefined;
+      if (!orgId || !phrase) return [];
+      const owners = await L.orgPeople(orgId, MERCHANT_OWNERS);
+      return owners.map((to) => ({ ...base, template: 'merchant_staff_changed' as const, to, params: { change: t(phrase, {}, 'ar-IQ') } }));
     }
     case 'menu_photos.shot': {
       // Menu photo service (maps k3): «صور المنيو جاهزة» to the store's owners, who accept or reject each.
@@ -788,6 +866,36 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
         params: { restaurant: str(p['restaurantName']) ?? '', dish: str(p['dishName']) ?? '', merchantOrgId },
         data: { merchantOrgId, itemId: str(p['itemId']) ?? '' },
       }));
+    }
+    case 'food_cart.opened': {
+      // «أبو حيدر فتح»: each follower, once per cart per Baghdad day (the request's event id is the
+      // cart and the day, so a close and re-open dedupes away). Nothing for an opening in quiet hours.
+      const ids = Array.isArray(p['followerIds']) ? p['followerIds'].filter((x): x is string => typeof x === 'string') : [];
+      const cartId = str(p['cartId']);
+      const day = str(p['localDate']);
+      if (!cartId || !day || inQuietHours(e.occurredAt)) return [];
+      const zone = str(p['zoneName_ar']);
+      const place = str(p['spotLabel']) ?? (zone ? t('push.food_cart_opened.place_zone', { zone }) : '');
+      const cart = str(p['cartName']) ?? '';
+      return [...new Set(ids)].map((to) => ({ eventId: foodCartOpenEventId(cartId, day), template: 'food_cart_opened' as const, to, params: { cart, place, cartId }, data: { cartId } }));
+    }
+    case 'food_cart.walkup_ready':
+    case 'food_cart.walkup_rejected': {
+      // The person waiting on a walk-over ticket: ready («تعال گله رقمك»), or called off before it was started.
+      const to = str(p['personId']);
+      const walkupId = str(p['walkupId']);
+      if (!to || !walkupId) return [];
+      const template = e.type === 'food_cart.walkup_ready' ? ('food_cart_walkup_ready' as const) : str(p['why']) === 'closed' ? ('food_cart_walkup_closed' as const) : ('food_cart_walkup_rejected' as const);
+      return [{ ...base, template, to, params: { cart: str(p['cartName']) ?? '', code: str(p['code']) ?? '', walkupId }, data: { walkupId, cartId: str(p['cartId']) ?? '' } }];
+    }
+    case 'staff.new_device': {
+      // «جهاز جديد بحساب موظف»: each admin the event names; the staff member's first name (logged read).
+      const personId = str(p['personId']);
+      const ids = Array.isArray(p['adminIds']) ? p['adminIds'].filter((x): x is string => typeof x === 'string' && x !== personId) : [];
+      if (!personId || ids.length === 0) return [];
+      const name = (await L.firstName(personId, 'notify_staff_new_device')) ?? t('push.staff_new_device.someone');
+      const device = t(str(p['platform']) === 'web' ? 'push.staff_new_device.web' : 'push.staff_new_device.phone');
+      return ids.map((to) => ({ ...base, template: 'staff_new_device' as const, to, params: { name, device }, data: { personId } }));
     }
     case 'dispatch.zone_nudged': {
       // "Send drivers here" (maps program o5): one push per free driver around the busy zone.

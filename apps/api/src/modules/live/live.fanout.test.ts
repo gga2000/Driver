@@ -81,6 +81,24 @@ describe('live fan-out: outbox event → compact events per channel', () => {
     expect(on(auto, 'merchant:m1').some((e) => e.type === 'new_order')).toBe(false);
   });
 
+  it('an order the kitchen had accepted is cancelled: a `cancelled` patch to the kitchen before the re-read; not before acceptance', async () => {
+    const cancelled = (from: string) =>
+      fanout(
+        ev({
+          type: 'order.cancelled',
+          orderId: 'o2',
+          aggregateId: 'o2',
+          payload: { from, to: 'customer_cancelled', cancelledState: 'customer_cancelled' },
+        }),
+        look,
+      );
+    expect(on(await cancelled('preparing'), 'merchant:m1')).toEqual([
+      { type: 'cancelled', orderId: 'o2', merchantOrgId: 'm1' },
+      { type: 'invalidate', keys: ['merchant.board'], cause: 'order.cancelled', orderId: 'o2' },
+    ]);
+    expect(on(await cancelled('placed'), 'merchant:m1').some((e) => e.type === 'cancelled')).toBe(false);
+  });
+
   it('trip moved: every order on it (customers and kitchens), the courier (job + cash), the city; no order_state from a trip state', async () => {
     const pubs = await fanout(
       {

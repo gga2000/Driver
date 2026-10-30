@@ -11,7 +11,7 @@ import { busyRefusal, createBusyCap, maxInflightFromEnv } from './shared/busy-ca
 
 /** A request as the cap sees it, and its answer (an emitter for `finish` / `close`). */
 function fakeCall(path = '/config.city', accept = 'application/json') {
-  const res = Object.assign(new EventEmitter(), { headersSent: false, headers: {} as Record<string, string>, setHeader(k: string, v: string) { this.headers[k] = v; } });
+  const res = Object.assign(new EventEmitter(), { headersSent: false, headers: {} as Record<string, string>, setHeader(k: string, v: string) { this.headers[k] = v; }, end() { return this; } });
   return { req: { path, headers: { accept } } as unknown as Request, res };
 }
 
@@ -52,6 +52,19 @@ describe('busy cap: who is counted', () => {
     a.res.emit('close');
     expect(cap.inflight()).toBe(0);
     expect(through(cap, fakeCall())).toBeNull();
+  });
+
+  it('frees the slot as the answer is written, not later: a caller may already have it and ask again', () => {
+    const cap = createBusyCap(1);
+    const a = fakeCall();
+    expect(through(cap, a)).toBeNull();
+    a.res.end();
+    // `finish` comes a tick or more after the bytes leave; the caller's next call must not wait for it.
+    expect(cap.inflight()).toBe(0);
+    expect(through(cap, fakeCall())).toBeNull();
+    a.res.emit('finish');
+    a.res.emit('close');
+    expect(cap.inflight()).toBe(1);
   });
 
   it('a stalled body never holds a slot: it is counted only when its first procedure starts', () => {

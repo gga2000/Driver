@@ -95,6 +95,8 @@ export interface NotifyRepository {
   deleteToken(token: string, personId?: string): Promise<boolean>;
   deleteTokens(tokens: readonly string[]): Promise<number>;
   deleteSessionTokens(sessionId: string): Promise<number>;
+  /** Every token of a person, in the caller's transaction when given (his account is being closed). */
+  deletePersonTokens(personId: string, tx?: Tx): Promise<number>;
   tokensOf(personId: string, app?: NotifyApp): Promise<PushTokenRecord[]>;
   preferences(personId: string): Promise<NotifyPreferences | null>;
   setPreferences(personId: string, prefs: NotifyPreferences, now: Date): Promise<NotifyPreferences>;
@@ -103,6 +105,18 @@ export interface NotifyRepository {
   byDedupe(dedupeKey: string): Promise<DeliveryRecord[]>;
   byProviderRef(ref: string): Promise<DeliveryRecord | null>;
   updateDelivery(id: string, patch: DeliveryPatch, now: Date): Promise<DeliveryRecord>;
+  /**
+   * Claims a queued or deferred row for one provider call: sets `sentAt` only while it is still unset.
+   * False when another run already claimed it, so a retried job never sends the same message twice.
+   */
+  claimSend(id: string, at: Date): Promise<boolean>;
+  /**
+   * Rows claimed for a send before `before` that never came back: still queued or deferred with
+   * `sentAt` set. Every outcome of a send (sent, failed, skipped, a retry) moves the row on or clears
+   * `sentAt`, so such a row means the process died between the claim and the provider's answer — the
+   * message may or may not have gone. Read only: nothing resends it (a resend could double an SMS).
+   */
+  stuckClaims(before: Date): Promise<{ count: number; oldestClaimedAt: Date | null }>;
   /** Marketing messages that went (or are going) to a person since `since`, one per dedupe key. */
   countMarketingSince(personId: string, since: Date): Promise<number>;
   log(filter: { personId?: string | undefined; orderId?: string | undefined; limit: number }): Promise<DeliveryRecord[]>;
@@ -163,6 +177,17 @@ export class InMemoryNotifyRepository implements NotifyRepository {
     let n = 0;
     for (const [t, row] of this.tokens) {
       if (row.sessionId === sessionId) {
+        this.tokens.delete(t);
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  async deletePersonTokens(personId: string): Promise<number> {
+    let n = 0;
+    for (const [t, row] of this.tokens) {
+      if (row.personId === personId) {
         this.tokens.delete(t);
         n += 1;
       }
@@ -231,6 +256,24 @@ export class InMemoryNotifyRepository implements NotifyRepository {
     const next = { ...r, ...structuredClone(patch), updatedAt: now };
     this.deliveries.set(id, next);
     return structuredClone(next);
+  }
+
+  async claimSend(id: string, at: Date): Promise<boolean> {
+    const r = this.deliveries.get(id);
+    if (!r || (r.status !== 'queued' && r.status !== 'deferred') || r.sentAt !== null) return false;
+    this.deliveries.set(id, { ...r, sentAt: at, updatedAt: at });
+    return true;
+  }
+
+  async stuckClaims(before: Date): Promise<{ count: number; oldestClaimedAt: Date | null }> {
+    let count = 0;
+    let oldestClaimedAt: Date | null = null;
+    for (const r of this.deliveries.values()) {
+      if ((r.status !== 'queued' && r.status !== 'deferred') || r.sentAt === null || r.sentAt >= before) continue;
+      count += 1;
+      if (!oldestClaimedAt || r.sentAt < oldestClaimedAt) oldestClaimedAt = r.sentAt;
+    }
+    return { count, oldestClaimedAt };
   }
 
   async countMarketingSince(personId: string, since: Date): Promise<number> {
@@ -339,6 +382,10 @@ export class PrismaNotifyRepository implements NotifyRepository {
     return (await this.db().pushToken.deleteMany({ where: { sessionId } })).count;
   }
 
+  async deletePersonTokens(personId: string, tx?: Tx): Promise<number> {
+    return (await this.db(tx).pushToken.deleteMany({ where: { personId } })).count;
+  }
+
   async tokensOf(personId: string, app?: NotifyApp): Promise<PushTokenRecord[]> {
     return (await this.db().pushToken.findMany({ where: { personId, ...(app ? { app } : {}) }, orderBy: { lastSeenAt: 'desc' } })).map(tokenOf);
   }
@@ -361,12 +408,12 @@ export class PrismaNotifyRepository implements NotifyRepository {
 
   async preferences(personId: string): Promise<NotifyPreferences | null> {
     const r = await this.db().notifyPreference.findUnique({ where: { personId } });
-    return r ? { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide } : null;
+    return r ? { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide, foodCarts: r.foodCarts } : null;
   }
 
   async setPreferences(personId: string, prefs: NotifyPreferences): Promise<NotifyPreferences> {
     const r = await this.db().notifyPreference.upsert({ where: { personId }, create: { id: newId('npf'), personId, ...prefs }, update: prefs });
-    return { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide };
+    return { orderUpdates: r.orderUpdates, chat: r.chat, whatsappReceipts: r.whatsappReceipts, smsFallback: r.smsFallback, marketing: r.marketing, dishPots: r.dishPots, regularTrips: r.regularTrips, sameRide: r.sameRide, foodCarts: r.foodCarts };
   }
 
   async insertDeliveries(rows: readonly NewDelivery[], now: Date, tx?: Tx): Promise<DeliveryRecord[]> {
@@ -392,6 +439,16 @@ export class PrismaNotifyRepository implements NotifyRepository {
   async byProviderRef(ref: string): Promise<DeliveryRecord | null> {
     const r = await this.db().notifyDelivery.findFirst({ where: { providerRef: ref } });
     return r ? deliveryOf(r) : null;
+  }
+
+  async claimSend(id: string, at: Date): Promise<boolean> {
+    const r = await this.db().notifyDelivery.updateMany({ where: { id, status: { in: ['queued', 'deferred'] }, sentAt: null }, data: { sentAt: at } });
+    return r.count === 1;
+  }
+
+  async stuckClaims(before: Date): Promise<{ count: number; oldestClaimedAt: Date | null }> {
+    const r = await this.db().notifyDelivery.aggregate({ where: { status: { in: ['queued', 'deferred'] }, sentAt: { lt: before } }, _count: { _all: true }, _min: { sentAt: true } });
+    return { count: r._count._all, oldestClaimedAt: r._min.sentAt ?? null };
   }
 
   async updateDelivery(id: string, patch: DeliveryPatch): Promise<DeliveryRecord> {

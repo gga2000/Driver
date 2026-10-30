@@ -45,13 +45,13 @@ export const SETUP_SCREEN = 'setup';
 /** Where a waiting customer is sent from checkout (menus and the cart stay open to browse). */
 export const WAITLIST_PATH = '/waitlist';
 const ORDER_SEGMENTS: ReadonlySet<string> = new Set<string>(['checkout']);
-/** Top-level segments reachable by anyone, signed in or not, mid-setup or not (share-trip, the SOS contact page). */
-export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share', 'sos']);
+/** Top-level segments reachable by anyone, signed in or not, mid-setup or not (share-trip, the SOS contact page, a parcel receiver's door page). */
+export const PUBLIC_SEGMENTS: ReadonlySet<string> = new Set<string>(['share', 'sos', 'p']);
 /**
  * Top-level segments a guest may browse. The tabs are open too: orders, wallet and account show a
  * "دخّل رقمك" card in place of their content (`GuestGate`).
  */
-export const GUEST_SEGMENTS: ReadonlySet<string> = new Set<string>([TABS_GROUP, 'food', 'search', 'restaurants', 'restaurant', 'cart', 'i', 'stickers']);
+export const GUEST_SEGMENTS: ReadonlySet<string> = new Set<string>([TABS_GROUP, 'food', 'search', 'restaurants', 'restaurant', 'live', 'cart', 'i', 'stickers']);
 
 export function resolveGuard({ status, setupPending, segments, pathname, welcomed = true, returnTo = null, waitlisted = false }: GuardInput): GuardTarget | null {
   if (status === 'loading') return null;

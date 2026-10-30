@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef } from 'react';
 import { useToast } from '@driver/ui';
+import { stopNameOf } from '@/features/rajaa/agree';
 import { cityName } from '@/features/rajaa/labels';
 import { endpoints, publicPlaceName } from '@/features/rajaa/logic';
 import { currentLocation } from '@/features/rajaa/location';
@@ -57,7 +58,7 @@ export function useLockScreenPass() {
     if (!booking) return drop();
     const corridor = network.data?.corridors.find((c) => c.id === booking.departure.corridorId);
     const toCity = corridor ? cityName(t, endpoints(corridor.cityId, booking.departure.direction).to) : '';
-    const stopName = booking.pickup.kind === 'garage' ? garageName(network.data, booking.departure.garageId) : booking.pickup.nameAr ? publicPlaceName(booking.pickup.nameAr) : t('rajaa.pickup_door');
+    const stopName = stopNameOf(booking.pickup, garageName(network.data, booking.departure.garageId), { pin: t('rajaa.agree_pin_title'), door: t('rajaa.pickup_door'), place: publicPlaceName });
     // r6: «توصل حوالي 9:28» under «بالطريق لـ بغداد», from where the car is (the same line as the pass).
     const startG = network.data?.garages.find((g) => g.id === booking.departure.garageId) ?? null;
     const endG = corridor ? endGarageFor(network.data?.garages ?? [], endpoints(corridor.cityId, booking.departure.direction).to) : null;

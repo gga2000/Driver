@@ -36,7 +36,7 @@ export default function OtpEntry() {
   const t = useT();
   const locale = useLocale();
   const api = useApi();
-  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string; channel?: string }>();
+  const params = useLocalSearchParams<{ phone: string; masked?: string; resendAfter?: string; channel?: string; whatsapp?: string }>();
   const phone = params.phone ?? '';
   const [code, setCode] = useState('');
   const [resendTotal, setResendTotal] = useState(() => Number(params.resendAfter ?? 30));
@@ -45,6 +45,8 @@ export default function OtpEntry() {
   const reason = signInReason(useProfile().returnTo);
   // SMS first; after 30 s "ما وصلك؟ دزلي على واتساب" sends the next code over WhatsApp (audit C-18).
   const [channel, setChannel] = useState<OtpChannel>(params.channel === 'whatsapp' ? 'whatsapp' : 'sms');
+  // The server says whether WhatsApp can carry a code at all (off until it is set up): no offer when not.
+  const [whatsappOffered, setWhatsappOffered] = useState(params.whatsapp !== '0');
   const [resending, setResending] = useState<OtpChannel | null>(null);
   const secondsLeft = useSecondsLeft(resendUntil);
   const submitted = useRef<string | null>(null);
@@ -52,6 +54,11 @@ export default function OtpEntry() {
   const verify = useMutation(api.identity.verifyOtp.mutationOptions());
   const resend = useMutation(api.identity.requestOtp.mutationOptions());
   const devCode = useQuery({ ...api.identity.devLastOtp.queryOptions({ phone }), enabled: DEV_TOOLS && !!phone, retry: false, staleTime: 0 });
+  // Staging test numbers 0770 000 01xx (Ali, 8 Oct): the server hands back their fixed code only on
+  // staging and never for staff, so «عبّيه» shows there and nowhere else.
+  const testCode = useQuery({ ...api.identity.stagingTestCode.queryOptions({ phone }), enabled: isStagingTestNumber(phone), retry: false });
+  // A failed lookup only means no button: the person types the code as usual.
+  const fillCode = (DEV_TOOLS ? devCode.data?.code : null) ?? (testCode.isError ? null : testCode.data?.code) ?? null;
 
   useEffect(() => {
     if (!phone) router.replace('/phone');
@@ -87,6 +94,7 @@ export default function OtpEntry() {
       setResendTotal(res.resendAfterSec);
       setResendUntil(Date.now() + res.resendAfterSec * 1000);
       setChannel(res.channel ?? via);
+      if (res.whatsapp !== undefined) setWhatsappOffered(res.whatsapp);
       setCode('');
       if (verify.error) verify.reset();
       if (DEV_TOOLS) void devCode.refetch();
@@ -110,6 +118,8 @@ export default function OtpEntry() {
       : null;
 
   const shownPhone = phone ? displayPhone(phone) : (params.masked ?? '');
+  // A code that already came on WhatsApp, or a server without WhatsApp: only «ابعث برسالة» is offered.
+  const smsOnly = channel === 'whatsapp' || !whatsappOffered;
 
   return (
     <AuthStage
@@ -167,8 +177,7 @@ export default function OtpEntry() {
         <ResendRing secondsLeft={secondsLeft} totalSeconds={resendTotal} label={t('onboarding.otp_resend_in', { seconds: secondsLeft })} />
       ) : (
         <View style={{ gap: theme.space[2] }} testID="otp-not-received">
-          {/* A code that already came on WhatsApp (the SMS budget was spent) offers SMS only. */}
-          {channel === 'whatsapp' ? null : (
+          {smsOnly ? null : (
             <Button
               testID="otp-whatsapp"
               variant="secondary"
@@ -182,28 +191,33 @@ export default function OtpEntry() {
           )}
           <Button
             testID="otp-resend"
-            variant={channel === 'whatsapp' ? 'secondary' : 'ghost'}
+            variant={smsOnly ? 'secondary' : 'ghost'}
             label={t('onboarding.otp_resend_sms')}
             loading={resending === 'sms'}
             disabled={resending !== null}
             onPress={() => void onResend('sms')}
-            style={channel === 'whatsapp' ? undefined : { alignSelf: 'center' }}
-            fullWidth={channel === 'whatsapp'}
+            style={smsOnly ? undefined : { alignSelf: 'center' }}
+            fullWidth={smsOnly}
           />
         </View>
       )}
 
-      {DEV_TOOLS && devCode.data?.code ? (
+      {fillCode ? (
         <Card elevation={0} tone="sunken" padding={3} testID="otp-dev-strip">
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
             <Icon name="shield" size={20} color="textMuted" />
             <Text variant="label" color="textMuted" tabular style={{ flex: 1 }}>
-              {t('onboarding.dev_code', { code: devCode.data.code })}
+              {t('onboarding.dev_code', { code: fillCode })}
             </Text>
-            <Button size="sm" variant="secondary" label={t('onboarding.dev_fill')} onPress={() => onChange(devCode.data?.code ?? '')} />
+            <Button size="sm" variant="secondary" label={t('onboarding.dev_fill')} onPress={() => onChange(fillCode)} />
           </View>
         </Card>
       ) : null}
     </AuthStage>
   );
+}
+
+/** 0770 000 0100 to 0199, however typed (spaces, 0 or 964 in front). */
+function isStagingTestNumber(phone: string): boolean {
+  return /^77000001\d{2}$/.test(phone.replace(/\D/g, '').replace(/^(964|0)/, ''));
 }

@@ -13,6 +13,7 @@ import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { CategoryNameSheet, ReorderSheet } from './CategorySheets';
 import { Glyph } from './Glyph';
+import { menuScore } from '@/features/setup/logic';
 import { categoryNames, filterMenu, itemStatus, sectionCounts, shelfRows, trayColumns, type MenuCategoryLike, type ShelfRow } from './logic';
 import { Tray } from './Tray';
 import { GlyphButton, Panel, Pill } from './parts';
@@ -44,7 +45,8 @@ export function MenuScreen() {
   const locale = useLocale();
   const toast = useCounterToast();
   const { wide } = useLayout();
-  const { store } = useCurrentStore();
+  // MER-06: new dishes, sections, their order and menu imports are the owner's (the server says so too).
+  const { store, canSeeMoney: owner } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const menu = useMenu(storeId);
   const actions = useMenuActions(storeId);
@@ -166,7 +168,7 @@ export function MenuScreen() {
   };
 
   // ── pieces ──
-  const headerActions = wide ? (
+  const headerActions = !owner ? undefined : wide ? (
     <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
       <Button testID="menu-import" label={t('merchant.menu.import_cta')} variant="secondary" trailing={<Glyph name="scan" size={20} strokeWidth={2} />} onPress={() => router.push('/menu/import')} />
       <Button testID="menu-add-item" label={t('merchant.menu.add_item')} icon="plus" onPress={() => addItem(searching ? null : (sections.find((s) => s.key === selectedKey)?.nameAr ?? null))} />
@@ -178,7 +180,9 @@ export function MenuScreen() {
     </View>
   );
 
-  const subtitle = menu.data ? t('merchant.menu.subtitle', { count: counts.total, sections: named.length }) : store?.name;
+  // s-p2: «22 من 26 بصور» while some dishes still have no photo (a library photo counts).
+  const score = menuScore(allItems);
+  const subtitle = menu.data ? `${t('merchant.menu.subtitle', { count: counts.total, sections: named.length })}${score.missing > 0 ? ` · ${t('merchant.setup.score', { done: score.withPhoto, total: score.total })}` : ''}` : store?.name;
 
   const filters = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} style={{ flexGrow: 0 }}>
@@ -220,10 +224,12 @@ export function MenuScreen() {
           <Text variant="body" color="textMuted" align="center" style={{ maxWidth: 420 }}>
             {t('merchant.menu.empty_body')}
           </Text>
-          <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap', justifyContent: 'center' }}>
-            <Button label={t('merchant.menu.import_cta')} variant="secondary" onPress={() => router.push('/menu/import')} />
-            <Button label={t('merchant.menu.add_first')} icon="plus" onPress={() => addItem(null)} />
-          </View>
+          {owner ? (
+            <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap', justifyContent: 'center' }}>
+              <Button label={t('merchant.menu.import_cta')} variant="secondary" onPress={() => router.push('/menu/import')} />
+              <Button label={t('merchant.menu.add_first')} icon="plus" onPress={() => addItem(null)} />
+            </View>
+          ) : null}
         </Panel>
       );
     }
@@ -248,8 +254,7 @@ export function MenuScreen() {
       now={now}
       wide={wide}
       big={wide && !searching}
-      onRename={(s) => setNameSheet({ renameFrom: s })}
-      onAdd={addItem}
+      {...(owner ? { onRename: (s: string) => setNameSheet({ renameFrom: s }), onAdd: addItem } : {})}
       onOpen={openItem}
       onBack={onBack}
       onSoldOut={onSoldOut}
@@ -281,7 +286,7 @@ export function MenuScreen() {
                   <Text variant="label" color="textMuted" style={{ flex: 1 }}>
                     {t('merchant.menu.sections')}
                   </Text>
-                  <GlyphButton testID="menu-reorder" glyph="sort" size={36} variant="plain" label={t('merchant.menu.reorder_title')} disabled={named.length < 2} onPress={() => setReorderOpen(true)} />
+                  {owner ? <GlyphButton testID="menu-reorder" glyph="sort" size={36} variant="plain" label={t('merchant.menu.reorder_title')} disabled={named.length < 2} onPress={() => setReorderOpen(true)} /> : null}
                 </View>
                 {sections.map((s, i) => (
                   <SectionNavRow key={s.key} index={i} section={s} now={now} selected={!searching && s.key === selectedKey} onPress={() => {
@@ -290,17 +295,19 @@ export function MenuScreen() {
                     setSelected(s.key);
                   }} />
                 ))}
-                <Pressable
-                  testID="menu-add-category"
-                  accessibilityRole="button"
-                  onPress={() => setNameSheet({ renameFrom: null })}
-                  style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[4], borderTopWidth: 1, borderTopColor: theme.colors.border, opacity: pressed ? 0.7 : 1 })}
-                >
-                  <Glyph name="plus" size={20} color="accentText" strokeWidth={2} />
-                  <Text variant="bodyStrong" color="accentText">
-                    {t('merchant.menu.new_section')}
-                  </Text>
-                </Pressable>
+                {owner ? (
+                  <Pressable
+                    testID="menu-add-category"
+                    accessibilityRole="button"
+                    onPress={() => setNameSheet({ renameFrom: null })}
+                    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], padding: theme.space[4], borderTopWidth: 1, borderTopColor: theme.colors.border, opacity: pressed ? 0.7 : 1 })}
+                  >
+                    <Glyph name="plus" size={20} color="accentText" strokeWidth={2} />
+                    <Text variant="bodyStrong" color="accentText">
+                      {t('merchant.menu.new_section')}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </Panel>
               <CustomerHint />
             </ScrollView>
@@ -334,8 +341,8 @@ export function MenuScreen() {
           {sections.map((s, i) => (
             <SectionChip key={s.key} testID={`menu-cat-${i}`} label={s.nameAr ?? t('merchant.menu.no_section')} selected={selected === s.key} onPress={() => setSelected(s.key)} />
           ))}
-          <SectionChip testID="menu-add-category" label={t('merchant.menu.new_section')} glyph="plus" selected={false} onPress={() => setNameSheet({ renameFrom: null })} />
-          {named.length > 1 ? <SectionChip testID="menu-reorder" label={t('merchant.menu.reorder_short')} glyph="sort" selected={false} onPress={() => setReorderOpen(true)} /> : null}
+          {owner ? <SectionChip testID="menu-add-category" label={t('merchant.menu.new_section')} glyph="plus" selected={false} onPress={() => setNameSheet({ renameFrom: null })} /> : null}
+          {owner && named.length > 1 ? <SectionChip testID="menu-reorder" label={t('merchant.menu.reorder_short')} glyph="sort" selected={false} onPress={() => setReorderOpen(true)} /> : null}
         </ScrollView>
       ) : null}
       {stale}
@@ -462,8 +469,9 @@ interface ShelfProps {
   now: number;
   wide: boolean;
   big: boolean;
-  onRename: (section: string) => void;
-  onAdd: (section: string | null) => void;
+  /** Owner only (MER-06): absent for staff, so the rename and add buttons don't show. */
+  onRename?: (section: string) => void;
+  onAdd?: (section: string | null) => void;
   onOpen: (item: AdminMenuItem) => void;
   onBack: (item: AdminMenuItem) => void;
   onSoldOut: (item: AdminMenuItem) => void;
@@ -503,8 +511,8 @@ function Shelf({ sections, header, now, wide, big, onRename, onAdd, onOpen, onBa
               {section.pending ? t('merchant.menu.section_empty_short') : summary}
             </Text>
           </View>
-          {section.nameAr ? <GlyphButton testID={`rename-${section.key}`} glyph="pencil" size={wide ? 44 : 40} label={t('merchant.menu.rename_title', { name: title })} onPress={() => onRename(section.nameAr ?? '')} /> : null}
-          {wide ? <Button size="sm" variant="secondary" icon="plus" label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} /> : <GlyphButton glyph="plus" size={40} label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} />}
+          {section.nameAr && onRename ? <GlyphButton testID={`rename-${section.key}`} glyph="pencil" size={wide ? 44 : 40} label={t('merchant.menu.rename_title', { name: title })} onPress={() => onRename(section.nameAr ?? '')} /> : null}
+          {!onAdd ? null : wide ? <Button size="sm" variant="secondary" icon="plus" label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} /> : <GlyphButton glyph="plus" size={40} label={t('merchant.menu.add_here')} onPress={() => onAdd(section.nameAr)} />}
         </View>
       );
     }
@@ -517,7 +525,7 @@ function Shelf({ sections, header, now, wide, big, onRename, onAdd, onOpen, onBa
           <Text variant="footnote" color="textMuted" align="center" style={{ maxWidth: 360 }}>
             {t('merchant.menu.section_empty_body')}
           </Text>
-          <Button label={t('merchant.menu.add_first')} icon="plus" onPress={() => onAdd(section.nameAr)} />
+          {onAdd ? <Button label={t('merchant.menu.add_first')} icon="plus" onPress={() => onAdd(section.nameAr)} /> : null}
         </Panel>
       );
     }
