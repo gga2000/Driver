@@ -389,6 +389,19 @@ function JobView({
     }
   };
 
+  // «الراكب ما إجه» (Ali 2026-10-30): after the free wait the ride ends; the server puts the rider's no-show fee to him.
+  const endNoShow = async () => {
+    if (needsInternet()) return;
+    try {
+      await actions.noShow.mutateAsync({ tripId: job.tripId });
+      theme.haptic('warning');
+      await refresh();
+      onDone({ earnedIqd: 0, failed: true });
+    } catch (err) {
+      fail(err);
+    }
+  };
+
   // Quick contact (notifications & support §2): in-order chat and masked calls through `chat.*`.
   const orderId = stop?.orderId ?? job.stops.find((s) => s.orderId)?.orderId ?? '';
   const threads = useChatThreads(orderId, Boolean(orderId));
@@ -566,7 +579,7 @@ function JobView({
               {/* N20: the road goes around a street closed today: one warning line. */}
               <ClosedNote testID="job-closed" closures={road.data?.closures} />
 
-              {ride && stop.type === 'pickup' && stop.state === 'arrived' ? <RiderWait arrivedAt={stop.arrivedAt} /> : null}
+              {ride && stop.type === 'pickup' && stop.state === 'arrived' ? <RiderWait arrivedAt={stop.arrivedAt} onNoShow={practice ? undefined : () => void endNoShow()} busy={actions.noShow.isPending} /> : null}
               {/* j5: the code the kitchen matches before handing over the food (maps program r4). */}
               {stop.type === 'pickup' && stop.pickupCode ? <PickupCode code={stop.pickupCode} place={place} /> : null}
               {/* j6: the kitchen's time, live, until he has the food. */}

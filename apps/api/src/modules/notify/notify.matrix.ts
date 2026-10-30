@@ -12,7 +12,7 @@ export type NotifyMatrixEntry = { templates: readonly NotifyTemplateId[]; event?
 export type NotifyFamily = 'merchant' | 'courier' | 'ride';
 export type TransitionKey = `${OrderState}>${OrderState}`;
 
-const OWN_CANCEL = { silent: 'his own cancel: the app shows it as he taps' } as const;
+const OWN_CANCEL = { silent: 'his own cancel: the app shows it as he taps (a ride the driver ends as «الراكب ما إجه», reason rider_no_show, sends ride_rider_no_show)' } as const;
 const WE_CANCELLED = { templates: ['order_cancelled', 'order_payer_declined', 'order_payer_no_answer', 'order_partial_no_answer', 'order_ops_cancelled'] } as const;
 const REJECTED = { templates: ['order_rejected', 'order_kitchen_no_answer', 'order_rejected_credit'] } as const;
 const KITCHEN_WORKING = { silent: 'the kitchen at work: shown live on the order screen; the next message is the pickup' } as const;

@@ -1,4 +1,4 @@
-import type { CancellationFee, FeeParty, OrderState, OrderType, TripState } from '@driver/contracts';
+import { RIDE_NO_SHOW_FREE_WAIT_MIN, type CancellationFee, type FeeParty, type OrderState, type OrderType, type TripState } from '@driver/contracts';
 import { roundTo } from './engine.js';
 
 /**
@@ -79,6 +79,9 @@ export interface CancellationRules {
   rideAfterAcceptIqd: number;
   rideAfterArrivalIqd: number;
   driverAfterArrivalCreditIqd: number;
+  /** Rider no-show (Ali 2026-10-30): free minutes at the pickup, then the fee to the driver. */
+  rideNoShowFreeWaitMin: number;
+  rideNoShowIqd: number;
   foodAfterAcceptIqd: number;
   courierEnRouteIqd: number;
   errandBeforePurchaseIqd: number;
@@ -90,6 +93,9 @@ export const DEFAULT_CANCELLATION_RULES: CancellationRules = {
   rideAfterAcceptIqd: 500,
   rideAfterArrivalIqd: 1000,
   driverAfterArrivalCreditIqd: 500,
+  // Money rule (Ali 2026-10-30, «5 min free, then 1,000 to driver»; the same 1,000 as a cancel after arrival).
+  rideNoShowFreeWaitMin: RIDE_NO_SHOW_FREE_WAIT_MIN,
+  rideNoShowIqd: 1000,
   foodAfterAcceptIqd: 500,
   courierEnRouteIqd: 500,
   errandBeforePurchaseIqd: 500,
@@ -163,6 +169,22 @@ function tripFee(t: TripCancellationSubject, at: Date, r: CancellationRules): Ca
   const sinceAcceptSec = t.acceptedAt ? (at.getTime() - t.acceptedAt.getTime()) / 1000 : 0;
   if (sinceAcceptSec <= r.rideFreeAfterAcceptSec) return free('خلال أول دقيقة من القبول', 'Within a minute of acceptance');
   return fee(t.fareIqd, r, 'customer', [{ to: 'driver', amountIqd: r.rideAfterAcceptIqd }], 'إلغاء بعد قبول السايق', 'Cancelled after the driver accepted', 'السايق تحرك عليك');
+}
+
+/**
+ * «الراكب ما إجه» (Ali 2026-10-30, audit RID-01): the driver's arrival near the pickup counts
+ * (`arrivalCountsForFees`), he waited `rideNoShowFreeWaitMin` free, then the ride ends and the rider
+ * owes `rideNoShowIqd` to the driver (capped at the fare like every fee). Not allowed without such an
+ * arrival or before the wait is over.
+ */
+export function riderNoShowFee(t: { arrivedPickupAt: Date | null; fareIqd: number }, at: Date, r: CancellationRules = DEFAULT_CANCELLATION_RULES): CancellationFee {
+  if (!t.arrivedPickupAt || at.getTime() < riderNoShowAt(t.arrivedPickupAt, r).getTime()) return { ...notAllowed(), reason_ar: 'السايق بعده ينتظر' };
+  return fee(t.fareIqd, r, 'customer', [{ to: 'driver', amountIqd: r.rideNoShowIqd }], 'الراكب ما إجه', 'Rider did not show', 'السايق انتظرك 5 دقايق وما طلعت');
+}
+
+/** When «الراكب ما إجه» opens: the counted arrival plus the free wait. */
+export function riderNoShowAt(arrivedPickupAt: Date, r: CancellationRules = DEFAULT_CANCELLATION_RULES): Date {
+  return new Date(arrivedPickupAt.getTime() + r.rideNoShowFreeWaitMin * 60_000);
 }
 
 // ───────────────────────── helpers ─────────────────────────

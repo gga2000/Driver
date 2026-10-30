@@ -329,6 +329,10 @@ export const ERROR_TABLE = {
   unreachable_not_started: { retryHint: 'never', status: 'CONFLICT' },
   unreachable_too_early: { retryHint: 'later', status: 'CONFLICT' },
   unreachable_not_active: { retryHint: 'never', status: 'CONFLICT' },
+  /** Rider no-show (Ali 2026-10-30): «الراكب ما إجه» only after the free wait at the pickup. */
+  ride_no_show_too_early: { retryHint: 'later', status: 'CONFLICT' },
+  /** Rider no-show needs the driver's arrival at the pickup (near it, the fee rule's 150 m). */
+  ride_no_show_not_arrived: { retryHint: 'never', status: 'CONFLICT' },
   // dispatch
   dispatch_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
   offer_not_found: { retryHint: 'never', status: 'NOT_FOUND' },
