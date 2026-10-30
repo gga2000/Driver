@@ -109,6 +109,15 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     return person;
   }
 
+  async ensureSystemPerson(id: string, now: Date, tx?: Tx) {
+    const existing = this.people.get(id);
+    if (existing) return { ...existing };
+    const person: PersonRecord = { id, locale: 'ar-IQ', trustTier: 'new', lastVerifiedAt: null, sharedFamilyPhone: false, deletedAt: null, createdAt: now };
+    this.people.set(id, person);
+    this.journal(tx, () => this.people.delete(id));
+    return { ...person };
+  }
+
   async updatePerson(id: string, patch: Partial<Pick<PersonRecord, 'lastVerifiedAt' | 'sharedFamilyPhone' | 'locale' | 'trustTier'>>, tx?: Tx) {
     const p = this.people.get(id);
     if (!p) throw new Error(`person ${id} not found`);
@@ -336,6 +345,10 @@ export class InMemoryIdentityRepository implements IdentityRepository {
     this.keep(tx, s);
     Object.assign(s, patch);
     return s;
+  }
+
+  async sessionsOpenedSince(personId: string, since: Date) {
+    return this.sessions.filter((s) => s.personId === personId && s.createdAt.getTime() >= since.getTime()).length;
   }
 
   async lastSessionAtOf(personIds: readonly string[]) {

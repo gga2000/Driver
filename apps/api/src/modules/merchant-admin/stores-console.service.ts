@@ -106,7 +106,8 @@ export class StoresConsoleService implements StoresOpsPort {
 
   /** The city's restaurants and grocers: setup steps, menu gaps and the last Console edit; still in setup first. */
   async list(_actor: Actor, input: StoresInput): Promise<StoreRow[]> {
-    const orgs = (await this.orgs.inCity(input.cityId)).filter((o) => STORE_TYPES.has(o.type));
+    // BENCH-04: the store reviewers' hidden test kitchen is not a store ops look after.
+    const orgs = (await this.orgs.inCity(input.cityId)).filter((o) => STORE_TYPES.has(o.type) && !o.isTest);
     const fronts = new Map((await this.catalog.storefronts(input.cityId)).map((f) => [f.orgId, f]));
     const rows = await Promise.all(
       orgs.map(async (org): Promise<StoreRow> => {

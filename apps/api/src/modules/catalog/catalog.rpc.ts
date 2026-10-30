@@ -186,6 +186,17 @@ export interface StorefrontToday {
 export const STOREFRONT_TODAY = Symbol('STOREFRONT_TODAY');
 
 /**
+ * Who sees the store reviewers' hidden test kitchen (BENCH-04): only the store-reviewer account, and
+ * that account sees nothing else, so a reviewer's order can never reach a real kitchen and no
+ * customer ever sees the test one. Bound by the orders module over identity; without it (tests, the
+ * reviewer switched off) nobody is a test reader.
+ */
+export interface StorefrontAudience {
+  testReader(personId: string): Promise<boolean>;
+}
+export const STOREFRONT_AUDIENCE = Symbol('STOREFRONT_AUDIENCE');
+
+/**
  * Storefront cards one catalog read builds at once (perf t4): each card reads the merchant profile, its
  * deals and a ride time, so a city's kitchens are built side by side instead of one after another, but
  * bounded so one read never takes the whole database pool.
@@ -241,11 +252,24 @@ export class CatalogRpc implements CustomerCatalogPort {
     @Optional() @Inject(STOREFRONT_PHOTOS) photos: PhotoLinks | null = null,
     @Optional() @Inject(STOREFRONT_SWITCHES) private readonly switches: StorefrontSwitches | null = null,
     @Optional() @Inject(STOREFRONT_HOME) private readonly home: StorefrontHome | null = null,
+    @Optional() @Inject(STOREFRONT_AUDIENCE) private readonly audience: StorefrontAudience | null = null,
   ) {
     this.photo = photoLink(photos);
     this.clock = clock ?? new SystemClock();
     this.guests = guests ?? new InMemoryWindowCounter(this.clock);
     this.eta = eta ?? new EtaService(new StraightLineRouter());
+  }
+
+  /** Whether this reader is the store-reviewer account (sees only test kitchens). */
+  private async testReader(reader: Actor | CatalogReader): Promise<boolean> {
+    const personId = readerPerson(reader);
+    return personId !== null && this.audience !== null && (await this.audience.testReader(personId));
+  }
+
+  /** One storefront, or null when this reader may not see it (a test kitchen is unknown to customers and the reverse). */
+  private async front(reader: Actor | CatalogReader, merchantId: string): Promise<StorefrontRecord | null> {
+    const s = await this.catalog.storefront(merchantId);
+    return s && Boolean(s.isTest) === (await this.testReader(reader)) ? s : null;
   }
 
   async restaurants(reader: Actor | CatalogReader, input: z.infer<typeof RestaurantsInput>): Promise<RestaurantCard[]> {
@@ -254,7 +278,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const f = input.filters;
     const q = f.query ? foldArabic(f.query) : '';
     const rides: RideMemo = new Map();
-    const built = await mapBounded(await this.town(input.cityId), CARD_CONCURRENCY, async (k) => {
+    const built = await mapBounded(await this.town(reader, input.cityId), CARD_CONCURRENCY, async (k) => {
       if (q && !this.matches(k.s, k.items, q)) return null;
       if (f.tag && !k.s.tags.includes(f.tag)) return null;
       const card = await this.card(k, input.dropoff ?? null, now, rides);
@@ -280,7 +304,7 @@ export class CatalogRpc implements CustomerCatalogPort {
 
   async menu(reader: Actor | CatalogReader, input: z.infer<typeof MenuInput>): Promise<RestaurantMenu> {
     await this.admit(reader);
-    const s = await this.catalog.storefront(input.merchantId);
+    const s = await this.front(reader, input.merchantId);
     if (!s) throw new DriverError('org_not_found');
     const now = this.clock.now();
     const kitchen = await this.kitchen(s, now);
@@ -313,7 +337,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     if (!this.home?.open(input.cityId)) return { open: false, kitchens: [] };
     const now = this.clock.now();
     const rides: RideMemo = new Map();
-    const homes = (await this.allKitchens(input.cityId)).filter((k) => k.s.home);
+    const homes = await this.kitchensFor(reader, input.cityId, true);
     const cards = await mapBounded(homes, CARD_CONCURRENCY, (k) => this.card(k, input.dropoff ?? null, now, rides));
     const ready = (c: RestaurantCard) => Number((c.home?.readyCount ?? 0) > 0);
     const kitchens = cards.sort(
@@ -329,7 +353,7 @@ export class CatalogRpc implements CustomerCatalogPort {
   /** أكل بيت: a reserve dish's bookable week (`reserveSlots`), with the plates still free at each time. */
   async homeSlots(reader: Actor | CatalogReader, input: HomeSlotsInput): Promise<HomeSlots> {
     await this.admit(reader);
-    const s = await this.catalog.storefront(input.merchantId);
+    const s = await this.front(reader, input.merchantId);
     if (!s?.home || !this.home?.open(s.cityId)) throw new DriverError('org_not_found');
     const item = (await this.catalog.menu(s.orgId)).find((i) => i.id === input.itemId);
     if (!item || item.homeSale?.mode !== 'reserve' || !item.available) throw new DriverError('catalog_item_unavailable');
@@ -354,7 +378,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const followed = new Set(personId ? (await this.catalog.dishFollows(personId)).map((f) => f.itemId) : []);
     const out: Array<{ pot: TodayPot; postedAt: number }> = [];
     const rides: RideMemo = new Map();
-    const built = await mapBounded(await this.town(input.cityId), CARD_CONCURRENCY, async (k) => {
+    const built = await mapBounded(await this.town(reader, input.cityId), CARD_CONCURRENCY, async (k) => {
       const { s } = k;
       const pot = showing.get(s.orgId);
       if (!pot) return null;
@@ -404,8 +428,8 @@ export class CatalogRpc implements CustomerCatalogPort {
   async carryOver(reader: Actor | CatalogReader, input: z.infer<typeof CarryOverInput>): Promise<CarryOverPreview> {
     await this.admit(reader);
     const now = this.clock.now();
-    const rejected = await this.catalog.storefront(input.merchantId);
-    const cards = await this.cardsWithMenus(input.cityId, input.dropoff ?? null, now);
+    const rejected = await this.front(reader, input.merchantId);
+    const cards = await this.cardsWithMenus(reader, input.cityId, input.dropoff ?? null, now);
     const picked = similarKitchens({ id: input.merchantId, tags: rejected?.tags ?? [] }, cards.map((c) => c.card));
     const options = picked.map((card) => {
       const items = cards.find((c) => c.card.id === card.id)!.items;
@@ -443,7 +467,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const restaurants: Array<{ card: RestaurantCard; score: number }> = [];
     const dishes: Array<{ dish: CatalogSearchDish; score: number }> = [];
     const rides: RideMemo = new Map();
-    const matched = await mapBounded(await this.town(input.cityId), CARD_CONCURRENCY, async (k) => {
+    const matched = await mapBounded(await this.town(reader, input.cityId), CARD_CONCURRENCY, async (k) => {
       const { s, items } = k;
       // A name match outranks a cuisine or tag match ("خالد" → مطعم خالد before a kebab place).
       const byName = searchScore(folded, s.nameAr);
@@ -528,7 +552,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const now = this.clock.now();
     const words = input.words.map((w) => foldArabic(w)).filter(Boolean);
     const found: Array<{ rank: number; score: number; dish: CatalogSearchDish }> = [];
-    for (const { card, items } of await this.cardsWithMenus(input.cityId, input.dropoff ?? null, now)) {
+    for (const { card, items } of await this.cardsWithMenus(reader, input.cityId, input.dropoff ?? null, now)) {
       if (!card.open) continue;
       for (const item of items) {
         const rank = words.findIndex((w) => searchScore(w, item.nameAr) >= 2);
@@ -582,7 +606,7 @@ export class CatalogRpc implements CustomerCatalogPort {
     const now = this.clock.now();
     const kinds = input.kinds.map((k) => ({ key: k.key, words: k.words.map((w) => foldArabic(w)).filter(Boolean) }));
     const found = new Map<string, Array<{ score: number; dish: CatalogSearchDish }>>(kinds.map((k) => [k.key, []]));
-    for (const { card, items } of await this.cardsWithMenus(input.cityId, input.dropoff ?? null, now)) {
+    for (const { card, items } of await this.cardsWithMenus(reader, input.cityId, input.dropoff ?? null, now)) {
       if (!card.open) continue;
       const views = items.map((item) => menuItemView(item, now, this.merchants.timeZone, this.photo)).filter((v) => v.available);
       for (const kind of kinds) {
@@ -645,7 +669,7 @@ export class CatalogRpc implements CustomerCatalogPort {
   async today(reader: Actor | CatalogReader, input: z.infer<typeof CatalogTodayInput>): Promise<CatalogToday> {
     await this.admit(reader);
     const now = this.clock.now();
-    const openRestaurants = (await this.cardsWithMenus(input.cityId, null, now)).filter((c) => c.card.open).length;
+    const openRestaurants = (await this.cardsWithMenus(reader, input.cityId, null, now)).filter((c) => c.card.open).length;
     let tuktukFromIqd: number | null = null;
     try {
       tuktukFromIqd = this.pricing.quote(
@@ -695,9 +719,9 @@ export class CatalogRpc implements CustomerCatalogPort {
    * them next is exactly what the one-by-one loop did. Kitchens out of reach of the drop-off (ice
    * cream too far) are left out.
    */
-  private async cardsWithMenus(cityId: string, dropoff: DeliveryPoint | null, now: Date): Promise<Array<{ card: RestaurantCard; items: readonly CatalogItemRecord[] }>> {
+  private async cardsWithMenus(reader: Actor | CatalogReader, cityId: string, dropoff: DeliveryPoint | null, now: Date): Promise<Array<{ card: RestaurantCard; items: readonly CatalogItemRecord[] }>> {
     const rides: RideMemo = new Map();
-    const built = await mapBounded(await this.town(cityId), CARD_CONCURRENCY, async (k) => {
+    const built = await mapBounded(await this.town(reader, cityId), CARD_CONCURRENCY, async (k) => {
       const card = await this.card(k, dropoff, now, rides);
       return outOfReach(k.s, card, dropoff) ? null : { card, items: k.items };
     });
@@ -709,9 +733,18 @@ export class CatalogRpc implements CustomerCatalogPort {
    * merchant profile and deal list instead of one per kitchen per list), rebuilt at once when the
    * catalog or a merchant's settings changed on this instance.
    */
-  private async town(cityId: string): Promise<Kitchen[]> {
+  private async town(reader: Actor | CatalogReader, cityId: string): Promise<Kitchen[]> {
     // أكل بيت kitchens have their own list; every restaurant list, search and pick leaves them out.
-    return (await this.allKitchens(cityId)).filter((k) => !k.s.home);
+    return this.kitchensFor(reader, cityId, false);
+  }
+
+  /**
+   * The town's restaurants (`home` false) or home kitchens (`home` true) this reader may see: the
+   * store reviewers' test kitchens for the reviewer account only, and only those for it (BENCH-04).
+   */
+  private async kitchensFor(reader: Actor | CatalogReader, cityId: string, home: boolean): Promise<Kitchen[]> {
+    const test = await this.testReader(reader);
+    return (await this.allKitchens(cityId)).filter((k) => Boolean(k.s.home) === home && Boolean(k.s.isTest) === test);
   }
 
   /** Every kitchen of the town, restaurants and home kitchens alike (see `town`). */

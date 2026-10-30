@@ -17,7 +17,8 @@ written in code, docs, a PR or chat: the repository is public.
 | `DEPLOY_ENVIRONMENT` | must be `staging` on the API host, or the API refuses to boot while `STAGING_TEST_OTP` is set |
 | `STAGING_TEST_DAILY_CODES` | optional, default 200 fixed codes a day across the whole range |
 
-The boot also stops when the code is malformed or easy.
+The boot also stops when the code is malformed or easy, or when `STORE_REVIEW_PHONE` (the store
+reviewers' number, `docs/api/store-review.md`) falls in the range.
 
 ## What a test number gets
 

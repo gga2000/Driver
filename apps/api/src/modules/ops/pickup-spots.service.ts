@@ -37,7 +37,8 @@ export class OpsPickupSpotsService implements PickupSpotsOpsPort {
    * storefront read, one menu read per store).
    */
   async stores(_actor: Actor, input: PickupStoresInput): Promise<PickupStoreRow[]> {
-    const orgs = (await this.orgs.inCity(input.cityId)).filter((o) => o.type === 'restaurant' || o.type === 'grocer');
+    // BENCH-04: the store reviewers' hidden test kitchen has no real pickup spot to fix.
+    const orgs = (await this.orgs.inCity(input.cityId)).filter((o) => (o.type === 'restaurant' || o.type === 'grocer') && !o.isTest);
     const fronts = new Map((await this.catalog.storefronts(input.cityId)).map((f) => [f.orgId, f]));
     const rows = await Promise.all(
       orgs.map(async (org): Promise<PickupStoreRow> => {

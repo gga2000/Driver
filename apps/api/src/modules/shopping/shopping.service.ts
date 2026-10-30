@@ -234,7 +234,8 @@ export class ShoppingService implements ShoppingPort {
     const q = input.search.trim();
     const all = await this.catalog.storefronts(input.cityId);
     return all
-      .filter((s) => !q || s.nameAr.includes(q) || s.cuisineAr.includes(q))
+      // BENCH-04: the store reviewers' hidden test kitchen is never offered to customers.
+      .filter((s) => !s.isTest && (!q || s.nameAr.includes(q) || s.cuisineAr.includes(q)))
       .slice(0, 20)
       .map((s) => ({ id: s.orgId, name: s.nameAr, kind: s.cuisineAr }));
   }
@@ -423,6 +424,7 @@ export class ShoppingService implements ShoppingPort {
   private async shopsIn(cityId: string): Promise<{ kind: ShopKind; front: StorefrontRecord }[]> {
     const fronts = await this.catalog.storefronts(cityId);
     return fronts.flatMap((front) => {
+      if (front.isTest) return [];
       const kind = shopKindOf(front);
       return kind ? [{ kind, front }] : [];
     });
