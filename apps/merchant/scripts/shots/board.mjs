@@ -39,12 +39,13 @@ export default {
     await shot('snoozed');
     await byTestId('alarm-unsnooze').click();
 
-    // Missed orders: the «فاتك اليوم» chip in the status bar (a dot until seen); its sheet says what
-    // happened and offers busy mode or a short close. Closing it counts as seen.
+    // Missed orders: «فاتك اليوم» lives in the header's «…» (a dot on «…» until seen); its sheet says
+    // what happened and offers busy mode or a short close. Closing it counts as seen.
     await demoPost('/demo/board/missed?count=2');
-    await byTestId('missed-chip').waitFor({ timeout: 15_000 });
+    await byTestId('header-more-dot').waitFor({ timeout: 15_000 });
     await page.waitForTimeout(1500);
     await shot('missed');
+    await byTestId('header-more').click();
     await byTestId('missed-chip').click();
     await byTestId('missed-new').waitFor();
     await shot('missed-sheet');
@@ -121,12 +122,11 @@ export default {
     // Cash balance and "اطلب فلوسك" (on a phone it lives in "…" too). The detail and receipt sheets
     // must be gone first, or the tap on "…" lands on a closing sheet. Once the tablet run has asked
     // for the money the pill says «طلبت فلوسك» and has no button: the phone run then shoots the menu.
-    if (phone) {
-      await byTestId('order-detail').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
-      await byTestId('receipt-preview').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
-      await byTestId('header-more').click();
-      await byTestId('header-menu').waitFor();
-    }
+    // The money line lives in the header's «…» on every size.
+    await byTestId('order-detail').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
+    await byTestId('receipt-preview').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
+    await byTestId('header-more').click();
+    await byTestId('header-menu').waitFor();
     if (await byTestId('request-money').waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) {
       await byTestId('request-money').click();
       await byTestId('cash-sheet').waitFor();

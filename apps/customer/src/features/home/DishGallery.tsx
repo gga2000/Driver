@@ -4,11 +4,12 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { formatClock } from '@driver/i18n';
+import { formatHourPart } from '@driver/i18n';
 import { Icon, PhotoImage, Text, useTheme, withAlpha } from '@driver/ui';
 import { measure } from '@/features/food/FlyToCart';
 import { FoodPhoto } from '@/features/food-landing/FoodPhoto';
 import type { FoodPhotoSource } from '@/features/food-landing/photos';
+import { markIftarOrder } from '@/features/season/iftar-order';
 import { useLocale, useT } from '@/lib/i18n';
 import { iqd } from '@/lib/money';
 import { AMBIENT_PLAY_MS, useAmbient } from './ambient';
@@ -54,6 +55,7 @@ export function DishGallery({
   visible,
   basket,
   now,
+  forIftar = false,
   testID = 'home-gallery',
 }: {
   slides: readonly HourDish[];
@@ -64,6 +66,8 @@ export function DishGallery({
   visible: boolean;
   basket: BandBasket;
   now: Date;
+  /** Ramadan, the fast still on and the iftar slot open: a one-tap dish is added for iftar (concept C). */
+  forIftar?: boolean;
   testID?: string;
 }) {
   const theme = useTheme();
@@ -163,6 +167,7 @@ export function DishGallery({
               minutes={minutesOf(h.dish.restaurantId)}
               basket={basket}
               now={now}
+              forIftar={forIftar}
               onNext={() => {
                 stopTour();
                 goTo(index + 1);
@@ -208,6 +213,7 @@ function Slide({
   minutes,
   basket,
   now,
+  forIftar,
   onNext,
   onPrev,
   onUse,
@@ -227,6 +233,7 @@ function Slide({
   minutes: number | null;
   basket: BandBasket;
   now: Date;
+  forIftar: boolean;
   onNext: () => void;
   onPrev: () => void;
   onUse: () => void;
@@ -242,10 +249,15 @@ function Slide({
   const price = iqd(d.priceIqd, { locale });
   const inBasket = basket.countOf(d);
   const quick = d.quickAdd && d.available;
+  // «على الفطور»: added for iftar, and checkout opens on the iftar slot for this kitchen.
+  const iftar = forIftar && quick;
   const ink = theme.colors.photoBackdrop;
   const on = theme.colors.onPhotoBackdrop;
-  const tag = h.pot ? [t('pots.badge'), h.pot.until ? t('pots.until', { time: formatClock(potUntilAt(h.pot.until, now)) }) : null].filter(Boolean).join(' · ') : null;
-  const meta = [d.restaurantName, h.line, minutes ? t('food.minutes', { n: minutes }) : null].filter(Boolean).join(' · ');
+  // «لحد 10 بالليل», the way people say it, not «10:00 م».
+  const tag = h.pot ? [t('pots.badge'), h.pot.until ? t('pots.until', { time: formatHourPart(potUntilAt(h.pot.until, now), { locale }) }) : null].filter(Boolean).join(' · ') : null;
+  // The kitchen and its line give way before the minutes do: the time is never cut (home roast 4).
+  const meta = [d.restaurantName, h.line].filter(Boolean).join(' · ');
+  const mins = minutes ? t('food.minutes', { n: minutes }) : null;
   const slide = useAnimatedStyle(() => ({ transform: [{ translateX: (i - pos.value) * step * dir }] }));
   const open = () => {
     if (justDragged()) return;
@@ -256,6 +268,7 @@ function Slide({
   const add = () => {
     if (!quick) return open();
     onUse();
+    if (iftar) markIftarOrder(d.restaurantId);
     void measure(pic).then((from) => basket.add(d, from));
   };
   const uri = failed ? null : photo?.uri;
@@ -312,9 +325,16 @@ function Slide({
           <Text face="display" weight={700} color={on} numberOfLines={2} maxFontSizeMultiplier={1.25} style={{ fontSize: 24, lineHeight: 34 }}>
             {d.name}
           </Text>
-          <Text variant="footnote" color={withAlpha(on, 0.84)} numberOfLines={1} tabular>
-            {meta}
-          </Text>
+          <View style={{ flexDirection: 'row', minWidth: 0 }}>
+            <Text variant="footnote" color={withAlpha(on, 0.84)} numberOfLines={1} tabular style={{ flexShrink: 1 }}>
+              {meta}
+            </Text>
+            {mins ? (
+              <Text variant="footnote" color={withAlpha(on, 0.84)} numberOfLines={1} tabular style={{ flexShrink: 0 }}>
+                {` · ${mins}`}
+              </Text>
+            ) : null}
+          </View>
           <Text face="display" weight={700} color={on} tabular numberOfLines={1} style={{ marginTop: 2, fontSize: 16, lineHeight: 24 }}>
             {price}
           </Text>
@@ -322,7 +342,7 @@ function Slide({
         <Pressable
           testID={`${testID}-add`}
           accessibilityRole="button"
-          accessibilityLabel={quick ? t('home.dish_add_a11y', { dish: d.name }) : t('home.gallery_open_a11y', { dish: d.name })}
+          accessibilityLabel={iftar ? t('home.gallery_iftar_a11y', { dish: d.name }) : quick ? t('home.dish_add_a11y', { dish: d.name }) : t('home.gallery_open_a11y', { dish: d.name })}
           onPress={() => {
             theme.haptic('light');
             add();
@@ -331,7 +351,7 @@ function Slide({
         >
           {quick ? <Icon name="plus" size={16} color="onAccent" strokeWidth={2.6} /> : null}
           <Text variant="button" weight={700} color="onAccent" tabular numberOfLines={1}>
-            {!quick ? t('home.gallery_open') : inBasket > 0 ? t('home.gallery_more') : t('home.gallery_add')}
+            {!quick ? t('home.gallery_open') : inBasket > 0 ? t('home.gallery_more') : iftar ? t('home.gallery_iftar') : t('home.gallery_add')}
           </Text>
         </Pressable>
       </View>
@@ -340,7 +360,7 @@ function Slide({
 }
 
 /** Where the gallery is: a dot per slide, the one in view a saffron pill that slides with the photo. */
-function Dots({ count, pos, dir, onPick, testID }: { count: number; pos: SharedValue<number>; dir: number; onPick: (i: number) => void; testID: string }) {
+export function Dots({ count, pos, dir, onPick, testID }: { count: number; pos: SharedValue<number>; dir: number; onPick: (i: number) => void; testID: string }) {
   const theme = useTheme();
   const pill = useAnimatedStyle(() => ({ transform: [{ translateX: Math.max(0, Math.min(count - 1, pos.value)) * DOT_SLOT * dir }] }));
   return (

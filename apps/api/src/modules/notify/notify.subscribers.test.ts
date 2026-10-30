@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { EventHandler, PublishedEvent } from '../events/index.js';
 import type { NotifyLookups } from './notify.lookups.js';
 import { decodeRajaaPassPush } from '@driver/contracts';
-import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor } from './notify.subscribers.js';
+import { NOTIFY_EVENT_TYPES, NOTIFY_SUBSCRIBER, passUpdatesFor, registerNotifySubscribers, requestsFor, twinStillWanted } from './notify.subscribers.js';
+import { render } from './render.js';
 import { notifyHarness } from './test-harness.js';
 
 const AT = new Date('2026-10-04T09:30:00Z'); // 12:30 Baghdad
@@ -52,9 +53,18 @@ describe('notify subscribers: events → notifications', () => {
       { template: 'merchant_new_order', to: 'staff', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
       { template: 'merchant_new_order', to: 'owner', params: { id: '1284', items: '3 أصناف', orderId: 'ord_1' } },
     ]);
+    // MER-05: the push says which store, so a tap on a device that works for two opens the right board.
+    expect((await requestsFor(event('order.offered_to_merchant', { merchantOrgId: 'org_k' }, { orderId: 'ord_1' }), d)).map((r) => r.data)).toEqual([
+      { orderId: 'ord_1', merchantOrgId: 'org_k' },
+      { orderId: 'ord_1', merchantOrgId: 'org_k' },
+    ]);
     expect(await one(event('order.delivered', {}, { orderId: 'ord_1' }))).toEqual([{ template: 'order_receipt', to: 'cust', params: { merchant: 'مطعم خالد', amount: '12,500', receiptUrl: 'https://driver.iq/r/ord_1', orderId: 'ord_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ride_1', actorId: 'drv' }))).toEqual([{ template: 'ride_receipt', to: 'cust', params: { amount: '4,000', driver: 'حيدر', receiptUrl: 'https://driver.iq/r/ride_1', orderId: 'ride_1' } }]);
     expect(await one(event('order.completed', {}, { orderId: 'ord_1' }))).toEqual([]);
+    // No receipt address set: the receipt still goes, with «تلگاه بالتطبيق» and no link.
+    const noReceiptUrl = await requestsFor(event('order.delivered', {}, { orderId: 'ord_1' }), { ...d, receiptBaseUrl: null });
+    expect(noReceiptUrl.find((r) => r.template === 'order_receipt')?.params).toMatchObject({ receiptUrl: 'تلگاه بالتطبيق' });
+    expect(render('order_receipt', noReceiptUrl.find((r) => r.template === 'order_receipt')!.params as Record<string, string>, 'ar-IQ').whatsapp?.text).toBe('وصل طلبك من مطعم خالد. المجموع 12,500 دينار. الوصل: تلگاه بالتطبيق');
     // Maps program SP5b: "الدليفري يوصل بعد دقيقتين" with the cash to have ready; rides never get it.
     expect(await one(event('stop.courier_near', { stopId: 's2', distanceM: 480 }, { orderId: 'ord_1', actorId: 'courier' }))).toEqual([
       { template: 'courier_arriving', to: 'cust', params: { name: '', courier: 'كرار', merchant: 'مطعم خالد', amount: '12,500', orderId: 'ord_1' } },
@@ -70,6 +80,11 @@ describe('notify subscribers: events → notifications', () => {
     // Menu photo service (maps k3): the visit's photos are handed over — «صور المنيو جاهزة» to the owners.
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1', merchantOrgId: 'org_k', photos: 4 }))).toEqual([{ template: 'menu_photos_ready', to: 'owner', params: { store: 'مطعم خالد' } }]);
     expect(await one(event('menu_photos.shot', { requestId: 'mpr_1' }))).toEqual([]);
+    // «فريقنا عدّل بمحلك»: the team changed the shop from the Console — the owners only, a fixed phrase, never free text.
+    expect(await one(event('stores.console_changed', { merchantOrgId: 'org_k', kind: 'prices' }))).toEqual([{ template: 'merchant_staff_changed', to: 'owner', params: { change: 'غيّرنا أسعار بالمنيو' } }]);
+    expect(render('merchant_staff_changed', { change: 'غيّرنا أسعار بالمنيو' }, 'ar-IQ').body).toBe('غيّرنا أسعار بالمنيو. كل التعديلات بالتطبيق');
+    expect(await one(event('stores.console_changed', { merchantOrgId: 'org_k', kind: 'زاد «فلافل»' }))).toEqual([]);
+    expect(await one(event('stores.console_changed', { kind: 'menu' }))).toEqual([]);
     // «جهّز محلك»: ops approved the shop — its owners (never the onboarding contact as such) hear it is live.
     const activated = event('merchant.activated', { onboardingId: 'onb_1', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'someone', reason: null });
     expect(await one(activated)).toEqual([{ template: 'merchant_activated', to: 'owner', params: { shop: 'مطعم خالد', next: 'افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.' } }]);
@@ -85,6 +100,13 @@ describe('notify subscribers: events → notifications', () => {
     expect(await one(event('order.late_credit', { customerId: 'cust', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
     // The tip after a 4–5 rating (Ali, 2026-10-06): «علي كرمك 1,000 دينار» to the driver who carried it.
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', tripId: 't1', amountIqd: 1000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'الزبون', amount: '1,000', id: '1284' } }]);
+    // The desk took the job off him before pickup: he hears it; other trip ends tell him nothing here.
+    const cancelled = (payload: Record<string, unknown>, actorId = 'ops') => event('trip.cancelled', { courierId: 'courier', orderIds: ['ord_1'], reason: 'واگف', ...payload }, { tripId: 't1', actorId });
+    expect(await one(cancelled({ by: 'platform' }))).toEqual([{ template: 'partner_job_taken_off', to: 'courier', params: { id: '1284' } }]);
+    expect(await one(cancelled({ by: 'platform' }, 'system'))).toEqual([]);
+    expect(await one(cancelled({ by: 'platform', reason: 'all_orders_detached' }))).toEqual([]);
+    expect(await one(cancelled({ by: 'driver' }, 'courier'))).toEqual([]);
+    expect(await one(cancelled({ by: 'platform', courierId: null }))).toEqual([]);
     expect(await one(event('order.tipped', { customerId: 'drv', courierId: 'courier', tripId: 't1', amountIqd: 2000 }, { orderId: 'ord_1' }))).toEqual([{ template: 'tip_received', to: 'courier', params: { name: 'حيدر', amount: '2,000', id: '1284' } }]);
     expect(await one(event('order.tipped', { customerId: 'cust', courierId: 'courier', amountIqd: 0 }, { orderId: 'ord_1' }))).toEqual([]);
     // Joy l4: the customer's kind words after a 4–5 rating, to the courier who carried it (unknown keys dropped).
@@ -364,8 +386,13 @@ describe('a ride booked for someone else (ride ideas c9/s3)', () => {
     expect(out[1]).toMatchObject({ template: 'ride_for_rider', to: 'mum', params: { code: '4821' } });
   });
 
-  it('no link, no message; an unknown car or booker name still says who is coming', async () => {
-    expect((await run(matched, forMum({ shareLink: async () => null }))).map((r) => r.template)).toEqual(['ride_matched']);
+  it('no link (no share address set): the rider still hears who is coming, without the link; an unknown car or booker name still says who is coming', async () => {
+    const noLink = await run(matched, forMum({ shareLink: async () => null }));
+    expect(noLink.map((r) => r.template)).toEqual(['ride_matched', 'ride_for_rider']);
+    expect(noLink[1]!.params).toEqual({ booker: 'علي', driver: 'حيدر', car: 'تويوتا كورولا · أبيض', plate: 'بغداد 12345', orderId: 'ride_2' });
+    const sms = render('ride_for_rider', noLink[1]!.params as Record<string, string>, 'ar-IQ').sms;
+    expect(sms).toBe('درايفر: علي حجزلك مشوار. السايق حيدر جاي بـتويوتا كورولا · أبيض، اللوحة بغداد 12345.');
+    expect(render('ride_for_rider', { ...(noLink[1]!.params as Record<string, string>), code: '4821' }, 'ar-IQ').sms).toContain('رمز المشوار 4821');
     const out = await run(matched, forMum({ driverCar: async () => null, firstName: async (p) => (p === 'drv' ? 'حيدر' : null) }));
     expect(out[1]!.params).toMatchObject({ booker: 'واحد من أهلك', car: 'تكسي', plate: '—' });
   });
@@ -411,6 +438,22 @@ describe('W2: the turns that used to leave the customer staring at a screen', ()
     expect(await run(cancel('payer_no_answer'))).toEqual([{ template: 'order_payer_no_answer', to: 'cust', params: { orderId: 'ord_1' } }]);
     expect(await run(cancel('ops_cancelled'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }]);
     expect(await run(cancel('changed_mind', 'customer_cancelled'))).toEqual([]);
+  });
+
+  it('an order the kitchen had accepted is cancelled: everyone at the store hears «انلغى طلب #…», once, whoever cancelled', async () => {
+    const cancel = (from: string, cancelledState: string, reason: string) => event('order.cancelled', { from, to: cancelledState, cancelledState, by: cancelledState === 'customer_cancelled' ? 'customer' : 'platform', reason, free: true, feeIqd: 0 }, { orderId: 'ord_1' });
+    const kitchen = [
+      { template: 'merchant_order_cancelled', to: 'staff', params: { id: '1284', orderId: 'ord_1' } },
+      { template: 'merchant_order_cancelled', to: 'owner', params: { id: '1284', orderId: 'ord_1' } },
+    ];
+    expect(await run(cancel('preparing', 'customer_cancelled', 'changed_mind'))).toEqual(kitchen);
+    expect(await run(cancel('merchant_accepted', 'customer_cancelled', 'staff_on_behalf'))).toEqual(kitchen);
+    // Staff ended it: the customer hears it from `order.ops_cancelled`, the kitchen from this event.
+    expect(await run(cancel('ready', 'platform_cancelled', 'staff_cancelled'))).toEqual(kitchen);
+    expect(await run(cancel('preparing', 'platform_cancelled', 'ops_cancelled'))).toEqual([{ template: 'order_cancelled', to: 'cust', params: { orderId: 'ord_1' } }, ...kitchen]);
+    // Not yet accepted: nothing was being cooked, so the kitchen's board just updates.
+    expect(await run(cancel('placed', 'customer_cancelled', 'changed_mind'))).toEqual([]);
+    expect(await run(event('order.ops_cancelled', { customerId: 'cust', from: 'preparing' }, { orderId: 'ord_1' }))).toEqual([{ template: 'order_ops_cancelled', to: 'cust', params: { id: '1284', orderId: 'ord_1' } }]);
   });
 
   it('picked up: the order screen’s own arrival time, or no time at all when none can be read', async () => {
@@ -499,5 +542,76 @@ describe('W3 staff outcomes → the customer', () => {
     expect(await one(event('order.ops_cancelled', {}, { orderId: 'ord_1' }))).toEqual([]);
     // The state change behind a staff cancel sends nothing of its own: one message, not two.
     expect(await one(event('order.cancelled', { cancelledState: 'platform_cancelled', by: 'platform', reason: 'staff_cancelled' }, { orderId: 'ord_1' }))).toEqual([]);
+  });
+});
+
+describe('SMS twin still wanted', () => {
+  const L = { order: async (id: string) => (id === 'ord_wait' || id === 'ord_done' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'org_k', totalIqd: 0, itemCount: 1, waitingForKitchen: id === 'ord_wait' } : null) };
+  it('a new-order text only while the order still waits for the kitchen; other messages always', async () => {
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_wait' })).toBe(true);
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'ord_done' })).toBe(false);
+    expect(await twinStillWanted(L, { template: 'merchant_new_order', orderId: 'gone' })).toBe(true);
+    expect(await twinStillWanted(L, { template: 'order_accepted', orderId: 'ord_done' })).toBe(true);
+  });
+  it('fails safe: an order that cannot be read (null or a failed lookup) still gets its text', async () => {
+    expect(await twinStillWanted({ order: async () => null }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+    expect(await twinStillWanted({ order: async () => Promise.reject(new Error('db down')) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+    // A lookup that does not say (an older binding without the field) is not "answered" either.
+    expect(await twinStillWanted({ order: async (id) => ({ id, type: 'food', customerId: 'c', merchantOrgId: 'm', totalIqd: 0, itemCount: 1 }) }, { template: 'merchant_new_order', orderId: 'ord_x' })).toBe(true);
+  });
+});
+
+describe('staff.new_device', () => {
+  it('pushes every admin the event names, never the staff member himself', async () => {
+    const h = notifyHarness();
+    const d = { ...deps(h), lookups: { ...lookups, firstName: async (id: string) => (id === 'p_zainab' ? 'زينب' : null) } };
+    const one = async (e: PublishedEvent) => (await requestsFor(e, d)).map((r) => ({ template: r.template, to: r.to, params: r.params }));
+    expect(NOTIFY_EVENT_TYPES).toContain('staff.new_device');
+    expect(await one(event('staff.new_device', { personId: 'p_zainab', platform: 'web', adminIds: ['p_ali', 'p_zainab'] }))).toEqual([
+      { template: 'staff_new_device', to: 'p_ali', params: { name: 'زينب', device: 'متصفح جديد' } },
+    ]);
+    expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'android', adminIds: ['p_ali'] }))).toEqual([
+      { template: 'staff_new_device', to: 'p_ali', params: { name: 'موظف', device: 'موبايل جديد' } },
+    ]);
+    expect(await one(event('staff.new_device', { personId: 'p_x', platform: 'web', adminIds: [] }))).toEqual([]);
+  });
+});
+
+describe('notify subscribers: أكل بيت activation link', () => {
+  const merchantAppUrl = 'https://merchant.driver.iq/';
+  const activated = (extra: Record<string, unknown>) => event('merchant.activated', { onboardingId: 'onb_h', merchantOrgId: 'org_k', cityId: 'aziziyah', contactPersonId: 'owner', reason: null, ...extra });
+
+  it("a home kitchen's welcome opens «أكلاتي» (/home-kitchen) and asks her to add her dishes, not set up a shop", async () => {
+    const h = notifyHarness();
+    const got = await requestsFor(activated({ type: 'home_kitchen' }), { ...deps(h), merchantAppUrl });
+    expect(got.map((r) => ({ template: r.template, to: r.to, shop: r.params?.['shop'] }))).toEqual([{ template: 'home_kitchen_activated', to: 'owner', shop: 'مطعم خالد' }]);
+    const next = String(got[0]!.params?.['next']);
+    expect(next).toContain('https://merchant.driver.iq/home-kitchen');
+    expect(next).toContain('أكلاتك');
+    expect(next).not.toContain('/setup');
+    expect(next).not.toContain('كمّل تجهيز محلك');
+  });
+
+  it('with no Merchant app link, a home kitchen hears the app text about her dishes; a shop keeps the setup text', async () => {
+    const h = notifyHarness();
+    const home = await requestsFor(activated({ type: 'home_kitchen' }), deps(h));
+    const next = String(home[0]!.params?.['next']);
+    expect(next).toContain('أكلاتك');
+    expect(next).not.toContain('http');
+    expect(next).not.toContain('كمّل تجهيز محلك');
+    const shop = await requestsFor(activated({ type: 'restaurant' }), deps(h));
+    expect(shop.map((r) => r.params?.['next'])).toEqual(['افتح تطبيق درايفر للمحلات وكمّل تجهيز محلك.']);
+    expect(home.map((r) => r.template)).toEqual(['home_kitchen_activated']);
+    expect(shop.map((r) => r.template)).toEqual(['merchant_activated']);
+  });
+
+  it('a missing or any other type keeps the /setup link', async () => {
+    const h = notifyHarness();
+    for (const extra of [{}, { type: 'restaurant' }, { type: 'grocer' }, { type: 'HOME_KITCHEN' }, { type: null }]) {
+      const got = await requestsFor(activated(extra), { ...deps(h), merchantAppUrl });
+      expect(got.map((r) => r.params?.['next'])).toEqual(['كمّل تجهيز محلك من هنا: https://merchant.driver.iq/setup']);
+      expect(String(got[0]!.params?.['next'])).not.toContain('أكلاتك');
+      expect(got.map((r) => r.template)).toEqual(['merchant_activated']);
+    }
   });
 });

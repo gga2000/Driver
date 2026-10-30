@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { AgreementsService } from './agreements.service.js';
 import { DemandService } from './demand.service.js';
 import { DeparturesService } from './departures.service.js';
 import { RequestBoardService } from './request-board.service.js';
@@ -13,12 +14,14 @@ export interface RoutesTickResult {
   demandExpired: number;
   demandEscalated: number;
   requestsExpired: number;
+  agreementsExpired: number;
 }
 
 /**
  * The routes module's clock-driven rules, run every 15 s in one write: holds lapse, T−30 boarding
  * or low-fill cancel (this module owns low fill), arrived runs close, demand posts expire or
- * escalate, request-board posts expire. Every step is idempotent, so a missed tick only delays.
+ * escalate, request-board posts expire,
+ * agreed-price asks and prices lapse. Every step is idempotent, so a missed tick only delays.
  * Tests and the simulator call `tick()` on their own clock.
  */
 @Injectable()
@@ -32,6 +35,7 @@ export class RoutesScheduler implements OnModuleInit, OnModuleDestroy {
     private readonly departures: DeparturesService,
     private readonly demand: DemandService,
     private readonly requests: RequestBoardService,
+    private readonly agreements: AgreementsService,
     @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
   ) {}
 
@@ -51,6 +55,7 @@ export class RoutesScheduler implements OnModuleInit, OnModuleDestroy {
       const d = await this.departures.tick(tx);
       const m = await this.demand.tick(tx);
       const r = await this.requests.tick(tx);
+      const a = await this.agreements.tick(tx);
       return {
         expiredHolds: d.expired,
         boarding: d.boarding,
@@ -59,6 +64,7 @@ export class RoutesScheduler implements OnModuleInit, OnModuleDestroy {
         demandExpired: m.expired,
         demandEscalated: m.escalated,
         requestsExpired: r,
+        agreementsExpired: a,
       };
     });
   }

@@ -66,3 +66,18 @@ export function withIftarSlot(slots: readonly Date[], times: TimetableTimes | nu
 export function iftarLeadMinutes(times: TimetableTimes): number {
   return Math.round((times.iftarAt.getTime() - times.slotAt.getTime()) / MINUTE_MS);
 }
+
+/** How long before the adhan the Ramadan card starts naming kitchens: the afternoon, when town orders iftar. */
+export const IFTAR_ORDER_WINDOW_MIN = 180;
+
+/**
+ * The kitchens the Ramadan card names (map idea N2's iftar line, home roast 3 look R1): in the last
+ * hours before iftar, the open ones whose own longest time to the door still beats the adhan (real
+ * numbers only, never a promise the kitchen hasn't given); before suhoor, every open one; none in the
+ * morning or on the last evening. In the list's order (the person's own kitchens first).
+ */
+export function ramadanKitchens<K extends { open: boolean; etaMaxMinutes: number | null }>(kitchens: readonly K[], line: RamadanLine): K[] {
+  if (line.kind === 'none' || (line.kind === 'iftar' && line.minutes > IFTAR_ORDER_WINDOW_MIN)) return [];
+  const open = kitchens.filter((k) => k.open);
+  return line.kind === 'suhoor' ? open : open.filter((k) => k.etaMaxMinutes !== null && k.etaMaxMinutes <= line.minutes);
+}

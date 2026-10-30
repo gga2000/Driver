@@ -36,8 +36,11 @@ const STAFF = [
 ];
 const T0 = '2026-10-09T21:00:00Z';
 
-/** `watchCities`: the cities whose Console watches itself (none by default, so the SOS tests stay quiet). */
-function harness(watchCities: readonly string[] = []) {
+/**
+ * `watchCities`: the cities whose Console watches itself (none by default, so the SOS tests stay quiet).
+ * `consoleBase`: the Console address the WhatsApp links to (null: unset, no link).
+ */
+function harness(watchCities: readonly string[] = [], consoleBase: string | null = 'https://console.example.com') {
   const clock = new FakeClock(T0);
   const ev = createInMemoryEvents({ clock });
   const vault: string[] = [];
@@ -86,7 +89,7 @@ function harness(watchCities: readonly string[] = []) {
   const watch = new ConsoleWatchService(
     watchRepo,
     repo,
-    { cities: watchCities, consoleBase: 'https://console.driver.iq' },
+    { cities: watchCities, consoleBase },
     identity,
     notify,
     ev.uow,
@@ -95,7 +98,7 @@ function harness(watchCities: readonly string[] = []) {
   const make = () =>
     new OnCallService(
       repo,
-      { consoleBase: 'https://console.driver.iq', tickMs: 0 },
+      { consoleBase, tickMs: 0 },
       identity,
       notify,
       ev.events,
@@ -151,7 +154,10 @@ function harness(watchCities: readonly string[] = []) {
     });
   const whats = async (personId: string) =>
     (await nrepo.log({ personId, limit: 100 })).map((d) => d.payload.params['what']);
-  return { svc, make, repo, watchRepo, clock, ev, vault, controls, emit, raise, at, sent, shift, whats };
+  /** The WhatsApp texts `personId` got. */
+  const whatsapps = async (personId: string) =>
+    (await nrepo.log({ personId, limit: 100 })).filter((d) => d.channel === 'whatsapp').map((d) => d.payload.body ?? '');
+  return { svc, make, repo, watchRepo, clock, ev, vault, controls, emit, raise, at, sent, shift, whats, whatsapps };
 }
 
 describe('OnCallService — the SOS ladder (CON-02)', () => {
@@ -197,6 +203,22 @@ describe('OnCallService — the SOS ladder (CON-02)', () => {
       ['ring', 3],
       ['on_call_2', 1],
     ]);
+  });
+
+  it('links the on-call WhatsApp to the alert in the Console only when its address is set', async () => {
+    const linked = harness();
+    await linked.shift('p_noor', 1);
+    await linked.raise();
+    await linked.at(60);
+    expect(await linked.whatsapps('p_noor')).toEqual([expect.stringContaining('https://console.example.com/safety/sos_1')]);
+
+    const unset = harness([], null);
+    await unset.shift('p_noor', 1);
+    await unset.raise();
+    await unset.at(60);
+    const [body] = await unset.whatsapps('p_noor');
+    expect(body).not.toMatch(/https?:\/\//);
+    expect(body).toContain('رقم التنبيه: sos_1، افتح الكونسول من الكمبيوتر');
   });
 
   it('stops the moment someone takes it, and stays stopped when it is resolved', async () => {
@@ -447,6 +469,18 @@ describe('ConsoleWatchService — the Console watching itself', () => {
     expect(await h.sent('p_ali')).toHaveLength(2);
     await h.at(SIX + 700);
     expect(await h.sent('p_ali')).toHaveLength(4);
+  });
+
+  it('links the Console-watch WhatsApp to the Console only when its address is set', async () => {
+    const linked = harness(['aziziyah']);
+    await linked.at(SIX + 300);
+    expect(await linked.whatsapps('p_ali')).toEqual([expect.stringContaining('https://console.example.com')]);
+
+    const unset = harness(['aziziyah'], null);
+    await unset.at(SIX + 300);
+    const [body] = await unset.whatsapps('p_ali');
+    expect(body).not.toMatch(/https?:\/\//);
+    expect(body).toContain('افتح الكونسول من الكمبيوتر');
   });
 
   it('at night, only while someone is on call, and it tells them, not the admins', async () => {

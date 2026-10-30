@@ -10,9 +10,11 @@ import {
   type DrainableQueue,
   type DriverRun,
   type DoorCashRecord,
+  type ErrandReceiptRecord,
   type HandoverRecord,
   type HotWaitRecord,
   type ObservedOffer,
+  type AcceptedOfferRecord,
   type OrderRun,
   type ReplayRecord,
   type RestaurantRun,
@@ -40,7 +42,10 @@ export interface EngineOptions {
   dayStart: Date;
   /** Live mode: sim seconds per real second. In-process: 1 (the fake clock is the sim clock). */
   speed?: number;
-  /** In-process: the app's in-memory timer queues, drained as the fake clock advances. */
+  /**
+   * The app's in-memory timer queues, drained at every tick: in-process as the fake clock advances,
+   * and in a lock-step live run (tests, `fixedStep`) whose app clock follows the sim's time.
+   */
   queues?: readonly DrainableQueue[];
   /** In-process: moves the app's fake clock. Absent in live mode. */
   advanceClock?: (ms: number) => Date;
@@ -73,6 +78,8 @@ export class Simulation implements SimContext {
   readonly hotWaits: HotWaitRecord[] = [];
   readonly handovers: HandoverRecord[] = [];
   readonly doorCash = new Map<string, DoorCashRecord>();
+  readonly errandReceipts = new Map<string, ErrandReceiptRecord>();
+  readonly acceptedOffers: AcceptedOfferRecord[] = [];
   readonly offers: ObservedOffer[] = [];
 
   readonly dispatchLog: DispatchMoment[] = [];
@@ -231,12 +238,10 @@ export class Simulation implements SimContext {
 
   /** Advances the fake clock by `dtSec` (in-process) and runs one step of every actor. */
   async tick(dtSec: number): Promise<void> {
-    if (this.opts.advanceClock) {
-      this.t = this.opts.advanceClock(dtSec * 1000).getTime();
-      await this.drainTimers();
-    } else {
-      this.t += dtSec * 1000;
-    }
+    if (this.opts.advanceClock) this.t = this.opts.advanceClock(dtSec * 1000).getTime();
+    else this.t += dtSec * 1000;
+    // In-process, and live runs in lock-step (tests): the app's timers due by now fire before anyone acts.
+    await this.drainTimers();
     if (this.t - this.lastRetryDrainT >= 60_000) {
       this.lastRetryDrainT = this.t;
       await this.call('events.drain', () => this.s.events.drain());
@@ -284,7 +289,18 @@ export class Simulation implements SimContext {
       }
     if (this.t - this.lastDispatcherT >= 15_000) {
       this.lastDispatcherT = this.t;
+      const before = this.dispatcher.overrides.length;
       await dispatcherStep(this, this.cards, this.dispatcher);
+      // The desk's offer reaches the chosen driver's phone at once (as a push does), not on the next
+      // board read a tick later: with live ticks of 6 s or more, that extra tick plus his reaction
+      // often ran past the 15-s offer timer, so desk offers timed out unanswered.
+      for (const o of this.dispatcher.overrides.slice(before)) {
+        const card = this.cards.find((c) => c.tripId === o.tripId);
+        if (!card) continue;
+        const list = byDriver.get(o.driverId) ?? [];
+        list.push({ card, offerId: o.offerId });
+        byDriver.set(o.driverId, list);
+      }
     }
 
     // Drivers act a moment after the desk: on a fake clock everything in a tick shares one
@@ -327,6 +343,7 @@ export class Simulation implements SimContext {
       freeCancelSeen: false,
       answersAt: null,
       lastCourierId: null,
+      shoppedT: null,
     };
   }
 
@@ -453,7 +470,10 @@ export class Simulation implements SimContext {
     const ledgerById = new Map<string, Awaited<ReturnType<SimServices['ledger']['eventsFor']>>[number]>();
     for (const account of await this.s.ledger.accounts()) for (const e of await this.s.ledger.eventsFor(account)) ledgerById.set(e.id, e);
     const merchants = [];
-    for (const r of this.restaurants) merchants.push({ merchantId: r.orgId, balanceIqd: (await this.s.merchantCash.balance(r.orgId)).balanceIqd });
+    for (const r of this.restaurants) {
+      const view = await this.s.merchantCash.balance(r.orgId);
+      merchants.push({ merchantId: r.orgId, balanceIqd: view.balanceIqd, holders: view.holders });
+    }
     // G-91: who the guarantee covers, their offer answers (from the log), and the settled shifts of the day.
     const covered: string[] = [];
     const offerAnswers: GuaranteeSnapshot['offers'] = [];
@@ -481,6 +501,8 @@ export class Simulation implements SimContext {
       hotWaits: [...this.hotWaits],
       handovers: [...this.handovers],
       doorCash: [...this.doorCash.values()],
+      errandReceipts: [...this.errandReceipts.values()],
+      acceptedOffers: [...this.acceptedOffers],
       merchants,
       guarantee: { covered, offers: offerAnswers, windows },
       rideStarts,

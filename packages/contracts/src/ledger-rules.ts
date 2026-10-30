@@ -9,9 +9,25 @@ import { Iqd } from './common.js';
 
 const Rate = z.number().min(0).max(1);
 
-/** Restaurant commission tier (money §1); the base is the item subtotal after merchant-funded discounts (G-87). */
-export const CommissionTier = z.enum(['base', 'featured', 'marketing', 'pickup']);
+/**
+ * Restaurant commission tier (money §1); the base is the item subtotal after merchant-funded discounts (G-87).
+ * `starter` (Ali, 2026-10-11): a new restaurant's rate for its first two months. Nothing moves it off
+ * starter by itself: the Console reminds finance after `STARTER_COMMISSION.reviewAfterDays` and a person
+ * picks the next tier. `home`: أكل بيت, a home cook's kitchen (Ali, 2026-10-11: 10 %). `featured` is a rate only; it never changes where a store is listed.
+ */
+export const CommissionTier = z.enum(['starter', 'base', 'featured', 'marketing', 'pickup', 'home']);
 export type CommissionTier = z.infer<typeof CommissionTier>;
+
+/** The tiers a restaurant can be put on (`pickup` is the rate of pickup orders, not a store's tier). */
+export const MerchantCommissionTier = CommissionTier.exclude(['pickup']);
+export type MerchantCommissionTier = z.infer<typeof MerchantCommissionTier>;
+
+/**
+ * The starter period (Ali, 2026-10-11: "two months then decide later"). It is counted from the day the
+ * restaurant was added (onboarding); after 7 weeks the Console shows finance a reminder so the next
+ * rate is chosen before the two months are up. Nothing switches automatically.
+ */
+export const STARTER_COMMISSION = { reviewAfterDays: 49, periodDays: 60 } as const;
 
 /** Ride/seat/parcel service classes with their own platform take (money §3). */
 export const TakeClass = z.enum(['tuktuk', 'car', 'intercity_seat', 'front_seat_premium', 'intercity_private', 'khat_seat', 'parcel', 'parcel_intercity']);
@@ -76,7 +92,7 @@ export const AZIZIYAH_GUARANTEE_SHIFTS: readonly PeakShift[] = [
 ];
 
 export const MoneyRules = z.object({
-  commission: z.object({ base: Rate, featured: Rate, marketing: Rate, pickup: Rate }),
+  commission: z.object({ starter: Rate, base: Rate, featured: Rate, marketing: Rate, pickup: Rate, home: Rate }),
   serviceFeeIqd: Iqd.nonnegative(),
   /**
    * J-D6 (Ali, 2026-10-05): `feeIqd` is charged on an order below the restaurant's own minimum
@@ -139,7 +155,12 @@ export const MoneyRules = z.object({
   }),
   newCustomerCash: z.object({ maxOrderIqd: Iqd.positive(), firstOrders: z.number().int().positive() }),
   merchant: z.object({ exposureCapIqd: Iqd.positive(), defaultMode: SettlementMode }),
-  adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative() }),
+  /**
+   * G-85 corrections: one above `secondApproverAboveIqd` waits for a second finance person; so does one
+   * that would take what this person posted alone today (Baghdad day) above `soloDailyMaxIqd`
+   * (Ali, 2026-10-12: 50,000 a day).
+   */
+  adjustments: z.object({ secondApproverAboveIqd: Iqd.nonnegative(), soloDailyMaxIqd: Iqd.nonnegative().default(50_000) }),
   /** G-86: platform → driver payout when the platform owes the driver more than this (or weekly). */
   driverPayoutAboveIqd: Iqd.nonnegative(),
   /**
@@ -221,12 +242,53 @@ export const MoneyRules = z.object({
    */
   driverCancelCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
   /**
+   * w4, a private «يستناك وترجع» trip: waiting past the driver's included hours adds his own extra-hour
+   * price per started hour, after `freeMin` free minutes (Ali, 2026-10-08: "do what is best and fair").
+   * Paid in cash at the end with the rest, part of the fare (the private take applies). Off until Ali
+   * switches it on: the clock still runs and shows, nothing is added.
+   */
+  requestWaitExtra: z.object({ enabled: z.boolean(), freeMin: z.number().int().nonnegative() }).default({ enabled: false, freeMin: 15 }),
+  /**
    * M-17, a merchant rejects an order after accepting it: the spec's 500 customer credit
    * (`ORDERS_RULES.merchantLateRejectCreditIqd`) goes to the customer's wallet, paid by the merchant.
    * Ali said "Yes, 500" on 2026-10-08. Off, the rejected event carries no credit and nothing posts.
    * See docs/api/merchant-late-reject.md.
    */
   merchantLateRejectCredit: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
+   * Step 4b, a6 «احجز وادفع كاش» on a private car (Ali, 2026-10-07 23:07; design vote 2026-10-08): the
+   * rider asks the driver who offered, the driver accepts, and the pick holds no deposit. The deposit
+   * amount (20 %, at least 5,000) stays the no-show amount: a rider no-show or late cancel puts it on his
+   * wallet as debt, paid to the driver; a driver no-show credits it to the rider from the driver. Off
+   * until Ali switches it on: no ask is taken and every pick holds the deposit.
+   */
+  requestCashReservation: z.object({ enabled: z.boolean() }).default({ enabled: false }),
+  /**
+   * Step 6 (Ali's price item 56, rules s1–s4, 2026-10-07): the booker of a private car shares it by a
+   * link. The car's price is split evenly over the people he asked for (each place rounded down to
+   * 250, the rest on him); a friend pays his places from his wallet (held until the trip ends, then
+   * paid to the driver). Joining closes `closeBeforeMin` before the trip; places nobody took stay the
+   * booker's, in cash (s3). A cancelled or failed trip releases each friend's hold (s4). Off until Ali
+   * switches it on: no link can be opened.
+   */
+  requestSharing: z
+    .object({ enabled: z.boolean(), closeBeforeMin: z.number().int().min(30).max(1_440) })
+    .default({ enabled: false, closeBeforeMin: 120 }),
+  /**
+   * Step 5 (Ali's price item 51, 2026-10-07): a الرجعة seat and the seat back on the same road, booked
+   * before the first car leaves, each take `percent` off the seat price (seats only, not the front
+   * premium or pickup and drop fees), rounded down to 250. `fundedBy` platform: the driver is still
+   * paid on the full seat and the company covers the discount; driver: the fare itself is lower.
+   * The pair's discount never exceeds what the later booking's seats cost. Off until Ali switches it
+   * on: no pair is made and every seat costs the full price.
+   */
+  intercityReturnBundle: z
+    .object({
+      enabled: z.boolean(),
+      percent: z.number().int().min(1).max(50),
+      fundedBy: z.enum(['platform', 'driver']),
+    })
+    .default({ enabled: false, percent: 10, fundedBy: 'platform' }),
   /**
    * x3, a الرجعة rider's seat held because our own taxi to the garage ran late: the late meter's blocks
    * for those minutes (1,000 to the driver, 500 to each waiting rider, per 10 min) are paid by the
@@ -244,7 +306,7 @@ export function bookedFallbackCompensationIqd(rules: Pick<MoneyRules, 'bookedRid
 }
 
 export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
-  commission: { base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05 },
+  commission: { starter: 0.05, base: 0.12, featured: 0.15, marketing: 0.18, pickup: 0.05, home: 0.1 },
   serviceFeeIqd: 500,
   smallOrder: { belowIqd: 5000, feeIqd: 500 },
   batchedSecondCourierShare: 0.7,
@@ -273,7 +335,7 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   },
   newCustomerCash: { maxOrderIqd: 25000, firstOrders: 3 },
   merchant: { exposureCapIqd: 300000, defaultMode: 'nightly_courier' },
-  adjustments: { secondApproverAboveIqd: 25000 },
+  adjustments: { secondApproverAboveIqd: 25000, soloDailyMaxIqd: 50000 },
   driverPayoutAboveIqd: 20000,
   // G-91 switched off by Ali on 2026-10-06 (open decision): no top-ups, nothing shown in the apps.
   guarantee: { enabled: false, amountIqd: 10000, minAcceptance: 0.85, maxCancelsAfterAccept: 1, minCompletedJobs: 3, peaks: [...AZIZIYAH_GUARANTEE_SHIFTS], roles: ['courier'] },
@@ -292,6 +354,14 @@ export const AZIZIYAH_MONEY_RULES: MoneyRules = MoneyRules.parse({
   bookedRideFallback: { enabled: false, pickupCompensationIqd: 0 },
   // M-15: on (Ali, 2026-10-07, "yes").
   driverCancelCredit: { enabled: true },
+  // w4: built 2026-10-08, off until Ali switches it on.
+  requestWaitExtra: { enabled: false, freeMin: 15 },
+  // Step 4b a6: built 2026-10-08, off until Ali switches it on.
+  requestCashReservation: { enabled: false },
+  // Step 5 item 51: built 2026-10-08, off until Ali switches it on (Ali, 2026-10-08: the company funds it).
+  intercityReturnBundle: { enabled: false, percent: 10, fundedBy: 'platform' },
+  // Step 6 item 56 (s1–s4): built 2026-10-08, off until Ali switches it on.
+  requestSharing: { enabled: false, closeBeforeMin: 120 },
   // M-17: on (Ali, 2026-10-08, "Yes, 500").
   merchantLateRejectCredit: { enabled: true },
   // x3: our late taxi's meter minutes are on the company (Ali, 2026-10-07, "yes").

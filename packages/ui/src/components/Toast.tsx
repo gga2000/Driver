@@ -37,6 +37,9 @@ const DEFAULT_ICON: Record<NonNullable<ToastData['tone']>, IconName> = {
   info: 'shield',
 };
 
+/** A screen's title bar (the stack header is 56–64 px): `top` toasts sit below it, never over the title and back button. */
+export const TOAST_HEADER_CLEARANCE = 64;
+
 /** Never vanish right after a finger lifts or focus leaves: at least this long after a pause. */
 const MIN_AFTER_PAUSE_MS = 2000;
 
@@ -82,9 +85,11 @@ export function Toast({ message, detail, tone = 'neutral', icon, action, placeme
   }, [leaving, onExited, o, y, edge, theme.reduceMotion, theme.motion]);
   const enter = useAnimatedStyle(() => ({ opacity: o.value, transform: [{ translateY: y.value }] }));
   const c = STATUS_TONES[tone];
-  // Inverted surface: the brand ink on light, cream on dark.
-  const bg = theme.scheme === 'light' ? theme.colors.text : theme.colors.surfaceRaised;
-  const fg = theme.scheme === 'light' ? theme.colors.bg : theme.colors.text;
+  // Inverted surface: the brand ink on light. On dark, the raised surface is close to the page, so a
+  // hairline edge and a deeper shadow make the toast read as a solid card above it (partner ember look).
+  const light = theme.scheme === 'light';
+  const bg = light ? theme.colors.text : theme.colors.surfaceRaised;
+  const fg = light ? theme.colors.bg : theme.colors.text;
   const hold = (held: boolean) => () => onHold?.(held);
   useAnnounce(detail ? `${message}. ${detail}` : message, { initial: true });
   return (
@@ -95,8 +100,10 @@ export function Toast({ message, detail, tone = 'neutral', icon, action, placeme
         {
           borderRadius: theme.radius.lg,
           backgroundColor: bg,
-          shadowColor: theme.colors.shadow,
-          shadowOpacity: theme.elevation[3].shadowOpacity,
+          borderWidth: light ? 0 : 1,
+          borderColor: light ? 'transparent' : theme.colors.borderStrong,
+          shadowColor: light ? theme.colors.shadow : '#000000',
+          shadowOpacity: light ? theme.elevation[3].shadowOpacity : 0.55,
           shadowRadius: theme.elevation[3].shadowRadius,
           shadowOffset: theme.elevation[3].shadowOffset,
           elevation: theme.elevation[3].elevation,
@@ -208,7 +215,7 @@ export function ToastProvider({
 }: {
   children: ReactNode;
   bottomOffset?: number;
-  /** Distance below the safe area for `placement: 'top'` toasts (default 8): an app with a status bar of its own keeps it uncovered. */
+  /** Distance below the safe area for `placement: 'top'` toasts (default: below a screen's title bar, TOAST_HEADER_CLEARANCE + 8). */
   topOffset?: number;
   /** Centred column on wide screens (tablets). */
   maxWidth?: number;
@@ -275,7 +282,7 @@ export function ToastProvider({
           pointerEvents="box-none"
           style={[
             { position: 'absolute', start: theme.space[4], end: theme.space[4], alignItems: 'center' },
-            (current.placement ?? defaultPlacement) === 'top' ? { top: insets.top + (topOffset ?? theme.space[2]) } : { bottom: bottomOffset },
+            (current.placement ?? defaultPlacement) === 'top' ? { top: insets.top + (topOffset ?? TOAST_HEADER_CLEARANCE + theme.space[2]) } : { bottom: bottomOffset },
           ]}
         >
           <View pointerEvents="box-none" style={{ width: '100%', maxWidth }}>

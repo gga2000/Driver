@@ -38,13 +38,16 @@ export interface OfflineBannerProps {
  * The one connection strip every app shows under the status banner: "النت مقطوع — نحاول نرجع…"
  * (offline), "ما نگدر نوصل لدرايفر — نحاول كل 5 ثواني" (API unreachable), "رجع النت" for a moment
  * after, and "التحديث متأخر" for a screen whose live data is old. Announced politely. Like every structural
- * warning it is the inverse ink banner (VIS-10), never a pale tint; the icon carries the colour.
+ * warning it is the inverse ink banner (VIS-10), never a pale tint; the icon carries the colour. At
+ * night a cream strip glares, so on dark it is the raised surface with a hairline edge instead.
  */
 export function OfflineBanner({ kind, ageSeconds, onRetry, locale, labels, topInset = 0, testID = 'offline-banner', style }: OfflineBannerProps) {
   const theme = useTheme();
   if (!kind) return null;
-  const fg = theme.colors.onInverse;
-  const mark = kind === 'back' ? theme.colors.onInverseSuccess : theme.colors.onInverseCaution;
+  const night = theme.scheme === 'dark';
+  const fg = night ? theme.colors.text : theme.colors.onInverse;
+  const muted = night ? theme.colors.borderStrong : theme.colors.onInverseMuted;
+  const mark = kind === 'back' ? (night ? theme.colors.successText : theme.colors.onInverseSuccess) : night ? theme.colors.warningText : theme.colors.onInverseCaution;
   const tr = (key: Parameters<typeof sharedT>[0], params?: Record<string, string | number>) => sharedT(key, params, locale);
   const ago = agoText(ageSeconds ?? 0, tr);
   const message =
@@ -54,7 +57,7 @@ export function OfflineBanner({ kind, ageSeconds, onRetry, locale, labels, topIn
         ? (labels?.back ?? tr('net.back'))
         : kind === 'offline'
           ? (labels?.offline ?? tr('net.offline'))
-          : (labels?.unreachable ?? tr('net.unreachable'));
+          : (labels?.unreachable ?? tr('net.unreachable_retrying'));
   const retry = kind === 'unreachable' && onRetry;
   return (
     <View
@@ -71,7 +74,9 @@ export function OfflineBanner({ kind, ageSeconds, onRetry, locale, labels, topIn
           paddingBottom: theme.space[2],
           paddingStart: theme.space[4],
           paddingEnd: retry ? theme.space[2] : theme.space[4],
-          backgroundColor: theme.colors.inverse,
+          backgroundColor: night ? theme.colors.surfaceRaised : theme.colors.inverse,
+          borderBottomWidth: night ? 1 : 0,
+          borderBottomColor: theme.colors.borderStrong,
         },
         style,
       ]}
@@ -94,8 +99,8 @@ export function OfflineBanner({ kind, ageSeconds, onRetry, locale, labels, topIn
             paddingHorizontal: theme.space[3],
             borderRadius: theme.radius.pill,
             borderWidth: 1,
-            borderColor: theme.colors.onInverseMuted,
-            backgroundColor: pressed ? theme.colors.onInverseMuted : 'transparent',
+            borderColor: muted,
+            backgroundColor: pressed ? muted : 'transparent',
           })}
         >
           <Icon name="refresh" size={16} color={fg} strokeWidth={2.2} />

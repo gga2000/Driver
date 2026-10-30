@@ -15,6 +15,10 @@
     "./dishes": {
       "types": "./src/dishes.ts",
       "default": "./src/dishes.ts"
+    },
+    "./lost-item": {
+      "types": "./src/lost-item.tsx",
+      "default": "./src/lost-item.tsx"
     }
   },
   "sideEffects": false,

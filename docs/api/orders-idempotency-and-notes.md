@@ -41,3 +41,19 @@ in kitchen notes for the "حساسية" pill — display only, nothing is refuse
 
 Migration `20261005150000_order_idempotency_courier_note`: two nullable columns and one unique index
 (no new table, so no `driver_harden` call).
+
+## Checkout speed (SCALE-24)
+
+`orders.place` used to wait for each check's read before starting the next, and wrote an order's
+participants and dishes one row at a time inside its transaction. Now:
+
+- **Reads run together, checks keep their order.** The two address look-ups, then the owed-fees read,
+  the new-customer cash cap, the household member, the wallet balance and the promised ride's routing
+  call all start at once (`later()` in `orders.service.ts`); each is still checked in its old place,
+  so the same refusal wins as before and a read nobody gets to is dropped quietly.
+- **One statement each** for the participants (`createManyAndReturn`) and the dishes (`createMany`).
+  Each row's `created_at` is the order's plus its position in ms, so lines read back in the order the
+  cart gave them and each dish keeps its participant.
+
+Unchanged: prices, checks, error codes, what is written. Proof: `later.test.ts`;
+`order-create.integration.test.ts` (Postgres: order and links kept, in and out of a transaction).

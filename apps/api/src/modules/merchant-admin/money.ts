@@ -1,6 +1,7 @@
 import {
   AZIZIYAH_MONEY_RULES,
   CommissionTier,
+  WALKUP_COMMISSION_MEMO,
   type CashHandover,
   type HandoverConfirmation,
   type MerchantBalanceView,
@@ -19,8 +20,15 @@ import {
 const TIERS = CommissionTier.options;
 
 function tierOf(memo: string | undefined): CommissionTier | null {
-  const t = memo?.startsWith('commission:') ? memo.slice('commission:'.length) : null;
+  // `commission:<tier>`, or a cart walk-over ticket's `commission:pickup:walkup:<id>`.
+  const t = memo?.startsWith('commission:') ? memo.slice('commission:'.length).split(':')[0] : null;
   return t && (TIERS as readonly string[]).includes(t) ? (t as CommissionTier) : null;
+}
+
+/** The cart walk-over ticket a commission line was charged on (memo `commission:pickup:walkup:<id>`), or null. */
+function walkupOf(l: Statement['lines'][number]): string | null {
+  const memo = l.memo ?? '';
+  return l.type === 'commission_accrued' && !l.orderId && memo.startsWith(WALKUP_COMMISSION_MEMO) ? memo.slice(WALKUP_COMMISSION_MEMO.length) || null : null;
 }
 
 /** Commission rate of a tier in percent, one decimal (0.12 → 12). */
@@ -53,6 +61,28 @@ export function dealCostByOrder(statement: Statement): Map<string, { itemsIqd: n
 export function orderLines(statement: Statement, orders: ReadonlyMap<string, Order>, rules: MoneyRules = AZIZIYAH_MONEY_RULES): StatementOrderLine[] {
   const byOrder = new Map<string, StatementOrderLine>();
   for (const l of statement.lines) {
+    const walkupId = walkupOf(l);
+    if (walkupId) {
+      // A cart walk-over ticket: paid to the cart in hand, so its only line is the commission he owes.
+      const tier = tierOf(l.memo);
+      byOrder.set(`walkup:${walkupId}`, {
+        orderId: walkupId,
+        at: l.occurredAt,
+        payment: 'cash',
+        itemsIqd: 0,
+        commissionTier: tier,
+        commissionPct: tier ? tierPct(tier, rules) : null,
+        commissionIqd: -l.amountIqd,
+        discountIqd: 0,
+        discountFunder: null,
+        dealIqd: 0,
+        roundingIqd: 0,
+        feesIqd: 0,
+        netIqd: l.amountIqd,
+        walkup: true,
+      });
+      continue;
+    }
     if (!l.orderId) continue;
     if (l.type !== 'merchant_payable' && l.type !== 'commission_accrued' && l.type !== 'cancellation_fee' && !isDealLine(l)) continue;
     const order = orders.get(l.orderId);
@@ -108,7 +138,8 @@ export function composeMoneyToday(input: {
   const deals = dealCostByOrder(input.statement);
   const tiers = new Map<CommissionTier, { baseIqd: number; commissionIqd: number; orders: number }>();
   for (const l of lines) {
-    if (!l.commissionTier) continue;
+    // A walk-over ticket's commission counts in the day's commission; its base (the ticket total) is not in the ledger.
+    if (!l.commissionTier || l.walkup) continue;
     const t = tiers.get(l.commissionTier) ?? { baseIqd: 0, commissionIqd: 0, orders: 0 };
     // G-87: the base is the items after the merchant's own items deal (free delivery is not in it).
     t.baseIqd += l.itemsIqd - (deals.get(l.orderId)?.itemsIqd ?? 0);
@@ -163,7 +194,7 @@ export function composeStatement(input: { merchantOrgId: string; from: Date; to:
     lines,
     settlements,
     totals: {
-      orders: lines.length,
+      orders: lines.filter((l) => !l.walkup).length,
       itemsIqd: lines.reduce((s, l) => s + l.itemsIqd, 0),
       commissionIqd: lines.reduce((s, l) => s + l.commissionIqd, 0),
       feesIqd: lines.reduce((s, l) => s + l.feesIqd, 0),
@@ -171,6 +202,7 @@ export function composeStatement(input: { merchantOrgId: string; from: Date; to:
       settledIqd,
       adjustmentsIqd: statementAdjustments(input.statement.openingIqd, netIqd, settledIqd, input.statement.closingIqd),
     },
+    rate: null,
   };
 }
 

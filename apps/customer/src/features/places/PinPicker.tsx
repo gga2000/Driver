@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import type { LatLng } from '@driver/contracts';
 import { color as palette } from '@driver/design-tokens';
 import type { LabelObstacle } from '@driver/map';
+import type { Road } from '@driver/map/golden';
 import { Text, useTheme, withAlpha } from '@driver/ui';
 import { TILE_SIZE, type Camera, type Size } from '@/features/track/geo';
 import { BaseMap } from '@/features/track/map/BaseMap';
+import type { CameraValues } from '@/features/track/map/types';
+import { MAP_CREDIT } from '@/features/track/map/credit';
 
 const EARTH_CIRCUMFERENCE_M = 40_075_016.686;
 /** Below this the ring hides under the pin head: not worth drawing. */
@@ -33,12 +36,12 @@ export function metresPerPixel(lat: number, zoom: number): number {
   return (EARTH_CIRCUMFERENCE_M * Math.cos((lat * Math.PI) / 180)) / (TILE_SIZE * 2 ** zoom);
 }
 
-/** "© OpenStreetMap" on every map surface (maps program f12). */
+/** The map credit on every map surface (maps program f12). */
 export function MapCredit({ bottom }: { bottom: number }) {
   const theme = useTheme();
   return (
     <Text variant="caption" color="textMuted" style={{ position: 'absolute', right: theme.space[3], bottom: bottom + theme.space[1], fontSize: 10, lineHeight: 14, opacity: 0.8 }}>
-      © OpenStreetMap
+      {MAP_CREDIT}
     </Text>
   );
 }
@@ -56,18 +59,31 @@ export function PinPicker({
   onMoving,
   recentre,
   tone = 'dropoff',
+  zoom = 15.2,
+  under,
+  onRoads,
   testID,
 }: {
   initial: LatLng;
   onCentre: (p: LatLng) => void;
   onMoving: (moving: boolean) => void;
-  recentre: { pin: LatLng; seq: number; accuracyM?: number } | null;
+  recentre: { pin: LatLng; seq: number; accuracyM?: number; zoom?: number } | null;
   tone?: 'pickup' | 'dropoff';
+  /** The starting zoom (the ride steps open closer, at a door). */
+  zoom?: number;
+  /** Drawn on the map under the centre pin (the ride steps: where the phone is, the line to the pin). */
+  under?: (cam: CameraValues, size: SharedValue<Size>) => ReactNode;
+  /** The streets the map has drawn, each time it settles. */
+  onRoads?: (roads: Road[]) => void;
   testID?: string;
 }) {
   const theme = useTheme();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
-  const start: Camera = { lat: initial.lat, lng: initial.lng, zoom: 15.2 };
+  const sizeSV = useSharedValue<Size>(size);
+  useEffect(() => {
+    sizeSV.value = size;
+  }, [size, sizeSV]);
+  const start: Camera = { lat: initial.lat, lng: initial.lng, zoom };
   const cam = useMapCamera(start);
   const [drawn, setDrawn] = useState<Camera>(start);
   const [ringM, setRingM] = useState<number | null>(null);
@@ -78,7 +94,7 @@ export function PinPicker({
   useEffect(() => {
     if (!recentre) return;
     const ease = { duration: 500, easing: Easing.inOut(Easing.cubic) };
-    const target: Camera = { lat: recentre.pin.lat, lng: recentre.pin.lng, zoom: Math.max(15.5, cam.zoom.value) };
+    const target: Camera = { lat: recentre.pin.lat, lng: recentre.pin.lng, zoom: recentre.zoom ?? Math.max(15.5, cam.zoom.value) };
     cam.lng.value = withTiming(target.lng, ease);
     cam.lat.value = withTiming(target.lat, ease);
     cam.zoom.value = withTiming(target.zoom, ease, (done) => {
@@ -92,7 +108,9 @@ export function PinPicker({
   const pinStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -lift.value * 14 }] }));
   const shadowStyle = useAnimatedStyle(() => ({ opacity: 0.25 + lift.value * 0.2, transform: [{ scale: 1 - lift.value * 0.35 }] }));
   const onLayout = (e: LayoutChangeEvent) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
-  const head = tone === 'pickup' ? theme.colors.success : theme.colors.text;
+  // Fixed colours, not the app theme: the map is dark at night whatever the screen is (Ali 10-09).
+  const head = tone === 'pickup' ? palette.success[500] : palette.primary[500];
+  const dot = tone === 'pickup' ? palette.neutral[50] : palette.neutral[900];
   const ringPx = ringM === null ? 0 : Math.min(Math.max(size.w, size.h), ringM / metresPerPixel(drawn.lat, drawn.zoom));
 
   return (
@@ -103,6 +121,8 @@ export function PinPicker({
           cam={cam}
           size={size}
           labelAvoid={CENTRE_PIN_AVOID}
+          alwaysDay
+          onRoads={onRoads}
           onUserGestureStart={() => {
             lift.value = withSpring(1, { damping: 16, stiffness: 260 });
             setRingM(null);
@@ -116,6 +136,7 @@ export function PinPicker({
           }}
         />
       ) : null}
+      {size.w > 0 && under ? under(cam, sizeSV) : null}
       {/* The fixed centre pin: its tip is the spot. */}
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
         {ringPx >= MIN_RING_PX ? (
@@ -126,28 +147,42 @@ export function PinPicker({
         ) : null}
         <Animated.View style={[{ position: 'absolute', width: 14, height: 6, borderRadius: 7, backgroundColor: palette.neutral[1000] }, shadowStyle]} />
         <Animated.View testID="pin-centre" style={[{ alignItems: 'center', marginBottom: 52 }, pinStyle]}>
+          {/* Saffron head in a cream ring with an ink edge, so it reads on the day map and the night map alike. */}
           <View
             style={{
-              width: PIN_HEAD,
-              height: PIN_HEAD,
-              borderRadius: PIN_HEAD / 2,
+              width: PIN_HEAD + 2,
+              height: PIN_HEAD + 2,
+              borderRadius: PIN_HEAD / 2 + 1,
+              borderWidth: 1,
+              borderColor: withAlpha(palette.neutral[900], 0.45),
               backgroundColor: head,
-              borderWidth: 4,
-              borderColor: theme.colors.surface,
               alignItems: 'center',
               justifyContent: 'center',
               shadowColor: palette.neutral[1000],
-              shadowOpacity: 0.22,
+              shadowOpacity: 0.3,
               shadowRadius: 8,
               shadowOffset: { width: 0, height: 3 },
               elevation: 6,
             }}
           >
-            <View style={{ width: 10, height: 10, borderRadius: tone === 'pickup' ? 5 : 2, backgroundColor: theme.colors.surface }} />
+            <View
+              style={{
+                position: 'absolute',
+                width: PIN_HEAD,
+                height: PIN_HEAD,
+                borderRadius: PIN_HEAD / 2,
+                borderWidth: 3,
+                borderColor: palette.neutral[50],
+              }}
+            />
+            <View style={{ width: 11, height: 11, borderRadius: tone === 'pickup' ? 6 : 2, backgroundColor: dot }} />
           </View>
-          <View style={{ width: 3, height: PIN_STEM, borderRadius: 2, backgroundColor: head }} />
+          {/* The stem: head colour inside a cream casing (the casing shows on the night map). */}
+          <View style={{ width: 6, height: PIN_STEM - 1, marginTop: -1, borderBottomLeftRadius: 3, borderBottomRightRadius: 3, backgroundColor: palette.neutral[50], alignItems: 'center' }}>
+            <View style={{ width: 3, height: PIN_STEM - 2, borderRadius: 2, backgroundColor: head }} />
+          </View>
         </Animated.View>
-        <View style={{ position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: withAlpha(head, 0.3) }} />
+        <View style={{ position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: withAlpha(head, 0.45) }} />
       </View>
       <MapCredit bottom={0} />
     </View>

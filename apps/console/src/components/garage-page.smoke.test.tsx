@@ -47,7 +47,7 @@ const overdue = (id: string, reason: OverdueDeparture['reason'], garageId = G.id
 });
 
 const render = (late: OverdueDeparture[]) =>
-  renderToString(<GarageBoard view={VIEW} overdue={late} network={NET} cards={[{ departureId: 'no_show', firstName: 'حيدر' } as never]} onAct={() => undefined} onGarage={() => undefined} />);
+  renderToString(<GarageBoard view={VIEW} overdue={late} network={NET} cards={[{ departureId: 'no_show', driverId: 'd1', displayName: 'حيدر ك.', phoneMasked: null }]} onAct={() => undefined} onGarage={() => undefined} />);
 
 describe('garage board', () => {
   it('pins the late cars on top, each with its one way out', () => {
@@ -65,7 +65,13 @@ describe('garage board', () => {
     expect(html).not.toContain('act-');
     expect(html.match(/سكّر الطلعة/g)).toHaveLength(1);
     expect(html).toContain('العزيزية ← بغداد');
-    expect(html).toContain('data-testid="waits-ali"');
+    // M-11 is decided (Ali, 2026-10-09): no "waits for a decision" note any more.
+    expect(html).not.toContain('data-testid="waits-ali"');
+  });
+  it('a no-show row says what the driver pays when the M-11 switch is on', () => {
+    const fee = { riders: 4, perRiderIqd: 4_000, doubled: true, driverChargeIqd: 16_000 };
+    expect(render([{ ...overdue('no_show', 'driver_no_show'), noShowFee: fee }])).toContain('على السايق 16,000 دينار إذا انلغت');
+    expect(render([overdue('no_show', 'driver_no_show')])).not.toContain('إذا انلغت');
   });
   it('a late car from another garage links to that garage', () => {
     const html = render([overdue('elsewhere', 'driver_no_show', 'g_kut')]);

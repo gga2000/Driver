@@ -4,7 +4,7 @@ import type { BookedRideInput, BookedRideStatus } from './booked-rides.js';
 import type { DriverProfile, DriverProfileInput, MyRideOffers, MyRideOffersInput, NudgeOfferInput, NudgeOfferResult } from './dispatch-io.js';
 import type { Actor } from './identity-io.js';
 import { DepartureCard, IntercityDirection, TravellingAs } from './routes-io.js';
-import { haversineM } from './tracking.js';
+import { haversineM } from './travel.js';
 
 /**
  * J7d ride habits (joy r5, r6, l9): regular trips that ask before they book, dinner timed to the ride

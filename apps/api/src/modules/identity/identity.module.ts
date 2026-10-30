@@ -6,11 +6,12 @@ import { EventsModule, EventsService } from '../events/index.js';
 import { EventOtpAlerts, EventsServiceAdapter, IDENTITY_EVENTS, type IdentityEventEmitter } from './events.adapter.js';
 import { AuthCache, InProcessDropBus, RedisDropBus, authCacheTtlMsFromEnv, cachedIdentityRepository } from './auth-cache.js';
 import { IDENTITY_REPOSITORY, PrismaIdentityRepository, type IdentityRepository } from './identity.repository.js';
-import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER } from './identity.service.js';
+import { IdentityService, OTP_REQUEST_GUARD, OTP_WHATSAPP, PHONE_PEPPER, STAGING_TEST } from './identity.service.js';
+import { stagingTestFromEnv } from './staging-test.js';
 import { whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 import { InMemoryIdentityRepository } from './memory.repository.js';
 import { OtpGuard, otpGuardConfigFromEnv } from './rate-limit.js';
-import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
+import { requestPathRedis, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { ROLE_READER } from './role-reader.js';
 import { SessionService, phonePepperFromEnv, sessionConfigFromEnv } from './session.service.js';
 import { smsPortFromEnv } from '../../shared/messaging/sms.js';
@@ -32,7 +33,7 @@ import { SMS_PROVIDER } from './sms/provider.js';
       useFactory: (clock: Clock) => {
         const url = process.env['REDIS_URL'];
         const ttlMs = authCacheTtlMsFromEnv();
-        const bus = url && ttlMs > 0 ? new RedisDropBus(new Redis(url, { maxRetriesPerRequest: 3 }), new Redis(url, { maxRetriesPerRequest: null })) : new InProcessDropBus();
+        const bus = url && ttlMs > 0 ? new RedisDropBus(requestPathRedis(url), new Redis(url, { maxRetriesPerRequest: null })) : new InProcessDropBus();
         return new AuthCache(clock, ttlMs, bus);
       },
       inject: [CLOCK],
@@ -49,7 +50,11 @@ import { SMS_PROVIDER } from './sms/provider.js';
     { provide: SMS_PROVIDER, useFactory: () => smsPortFromEnv() },
     // "ما وصلك؟ دزلي على واتساب": login codes over WhatsApp (template `otp_login`), same provider choice
     // as notify (WHATSAPP_PROVIDER=dev → the API terminal + identity.devLastOtp; meta → Cloud API).
+    // Outside development without WHATSAPP_TOKEN there is no port (null): codes go by SMS only.
     { provide: OTP_WHATSAPP, useFactory: () => whatsAppPortFromEnv() },
+    // Staging test numbers 0770 000 01xx sign in with STAGING_TEST_OTP (a host secret); only where
+    // DEPLOY_ENVIRONMENT=staging, never as staff. Unset = off. docs/api/staging-test-numbers.md.
+    { provide: STAGING_TEST, useFactory: () => stagingTestFromEnv() },
     { provide: PHONE_PEPPER, useFactory: () => phonePepperFromEnv() },
     {
       provide: SessionService,

@@ -3,12 +3,12 @@ import * as TaskManager from 'expo-task-manager';
 import { AppState } from 'react-native';
 import { POSITION_RULES } from '@driver/contracts';
 import {
-  BACKGROUND_DISTANCE_M,
-  BACKGROUND_INTERVAL_MS,
   BACKGROUND_LOCATION_TASK,
   BACKGROUND_STATE_KEY,
   parseBackgroundState,
   planBackgroundWake,
+  trackingProfile,
+  type TrackingProfile,
   wantsBackgroundTracking,
   type BackgroundState,
 } from '@/features/work/background-plan';
@@ -39,7 +39,11 @@ export interface BackgroundCopy {
 }
 
 let state: BackgroundState | null = null;
+/** b1: the profile the OS service was started with; a change (job starts or ends) restarts it. */
+let startedWith: TrackingProfile | null = null;
 let lastBeatAt = 0;
+/** Perf o4: the version of the last background beat's answer, so a quiet shift gets the small ack. */
+let beatVersion = '';
 let prev: Fix | null = null;
 let sending = false;
 const buffer = new FixBuffer();
@@ -69,7 +73,9 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(BACKGROUND_LOCA
   if (plan.heartbeat && latest) {
     lastBeatAt = now;
     // Same call as the on-screen heartbeat: idempotent, keeps his zone's anti-camping clock.
-    await api.partner.goOnline.mutate({ at: { lat: latest.lat, lng: latest.lng }, ...(s.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }).catch(() => undefined);
+    // The answer is not shown from here: sending the last version keeps it to `{ changed: false }`.
+    const res = await api.partner.goOnline.mutate({ at: { lat: latest.lat, lng: latest.lng }, knownVersion: beatVersion, ...(s.vehicleClass ? { vehicleClass: s.vehicleClass } : {}) }).catch(() => undefined);
+    beatVersion = res && 'version' in res ? res.version : '';
   }
 
   if (plan.reportPositions) {
@@ -126,21 +132,26 @@ export async function syncBackgroundLocation(next: BackgroundState, copy?: Backg
     const running = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK).catch(() => false);
     if (!wantsBackgroundTracking(next)) {
       if (running) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      startedWith = null;
       lastBeatAt = 0;
       prev = null;
       return false;
     }
     if (!copy || !(await ensureBackgroundPermission(copy))) return false;
-    if (running) return true;
+    const profile = trackingProfile(next);
+    // Running with this profile: nothing to do. With the other one (or from an earlier app run, unknown): restart.
+    if (running && startedWith === profile) return true;
+    if (running) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
     await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-      accuracy: Location.Accuracy.High,
-      timeInterval: BACKGROUND_INTERVAL_MS,
-      distanceInterval: BACKGROUND_DISTANCE_M,
+      accuracy: profile.accuracy === 'high' ? Location.Accuracy.High : Location.Accuracy.Balanced,
+      timeInterval: profile.intervalMs,
+      distanceInterval: profile.distanceM,
       activityType: Location.ActivityType.AutomotiveNavigation,
       pausesUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: true,
       foregroundService: { notificationTitle: copy.notificationTitle, notificationBody: copy.notificationBody, killServiceOnDestroy: false },
     });
+    startedWith = profile;
     return true;
   } catch {
     // Location services off or the OS refused: the on-screen heartbeat still works.

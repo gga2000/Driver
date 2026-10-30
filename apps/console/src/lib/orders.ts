@@ -57,14 +57,19 @@ export const ORDER_PHASE: Readonly<Record<OrderState, OrderPhase>> = {
 
 export const ACTIVE_STATES: readonly OrderState[] = ['placed', 'merchant_accepted', 'preparing', 'ready', 'picked_up', 'matched'];
 
-/** The saved views over the list: each is a set of states (or the late rule) the server filters on. */
+/**
+ * The saved views over the list (o5): each is a set of states (or the late rule) the server filters
+ * on. `now` views are about this moment, so they ignore the period: an order is late, or its food is
+ * ready and still waiting for the دليفري to pick it up, whenever it was placed.
+ */
 export const ORDER_VIEWS = {
-  all: { states: null, late: false },
-  active: { states: ACTIVE_STATES, late: false },
-  late: { states: null, late: true },
-  cancelled: { states: ['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'failed'], late: false },
-  disputes: { states: ['disputed', 'refunded'], late: false },
-} as const satisfies Record<string, { states: readonly OrderState[] | null; late: boolean }>;
+  all: { states: null, late: false, now: false },
+  active: { states: ACTIVE_STATES, late: false, now: false },
+  late: { states: null, late: true, now: true },
+  waiting: { states: ['ready'], late: false, now: true },
+  cancelled: { states: ['merchant_rejected', 'customer_cancelled', 'platform_cancelled', 'failed'], late: false, now: false },
+  disputes: { states: ['disputed', 'refunded'], late: false, now: false },
+} as const satisfies Record<string, { states: readonly OrderState[] | null; late: boolean; now: boolean }>;
 export type OrderView = keyof typeof ORDER_VIEWS;
 export const ORDER_VIEW_KEYS = Object.keys(ORDER_VIEWS) as OrderView[];
 
@@ -88,13 +93,13 @@ export function activeFilterCount(f: ListFilter): number {
 /**
  * `orders.search` input for a view + filters. An order number ("1284", "#1284") ignores the period:
  * the API then looks over today and yesterday, the way people ask about an order on the phone. The
- * late view ignores it too: an order is late now, whenever it was placed.
+ * late and waiting views ignore it too: they are about now, whenever the order was placed.
  */
 export function listInput(cityId: string, f: ListFilter, now: Date, ticket: boolean, limit = 50): OrderSearchInput {
   const view = ORDER_VIEWS[f.view];
   const text = f.q.trim();
-  // An order number, or the late view (lateness is about now), ignores the period.
-  const range = ticket || view.late ? {} : periodRange(f.period, now);
+  // An order number, or a view about now (late, waiting), ignores the period.
+  const range = ticket || view.now ? {} : periodRange(f.period, now);
   return {
     cityId,
     limit,

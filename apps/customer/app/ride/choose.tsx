@@ -4,22 +4,91 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Switch, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NEW_CUSTOMER_CAP_IQD } from '@/features/food/checkout';
-import { afterFailure, attemptFor, newRequestKey, type PlaceAttempt } from '@/features/food/place-attempt';
-import { Button, ChipGroup, Icon, IconButton, SegmentedControl, Text, TextField, useNetwork, useTheme } from '@driver/ui';
+import {
+  afterFailure,
+  attemptFor,
+  newRequestKey,
+  type PlaceAttempt,
+} from '@/features/food/place-attempt';
+import {
+  Button,
+  ChipGroup,
+  Icon,
+  IconButton,
+  SegmentedControl,
+  Text,
+  TextField,
+  useNetwork,
+  useTheme,
+} from '@driver/ui';
 import { formatWhen } from '@driver/i18n';
 import { bookedMemory } from '@/features/ride-habits/booked-memory';
-import { favouritesFor, firstSlot, scheduleAt, settleChoice, type ScheduleChoice } from '@/features/ride-habits/logic';
+import {
+  favouritesFor,
+  firstSlot,
+  scheduleAt,
+  settleChoice,
+  type ScheduleChoice,
+} from '@/features/ride-habits/logic';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { useWalletBalance } from '@/features/account/queries';
-import { CargoChips, cargoList, ClimateLine, FarePanel, NoteChips, OptionsRow, RequestBloom, PayOption, RideOptionsPanel, RouteSummary, SurchargeBanner, VehicleCard, VEHICLE } from '@/features/ride/ChooseParts';
+import {
+  CargoChips,
+  cargoList,
+  ClimateLine,
+  FarePanel,
+  NoteChips,
+  OptionsRow,
+  RequestBloom,
+  PayOption,
+  RideOptionsPanel,
+  RouteSummary,
+  SurchargeBanner,
+  VehicleCard,
+  VehicleTile,
+  VEHICLE,
+} from '@/features/ride/ChooseParts';
+import { StepDots } from '@/features/ride/MapSteps';
 import { WhenPicker } from '@/features/ride/LaterPicker';
-import { buildRidePlaceInput, cargoFits, destinationPinKind, doorExtra, rideClimate, rideEstimate, rideProblem, RIDE_VERTICALS, surchargesOf, tuktukAvailability, walletCovers, zoneTitle, type RideVertical } from '@/features/ride/logic';
-import { useCityConfig, useNearbyVehicles, usePlaceRide, useRideQuotes, useRiderOptions } from '@/features/ride/queries';
+import {
+  buildRidePlaceInput,
+  cargoFits,
+  destinationPinKind,
+  doorExtra,
+  rideClimate,
+  rideEstimate,
+  rideProblem,
+  RIDE_VERTICALS,
+  surchargesOf,
+  tuktukAvailability,
+  walletCovers,
+  zoneTitle,
+  type RideVertical,
+} from '@/features/ride/logic';
+import {
+  useCityConfig,
+  useNearbyVehicles,
+  usePlaceRide,
+  useRideQuotes,
+  useRiderOptions,
+  useZoneFor,
+} from '@/features/ride/queries';
 import { riderInput } from '@/features/ride/rider';
 import { RiderRow, RiderSheet } from '@/features/ride/RiderParts';
 import { RideMap } from '@/features/ride/RideMap';
 import { rideStore, useRideStore } from '@/features/ride/store';
 import { useRideSpots } from '@/features/ride/useSpots';
+import { useWalkStop } from '@/features/ride/useWalkStop';
+import {
+  fasterBy,
+  isWalkStop,
+  showWalkOffer,
+  stopLatLng,
+  walkMetres,
+  walkMinutes,
+  walkStopSpot,
+} from '@/features/ride/walk-stop';
+import { WalkChosenNote, WalkToStopCard } from '@/features/ride/WalkToStop';
 import { useSimpleMode } from '@/features/simple/pref';
 import { apiErrorCode, apiErrorMessage, useApi } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -63,7 +132,10 @@ export default function RideChoose() {
   const quotes = useRideQuotes(pickup, dropoff, bookedAt);
   const favs = useFavourites();
   // Free vehicles around the pickup (maps program c10): the chosen kind on the map, the nearest one's minutes on each card.
-  const nearby = { taxi: useNearbyVehicles(pickup?.pin ?? null, 'taxi'), tuktuk: useNearbyVehicles(pickup?.pin ?? null, 'tuktuk') };
+  const nearby = {
+    taxi: useNearbyVehicles(pickup?.pin ?? null, 'taxi'),
+    tuktuk: useNearbyVehicles(pickup?.pin ?? null, 'tuktuk'),
+  };
   const city = useCityConfig();
   const wallet = useWalletBalance();
   const place = usePlaceRide();
@@ -86,7 +158,10 @@ export default function RideChoose() {
   const attemptRef = useRef<PlaceAttempt | null>(null);
   const inFlight = useRef(false);
 
-  const tuktuk = pickup && dropoff ? tuktukAvailability(pickup.zoneId, dropoff.zoneId, d.allowEdgeTuktuk) : { ok: true, edgeZoneId: null };
+  const tuktuk =
+    pickup && dropoff
+      ? tuktukAvailability(pickup.zoneId, dropoff.zoneId, d.allowEdgeTuktuk)
+      : { ok: true, edgeZoneId: null };
   // Started from the tuktuk tile but the trip touches an edge zone: the car is the sure choice.
   const vertical: RideVertical = d.vertical === 'tuktuk' && !tuktuk.ok ? 'taxi' : d.vertical;
   const mode = d.doorPickup ? 'door' : 'street';
@@ -94,20 +169,68 @@ export default function RideChoose() {
   // FLOW-27: the chosen vehicle has no price and nothing is loading: say why (offline, the server's own
   // words such as an area we don't serve, or a plain "try again") and turn the request button into a retry.
   const quoteFailed = !quote && !quotes.loading && quotes.error !== null;
-  const quoteReason = quoteFailed ? (net.state !== 'online' ? t('ride.quote_failed_offline') : apiErrorMessage(quotes.error, t('ride.quote_failed_retry'), locale)) : null;
+  const quoteReason = quoteFailed
+    ? net.state !== 'online'
+      ? t('ride.quote_failed_offline')
+      : apiErrorMessage(quotes.error, t('ride.quote_failed_retry'), locale)
+    : null;
   const extra = doorExtra(quotes.grid[vertical].door, quotes.grid[vertical].street);
   const surcharges = surchargesOf(quote);
-  const estimate = useMemo(() => (pickup && dropoff ? Object.fromEntries(RIDE_VERTICALS.map((v) => [v, rideEstimate(pickup.pin, dropoff.pin, v, new Date())])) : null), [pickup, dropoff]) as Record<RideVertical, { minutes: number }> | null;
+  const estimate = useMemo(
+    () =>
+      pickup && dropoff
+        ? Object.fromEntries(
+            RIDE_VERTICALS.map((v) => [v, rideEstimate(pickup.pin, dropoff.pin, v, new Date())]),
+          )
+        : null,
+    [pickup, dropoff],
+  ) as Record<RideVertical, { minutes: number }> | null;
   const vertFavs = favouritesFor(favs.data ?? [], vertical);
-  const askFav = when === 'later' && favouriteId && vertFavs.some((f) => f.id === favouriteId) ? favouriteId : null;
+  const askFav =
+    when === 'later' && favouriteId && vertFavs.some((f) => f.id === favouriteId)
+      ? favouriteId
+      : null;
   const balance = wallet.data?.moneyIqd ?? null;
   const walletOk = walletCovers(balance, quote?.total);
   // x1: «اليوم حار، نبعثلك سيارة مكيّفة» on the server's clock (the nearby read carries it), rides for now.
   const climate = when === 'now' ? rideClimate(nearby.taxi.data?.at ?? null, vertical) : null;
 
+  // Map idea N10 «امشي دقيقة للشارع العام»: the pin is in an alley and a main road is a short walk away.
+  // Walking moves the pickup to the stop (in its own zone, which prices the ride); «رجّعها لمكاني» undoes it.
+  const walk = isWalkStop(pickup) ? d.walk : null;
+  const walking = walk !== null;
+  const safe = useWalkStop(walking ? null : (pickup?.pin ?? null));
+  const [walkDismissed, setWalkDismissed] = useState<string | null>(null);
+  const stopPin = safe.stop ? stopLatLng(safe.stop) : null;
+  const stopZone = useZoneFor(stopPin);
+  const stopNear = useNearbyVehicles(stopPin, vertical);
+  // Either read failing only means no offer (or no clocks on it): his own spot still works.
+  const stopZoneId =
+    !stopZone.isError && stopZone.data && !stopZone.isPlaceholderData && stopZone.data.inService
+      ? stopZone.data.zoneId
+      : null;
+  const offerWalk =
+    showWalkOffer({
+      stop: safe.stop,
+      mode,
+      simple,
+      dismissed: walkDismissed === pickup?.id,
+      walking,
+    }) && stopZoneId !== null;
+  // The clocks are for a ride now; a ride booked for later only gets the walk.
+  const stopMinutes =
+    when === 'now' && !stopNear.isError ? (stopNear.data?.nearestMinutes ?? null) : null;
+  const walkFaster =
+    when === 'now' ? fasterBy(nearby[vertical].data?.nearestMinutes, stopMinutes) : null;
+  const backToSpot = (patch: { doorPickup?: boolean } = {}) => {
+    if (walk) rideStore.update({ pickup: walk.from, walk: null, ...patch });
+    else rideStore.update(patch);
+  };
+
   useEffect(() => {
     // The wallet stopped covering the fare (door pickup, night): back to cash.
-    if (d.payment === 'wallet' && quote && balance !== null && !walletOk) rideStore.update({ payment: 'cash' });
+    if (d.payment === 'wallet' && quote && balance !== null && !walletOk)
+      rideStore.update({ payment: 'cash' });
   }, [d.payment, quote, balance, walletOk]);
 
   useEffect(() => setProblem(null), [vertical, mode, d.payment, d.rider]);
@@ -117,6 +240,18 @@ export default function RideChoose() {
   const taxiTotal = quotes.grid.taxi[mode]?.total;
   const tukTotal = quotes.grid.tuktuk[mode]?.total;
   const cheaper = taxiTotal != null && tukTotal != null ? taxiTotal - tukTotal : null;
+
+  const walkTo = () => {
+    if (!safe.stop || !stopZoneId) return;
+    const m = walkMetres(safe.stop.walkM);
+    const title = safe.stop.landmarkName
+      ? t('ride.walk_stop_title', { place: safe.stop.landmarkName })
+      : t('ride.walk_stop_title_road');
+    rideStore.update({
+      pickup: walkStopSpot(safe.stop, stopZoneId, title, t('ride.walk_stop_sub', { m })),
+      walk: { from: pickup, landmark: safe.stop.landmarkName, walkM: safe.stop.walkM },
+    });
+  };
 
   const openLive = (orderId: string) => {
     if (router.canDismiss()) router.dismissAll();
@@ -128,15 +263,44 @@ export default function RideChoose() {
     setProblem(null);
     // No duplicate rides: one key per request attempt, kept when the answer is lost so a second tap
     // gets the ride already requested (the server answers a repeated key with it).
-    const attempt = attemptFor(attemptRef.current, `${vertical}|${pickup.pin.lat},${pickup.pin.lng}|${dropoff.pin.lat},${dropoff.pin.lng}|${bookedAtMs ?? 'now'}|${askFav ?? ''}|${JSON.stringify(rider ?? null)}`, () => newRequestKey('ride'));
+    const attempt = attemptFor(
+      attemptRef.current,
+      `${vertical}|${pickup.pin.lat},${pickup.pin.lng}|${dropoff.pin.lat},${dropoff.pin.lng}|${bookedAtMs ?? 'now'}|${askFav ?? ''}|${JSON.stringify(rider ?? null)}`,
+      () => newRequestKey('ride'),
+    );
     attemptRef.current = attempt;
     inFlight.current = true;
     try {
       const order = await place.mutateAsync(
-        buildRidePlaceInput({ vertical, pickup, dropoff, doorPickup: d.doorPickup, fareIqd: quote.total, quoteId: quote.id, paymentMethod: d.payment, note: d.note, clientRequestId: attempt.key, scheduledFor: bookedAt, favouriteId: askFav, familyPreferred: d.familyPreferred, rideCargo: d.rideCargo, rider }),
+        buildRidePlaceInput({
+          vertical,
+          pickup,
+          dropoff,
+          doorPickup: d.doorPickup,
+          fareIqd: quote.total,
+          quoteId: quote.id,
+          paymentMethod: d.payment,
+          note: d.note,
+          clientRequestId: attempt.key,
+          scheduledFor: bookedAt,
+          favouriteId: askFav,
+          familyPreferred: d.familyPreferred,
+          rideCargo: d.rideCargo,
+          rider,
+        }),
       );
       attemptRef.current = null;
-      rideStore.placed(order.id, { vertical, from: pickup.title, to: dropoff.title, doorPickup: d.doorPickup, toHome: destinationPinKind(dropoff) === 'home' }, dropoff);
+      rideStore.placed(
+        order.id,
+        {
+          vertical,
+          from: pickup.title,
+          to: dropoff.title,
+          doorPickup: d.doorPickup,
+          toHome: destinationPinKind(dropoff) === 'home',
+        },
+        dropoff,
+      );
       void qc.invalidateQueries({ queryKey: api.orders.mine.queryKey() });
       if (bookedAt) {
         if (router.canDismiss()) router.dismissAll();
@@ -151,8 +315,13 @@ export default function RideChoose() {
         const fresh = await quotes.refetch();
         const idx = RIDE_VERTICALS.indexOf(vertical) * 2 + (d.doorPickup ? 0 : 1);
         const next = fresh[idx]?.data as { total: number } | undefined;
-        setProblem(next ? t('ride.price_changed', { amount: amountParam(next.total) }) : t('error.price_changed'));
-      } else if (kind === 'cash_cap') setProblem(t('ride.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) }));
+        setProblem(
+          next
+            ? t('ride.price_changed', { amount: amountParam(next.total) })
+            : t('error.price_changed'),
+        );
+      } else if (kind === 'cash_cap')
+        setProblem(t('ride.cash_cap', { amount: amountParam(NEW_CUSTOMER_CAP_IQD) }));
       else if (kind === 'location') setProblem(t('ride.location_problem'));
       else if (kind === 'wallet') setProblem(t('error.wallet_insufficient'));
       else if (kind === 'schedule') setProblem(t('error.ride_schedule_invalid'));
@@ -165,8 +334,66 @@ export default function RideChoose() {
 
   // c1: map, route, both vehicles, the options row and the button fit on one phone screen.
   // DEV-16: at large text the cards grow, so the map gives up room for both vehicles to fit.
-  const mapH = Math.round(Math.min(Math.max(Math.min(height * 0.4, height - 520), 170), 380) * (fontScale > 1.3 ? 0.6 : 1));
-  const edgeReason = tuktuk.edgeZoneId && !d.allowEdgeTuktuk ? t('ride.tuktuk_edge', { zone: zoneTitle(tuktuk.edgeZoneId, lang) }) : null;
+  const mapH = Math.round(
+    Math.min(Math.max(Math.min(height * 0.4, height - 520), 170), 380) *
+      (fontScale > 1.3 ? 0.6 : 1),
+  );
+  const edgeReason =
+    tuktuk.edgeZoneId && !d.allowEdgeTuktuk
+      ? t('ride.tuktuk_edge', { zone: zoneTitle(tuktuk.edgeZoneId, lang) })
+      : null;
+
+  const notes = (
+    <>
+      {offerWalk && safe.stop ? (
+        <WalkToStopCard
+          walkMin={walkMinutes(safe.stop.walkM)}
+          walkM={walkMetres(safe.stop.walkM)}
+          landmark={safe.stop.landmarkName}
+          arrivesMin={stopMinutes}
+          faster={walkFaster}
+          doorLabel={
+            extra
+              ? `${t('ride.walk_door')} ${iqd(extra, { locale, sign: true })}`
+              : t('ride.walk_door')
+          }
+          onWalk={walkTo}
+          onDoor={() => rideStore.update({ doorPickup: true })}
+          onStay={() => setWalkDismissed(pickup.id)}
+        />
+      ) : null}
+      {walk && !simple ? (
+        <WalkChosenNote
+          walkM={walkMetres(walk.walkM)}
+          landmark={walk.landmark}
+          onUndo={() => backToSpot()}
+        />
+      ) : null}
+      {again ? (
+        <View
+          testID="ride-again-note"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: theme.space[2],
+            paddingHorizontal: theme.space[3],
+            paddingVertical: theme.space[2],
+            borderRadius: theme.radius.lg,
+            backgroundColor: theme.colors.successTint,
+          }}
+        >
+          <Icon name="refresh" size={16} color="successText" strokeWidth={2.2} />
+          <Text variant="footnote" weight={600} color="successText" style={{ flex: 1 }}>
+            {t('ride.again_note')}
+          </Text>
+        </View>
+      ) : null}
+
+      {surcharges.map((s) => (
+        <SurchargeBanner key={s.key} s={s} city={city.data ?? undefined} vertical={vertical} />
+      ))}
+    </>
+  );
 
   return (
     <View testID="ride-choose" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
@@ -181,10 +408,45 @@ export default function RideChoose() {
           topInset={insets.top}
           bottomInset={theme.space[6]}
           nearby={{ data: nearby[vertical].data, kind: vertical === 'tuktuk' ? 'tuktuk' : 'car' }}
+          walk={
+            walk
+              ? {
+                  from: walk.from.pin,
+                  to: pickup.pin,
+                  youLabel: t('ride.walk_you'),
+                  stopLabel: t('ride.walk_stop_pin'),
+                }
+              : offerWalk && stopPin
+                ? {
+                    from: pickup.pin,
+                    to: stopPin,
+                    youLabel: t('ride.walk_you'),
+                    stopLabel: t('ride.walk_stop_pin'),
+                  }
+                : null
+          }
+          service={vertical === 'tuktuk' ? 'tuktuk' : 'taxi'}
+          onRoads={safe.onRoads}
           testID="ride-map"
         />
-        <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + theme.space[3], left: theme.space[4], right: theme.space[4], flexDirection: 'row' }}>
-          <IconButton icon="chevron-back" variant="outline" accessibilityLabel={t('action.back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} style={{ backgroundColor: theme.colors.surface }} testID="ride-choose-back" />
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            top: insets.top + theme.space[3],
+            left: theme.space[4],
+            right: theme.space[4],
+            flexDirection: 'row',
+          }}
+        >
+          <IconButton
+            icon="chevron-back"
+            variant="outline"
+            accessibilityLabel={t('action.back')}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/ride'))}
+            style={{ backgroundColor: theme.colors.surface }}
+            testID="ride-choose-back"
+          />
         </View>
       </View>
 
@@ -203,31 +465,84 @@ export default function RideChoose() {
           overflow: 'hidden',
         }}
       >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: theme.space[4], paddingTop: theme.space[3], gap: theme.space[3], width: '100%', maxWidth: 560, alignSelf: 'center' }} testID="ride-choose-body">
-          <View style={{ alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, marginBottom: -theme.space[1] }} />
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            padding: theme.space[4],
+            paddingTop: theme.space[3],
+            gap: theme.space[3],
+            width: '100%',
+            maxWidth: 560,
+            alignSelf: 'center',
+          }}
+          testID="ride-choose-body"
+        >
+          <View
+            style={{
+              alignSelf: 'center',
+              width: 40,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: theme.colors.border,
+              marginBottom: -theme.space[1],
+            }}
+          />
           {simple ? (
             <Text variant="heading" accessibilityRole="header">
               {t('simple.choose_title')}
             </Text>
-          ) : null}
-          <RouteSummary pickup={pickup} dropoff={dropoff} simple={simple} onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))} />
-          {again ? (
-            <View testID="ride-again-note" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.successTint }}>
-              <Icon name="refresh" size={16} color="successText" strokeWidth={2.2} />
-              <Text variant="footnote" weight={600} color="successText" style={{ flex: 1 }}>
-                {t('ride.again_note')}
+          ) : (
+            // Map-led booking (Ali 2026-10-17): the third step, «شتركب؟».
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: theme.space[2],
+              }}
+            >
+              <Text variant="heading" face="display" accessibilityRole="header">
+                {t('ride.choose_vehicle_title')}
               </Text>
+              <StepDots step={3} testID="ride-steps" />
             </View>
-          ) : null}
-
-          {surcharges.map((s) => (
-            <SurchargeBanner key={s.key} s={s} city={city.data ?? undefined} vertical={vertical} />
-          ))}
+          )}
+          <RouteSummary
+            pickup={pickup}
+            dropoff={dropoff}
+            simple={simple}
+            onEdit={() => (router.canGoBack() ? router.back() : router.replace('/ride'))}
+          />
+          {simple ? notes : null}
 
           <View style={{ gap: theme.space[2] }} accessibilityRole="radiogroup">
             {(simple ? [vertical] : RIDE_VERTICALS).map((v, i) => {
               const near = nearby[v].data?.nearestMinutes ?? null;
               const trip = estimate?.[v].minutes ?? null;
+              if (!simple)
+                return (
+                  <VehicleTile
+                    key={v}
+                    index={i}
+                    vertical={v}
+                    quote={quotes.grid[v][mode]}
+                    loading={quotes.loading}
+                    selected={vertical === v}
+                    disabledReason={v === 'tuktuk' ? edgeReason : null}
+                    minutes={trip}
+                    nearMinutes={near}
+                    arriveAt={trip ? new Date(now + ((near ?? 0) + trip) * 60_000) : null}
+                    cheaperBy={v === 'tuktuk' ? cheaper : null}
+                    fitHint={cargoFits(d.rideCargo, v) ? t('ride.cargo_tuktuk_fit') : null}
+                    onPress={() => rideStore.update({ vertical: v })}
+                    onDetails={() => setDetails(v)}
+                    onTryAnyway={
+                      v === 'tuktuk'
+                        ? () => rideStore.update({ allowEdgeTuktuk: true, vertical: 'tuktuk' })
+                        : undefined
+                    }
+                  />
+                );
               return (
                 <VehicleCard
                   key={v}
@@ -245,7 +560,11 @@ export default function RideChoose() {
                   fitHint={cargoFits(d.rideCargo, v) ? t('ride.cargo_tuktuk_fit') : null}
                   onPress={() => rideStore.update({ vertical: v })}
                   onDetails={() => setDetails(v)}
-                  onTryAnyway={v === 'tuktuk' ? () => rideStore.update({ allowEdgeTuktuk: true, vertical: 'tuktuk' }) : undefined}
+                  onTryAnyway={
+                    v === 'tuktuk'
+                      ? () => rideStore.update({ allowEdgeTuktuk: true, vertical: 'tuktuk' })
+                      : undefined
+                  }
                 />
               );
             })}
@@ -256,10 +575,25 @@ export default function RideChoose() {
             ) : null}
             {climate ? <ClimateLine climate={climate} /> : null}
           </View>
+          {/* Map-led booking: taxi or tuktuk is asked first, the walk offer and the night price follow. */}
+          {simple ? null : notes}
 
           {simple ? (
-            <View testID="ride-simple-pay" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 48 }}>
-              <Icon name={d.payment === 'wallet' ? 'wallet' : 'cash'} size={24} color="textMuted" strokeWidth={2} />
+            <View
+              testID="ride-simple-pay"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: theme.space[3],
+                minHeight: 48,
+              }}
+            >
+              <Icon
+                name={d.payment === 'wallet' ? 'wallet' : 'cash'}
+                size={24}
+                color="textMuted"
+                strokeWidth={2}
+              />
               <Text variant="title" weight={500} style={{ flex: 1 }}>
                 {t(d.payment === 'wallet' ? 'simple.pay_wallet' : 'simple.pay_cash')}
               </Text>
@@ -269,8 +603,22 @@ export default function RideChoose() {
               <RiderRow pick={d.rider} onPress={() => setRiderOpen(true)} />
               <OptionsRow
                 when={bookedAt ? formatWhen(bookedAt, new Date()) : null}
-                payment={[d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'), d.familyPreferred ? t('ride.family_pref') : null, d.rideCargo.length > 0 ? t('ride.cargo_short', { list: cargoList(d.rideCargo, t) }) : null].filter(Boolean).join(' · ')}
-                pickup={mode === 'door' ? (extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door')) : t('ride.pickup_street')}
+                payment={[
+                  d.payment === 'wallet' ? t('ride.pay_wallet') : t('ride.pay_cash'),
+                  d.familyPreferred ? t('ride.family_pref') : null,
+                  d.rideCargo.length > 0
+                    ? t('ride.cargo_short', { list: cargoList(d.rideCargo, t) })
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                pickup={
+                  mode === 'door'
+                    ? extra
+                      ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}`
+                      : t('ride.pickup_door')
+                    : t('ride.pickup_street')
+                }
                 note={d.note}
                 onPress={() => setOptionsOpen(true)}
               />
@@ -278,17 +626,53 @@ export default function RideChoose() {
           )}
         </ScrollView>
 
-        <View style={{ paddingHorizontal: theme.space[5], paddingTop: theme.space[3], paddingBottom: Math.max(insets.bottom, theme.space[3]), gap: theme.space[2], borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.bg }}>
+        <View
+          style={{
+            paddingHorizontal: theme.space[5],
+            paddingTop: theme.space[3],
+            paddingBottom: Math.max(insets.bottom, theme.space[3]),
+            gap: theme.space[2],
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+            backgroundColor: theme.colors.bg,
+          }}
+        >
           {quoteReason ? (
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-quote-failed" accessibilityLiveRegion="polite">
-              <Icon name={net.state !== 'online' ? 'wifi-off' : 'receipt'} size={18} color="dangerText" />
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                gap: theme.space[2],
+                width: '100%',
+                maxWidth: 520,
+                alignSelf: 'center',
+              }}
+              testID="ride-quote-failed"
+              accessibilityLiveRegion="polite"
+            >
+              <Icon
+                name={net.state !== 'online' ? 'wifi-off' : 'receipt'}
+                size={18}
+                color="dangerText"
+              />
               <Text variant="footnote" color="dangerText" style={{ flex: 1 }}>
                 {quoteReason}
               </Text>
             </View>
           ) : null}
           {problem ? (
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2], width: '100%', maxWidth: 520, alignSelf: 'center' }} testID="ride-problem" accessibilityLiveRegion="polite">
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                gap: theme.space[2],
+                width: '100%',
+                maxWidth: 520,
+                alignSelf: 'center',
+              }}
+              testID="ride-problem"
+              accessibilityLiveRegion="polite"
+            >
               <Icon name="receipt" size={18} color="dangerText" />
               <Text variant="footnote" color="dangerText" style={{ flex: 1 }}>
                 {problem}
@@ -296,29 +680,52 @@ export default function RideChoose() {
             </View>
           ) : null}
           {quoteFailed ? (
-            <Button testID="ride-quote-retry" size="lg" variant="secondary" icon="refresh" fullWidth label={t('action.retry')} onPress={() => void quotes.refetch()} style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }} />
+            <Button
+              testID="ride-quote-retry"
+              size="lg"
+              variant="secondary"
+              icon="refresh"
+              fullWidth
+              label={t('action.retry')}
+              onPress={() => void quotes.refetch()}
+              style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }}
+            />
           ) : (
-          <Button
-            testID="ride-request"
-            size="lg"
-            fullWidth
-            label={
-              quote
-                ? bookedAt
-                  ? t('ride.book_for', { when: formatWhen(bookedAt, new Date()), amount: amountParam(quote.total) })
-                  : t('ride.request', { vehicle: t(VEHICLE[vertical].name), amount: amountParam(quote.total) })
-                : t('ride.choose_title')
-            }
-            loading={place.isPending}
-            loadingLabel={t('ride.requesting')}
-            disabled={!quote}
-            haptic="success"
-            onPress={() => void request()}
-            style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }}
-          />
+            <Button
+              testID="ride-request"
+              size="lg"
+              fullWidth
+              label={
+                quote
+                  ? bookedAt
+                    ? t('ride.book_for', {
+                        when: formatWhen(bookedAt, new Date()),
+                        amount: amountParam(quote.total),
+                      })
+                    : t('ride.request', {
+                        vehicle: t(VEHICLE[vertical].name),
+                        amount: amountParam(quote.total),
+                      })
+                  : t('ride.choose_title')
+              }
+              loading={place.isPending}
+              loadingLabel={t('ride.requesting')}
+              disabled={!quote}
+              haptic="success"
+              onPress={() => void request()}
+              style={{ maxWidth: 520, alignSelf: 'center', width: '100%' }}
+            />
           )}
           {quote ? (
-            <View testID="ride-price-locked" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.space[1] }}>
+            <View
+              testID="ride-price-locked"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: theme.space[1],
+              }}
+            >
               <Icon name="lock" size={13} color="textMuted" strokeWidth={2.2} />
               <Text variant="caption" color="textMuted">
                 {t('ride.price_locked')}
@@ -337,21 +744,50 @@ export default function RideChoose() {
             <SegmentedControl
               accessibilityLabel={t('ride.pickup_mode')}
               value={mode}
-              onChange={(m) => rideStore.update({ doorPickup: m === 'door' })}
+              onChange={(m) =>
+                m === 'door'
+                  ? backToSpot({ doorPickup: true })
+                  : rideStore.update({ doorPickup: false })
+              }
               options={[
                 { value: 'street', label: t('ride.pickup_street') },
-                { value: 'door', label: extra ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}` : t('ride.pickup_door') },
+                {
+                  value: 'door',
+                  label: extra
+                    ? `${t('ride.pickup_door')} ${iqd(extra, { locale, sign: true })}`
+                    : t('ride.pickup_door'),
+                },
               ]}
             />
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
-              <Icon name={mode === 'door' ? 'home' : 'location-arrow'} size={15} color="textMuted" strokeWidth={2} />
-              <Text variant="footnote" color="textMuted" style={{ flex: 1 }} testID="ride-pickup-hint">
-                {mode === 'door' ? t('ride.pickup_door_hint', { amount: amountParam(extra ?? 0) }) : extra ? t('ride.pickup_street_hint', { amount: amountParam(extra) }) : t('ride.pickup_street_free')}
+              <Icon
+                name={mode === 'door' ? 'home' : 'location-arrow'}
+                size={15}
+                color="textMuted"
+                strokeWidth={2}
+              />
+              <Text
+                variant="footnote"
+                color="textMuted"
+                style={{ flex: 1 }}
+                testID="ride-pickup-hint"
+              >
+                {mode === 'door'
+                  ? t('ride.pickup_door_hint', { amount: amountParam(extra ?? 0) })
+                  : extra
+                    ? t('ride.pickup_street_hint', { amount: amountParam(extra) })
+                    : t('ride.pickup_street_free')}
               </Text>
             </View>
           </View>
 
-          <WhenPicker when={when} onWhen={setWhen} choice={settled} onChoice={setChoice} now={new Date()} />
+          <WhenPicker
+            when={when}
+            onWhen={setWhen}
+            choice={settled}
+            onChoice={setChoice}
+            now={new Date()}
+          />
 
           {when === 'later' && vertFavs.length > 0 ? (
             <View style={{ gap: theme.space[2] }} testID="ride-fav">
@@ -364,7 +800,14 @@ export default function RideChoose() {
                 required
                 value={[askFav ?? 'any']}
                 onChange={(next) => setFavouriteId(next[0] === 'any' || !next[0] ? null : next[0])}
-                items={[{ id: 'any', label: t('habits.favourite_any') }, ...vertFavs.map((f) => ({ id: f.id, label: f.firstName ?? t('habits.fav_unnamed'), icon: 'heart' as const }))]}
+                items={[
+                  { id: 'any', label: t('habits.favourite_any') },
+                  ...vertFavs.map((f) => ({
+                    id: f.id,
+                    label: f.firstName ?? t('habits.fav_unnamed'),
+                    icon: 'heart' as const,
+                  })),
+                ]}
               />
               <Text variant="footnote" color="textMuted">
                 {t('habits.favourite_hint')}
@@ -373,7 +816,14 @@ export default function RideChoose() {
           ) : null}
 
           {/* Ride idea s6: «سايق للعوائل». */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], minHeight: 56 }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: theme.space[3],
+              minHeight: 56,
+            }}
+          >
             <Icon name="family" size={22} color="textMuted" />
             <View style={{ flex: 1, gap: 2 }}>
               <Text variant="label" weight={600}>
@@ -394,18 +844,37 @@ export default function RideChoose() {
           </View>
 
           {/* Ride idea x5 «عندي غراض»: the driver knows before he accepts; the tuktuk row says it fits best. */}
-          <CargoChips value={d.rideCargo} onChange={(rideCargo) => rideStore.update({ rideCargo })} />
+          <CargoChips
+            value={d.rideCargo}
+            onChange={(rideCargo) => rideStore.update({ rideCargo })}
+          />
 
           <View style={{ gap: theme.space[2] }}>
             <Text variant="label" weight={600} color="textMuted">
               {t('checkout.payment')}
             </Text>
-            <View style={{ flexDirection: 'row', gap: theme.space[2] }} accessibilityRole="radiogroup">
-              <PayOption icon="cash" title={t('ride.pay_cash')} subtitle={t('ride.pay_cash_hint')} selected={d.payment === 'cash'} onPress={() => rideStore.update({ payment: 'cash' })} testID="ride-pay-cash" />
+            <View
+              style={{ flexDirection: 'row', gap: theme.space[2] }}
+              accessibilityRole="radiogroup"
+            >
+              <PayOption
+                icon="cash"
+                title={t('ride.pay_cash')}
+                subtitle={t('ride.pay_cash_hint')}
+                selected={d.payment === 'cash'}
+                onPress={() => rideStore.update({ payment: 'cash' })}
+                testID="ride-pay-cash"
+              />
               <PayOption
                 icon="wallet"
                 title={t('ride.pay_wallet')}
-                subtitle={balance === null ? '…' : walletOk ? t('ride.wallet_balance', { amount: amountParam(balance) }) : t('ride.wallet_short', { amount: amountParam(balance) })}
+                subtitle={
+                  balance === null
+                    ? '…'
+                    : walletOk
+                      ? t('ride.wallet_balance', { amount: amountParam(balance) })
+                      : t('ride.wallet_short', { amount: amountParam(balance) })
+                }
                 selected={d.payment === 'wallet'}
                 disabled={!walletOk}
                 onPress={() => rideStore.update({ payment: 'wallet' })}
@@ -416,7 +885,14 @@ export default function RideChoose() {
 
           <View style={{ gap: theme.space[2] }}>
             <NoteChips note={d.note} onNote={(note) => rideStore.update({ note })} />
-            <TextField testID="ride-note" value={d.note} onChangeText={(note) => rideStore.update({ note })} placeholder={t('ride.note_placeholder')} leadingIcon="chat" maxLength={200} />
+            <TextField
+              testID="ride-note"
+              value={d.note}
+              onChangeText={(note) => rideStore.update({ note })}
+              placeholder={t('ride.note_placeholder')}
+              leadingIcon="chat"
+              maxLength={200}
+            />
           </View>
         </RideOptionsPanel>
       ) : null}
@@ -431,9 +907,21 @@ export default function RideChoose() {
           onClose={() => setRiderOpen(false)}
         />
       ) : null}
-      {bloomFor ? <RequestBloom fromBottom={Math.max(insets.bottom, theme.space[3]) + 52} onDone={() => openLive(bloomFor)} /> : null}
-      {details && quotes.grid[details][mode] ? <FarePanel vertical={details} quote={quotes.grid[details][mode]!} city={city.data ?? undefined} locale={lang} onClose={() => setDetails(null)} /> : null}
+      {bloomFor ? (
+        <RequestBloom
+          fromBottom={Math.max(insets.bottom, theme.space[3]) + 52}
+          onDone={() => openLive(bloomFor)}
+        />
+      ) : null}
+      {details && quotes.grid[details][mode] ? (
+        <FarePanel
+          vertical={details}
+          quote={quotes.grid[details][mode]!}
+          city={city.data ?? undefined}
+          locale={lang}
+          onClose={() => setDetails(null)}
+        />
+      ) : null}
     </View>
   );
 }
-

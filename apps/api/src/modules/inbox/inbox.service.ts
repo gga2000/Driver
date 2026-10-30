@@ -57,6 +57,9 @@ export const INBOX_START_EVENTS = [
   'support.ticket_opened',
   'driver.document_submitted',
   'merchant.onboarding_drafted',
+  'order.rated',
+  'departure.overdue',
+  'order.errand_receipt',
 ] as const;
 
 /** The events that end a problem (the row closes by itself, outcome `auto`), or take it. */
@@ -83,6 +86,7 @@ export const INBOX_END_EVENTS = [
   'driver.document_reviewed',
   'merchant.activated',
   'merchant.onboarding_rejected',
+  'departure.overdue_cleared',
 ] as const;
 
 const KIND_AR: Record<InboxKind, string> = {
@@ -94,9 +98,12 @@ const KIND_AR: Record<InboxKind, string> = {
   unreachable: 'الدليفري ما يوصل للزبون',
   stuck: 'طلب معلّق',
   cash_cap: 'دليفري عبر حد الكاش',
+  low_rating: 'تقييم سيئ',
   sweep: 'فحص السيارة الفارغة بالخطوط',
   pin_alert: 'رمز مقعد غلط',
   approval: 'موافقة',
+  late_departure: 'سيارة رجعة متأخرة',
+  over_ceiling: 'وصل دوّرلي فوق الحد',
 };
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
@@ -107,8 +114,10 @@ const fact = (v: unknown): string | number | boolean | null =>
  * The Today list (Console E1, CON-12). Hears the outbox: a problem's first event opens its row (one
  * per kind and subject), its end closes the row by itself; the desk takes, hands over, snoozes and
  * closes rows (always with an outcome), each change audited. Rows hold ids and short facts; staff
- * names come through `StaffNames` (logged vault reads, cached). A low rating (`order.rated`) opens
- * no row: the "case only on repeat" rule (s3) waits on Ali, and low ratings stay in support until then.
+ * names come through `StaffNames` (logged vault reads, cached). Every bad rating (`order.rated`, food
+ * or courier at `INBOX_RULES.lowRatingMaxStars` or under) opens a case, not only repeats (Ali,
+ * 2026-10-08): staff hear the customer, the restaurant and the courier or driver, then close it with
+ * a note saying what they found.
  */
 @Injectable()
 export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDestroy {
@@ -207,6 +216,20 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
             }
           : null;
       }
+      case 'order.errand_receipt': {
+        // «دوّرلي»: only a receipt over the customer's ceiling needs the desk (call before he pays);
+        // one the desk typed itself (byStaff) is already in hand.
+        const id = e.orderId ?? str(p['orderId']);
+        return id && p['overCeiling'] === true && p['byStaff'] !== true
+          ? {
+              ...base,
+              kind: 'over_ceiling',
+              subjectKind: 'order',
+              subjectId: id,
+              facts: facts({ receiptIqd: p['receiptIqd'], ceilingIqd: p['ceilingIqd'] }),
+            }
+          : null;
+      }
       case 'order.late_apology': {
         const id = e.orderId ?? null;
         return id
@@ -299,12 +322,52 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
             }
           : null;
       }
+      case 'order.rated': {
+        const id = e.orderId ?? str(p['orderId']);
+        const score = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+        // `stars` alone until lane A adds both scores to the event; with them, a bad food score under a
+        // good courier one still counts.
+        const food = score(p['food']);
+        const delivery = score(p['delivery']);
+        const stars = food === null && delivery === null ? score(p['stars']) : null;
+        const worst = Math.min(food ?? 99, delivery ?? 99, stars ?? 99);
+        return id && worst <= INBOX_RULES.lowRatingMaxStars
+          ? {
+              ...base,
+              kind: 'low_rating',
+              subjectKind: 'order',
+              subjectId: id,
+              facts: facts({ food, delivery, stars, orderType: p['orderType'] }),
+            }
+          : null;
+      }
+      case 'departure.overdue': {
+        // The garage watch (routes module): a الرجعة car whose driver never came, or one out on the
+        // road past its arrival with no «وصلت». One row per departure; it closes when the car leaves the
+        // late list, whatever moved it (staff «ألغِ»/«وصلت», the driver, the automatic cancel).
+        const id = str(p['departureId']);
+        return id
+          ? {
+              ...base,
+              kind: 'late_departure',
+              subjectKind: 'departure',
+              subjectId: id,
+              facts: facts({ reason: p['reason'], riders: p['riders'], garageId: p['garageId'], corridorId: p['corridorId'] }),
+            }
+          : null;
+      }
       default:
         return null;
     }
   }
 
   private async onStart(e: PublishedEvent, tx: Tx): Promise<void> {
+    // «دوّرلي»: a later receipt under the ceiling (the shopper put something back) ends the problem.
+    if (e.type === 'order.errand_receipt' && e.payload['overCeiling'] === false) {
+      const item = await this.repo.bySubject('over_ceiling', e.orderId ?? str(e.payload['orderId']) ?? '', tx);
+      if (item) await this.autoClose(item, e.occurredAt, tx);
+      return;
+    }
     const s = this.sightingOf(e);
     if (s) await this.repo.sight(s, tx);
   }
@@ -360,6 +423,7 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
           'late',
           'no_driver',
           'unreachable',
+          'over_ceiling',
         ]);
       case 'khat.sweep_alert_cleared':
       case 'khat.sweep_alert_closed':
@@ -373,6 +437,8 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
       case 'merchant.activated':
       case 'merchant.onboarding_rejected':
         return closeSubject('approval', str(p['onboardingId']));
+      case 'departure.overdue_cleared':
+        return closeSubject('late_departure', str(p['departureId']));
       default:
         return;
     }
@@ -566,7 +632,12 @@ export class InboxService implements InboxServicePort, OnModuleInit, OnModuleDes
     );
   }
 
-  done(actor: Actor, input: z.output<typeof InboxDoneInput>): Promise<InboxRow> {
+  async done(actor: Actor, input: z.output<typeof InboxDoneInput>): Promise<InboxRow> {
+    // A bad-rating case closes with what staff found (Ali, 2026-10-08): a note here or one already on it.
+    if (!input.note) {
+      const item = await this.repo.get(input.id);
+      if (item?.kind === 'low_rating' && !item.note) throw new DriverError('invalid_input');
+    }
     return this.change(
       actor,
       input.id,

@@ -10,6 +10,10 @@
 //   ride    e2e-ride-     pricing.quote → orders.place with the quote id (what the app sends)
 //   share   e2e-share-    a ride, a share link, a driver assigned (dispatch.override + accept), tracking.shared
 //
+// Twelve more, the customer paths end to end (delivery, cancels, rides, SOS, household, الرجعة seats,
+// the request board, profile, places, browsing, scheduled and gift orders, double taps), live in
+// scripts/e2e/customer-paths.mjs and run on this same harness.
+//
 // After the flows it waits for the outbox to settle, then reads the API's JSON log (from where it was
 // when the run started) and `subscriber_deliveries`, and attributes every problem to a flow:
 //   - log lines with level "error", every `Prisma` line (shared/db/prisma-error-log.ts) and every
@@ -132,14 +136,22 @@ async function signIn(f, phone, name) {
   const api = f.client(out.tokens.accessToken);
   if (name)
     await f.call('identity.updateProfile(name)', () => api.identity.updateProfile.mutate({ name }));
-  return { personId: out.personId, api };
+  return { personId: out.personId, api, token: out.tokens.accessToken };
 }
 
-/** The seeded admin (grants roles, dispatches): signed in once per flow that needs him, on that flow's prefix. */
+/**
+ * The seeded admin (grants roles, dispatches). Signed in once per run (one number has an hourly OTP
+ * limit); each flow gets its own client on its own prefix with his token.
+ */
+let adminSession = null;
 async function admin(f) {
-  const a = await signIn(f, ADMIN_PHONE);
-  if (a) f.subjects.delete(a.personId); // shared across flows: not a subject of any one of them
-  return a;
+  if (!adminSession) {
+    const a = await signIn(f, ADMIN_PHONE);
+    if (!a) return null;
+    f.subjects.delete(a.personId); // shared across flows: not a subject of any one of them
+    adminSession = { personId: a.personId, token: a.token };
+  }
+  return { personId: adminSession.personId, api: f.client(adminSession.token) };
 }
 
 const PICKUP = { zoneKey: 'hashimi', pin: { lat: 32.896, lng: 45.0675 } };
@@ -341,6 +353,28 @@ const FLOWS = {
     );
   },
 };
+
+// The customer paths (scripts/e2e/customer-paths.mjs) run on the same harness.
+const { customerPaths } = await import(
+  pathToFileURL(join(root, 'scripts/e2e/customer-paths.mjs')).href
+);
+Object.assign(
+  FLOWS,
+  customerPaths({
+    API,
+    signIn,
+    admin,
+    newPhone,
+    placeRide,
+    sleep,
+    CITY,
+    RUN,
+    PICKUP,
+    DROPOFF,
+    HOME,
+    minute,
+  }),
+);
 
 // ───────────────────────── run ─────────────────────────
 

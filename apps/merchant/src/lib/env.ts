@@ -10,3 +10,10 @@ export const DEV_TOOLS: boolean = (typeof __DEV__ !== 'undefined' && __DEV__) ||
  * EXPO_PUBLIC_SUPPORT_PHONE at build time.
  */
 export const SUPPORT_PHONE: string = process.env.EXPO_PUBLIC_SUPPORT_PHONE || '+9647800000000';
+
+/**
+ * The Console, where staff answer safety alerts (the staff-alert screen opens it): `EXPO_PUBLIC_CONSOLE_URL`
+ * at build time. No default on purpose: until it is set the screen shows no link (an address we don't own
+ * must never sit in a safety link) and says to open the Console on a computer.
+ */
+export const CONSOLE_URL: string | null = process.env.EXPO_PUBLIC_CONSOLE_URL?.trim() || null;

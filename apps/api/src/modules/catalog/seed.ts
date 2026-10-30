@@ -1,4 +1,6 @@
+import { homeLocalDay } from '@driver/contracts';
 import { AZIZIYAH_RESTAURANTS, type SeedRestaurant } from '@driver/contracts/seeds';
+import type { SeedHomeKitchen, SeedHomeItem } from '@driver/contracts/demo-home-kitchens';
 import type { OrgsService } from '../orgs/index.js';
 import type { CatalogService } from './catalog.service.js';
 
@@ -14,17 +16,20 @@ export interface SeededStorefront {
  * The in-memory twin of `pnpm db:seed` for the launch restaurants (M3): creates each restaurant org
  * with its kitchen location and prep time, its storefront, and its sectioned menu. Used by the demo
  * API, tests and local runs without a database (with one, the seed has already written all of it).
+ * أكل بيت kitchens (`SeedHomeKitchen`, demo only) come out as home kitchens, their ready dishes cooked
+ * on `now`'s local day.
  */
 export async function seedStorefronts(
   orgs: Pick<OrgsService, 'create' | 'setMerchantSettings'>,
   catalog: Pick<CatalogService, 'saveStorefront' | 'addItem'>,
   restaurants: readonly SeedRestaurant[] = AZIZIYAH_RESTAURANTS,
   ownerId = 'seed-owner',
+  now: Date = new Date(),
 ): Promise<SeededStorefront[]> {
   const out: SeededStorefront[] = [];
   for (const r of restaurants) {
     const org = await orgs.create({ type: 'restaurant', name: r.nameAr, cityId: r.cityId, ownerId });
-    await orgs.setMerchantSettings(org.id, { location: { zoneKey: r.zoneKey, pin: r.pin }, defaultPrepMin: r.prepMin, commissionTier: 'base' });
+    await orgs.setMerchantSettings(org.id, { location: { zoneKey: r.zoneKey, pin: r.pin }, defaultPrepMin: r.prepMin, commissionTier: 'home' in r ? 'home' : 'base' });
     await catalog.saveStorefront({
       orgId: org.id,
       cityId: r.cityId,
@@ -35,11 +40,20 @@ export async function seedStorefronts(
       prepMin: r.prepMin,
       hours: r.hours,
       ratingPlaceholder: r.ratingPlaceholder,
+      ...('home' in r ? { home: (r as SeedHomeKitchen).home, photoUrl: `/media/food/${(r as SeedHomeKitchen).photo}.webp` } : {}),
     });
     const itemIds = new Map<string, string>();
     let sortOrder = 0;
     for (const category of r.categories) {
       for (const item of category.items) {
+        const sale = (item as Partial<SeedHomeItem>).home;
+        const home = sale
+          ? {
+              portion: (item as SeedHomeItem).portion ?? null,
+              photoUrl: `/media/food/${(item as SeedHomeItem).photo}.webp`,
+              ...(sale.mode === 'ready' ? { stock: sale.left, homeSale: { mode: 'ready' as const, cooked: sale.cooked, cookedOn: homeLocalDay(now), setAt: now.toISOString() } } : { homeSale: { mode: 'reserve' as const, rule: sale.rule } }),
+            }
+          : {};
         const created = await catalog.addItem({
           id: `${org.id}_${item.key}`,
           orgId: org.id,
@@ -53,6 +67,7 @@ export async function seedStorefronts(
           servesMin: item.servesMin ?? null,
           servesMax: item.servesMax ?? null,
           labels: [...(item.labels ?? [])],
+          ...home,
           modifierGroups: (item.modifierGroups ?? []).map((g) => ({
             nameAr: g.nameAr,
             nameEn: g.nameEn,

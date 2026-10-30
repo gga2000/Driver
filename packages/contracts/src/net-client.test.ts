@@ -20,11 +20,12 @@ afterEach(() => {
 });
 
 /** A monitor on fake timers with a scripted probe. */
-function harness(probeAnswers: boolean[] = []) {
+function harness(probeAnswers: boolean[] = [], random = () => 0.5) {
   vi.useFakeTimers();
   vi.setSystemTime(1_000_000);
   const probe = vi.fn(async () => probeAnswers.shift() ?? false);
-  const monitor = createNetworkMonitor({ probe });
+  // 0.5 is the middle of the ±20 % jitter: every wait is exactly its nominal length.
+  const monitor = createNetworkMonitor({ probe, random });
   const seen: NetSnapshot[] = [];
   monitor.subscribe(() => seen.push(monitor.getSnapshot()));
   return { monitor, probe, seen, state: () => monitor.getSnapshot().state };
@@ -56,7 +57,7 @@ describe('network monitor', () => {
     expect(h.monitor.getSnapshot().backAt).toBeNull();
   });
 
-  it('marks the API unreachable after failures in a row, probes every 5 s, recovers on an answer', async () => {
+  it('marks the API unreachable after failures in a row, probes after 5 s then 10 s, recovers on an answer', async () => {
     const h = harness([false, true]);
     h.monitor.reportNetworkError();
     expect(h.state()).toBe('online');
@@ -66,12 +67,56 @@ describe('network monitor', () => {
     await vi.advanceTimersByTimeAsync(NET_RULES.probeEveryMs);
     expect(h.probe).toHaveBeenCalledTimes(1);
     expect(h.state()).toBe('unreachable');
-    await vi.advanceTimersByTimeAsync(NET_RULES.probeEveryMs);
+    await vi.advanceTimersByTimeAsync(NET_RULES.probeEveryMs * 2 - 1);
+    expect(h.probe).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
     expect(h.probe).toHaveBeenCalledTimes(2);
     expect(h.state()).toBe('online');
     // No more probing once back.
     await vi.advanceTimersByTimeAsync(NET_RULES.probeEveryMs * 3);
     expect(h.probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits twice as long after each unanswered probe, up to 30 s, and starts again at 5 s after an outage', async () => {
+    const h = harness([false, false, false, false, false, true]);
+    h.monitor.reportNetworkError();
+    h.monitor.reportNetworkError();
+    const at: number[] = [];
+    h.probe.mockImplementation(async () => {
+      at.push(Date.now());
+      return false;
+    });
+    const start = Date.now();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(at.map((t, i) => t - (i === 0 ? start : at[i - 1]!))).toEqual([5_000, 10_000, 20_000, 30_000, 30_000]);
+    // The app's own failing requests don't stretch the wait.
+    h.monitor.reportNetworkError();
+    h.monitor.reportNetworkError();
+    h.probe.mockResolvedValueOnce(true);
+    h.monitor.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.state()).toBe('online');
+    h.monitor.reportNetworkError();
+    h.monitor.reportNetworkError();
+    const before = h.probe.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(NET_RULES.probeEveryMs);
+    expect(h.probe.mock.calls.length).toBe(before + 1);
+  });
+
+  it('spreads each wait ±20 % at random, so phones that lost the server do not all come back at once', async () => {
+    for (const [dice, wait] of [
+      [0, 4_000],
+      [0.999999, 6_000],
+    ] as const) {
+      const h = harness([], () => dice);
+      h.monitor.reportNetworkError();
+      h.monitor.reportNetworkError();
+      await vi.advanceTimersByTimeAsync(wait - 1);
+      expect(h.probe).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(h.probe).toHaveBeenCalledTimes(1);
+      h.monitor.stop();
+    }
   });
 
   it('any answer resets the failure count and beats a stale "offline" from the device', () => {

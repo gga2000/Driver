@@ -277,6 +277,152 @@ export function VehicleCard({
   );
 }
 
+const TILE_H = 116;
+const TILE_ART = 128;
+
+/**
+ * Taxi or tuktuk as a big tile in the service's own colour (map-led booking, Ali 2026-10-17, the
+ * "Mix": concept C's tiles): the name, when the nearest one gets to him and when he arrives, the
+ * server's price, and the drawing. The chosen tile wears an ink ring. Same facts as `VehicleCard`
+ * (the cheaper badge, the bags hint, the edge-zone reason with «جرّب»), which simple mode keeps.
+ */
+export function VehicleTile({
+  vertical,
+  quote,
+  loading,
+  selected,
+  disabledReason,
+  minutes,
+  nearMinutes,
+  arriveAt,
+  cheaperBy,
+  fitHint = null,
+  index = 0,
+  onPress,
+  onDetails,
+  onTryAnyway,
+}: {
+  vertical: RideVertical;
+  quote: Quote | undefined;
+  loading: boolean;
+  selected: boolean;
+  disabledReason: string | null;
+  minutes: number | null;
+  nearMinutes: number | null;
+  arriveAt: Date | null;
+  cheaperBy: number | null;
+  fitHint?: string | null;
+  index?: number;
+  onPress: () => void;
+  onDetails: () => void;
+  onTryAnyway?: () => void;
+}) {
+  const theme = useTheme();
+  const t = useT();
+  const locale = useLocale();
+  const v = VEHICLE[vertical];
+  const sw = theme.services[vertical];
+  const off = Boolean(disabledReason);
+  const motion = !theme.reduceMotion;
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    if (selected && motion) scale.value = withSequence(withTiming(0.97, { duration: 70 }), withSpring(1, { damping: 11, stiffness: 260 }));
+  }, [selected, motion, scale]);
+  const springStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const amount = quote ? `${amountParam(quote.total)} ${t('quote.currency')}` : '';
+  const facts = [nearMinutes ? t('ride.near_short', { minutes: nearMinutes }) : null, arriveAt ? t('ride.arrive_at', { time: formatClock(arriveAt, { locale }) }) : null].filter(Boolean).join(' · ');
+  return (
+    <Animated.View entering={motion ? FadeInDown.delay(60 * index).springify().damping(18) : undefined} style={springStyle}>
+      <Pressable
+        testID={`ride-vehicle-${vertical}`}
+        accessibilityRole="radio"
+        aria-checked={selected}
+        aria-disabled={off}
+        accessibilityLabel={[t(v.name), amount, arriveAt ? t('ride.arrive_at', { time: formatClock(arriveAt, { locale }) }) : null, off ? null : fitHint].filter(Boolean).join('، ')}
+        accessibilityHint={t(v.hint)}
+        disabled={off}
+        onPress={() => {
+          theme.haptic('selection');
+          onPress();
+        }}
+        style={{ borderRadius: 30, borderWidth: 3, borderColor: selected ? theme.colors.text : 'transparent', padding: 3 }}
+      >
+        <View style={{ height: TILE_H, borderRadius: 25, overflow: 'hidden', backgroundColor: sw.fill, opacity: off ? 0.5 : 1, paddingHorizontal: theme.space[4], paddingVertical: theme.space[3], justifyContent: 'space-between' }}>
+          {/* The drawing on the far side, half out of the tile like a car pulling in. */}
+          <View pointerEvents="none" style={{ position: 'absolute', end: -10, bottom: -18, width: TILE_ART, height: TILE_ART }}>
+            <SvgXml xml={vertical === 'taxi' ? TAXI_ART : TUKTUK_ART} width={TILE_ART} height={TILE_ART} />
+          </View>
+          <View style={{ paddingEnd: TILE_ART - 16, gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: theme.space[2], rowGap: 2 }}>
+              <Text variant="heading" face="display" color={sw.on} style={{ fontSize: 23, lineHeight: 34 }}>
+                {t(v.name)}
+              </Text>
+              {cheaperBy && cheaperBy > 0 && !off ? (
+                <View style={{ paddingHorizontal: 8, minHeight: 22, borderRadius: 11, justifyContent: 'center', backgroundColor: theme.colors.deal }}>
+                  <Text variant="caption" weight={600} color="onDeal" style={{ lineHeight: 18 }}>
+                    {t('ride.cheaper_by', { amount: amountParam(cheaperBy) })}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            {off ? null : facts ? (
+              <Text variant="caption" weight={600} color={sw.on} tabular numberOfLines={1} testID={`ride-minutes-${vertical}`} accessibilityLabel={minutes ? t('ride.trip_minutes', { minutes }) : undefined} style={{ opacity: 0.85 }}>
+                {facts}
+              </Text>
+            ) : null}
+            {fitHint && !off ? (
+              <View testID={`ride-fit-${vertical}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Icon name="bag" size={13} color={sw.on} strokeWidth={2.2} />
+                <Text variant="caption" weight={700} color={sw.on}>
+                  {fitHint}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3], paddingEnd: TILE_ART - 16 }}>
+            {quote ? (
+              <Text variant="amount" face="display" color={sw.on} tabular numberOfLines={1} testID={`ride-price-${vertical}`} style={{ fontSize: 22, lineHeight: 30 }}>
+                {`${amountParam(quote.total)} ${t('quote.currency')}`}
+              </Text>
+            ) : loading ? (
+              <Skeleton width={96} height={24} />
+            ) : (
+              <Text variant="caption" weight={600} color={sw.on}>
+                {t('ride.quote_failed')}
+              </Text>
+            )}
+            {selected && quote && !off ? (
+              <Pressable accessibilityRole="button" accessibilityLabel={t('ride.price_details')} onPress={onDetails} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} testID={`ride-details-${vertical}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 28 }}>
+                <Icon name="receipt" size={13} color={sw.on} strokeWidth={2.2} />
+                <Text variant="caption" weight={700} color={sw.on} style={{ textDecorationLine: 'underline' }}>
+                  {t('ride.details_short')}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      </Pressable>
+      {off ? (
+        <View style={{ gap: theme.space[1], paddingTop: theme.space[1], paddingHorizontal: theme.space[2] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
+            <Icon name="map-pin" size={15} color="warningText" strokeWidth={2.2} />
+            <Text variant="footnote" color="warningText" style={{ flex: 1 }} testID="ride-tuktuk-edge">
+              {disabledReason}
+            </Text>
+          </View>
+          {onTryAnyway ? (
+            <Pressable accessibilityRole="button" onPress={onTryAnyway} hitSlop={10} testID="ride-tuktuk-try" style={{ alignSelf: 'flex-start', paddingStart: 23, minHeight: 28, justifyContent: 'center' }}>
+              <Text variant="label" weight={600} color="accentText">
+                {t('ride.tuktuk_edge_try')}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </Animated.View>
+  );
+}
+
 // ───────────────────────── the weather and the bags (ride step 4) ─────────────────────────
 
 /**

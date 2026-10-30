@@ -99,6 +99,9 @@ describe('simulator CLI (`pnpm sim`)', () => {
   it('parses the documented flags', () => {
     expect(parseArgs(['--orders', '2000', '--drivers', '60', '--restaurants', '10', '--seed', '1', '--ci'])).toMatchObject({ orders: 2000, drivers: 60, restaurants: 10, seed: 1, ci: true, report: undefined, faults: [] });
     expect(() => parseArgs(['--inject-fault', 'nope'])).toThrow('unknown invariant');
+    expect(parseArgs([]).db).toBe('memory');
+    expect(parseArgs(['--db', 'postgres']).db).toBe('postgres');
+    expect(() => parseArgs(['--db', 'mysql'])).toThrow('--db must be memory or postgres');
   });
 
   it('exits 0 and writes simulation-report.json with --ci when nothing is violated', async () => {

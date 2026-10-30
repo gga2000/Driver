@@ -63,6 +63,8 @@ export function useChatActions(orderId: string, kind: ChatThreadKind) {
     send: useMutation({ ...api.chat.send.mutationOptions(), onSuccess: () => void refresh() }),
     markRead: useMutation({ ...api.chat.markRead.mutationOptions(), onSuccess: () => void qc.invalidateQueries({ queryKey: api.chat.threads.queryKey({ orderId }) }) }),
     requestCall: useMutation(api.chat.requestCall.mutationOptions()),
+    // s7 «انحلّت»: closes the reopened lost-item chat with the driver.
+    resolveLostItem: useMutation({ ...api.chat.resolveLostItem.mutationOptions(), onSuccess: () => void refresh() }),
     refresh,
   };
 }

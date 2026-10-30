@@ -356,15 +356,15 @@ export class InMemoryIdentityRepository implements IdentityRepository {
   }
 
   async revokeSessionsOf(personId: string, now: Date, tx?: Tx) {
-    let n = 0;
+    const ids: string[] = [];
     for (const s of this.sessions) {
       if (s.personId === personId && !s.revokedAt) {
         this.keep(tx, s);
         s.revokedAt = now;
-        n += 1;
+        ids.push(s.id);
       }
     }
-    return n;
+    return ids;
   }
 
   async latestOtp(phoneHash: string, purpose: OtpPurpose) {
@@ -436,5 +436,51 @@ export class InMemoryIdentityRepository implements IdentityRepository {
 
   async guardianLinksOf(guardianId: string) {
     return this.guardianLinks.filter((g) => g.guardianId === guardianId);
+  }
+  async roleKindsEver(personId: string) {
+    return [...new Set(this.roles.filter((r) => r.personId === personId).map((r) => r.kind))];
+  }
+
+  /** Removes the matches from `list`, journaled so a rollback puts them back in place. */
+  private removeWhere<T>(tx: Tx | undefined, list: T[], match: (x: T) => boolean): void {
+    const before = [...list];
+    const kept = list.filter((x) => !match(x));
+    if (kept.length === list.length) return;
+    list.splice(0, list.length, ...kept);
+    this.journal(tx, () => list.splice(0, list.length, ...before));
+  }
+
+  async closeAccount(personId: string, now: Date, tx?: Tx) {
+    const person = this.people.get(personId);
+    if (!person || person.deletedAt) return null;
+    const sessionIds = this.sessions.filter((x) => x.personId === personId).map((x) => x.id);
+    const idn = this.identities.get(personId);
+    if (idn) {
+      this.removeWhere(tx, this.otps, (o) => o.phoneHash === idn.phoneHash);
+      this.identities.delete(personId);
+      const refs = this.vaultRefLists.get(personId);
+      this.vaultRefLists.delete(personId);
+      this.journal(tx, () => {
+        this.identities.set(personId, idn);
+        if (refs) this.vaultRefLists.set(personId, refs);
+      });
+    }
+    this.removeWhere(tx, this.children, (c) => c.guardianId === personId);
+    for (const [id, p] of [...this.participantNames]) {
+      if (p.personId !== personId && p.givenById !== personId) continue;
+      this.participantNames.delete(id);
+      this.journal(tx, () => this.participantNames.set(id, p));
+    }
+    this.removeWhere(tx, this.guardianLinks, (g) => g.guardianId === personId || g.wardPersonId === personId);
+    this.removeWhere(tx, this.sessions, (x) => x.personId === personId);
+    this.removeWhere(tx, this.devices, (d) => d.personId === personId);
+    for (const r of this.roles) {
+      if (r.personId !== personId || r.revokedAt) continue;
+      this.keep(tx, r);
+      r.revokedAt = now;
+    }
+    this.keep(tx, person);
+    person.deletedAt = now;
+    return { sessionIds };
   }
 }

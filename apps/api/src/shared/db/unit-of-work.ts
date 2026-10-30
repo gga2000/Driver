@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Tx } from '@driver/db';
 import { PrismaService } from './prisma.service.js';
 
@@ -90,7 +90,7 @@ export class UnitOfWork {
   /** The statement time limit for a transaction opened now (ms, 0 = none); only with a real database. */
   private readonly statementTimeoutMs: () => number;
 
-  constructor(runner: PrismaService | TransactionRunner) {
+  constructor(@Inject(PrismaService) runner: PrismaService | TransactionRunner) {
     // PrismaService opens the client lazily; resolve it only when a transaction starts.
     if (runner instanceof PrismaService) {
       const fallback = new NoDatabaseRunner();

@@ -7,13 +7,16 @@ import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 
 const VEHICLES: readonly IconName[] = ['bike', 'tuktuk', 'car', 'garage'];
-const POINTS = ['partner.welcome_point_pay', 'partner.welcome_point_cash', 'partner.welcome_point_support'] as const;
+const POINTS = ['partner.welcome_point_pay', 'partner.welcome_point_cash', 'partner.welcome_point_support_v2'] as const;
 
 /** Partner welcome: what the app is for, shown as the thing a driver cares about — a job's pay. */
 export default function Welcome() {
   const theme = useTheme();
   const t = useT();
-  const ink = theme.colors.text;
+  // Check-up item 4: ink by day; at night a raised ember panel with cream text, never a cream block.
+  const night = theme.scheme === 'dark';
+  const ink = night ? theme.colors.surfaceRaised : theme.colors.text;
+  const cream = night ? theme.colors.text : theme.colors.bg;
   return (
     <Screen
       edges={['top']}
@@ -30,14 +33,14 @@ export default function Welcome() {
       <Wordmark />
 
       {/* Hero: the ink card every driver will learn — an offer with its pay, itemised. */}
-      <View style={{ borderRadius: theme.radius['2xl'], backgroundColor: ink, padding: theme.space[5], gap: theme.space[5], overflow: 'hidden' }}>
+      <View style={{ borderRadius: theme.radius['2xl'], backgroundColor: ink, borderWidth: night ? 1.5 : 0, borderColor: theme.colors.border, padding: theme.space[5], gap: theme.space[5], overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           {VEHICLES.map((icon) => (
             <View
               key={icon}
-              style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 1.5, borderColor: withAlpha(theme.colors.bg, 0.25), alignItems: 'center', justifyContent: 'center' }}
+              style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 1.5, borderColor: withAlpha(cream, 0.25), alignItems: 'center', justifyContent: 'center' }}
             >
-              <Icon name={icon} size={26} color={theme.colors.bg} strokeWidth={1.7} />
+              <Icon name={icon} size={26} color={cream} strokeWidth={1.7} />
             </View>
           ))}
         </View>

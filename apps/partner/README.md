@@ -53,8 +53,9 @@ scripts/
   re-sends it every 30 s while the app is open (presence lives 90 s in the dispatch index).
 - **Offer** — `<OfferWatcher>` keeps the driver's `live.partner` stream open (SSE, `docs/api/live.md`):
   `partner.currentOffer` is re-read the moment the server offers him a job, and it pushes
-  `/offer` when one arrives (also while on a job: batch offers). The ring runs from the server's
-  `expiresAt`/`ringSec`; heavy haptic + chime on arrival and at 5 s; `dispatch.offerSeen` after 3 s
+  `/offer` when one arrives (also while on a job: batch offers), and again while it is unanswered (back
+  never closes it). The ring is `expiresAt - serverNow` counted from when the offer reached the phone
+  (a wrong phone clock still counts right; shots: `SHOTS=slip-clock`); heavy haptic + chime on arrival and at 5 s; `dispatch.offerSeen` after 3 s
   in the foreground; `dispatch.respond` answers (errors: `offer_taken`, `offer_expired`, `over_cap`).
 - **Job** — `partner.activeJob` (every 4 s) gives the stops with the current one; the button runs
   `trips.arrive` → `trips.completeStop` per stop. At a food dropoff the handover panel asks for the
@@ -166,9 +167,9 @@ he is online or on a job (expo-keep-awake). "جرّب صوت الطلب" is in �
 
 Personas (dev OTP shown on the OTP screen): courier `0770 111 0001` (bike, 14,000 · 6 طلبات today,
 68,500 cash held ≈ 73 % of his cap, two months of history, scorecard day 65), tuktuk `0770 111 0002`
-(rides with the take; licence expiring, registration rejected), intercity `0770 111 0003`, khat
-`0770 111 0004`, customer-only `0770 111 0009`; wave-2 gate states: rookie `0770 111 0041` (no check-in
-yet, month one), locked `0770 111 0042` (two failed check-ins), lapsed `0770 111 0043` (expired licence).
+(rides with the take; licence expiring, registration renewal rejected), intercity `0770 111 0003`, khat
+`0770 111 0004`, customer-only `0770 111 0009`; wave-2 gate states: rookie `0770 111 0041` (papers not
+complete so he can't go online, no check-in yet, month one), locked `0770 111 0042` (two failed check-ins), lapsed `0770 111 0043` (expired licence).
 Everyone else is checked in for today. `POST /demo/account/fail-next-checkin?who=…` fails his next selfie.
 Main photos (صورتك الرئيسية, `/photo`, docs/api/driver-photos.md): every driver has an approved drawn
 portrait; courier's new one «تنتظر الموافقة», tuktuk's «مرفوضة» with a reason, rookie none.
@@ -183,6 +184,8 @@ the clock the shift question reads (a July / January day; dispatch keeps the rea
 hot shift he is asked «المكيّفة شغالة اليوم؟» on home (docs/api/climate-check.md).
 `POST /demo/souq-offer?who=tuktuk|taxi` offers him a ride whose rider carries bags and a gas cylinder
 («عنده غراض: …» on the card), `POST /demo/souq-job?who=…` the same ride accepted. Shots: `SHOTS=souq`.
+
+طرود (`scripts/demo/32-parcel.mjs`, `src/features/parcel/`): `POST /demo/parcel?who=courier&step=to_pickup|at_pickup|to_dropoff|at_dropoff[&payer=sender]` gives the courier a parcel job (the answer carries the receipt `pin`); the pickup photo, the code pad and «رفضت تستلم» show in the job's kind slot (`JobKindPanel`). Shots: `SHOTS=parcel`.
 
 ## Known gaps (wave 1)
 

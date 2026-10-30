@@ -15,7 +15,8 @@ import { IconAlert, IconCheckCircle, IconClose } from './icons';
 
 /**
  * Toasts confirm what just happened, in the action's own word ("أرسلت الرد", "تعوّض 2,000 دينار").
- * Inverse ink on cream, bottom end corner, 5 s, one action at most. Errors stay until closed.
+ * Inverse ink on cream, bottom end corner, 5 s, one action at most. Errors stay until closed. An
+ * undo toast (o8) stays 10 s (`durationMs`) and closes when its action is pressed.
  */
 
 export interface ToastInput {
@@ -23,6 +24,8 @@ export interface ToastInput {
   body?: string;
   tone?: 'default' | 'ok' | 'bad';
   action?: { label: string; onClick: () => void };
+  /** How long it stays; 5 s when left out. */
+  durationMs?: number;
 }
 interface ToastItem extends ToastInput {
   id: number;
@@ -60,9 +63,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 function ToastView({ item, onClose }: { item: ToastItem; onClose: () => void }) {
   useEffect(() => {
     if (item.tone === 'bad') return;
-    const id = window.setTimeout(onClose, 5000);
+    const id = window.setTimeout(onClose, item.durationMs ?? 5000);
     return () => window.clearTimeout(id);
-  }, [item.tone, onClose]);
+  }, [item.tone, item.durationMs, onClose]);
   return <ToastCard item={item} onClose={onClose} />;
 }
 
@@ -82,7 +85,10 @@ export function ToastCard({ item, onClose }: { item: ToastInput; onClose?: () =>
       {item.action ? (
         <button
           type="button"
-          onClick={item.action.onClick}
+          onClick={() => {
+            item.action?.onClick();
+            onClose?.();
+          }}
           className="shrink-0 rounded-md px-2 py-0.5 text-sm font-semibold underline-offset-4 hover:underline"
         >
           {item.action.label}

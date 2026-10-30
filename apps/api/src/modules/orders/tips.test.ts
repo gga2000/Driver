@@ -107,7 +107,7 @@ describe('tip after a good rating — the money', () => {
     // His wallet reads it as one line, «إكرامية · طلب #…».
     const wallet = moneyLines('customer:c1', await s.lh.ledger.eventsFor('customer:c1')).find((l) => l.kind === 'tip')!;
     expect(wallet).toMatchObject({ amount: -1000, title_ar: 'إكرامية', orderId: s.o.id });
-    expect(wallet.detail_ar).toMatch(/^طلب #\d{4}$/);
+    expect(wallet.detail_ar).toMatch(/^طلب \u2066#\d{4}\u2069$/);
   });
 
   it('is once per order: the same amount again returns it, another amount is refused, nothing posts twice', async () => {

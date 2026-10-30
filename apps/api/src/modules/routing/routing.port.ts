@@ -1,4 +1,5 @@
 import type { EtaBasis, LatLng } from '@driver/contracts';
+import type { AvoidedClosure } from './closures.js';
 
 /** A routed path through two or more points. */
 export interface RouteResult {
@@ -7,6 +8,8 @@ export interface RouteResult {
   /** Encoded polyline (precision 6) of the road geometry; null for the straight-line estimate. */
   polyline6: string | null;
   basis: EtaBasis;
+  /** N20: the closed streets this route was sent around (absent when it went the usual way). */
+  avoided?: readonly AvoidedClosure[];
 }
 
 /** Durations and distances from every source to every destination; null where no road connects them. */

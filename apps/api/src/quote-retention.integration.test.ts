@@ -77,4 +77,35 @@ describe.skipIf(!url)('quote retention on Postgres (needs DATABASE_URL)', () => 
     expect((await db.order.findUnique({ where: { id: ride.id } }))?.quoteId).toBe(booked.id);
     expect(await db.quote.findUnique({ where: { id: fresh.id } })).not.toBeNull();
   }, 60_000);
+
+  it('perf z3: the same caller re-asking for the same trip writes no new rows until an order takes the quote', async () => {
+    const who = `p:z3-${run}`;
+    const ask = () =>
+      app.get(PricingService).keepQuote(
+        PriceRequest.parse({ cityId: 'aziziyah', vertical: 'taxi', stops: [{ zoneId: 'centre', type: 'pickup', pin: KITCHEN }, { zoneId: 'street_30', type: 'dropoff', pin: STREET_30 }], options: { doorPickup: false, streetHandover: false }, at: clock.now() }),
+        who,
+      );
+    const first = await ask();
+    const before = await db.quote.count();
+    clock.advanceMinutes(1);
+    expect((await ask()).id).toBe(first.id);
+    clock.advanceMinutes(1);
+    expect((await ask()).id).toBe(first.id);
+    expect(await db.quote.count()).toBe(before);
+
+    const ride = await app.get(OrdersService).place(customer, {
+      cityId: 'aziziyah',
+      type: 'ride',
+      rideVertical: 'taxi',
+      fareIqd: first.total,
+      quoteId: first.id,
+      pickup: { zoneKey: 'centre', pin: KITCHEN },
+      dropoff: { zoneKey: 'street_30', pin: STREET_30 },
+      clientRequestId: `quote-reuse-${run}`,
+    });
+    expect((await db.order.findUnique({ where: { id: ride.id } }))?.quoteId).toBe(first.id);
+    const next = await ask();
+    expect(next.id).not.toBe(first.id);
+    expect(await db.quote.findUnique({ where: { id: next.id } })).not.toBeNull();
+  }, 60_000);
 });

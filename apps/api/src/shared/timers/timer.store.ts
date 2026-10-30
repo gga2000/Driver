@@ -54,6 +54,9 @@ export const TIMER_KEEP_FIRED_MS = 7 * 86_400_000;
 export const TIMER_KEEP_FAILED_MS = 30 * 86_400_000;
 export const TIMER_DEFAULT_MAX_ATTEMPTS = 5;
 
+/** What `take` found: the run is this caller's, someone already ran it, or there is no copy to guard it. */
+export type TakeResult = 'taken' | 'done' | 'missing';
+
 /**
  * The durable timer table (`public.scheduled_timers`). Postgres in production, an in-memory twin for
  * unit tests, the simulator and the demo APIs. Every method is safe with any number of sweepers.
@@ -63,7 +66,13 @@ export interface TimerStore {
   schedule(spec: TimerSpec, tx?: Tx): Promise<boolean>;
   /** Claims up to `limit` due, unclaimed (or lease-expired) timers, oldest first, counting an attempt on each. */
   claimDue(opts: ClaimOptions): Promise<ClaimedTimer[]>;
-  /** The handler succeeded. */
+  /**
+   * Takes the run of the pending timer `jobId` inside `tx`: locks its row and marks it fired there, so
+   * the row stays locked until `tx` ends and a rollback puts it back to pending. A second taker waits
+   * for that and then finds it `done`: BullMQ (or its retry) and a sweeper never both run one timer.
+   */
+  take(queue: string, jobId: string, now: Date, tx: Tx): Promise<TakeResult>;
+  /** The handler succeeded (a no-op once the timer was taken, fired or re-armed meanwhile). */
   complete(id: string, now: Date): Promise<void>;
   /** The handler failed: due again at `retryAt`, or failed for good when `retryAt` is null. */
   fail(id: string, error: string, retryAt: Date | null): Promise<void>;

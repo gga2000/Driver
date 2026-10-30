@@ -12,7 +12,7 @@ export function useMoneyToday(merchantOrgId: string | null, enabled: boolean) {
   return useQuery({ ...api.merchantAdmin.money.today.queryOptions({ merchantOrgId: merchantOrgId ?? '' }), enabled: signedIn && enabled && !!merchantOrgId, refetchInterval: 60_000 });
 }
 
-/** «مين سوّى شنو»: the day's kitchen actions with who did each (owner only; `enabled` carries `canSeeMoney`). */
+/** «منو سوّى شنو»: the day's kitchen actions with who did each (owner only; `enabled` carries `canSeeMoney`). */
 export function useActivityToday(merchantOrgId: string | null, enabled: boolean) {
   const api = useApi();
   const signedIn = useSignedIn();
@@ -70,6 +70,22 @@ export function useRequestMoney() {
   const qc = useQueryClient();
   return useMutation({
     ...api.ledger.requestSettlement.mutationOptions(),
+    onSettled: () => {
+      void qc.invalidateQueries(api.merchantAdmin.money.cash.pathFilter());
+      void qc.invalidateQueries(api.ledger.merchantBalance.pathFilter());
+    },
+  });
+}
+
+/**
+ * «استلمت منه»: the owner takes the cash a courier holds for the restaurant at the counter, with the
+ * courier's daily code read aloud. Refreshes the cash account and the header balance.
+ */
+export function useReceiveCourierCash() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    ...api.merchantAdmin.money.receiveCourierCash.mutationOptions(),
     onSettled: () => {
       void qc.invalidateQueries(api.merchantAdmin.money.cash.pathFilter());
       void qc.invalidateQueries(api.ledger.merchantBalance.pathFilter());

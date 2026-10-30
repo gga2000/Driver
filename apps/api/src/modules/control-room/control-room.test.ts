@@ -63,7 +63,7 @@ describe('control room helpers', () => {
       expect(roles.length).toBeGreaterThan(0);
       for (const r of roles) expect(['admin', 'support', 'field_ops']).toContain(r);
     }
-    // The platform approval switch for deals stays with admin / support (merchant-admin deals.review).
+    // The platform approval switch for deals stays with admin / support (only through this queue).
     expect(APPROVAL_KIND_ROLES.merchant_deal).toEqual(['admin', 'support']);
   });
 });

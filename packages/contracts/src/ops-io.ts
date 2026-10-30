@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import type { HomeKitchenApplication, HomeKitchenApplyInput } from './home-kitchen-admin-io.js';
 import { DeliveryPoint, Iqd, LatLng } from './common.js';
-import { CapTier, SettlementMode } from './ledger-rules.js';
+import { CapTier, MerchantCommissionTier, SettlementMode } from './ledger-rules.js';
 import type { Actor } from './identity-io.js';
 
 /**
@@ -62,16 +63,23 @@ export type CashReceiptView = z.infer<typeof CashReceiptView>;
 export const MerchantOnboardingInput = z.object({
   cityId: z.string().min(1),
   name: z.string().trim().min(2).max(80),
-  type: z.enum(['restaurant', 'grocer']),
+  /** `home_kitchen`: a home cook's kitchen (أكل بيت); its org is a restaurant, the storefront is marked home. */
+  type: z.enum(['restaurant', 'grocer', 'home_kitchen']),
   /** The owner: phone and name go to the identity vault; the draft keeps only the person id. */
   contact: z.object({ name: z.string().trim().min(1).max(60), phone: z.string().min(7).max(20) }),
-  location: DeliveryPoint,
+  /**
+   * The kitchen's door: the GPS pin is required, and the server reads the zone from it (the sent
+   * `zoneKey` is ignored) — every delivery fee and ETA from this store starts there.
+   */
+  location: DeliveryPoint.required({ pin: true }),
   /** Menu photography from the same visit (scoring §2), via `places.photoUpload`. */
   menuPhotoUploadIds: z.array(z.string().min(1)).max(30).default([]),
   shopPhotoUploadId: z.string().min(1).optional(),
   notes: z.string().trim().max(500).optional(),
   /** How the merchant wants his cash back (decisions §3); the city default when absent. */
   settlementMode: SettlementMode.optional(),
+  /** Its commission tier (money §1); a new restaurant starts on `starter` (5 %, Ali 2026-10-11). */
+  commissionTier: MerchantCommissionTier.default('starter'),
 });
 export type MerchantOnboardingInput = z.input<typeof MerchantOnboardingInput>;
 
@@ -140,6 +148,8 @@ export interface OpsPort {
   addLandmarkPhoto(actor: Actor, input: z.output<typeof AddLandmarkPhotoInput>): Promise<LandmarkPhotoView>;
   recordCashReceipt(actor: Actor, input: RecordCashReceiptInput): Promise<CashReceiptView>;
   merchantOnboarding(actor: Actor, input: z.output<typeof MerchantOnboardingInput>): Promise<MerchantOnboardingView>;
+  homeKitchenApply(actor: Actor, input: HomeKitchenApplyInput): Promise<HomeKitchenApplication>;
+  myHomeKitchenApplication(actor: Actor): Promise<HomeKitchenApplication>;
   myTasks(actor: Actor, input: z.infer<typeof MyTasksInput>): Promise<OpsTask[]>;
   completeTask(actor: Actor, input: z.infer<typeof CompleteTaskInput>): Promise<OpsTask>;
 }

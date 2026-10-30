@@ -80,6 +80,11 @@ describe('order caps per vehicle class (review A.16)', () => {
     expect(vehicleRequirement(60_000, 40)).toEqual({ minVehicleClass: 'tuktuk', catering: false });
     expect(vehicleRequirement(60_250, 3)).toEqual({ minVehicleClass: 'car', catering: false });
     expect(vehicleRequirement(100_250, 40)).toEqual({ minVehicleClass: 'car', catering: true });
+    // «دوّرلي» raises only the bike's piece limit (15); its value limit and the other classes stay.
+    expect(vehicleRequirement(25_000, 15, 15)).toEqual({ minVehicleClass: 'bike', catering: false });
+    expect(vehicleRequirement(20_000, 16, 15)).toEqual({ minVehicleClass: 'tuktuk', catering: false });
+    expect(vehicleRequirement(25_250, 3, 15)).toEqual({ minVehicleClass: 'tuktuk', catering: false });
+    expect(vehicleRequirement(60_250, 3, 15)).toEqual({ minVehicleClass: 'car', catering: false });
   });
 });
 

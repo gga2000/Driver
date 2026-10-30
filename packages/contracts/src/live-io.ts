@@ -5,12 +5,12 @@ import { CityId, LatLng } from './common.js';
 import type { Actor } from './identity-io.js';
 import { OrderState } from './order.js';
 import { SharedTrip } from './share-io.js';
-import { EtaBasis } from './tracking.js';
+import { EtaBasis } from './travel.js';
 
 /**
  * The real-time channel (tRPC v11 subscriptions over SSE, `live.*`). It replaces the apps' fast
  * polling: the server pushes compact events — "these queries changed" (`invalidate`) or a minimal
- * patch (`position`, `order_state`, `new_order`, `chat`) — and the client patches or invalidates
+ * patch (`position`, `order_state`, `new_order`, `cancelled`, `chat`) — and the client patches or invalidates
  * its React Query cache. The data itself is always re-read through the ordinary queries, with the
  * same auth and scoping, so a lost event costs freshness, never correctness.
  *
@@ -69,6 +69,8 @@ export const LiveKey = z.enum([
   'orders.listActive',
   'chat.threads',
   'chat.thread',
+  /** Step 4c: a Baghdad/Kut run's or request's chat list (the driver's riders, the rider's drivers). */
+  'chat.trip.threads',
   'partner.status',
   'partner.currentOffer',
   'partner.activeJob',
@@ -137,6 +139,15 @@ export const LiveNewOrder = z.object({
   orderId: z.string(),
   merchantOrgId: z.string(),
 });
+/**
+ * An order the kitchen had accepted was cancelled (customer or us): the merchant app sounds it and
+ * re-reads the board, where it is a red card «انلغى، لا تكمل» instead of silently gone.
+ */
+export const LiveOrderCancelled = z.object({
+  type: z.literal('cancelled'),
+  orderId: z.string(),
+  merchantOrgId: z.string(),
+});
 /** A chat message was sent in a thread (`chat.thread` and the unread badges change). */
 export const LiveChat = z.object({
   type: z.literal('chat'),
@@ -144,6 +155,8 @@ export const LiveChat = z.object({
   kind: ChatThreadKind,
   threadId: z.string(),
   seq: z.number().int(),
+  /** A `rider_driver` thread (step 4c): the other side it is keyed by; `orderId` is the run or request id. */
+  partyId: z.string().optional(),
 });
 
 /**
@@ -176,6 +189,7 @@ export const LiveEvent = z.discriminatedUnion('type', [
   LivePosition,
   LiveDriverPin,
   LiveNewOrder,
+  LiveOrderCancelled,
   LiveChat,
   LiveShare,
   LiveCourierRadar,
@@ -190,6 +204,8 @@ export const liveChannel = {
   driver: (personId: string) => `driver:${personId}`,
   merchant: (merchantOrgId: string) => `merchant:${merchantOrgId}`,
   chat: (orderId: string, kind: ChatThreadKind) => `chat:${orderId}:${kind}`,
+  /** A Baghdad/Kut pair thread (step 4c): the run or request id and the side it is keyed by. */
+  tripChat: (id: string, partyId: string) => `tripchat:${id}:${partyId}`,
   city: (cityId: string) => `city:${cityId}`,
   /** Events whose city the fan-out cannot tell (an idle driver's pin); every Console board listens. */
   anyCity: () => 'city:*',

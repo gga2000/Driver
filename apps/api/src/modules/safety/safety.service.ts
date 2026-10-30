@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { t } from '@driver/i18n';
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import {
   DriverError,
@@ -33,6 +34,8 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleLinkParam } from '../../shared/console-link.js';
+import { nearestLandmark } from '../../shared/landmarks.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService, StaffNames } from '../controls/index.js';
 import { EventsService, type PublishedEvent } from '../events/index.js';
@@ -55,10 +58,10 @@ export interface SafetyCallPort {
 export interface SafetyConfig {
   /** HMAC key of the emergency contact's live-location link. */
   secret: string;
-  /** The public page the link opens (`<base><token>`). */
-  linkBase: string;
-  /** The Console origin, for the dispatcher's WhatsApp ("افتح الكونسول"). */
-  consoleBase: string;
+  /** The public page the link opens (`<base><token>`); null: unset, the contact gets no link (`placeWords`). */
+  linkBase: string | null;
+  /** The Console origin, for the dispatcher's WhatsApp ("افتح الكونسول"); null: no link (`consoleLinkParam`). */
+  consoleBase: string | null;
   /** In-process timers for the contact message (after the cancel window) and the 60-s escalation. */
   timers: boolean;
   /** The sweep that catches anything a timer missed (restarts, other instances); 0 = off. */
@@ -98,6 +101,18 @@ const isUnique = (err: unknown) => /unique|P2002|client_id_key/i.test(String((er
  * calls through the masked-call port and resolves with a note. Names and numbers are read from the
  * vault only, and every read is logged with the reader and the purpose.
  */
+/**
+ * The emergency contact's `link` words when there is no live-location page: where the phone last was,
+ * as text (the nearest public landmark and the coordinates to paste into a maps app), never a link.
+ * The message itself goes out exactly as with a link.
+ */
+function placeWords(last: IncidentRecord['last']): string {
+  if (!last) return t('notify.sos_contact.no_place');
+  const coords = `${last.lat.toFixed(5)}, ${last.lng.toFixed(5)}`;
+  const place = nearestLandmark(last);
+  return place ? t('notify.sos_contact.place_near', { place, coords }) : t('notify.sos_contact.place', { coords });
+}
+
 @Injectable()
 export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SafetyService.name);
@@ -454,7 +469,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
       }
     }
     const name = (await this.identity.displayNamesFor([inc.raiserId], 'system:safety', 'sos_page'))[inc.raiserId]?.displayName ?? 'شخص';
-    const params = { name, role: ROLE_AR[inc.raiserRole], what: inc.subjectLabel, link: `${this.config.consoleBase.replace(/\/$/, '')}/safety/${inc.id}`, incidentId: inc.id };
+    const params = { name, role: ROLE_AR[inc.raiserRole], what: inc.subjectLabel, link: consoleLinkParam(this.config.consoleBase, `/safety/${inc.id}`, inc.id), incidentId: inc.id };
     for (const personId of to) {
       await this.notify.dispatch({ eventId: e.id, template: 'sos_dispatch_alert', to: personId, params, data: { incidentId: inc.id }, ...(inc.orderId ? { orderId: inc.orderId } : {}) }, tx);
     }
@@ -476,7 +491,7 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
     if (!(await this.repo.claim(inc.id, 'contactAt', now, LIVE_STATES))) return false;
     const name = (await this.identity.firstNamesFor([inc.raiserId], 'system:safety', 'sos_contact_message'))[inc.raiserId] ?? 'شخص من عائلتك';
     await this.uow.run(async (tx) => {
-      await this.notify.dispatch({ eventId: inc.raiseEventId ?? `sos:${inc.id}`, template: 'sos_emergency_contact', to: emergencyContactRecipient(inc.raiserId), params: { name, link: this.linkOf(inc.id) }, data: { incidentId: inc.id } }, tx);
+      await this.notify.dispatch({ eventId: inc.raiseEventId ?? `sos:${inc.id}`, template: 'sos_emergency_contact', to: emergencyContactRecipient(inc.raiserId), params: { name, link: this.linkOf(inc.id) ?? placeWords(inc.last) }, data: { incidentId: inc.id } }, tx);
       await this.repo.addEntry({ incidentId: inc.id, kind: 'contact', at: now, byId: null, note: null, data: { status: 'queued' } }, tx);
     });
     await this.publish('sos.contact');
@@ -658,8 +673,14 @@ export class SafetyService implements SafetyPort, OnModuleInit, OnModuleDestroy 
 
   // ───────────────────────── the contact's link ─────────────────────────
 
-  linkOf(incidentId: string): string {
-    return `${this.config.linkBase}${incidentId}.${this.sign(incidentId)}`;
+  /** The contact's live-location page; null when `SAFETY_LINK_BASE_URL` is unset (no link is sent then). */
+  linkOf(incidentId: string): string | null {
+    return this.config.linkBase ? `${this.config.linkBase}${this.tokenOf(incidentId)}` : null;
+  }
+
+  /** The signed token the page takes (`/sos/<token>`). */
+  tokenOf(incidentId: string): string {
+    return `${incidentId}.${this.sign(incidentId)}`;
   }
 
   private sign(id: string): string {

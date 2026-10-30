@@ -35,6 +35,7 @@ import {
 } from '../account-io.js';
 import { LANDMARK_FEED_RULES, LandmarkFeed, LandmarkFeedInput } from '../landmarks.js';
 import { RequestTopUpInput, TopUpStatusInput, TopUpView } from '../topup-io.js';
+import { StatsInput, StatsView } from '../stats-io.js';
 import { protectedProcedure, publicProcedure, router } from '../trpc.js';
 
 /** The feed a context without the port answers: nothing to draw, stable so a phone keeps it. */
@@ -123,6 +124,11 @@ export const walletRouter = router({
     .input(MonthInput)
     .output(MonthInsightsView)
     .query(({ ctx, input }) => ctx.insights.month(ctx.actor, input)),
+  /** «دفترك ويا درايفر»: the caller's own month, year or all-time record, and «وفّرت» counted off the bills. Private. */
+  stats: protectedProcedure()
+    .input(StatsInput)
+    .output(StatsView)
+    .query(({ ctx, input }) => ctx.insights.stats(ctx.actor, input)),
   /** "شحن المحفظة": a 6-digit code (+ QR) to hand over with the cash to an ops agent or the next courier. */
   requestTopUp: protectedProcedure()
     .input(RequestTopUpInput)

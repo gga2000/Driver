@@ -1,4 +1,4 @@
-import type { Receipt } from './receipt';
+import type { PrintJob } from './doc';
 import { PrinterUnsupportedError, type PrinterDriver, type PrinterSnapshot } from './types';
 
 export { previewQueue } from './preview-queue';
@@ -10,9 +10,10 @@ export { previewQueue } from './preview-queue';
  * TODO(native-print):
  *  1. Add a BLE module (react-native-ble-plx) to a dev-client build; scan for printers advertising
  *     the common serial service (0x18F0 / 0xFFE0), remember the chosen device id in prefs.
- *  2. Arabic: cheap 80 mm ESC/POS printers have no Arabic shaping or RTL, so render the `Receipt`
- *     to a 576-px-wide monochrome bitmap (react-native-view-shot of <ReceiptPaper/>, then dither)
- *     and send it with `GS v 0`; cut with `GS V 1`.
+ *  2. Arabic: cheap ESC/POS printers have no Arabic shaping or RTL, so draw each `PrintDoc` with
+ *     <PaperDoc pxPerMm={8}/> at the head's width (384/512/576 dots, `printSettings.dots`), capture it
+ *     (react-native-view-shot), and send `jobBytes()` from escpos.ts: 1-bit strips with `GS v 0`, a
+ *     beep first and a partial cut after each document when the settings say so.
  *  3. Report connection changes with `merchant.setPrinterStatus` (the board's "الطابعة مفصولة"
  *     marker and dispatch read it) — `usePrinterSync` in features/print already does this for any
  *     driver whose snapshot changes.
@@ -40,12 +41,12 @@ export function createPrinter(): PrinterDriver {
       for (const l of listeners) l();
       return snapshot;
     },
-    async print(_receipt: Receipt) {
+    async print(_job: PrintJob) {
       throw new PrinterUnsupportedError('bluetooth printing');
     },
   };
 }
 
-export function printInBrowser(_receipt: Receipt): void {
+export function printInBrowser(_job: PrintJob): void {
   /* native has no browser print dialog */
 }

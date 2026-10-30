@@ -21,6 +21,8 @@ import {
   setMinMax,
   setRequired,
   sortOrderForNew,
+  sugarGroup,
+  wantsSugar,
   toDraftGroups,
   shelfRows,
   trayColumns,
@@ -197,5 +199,23 @@ describe('menu shelf rows', () => {
     expect(rows[3]).toMatchObject({ items: ['5'], last: true });
     expect(rows[1]).toMatchObject({ items: ['1', '2'], last: false });
     expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+  });
+});
+
+describe('sugar group (k5)', () => {
+  it('is one required free pick, valid as it stands', () => {
+    const g = sugarGroup({ group: 'السكر', options: ['بدون سكر', 'سكر خفيف', 'سكر عادي', 'سكر زيادة'] });
+    expect(g).toMatchObject({ nameAr: 'السكر', required: true, minSelect: 1, maxSelect: 1 });
+    expect(g.modifiers.map((m) => m.price)).toEqual(['0', '0', '0', '0']);
+    expect(groupProblems(g)).toEqual([]);
+  });
+
+  it('is offered on sweetened drinks that have no sugar group yet', () => {
+    expect(wantsSugar('tea', 'hot', [])).toBe(true);
+    expect(wantsSugar('juice', 'cold', [{ nameAr: 'الحجم' }])).toBe(true);
+    expect(wantsSugar('tea', 'hot', [{ nameAr: 'السكر' }])).toBe(false);
+    expect(wantsSugar('water', 'cold', [])).toBe(false);
+    expect(wantsSugar('can', 'cold', [])).toBe(false);
+    expect(wantsSugar('kebab', null, [])).toBe(false);
   });
 });

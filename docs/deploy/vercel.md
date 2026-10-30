@@ -10,6 +10,9 @@ Cloudflare Pages route in [web.md](web.md); only the host differs. The API stays
 - Project environment variable `EXPO_PUBLIC_API_URL` = the **staging** API
   (`https://driver-api-staging.fly.dev/trpc`) until launch. It is baked in at build time: change it,
   then redeploy. `EXPO_PUBLIC_SHARE_BASE_URL` defaults to the project's own address.
+- `EXPO_PUBLIC_MAP_TILES_URL` and `EXPO_PUBLIC_MAP_GLYPHS_URL` (our map files, `docs/deploy/map.md`) are
+  required: a production build without them stops with a message, so the website's maps never load
+  from the public OpenStreetMap servers. Both are set (production and preview).
 - Only `main` deploys. `git.deploymentEnabled` in vercel.json stops every other branch from even creating a
   deployment (the free plan allows 100 deployments a day, and ignored builds still count), and the
   project setting "preview deployments disabled" covers branches cut before that line existed.
@@ -25,6 +28,15 @@ Same setup as a second Vercel project, `driver-merchant`, Root Directory **`apps
 Its address must also be in the staging API's `CORS_ORIGINS`. Every page is `noindex` (staff tool).
 On the web: no Bluetooth printer (the printer screen says so), no push, the order sound starts after
 the «ابدأ الشغل» tap (browser autoplay rule), keep-screen-on uses Wake Lock when the browser allows it.
+
+## Partner (courier and driver) web app
+
+A third project, `driver-partner`, Root Directory **`apps/partner`** (`apps/partner/vercel.json`,
+`apps/partner/scripts/vercel-build.sh`), same `EXPO_PUBLIC_API_URL` and the same map variables as the
+customer site (`EXPO_PUBLIC_MAP_TILES_URL`, `EXPO_PUBLIC_MAP_GLYPHS_URL`). Its address
+(`https://driver-partner-ashen.vercel.app`) must also be in the staging API's `CORS_ORIGINS`. It is for trying
+the partner app on staging from a browser: background location while the screen is off and push only
+work in the phone app. Every page is `noindex`.
 
 ## Add to home screen (customer)
 

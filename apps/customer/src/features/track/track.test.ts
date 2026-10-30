@@ -217,6 +217,31 @@ describe('status → timeline', () => {
     expect(statusLine(view(), t)).toBe(t('order.status.placed'));
   });
 
+  it('a stall or bakery order (grocery_catalog) says «المحل», never «المطعم»; restaurant words unchanged', () => {
+    const placed = view({ type: 'grocery_catalog' });
+    expect(statusLine(placed, t)).toBe('طلبك عند المحل');
+    expect(
+      buildTimeline(placed, { eta: null, lateMin: 0, courierName: null }, t, clock).steps[0],
+    ).toMatchObject({ label: 'طلبك عند المحل', note: t('order.status.placed_hint_shop') });
+    const prep = view(
+      { type: 'grocery_catalog', state: 'preparing', acceptedAt: at(1), preparingAt: at(2) },
+      { trip: trip('en_route_to_pickup'), courier },
+    );
+    const tl = buildTimeline(prep, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);
+    expect(tl.steps.find((s) => s.key === 'accepted')?.label).toBe('المحل قبل طلبك');
+    expect(tl.steps.find((s) => s.key === 'preparing')?.note).toBe('حيدر رايح للمحل يستلم طلبك');
+    for (const step of tl.steps) expect(`${step.label} ${step.note ?? ''}`).not.toContain('المطعم');
+    expect(statusLine(view(), t)).toBe('طلبك عند المطعم');
+  });
+
+  it('a دوّرلي order (errand) says a shopper is shopping for you', () => {
+    const v = view({ type: 'errand', merchantOrgId: null });
+    expect(statusLine(v, t)).toBe('ندوّرلك شاري');
+    expect(
+      buildTimeline(v, { eta: null, lateMin: 0, courierName: null }, t, clock).steps[0]?.note,
+    ).toBe('أول ما يقبل الشاري يروح يتسوّق إلك');
+  });
+
   it('preparing with a courier on his way to the kitchen, real timestamps on done steps and an ETA on the last', () => {
     const v = view({ state: 'preparing', acceptedAt: at(1), preparingAt: at(2), promisedReadyAt: at(17) }, { trip: trip('en_route_to_pickup'), courier });
     const tl = buildTimeline(v, { eta: at(30), lateMin: 0, courierName: 'حيدر' }, t, clock);
@@ -306,6 +331,16 @@ describe('status → timeline', () => {
     expect(buildTimeline(ride('in_transit'), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock).current).toBe('in_transit');
     expect(buildTimeline(ride('completed', { state: 'completed' }), { eta: null, lateMin: 0, courierName: 'علي' }, t, clock).current).toBe('completed');
     expect(phaseOf(ride('arrived_pickup'))).toBe('at_pickup');
+  });
+
+  it('rides: a "وصلت" tapped far from the pickup reads as the driver saying so', () => {
+    const arrivedFar = (outside: boolean) => {
+      const tr = trip('arrived_pickup');
+      tr.stops[0] = { ...tr.stops[0]!, state: 'arrived', arrivedAt: T0, arrivalClaimedOnly: outside };
+      return view({ type: 'ride', merchantOrgId: null, state: 'matched' }, { merchant: null, trip: tr, courier });
+    };
+    expect(statusLine(arrivedFar(true), t)).toBe(t('trip.status.arrived_pickup_claimed'));
+    expect(statusLine(arrivedFar(false), t)).toBe(t('trip.status.arrived_pickup'));
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlaceOrderInput, PriceRequest, type MenuItem, type QuoteComponent } from '@driver/contracts';
 import { EMPTY_CART, ME, TABLE, addLine, type CartMerchant, type CartState, type NewCartLine } from './cart';
-import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, overNewCustomerCap, placeProblem, priorCashOrders, validTender, walletChoice } from './checkout';
+import { buildPlaceOrderInput, cartQuoteRequest, checkoutTotals, clock12, lineSavings, otherDeals, orderQuoteInput, overNewCustomerCap, owedOnOrder, placeProblem, priorCashOrders, validTender, walletChoice } from './checkout';
 import { canQuickAdd, chosenModifiers, defaultSelection, fromPrice, isSelectionValid, selectionProblems, sheetLinePrice, toggleModifier } from './modifiers';
 import { similarOpenRestaurants } from './similar';
 
@@ -128,6 +128,11 @@ describe('checkout payload builder', () => {
     expect(checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] }, { discountIqd: 4050, discount: deal }, 'wallet')).toMatchObject({ priceIqd: 24450, totalIqd: 24450, changeIqd: 0 });
     // An exact multiple has no change.
     expect(checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] })).toMatchObject({ priceIqd: 28500, totalIqd: 28500, changeIqd: 0 });
+    // FOOD-01/19: orders.quote's fees (the server's clock, the order's slot) are what is placed; the
+    // engine's lines take the difference so they still add up (a night fee the phone's clock missed).
+    const late = checkoutTotals(cart, { components: [comp('service_fee', 500), comp('base', 1000)] }, { discountIqd: 0, discount: null, deliveryFeeIqd: 1500, serviceFeeIqd: 500 }, 'wallet');
+    expect(late).toMatchObject({ deliveryFeeIqd: 1500, serviceFeeIqd: 500, priceIqd: 29000 });
+    expect(late.components.map((c) => [c.key, c.amount])).toEqual([['base', 1500], ['service_fee', 500]]);
     const saved = lineSavings(cart, { lineSavingsIqd: [600, 3450], dealLineSavingsIqd: [600, 3450] });
     expect([...saved.values()]).toEqual([600, 3450]);
     // Old API without the exact field: the per-line shares.
@@ -174,6 +179,12 @@ describe('checkout payload builder', () => {
     expect(parsed.usePoints).toBeUndefined();
   });
 
+  it('FOOD-01: orders.quote is asked for the chosen slot, so a pre-order after midnight is priced as placed', () => {
+    const at = new Date('2026-10-10T21:30:00Z');
+    expect(PlaceOrderInput.parse(orderQuoteInput(twoPersonCart(), ZAKUR, false, false, at)).scheduledFor?.toISOString()).toBe(at.toISOString());
+    expect(PlaceOrderInput.parse(orderQuoteInput(twoPersonCart(), ZAKUR, false)).scheduledFor).toBeUndefined();
+  });
+
   it('«استخدم نقاطك» (W-02): asks the server to use points and sends the value the quote showed', () => {
     const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, paymentMethod: 'cash' as const, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
     expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, usePoints: true, pointsIqd: 1500 }))).toMatchObject({ usePoints: true, pointsIqd: 1500 });
@@ -181,6 +192,20 @@ describe('checkout payload builder', () => {
     const off = PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, usePoints: false, pointsIqd: 0 }));
     expect(off.usePoints).toBeUndefined();
     expect(off.pointsIqd).toBeUndefined();
+  });
+
+  it('M-3: an earlier unpaid amount rides on a cash order and is sent back as the quote showed it', () => {
+    expect(owedOnOrder(500, 'cash', false)).toBe(500);
+    expect(owedOnOrder(undefined, 'cash', false)).toBe(0);
+    // The quote prices it for his own cash order: a wallet or household order carries nothing.
+    expect(owedOnOrder(500, 'wallet', false)).toBe(0);
+    expect(owedOnOrder(500, 'cash', true)).toBe(0);
+    const base = { cart: twoPersonCart(), dropoff: ZAKUR, streetHandover: false, recipient: { kind: 'me' as const }, scheduledFor: null, fees: { deliveryFeeIqd: 1000, serviceFeeIqd: 500 } };
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash', debtCollectIqd: 500 })).debtCollectIqd).toBe(500);
+    // 0 is sent too: if a fee appears before he taps, the server says price_changed and the checkout refreshes.
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash', debtCollectIqd: 0 })).debtCollectIqd).toBe(0);
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'wallet', debtCollectIqd: 500 })).debtCollectIqd).toBeUndefined();
+    expect(PlaceOrderInput.parse(buildPlaceOrderInput({ ...base, paymentMethod: 'cash' })).debtCollectIqd).toBeUndefined();
   });
 
   it('joy w4: the household wallet only on a wallet order; «للسفرة» lines mark the family table', () => {

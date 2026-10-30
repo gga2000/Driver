@@ -46,6 +46,17 @@ describe.skipIf(!redisUrl)('dispatch on Redis (integration)', () => {
     await b.unlock(key);
   });
 
+  it("speed x2: a request is on the city's board until retired", async () => {
+    const store = new RedisDispatchStore(connect());
+    const r = { tripId: `${run}-board`, cityId: 'aziziyah' } as unknown as Parameters<RedisDispatchStore['saveRequest']>[0];
+    expect(await store.isActive('aziziyah', r.tripId)).toBe(false);
+    await store.saveRequest(r);
+    expect(await store.isActive('aziziyah', r.tripId)).toBe(true);
+    expect(await store.isActive('kut', r.tripId)).toBe(false);
+    await store.retireRequest(r);
+    expect(await store.isActive('aziziyah', r.tripId)).toBe(false);
+  });
+
   it('per-driver lock (M2 follow-up): two pods serialise the same driver, and only the owner releases it', async () => {
     const a = new RedisDispatchStore(connect());
     const b = new RedisDispatchStore(connect());
@@ -64,6 +75,21 @@ describe.skipIf(!redisUrl)('dispatch on Redis (integration)', () => {
     expect(await Promise.all([first, b.withDriverLock(driver, hold('b', 10))])).toEqual(['a', 'b']);
     expect(order).toEqual(['a:in', 'a:out', 'b:in', 'b:out']);
     expect(await connect().exists(driverLockKey(driver))).toBe(0);
+  });
+
+  it('cash holds: written by one pod, read and dropped by another; the key carries a ttl', async () => {
+    const a = new RedisDispatchStore(connect());
+    const b = new RedisDispatchStore(connect());
+    const driverId = `${run}-cash`;
+    await a.addCashHold(driverId, { tripId: 't1', amountIqd: 16_500, until: 1 }, 60_000);
+    await a.addCashHold(driverId, { tripId: 't2', amountIqd: 5_000, until: 2 }, 60_000);
+    expect((await b.cashHolds(driverId)).sort((x, y) => x.until - y.until)).toEqual([{ tripId: 't1', amountIqd: 16_500, until: 1 }, { tripId: 't2', amountIqd: 5_000, until: 2 }]);
+    const ttl = await connect().pttl(`dispatch:cash:${driverId}`);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(60_000);
+    await b.removeCashHold(driverId, 't1');
+    await b.removeCashHold(driverId, 't2');
+    expect(await a.cashHolds(driverId)).toEqual([]);
   });
 
   it('runtime policy override persists in Redis for every instance', async () => {

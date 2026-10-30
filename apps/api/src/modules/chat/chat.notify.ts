@@ -18,8 +18,20 @@ export function registerChatNotifications(events: EventsService, notify: NotifyS
         channel: 'push',
         title_ar: chatPushTitle(p.senderRole, p.ride),
         body_ar: chatPushBody(p.messageKind, p.preview),
-        data: { type: 'chat', orderId: p.orderId, kind: p.kind, threadId: p.threadId, seq: String(p.seq), deepLink: `driver://chat/${p.orderId}?kind=${p.kind}` },
+        data: { type: 'chat', orderId: p.orderId, kind: p.kind, threadId: p.threadId, seq: String(p.seq), deepLink: deepLinkOf(p) },
       }, undefined, { eventId: event.id });
     }
   });
+}
+
+/**
+ * Where the push opens. A Baghdad/Kut pair thread (step 4c) opens in the app of whoever gets it: the
+ * rider's (`driver://rajaa/chat/…`) or the driver's (`driver-partner://intercity/chat/…`), naming the
+ * other side when the thread is keyed by it (the rider of a request, the driver of a run).
+ */
+export function deepLinkOf(p: ChatMessageSentPayload): string {
+  if (p.kind !== 'rider_driver' || !p.trip) return `driver://chat/${p.orderId}?kind=${p.kind}`;
+  const { subject, partyId } = p.trip;
+  if (p.senderRole === 'courier') return `driver://rajaa/chat/${subject}/${p.orderId}${subject === 'request' ? `?with=${partyId}` : ''}`;
+  return `driver-partner://intercity/chat/${subject}/${p.orderId}${subject === 'departure' ? `?with=${partyId}` : ''}`;
 }

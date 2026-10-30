@@ -1,5 +1,5 @@
 import type { MessageKey } from '@driver/i18n';
-import type { LiveMode, LiveTimers } from './live-client.js';
+import { liveBackoffMs, type LiveMode, type LiveTimers } from './live-client.js';
 
 /**
  * Network awareness, free of React and DOM types so every app (Expo native and web, the Next.js
@@ -7,7 +7,9 @@ import type { LiveMode, LiveTimers } from './live-client.js';
  *
  *  - `createNetworkMonitor` — one state per app from two signals: what the device says (NetInfo on
  *    native, `navigator.onLine` on the web) and whether the API answers. A request that gets no
- *    response at all marks the API unreachable and starts a probe every few seconds until it answers.
+ *    response at all marks the API unreachable and starts probing until it answers: after 5 s, then
+ *    waiting twice as long each time up to 30 s, each wait ±20 % at random, so when the server comes back
+ *    every phone that lost it doesn't knock at the same second (plan W6, SEC-16).
  *  - `connectionBanner` — what the shared offline strip says now: offline, API unreachable, "رجع النت"
  *    for a moment after an outage, or "التحديث متأخر" when the live channel is down and data is old.
  *  - `trackFetch` — wraps the tRPC links' `fetch` so every answer and every failure feeds the monitor.
@@ -26,8 +28,10 @@ export const NET_RULES = {
   bannerDelayMs: 1_500,
   /** "رجع النت" stays this long after an outage that showed the strip. */
   backBannerMs: 3_000,
-  /** While the API can't be reached it is probed this often ("نحاول كل 5 ثواني"). */
+  /** While the API can't be reached the first probe waits this long; each probe that gets no answer doubles it. */
   probeEveryMs: 5_000,
+  /** …up to this long between probes (each wait ±20 % at random). */
+  probeMaxMs: 30_000,
   /**
    * While the device says "no network" the API is still probed this often: Android can say offline on a
    * captive or unvalidated Wi-Fi while data works (audit CORE-14), and a real answer beats its word.
@@ -68,6 +72,8 @@ export interface NetworkMonitorOptions {
   /** Resolves true when the API answered at all (any HTTP status). Without one, only real traffic recovers. */
   probe?: () => Promise<boolean>;
   rules?: Partial<NetRules>;
+  /** The jitter's dice (tests pin it). */
+  random?: () => number;
   /** The device's word at start (`navigator.onLine`); default online. */
   deviceOnline?: boolean;
 }
@@ -103,6 +109,8 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
   let device = opts.deviceOnline ?? true;
   let failures = 0;
   let probeTimer: unknown = null;
+  /** Probes in a row that got no answer while unreachable: sets the next wait. */
+  let misses = 0;
   let probing = false;
   let stopped = false;
   let snap: NetSnapshot = { state: device ? 'online' : 'offline', since: now(), backAt: null };
@@ -122,11 +130,14 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
       // Only an outage that showed the strip earns "رجع النت"; a blip passes silently.
       backAt: state === 'online' && wasDown && downFor >= rules.bannerDelayMs ? at : state === 'online' ? null : snap.backAt,
     };
-    if (state === 'unreachable') schedule(rules.probeEveryMs);
+    misses = 0;
+    if (state === 'unreachable') schedule(unreachableWait());
     else if (state === 'offline') schedule(rules.offlineProbeEveryMs);
     else cancel();
     emit();
   };
+
+  const unreachableWait = () => liveBackoffMs(misses + 1, opts.random, { backoffBaseMs: rules.probeEveryMs, backoffMaxMs: rules.probeMaxMs });
 
   const cancel = () => {
     if (probeTimer !== null) timers.clearTimeout(probeTimer);
@@ -148,12 +159,12 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
     opts
       .probe()
       .then(
-        (ok) => (ok ? onAnswer() : onSilence()),
-        () => onSilence(),
+        (ok) => (ok ? onAnswer() : probeSilence()),
+        () => probeSilence(),
       )
       .finally(() => {
         probing = false;
-        if (probeTimer === null && snap.state !== 'online') schedule(snap.state === 'offline' ? rules.offlineProbeEveryMs : rules.probeEveryMs);
+        if (probeTimer === null && snap.state !== 'online') schedule(snap.state === 'offline' ? rules.offlineProbeEveryMs : unreachableWait());
       });
   };
 
@@ -162,6 +173,12 @@ export function createNetworkMonitor(opts: NetworkMonitorOptions = {}): NetworkM
     // A real answer beats the device's word (NetInfo can lag behind a reconnect).
     device = true;
     set('online');
+  };
+
+  // Only probes stretch the wait: the app's own failing requests don't.
+  const probeSilence = () => {
+    if (snap.state === 'unreachable') misses += 1;
+    onSilence();
   };
 
   const onSilence = () => {

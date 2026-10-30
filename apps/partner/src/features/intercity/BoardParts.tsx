@@ -7,8 +7,8 @@ import { Card, Icon, StatusPill, Text, useTheme, withAlpha, type StatusTone } fr
 import { useT } from '@/lib/i18n';
 import { amountParam } from '@/lib/money';
 import { cityName, countdownLabel, demandLine, departureState, requestDetailLabels, rideState, seatsCount, timeWithPeriod, whenLabel } from './labels';
-import { BandSeats, carLine, GoldTime, seatCounts } from './TripsParts';
-import { boardedSeats, clockBare, clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus } from './logic';
+import { BandSeats, carLine, GoldTime, seatFacts } from './TripsParts';
+import { clockBare, clockLabel, corridorCity, dayPeriod, destinationCity, openSeats, pendingPickups, riderStatus, seatCounts } from './logic';
 
 /** Section title with an optional one-line explainer. */
 export function SectionHead({ title, sub, trailing }: { title: string; sub?: string; trailing?: ReactNode }) {
@@ -86,13 +86,12 @@ export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView
   const t = useT();
   const live = dep.state === 'scheduled' || dep.state === 'boarding';
   const pending = pendingPickups(dep).length;
-  const checked = boardedSeats(dep.bookings);
+  const c = seatCounts(dep);
   const to = cityName(t, destinationCity(corridorCity(dep.corridorId), dep.direction));
   const band = theme.services.trips;
   const go = () => router.push(`/intercity/departure/${dep.id}`);
   const label = `${timeWithPeriod(t, dep.departAt)} ${garage?.nameAr ?? ''}`;
   if (live || dep.state === 'departed') {
-    const c = seatCounts(dep);
     return (
       <Pressable
         testID={`my-departure-${dep.id}`}
@@ -130,14 +129,7 @@ export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView
           ) : null}
           <BandSeats dep={dep} />
           <Text variant="label" weight={700} color={band.on} tabular>
-            {[
-              t('intercity.fill', { filled: c.sold, total: c.total }),
-              checked > 0 ? t('partner.ic_fill_checked', { n: checked }) : null,
-              dep.fill.walkUps > 0 ? t('partner.ic_fill_walkups', { n: dep.fill.walkUps }) : null,
-              dep.fill.held > 0 ? t('partner.ic_fill_held', { n: dep.fill.held }) : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
+            {[t('intercity.fill', { filled: c.sold, total: c.total }), ...seatFacts(t, c, false)].join(' · ')}
           </Text>
         </View>
         {pending > 0 && live ? (
@@ -174,9 +166,9 @@ export function MyDepartureCard({ dep, garage, now }: { dep: DriverDepartureView
         <SeatStrip dep={dep} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: theme.space[3], rowGap: 2 }}>
           <Text variant="label" weight={600} tabular>
-            {t('intercity.fill', { filled: dep.fill.booked + dep.fill.walkUps, total: dep.fill.seatsTotal })}
+            {t('intercity.fill', { filled: c.sold, total: c.total })}
           </Text>
-          {checked > 0 ? <Meta text={t('partner.ic_fill_checked', { n: checked })} /> : null}
+          {c.boarded > 0 ? <Meta text={t('partner.ic_fill_checked', { n: c.boarded })} /> : null}
         </View>
       </View>
     </Card>

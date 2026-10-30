@@ -31,7 +31,7 @@ export function cityLandmarks(cityId: string, learned: readonly Place[], zoneOf:
   for (const p of learned) {
     const zoneId = zoneOf(p.pin);
     if (!zoneId || seeded.some((s) => s.name_ar === westernDigits(p.name))) continue;
-    out.push({ id: p.id, name_ar: westernDigits(p.name), name_en: p.name, pin: p.pin, zoneId, kind: 'landmark', category: p.landmarkCategory ?? landmarkCategoryOf(p.name), aliases_ar: [], photoUrl: p.photos[0]?.url ?? null });
+    out.push({ id: p.id, name_ar: westernDigits(p.name), name_en: p.name, pin: p.pin, zoneId, kind: 'landmark', category: p.landmarkCategory ?? landmarkCategoryOf(p.name), aliases_ar: (p.localNames ?? []).map(westernDigits), photoUrl: p.photos[0]?.url ?? null });
   }
   return out;
 }

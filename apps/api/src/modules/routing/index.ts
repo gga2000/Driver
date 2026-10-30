@@ -5,3 +5,6 @@ export { ROUTER, RoutingUnavailable, type Router, type RouteResult, type TableRe
 export { StraightLineRouter } from './straight-line.router.js';
 export { OsrmRouter, OSRM_DEFAULT_TIMEOUT_MS, type OsrmFetch } from './osrm.router.js';
 export { ResilientRouter, ROUTING_RULES } from './resilient.router.js';
+export { ClosureAwareRouter } from './closure-aware.router.js';
+export { RouteClosures, CLOSURE_RULES, avoidedStreets, runsThrough, samplePath, type RouteClosure, type AvoidedClosure } from './closures.js';
+export { decodePolyline, encodePolyline } from './polyline.js';

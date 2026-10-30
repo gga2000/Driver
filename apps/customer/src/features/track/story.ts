@@ -10,7 +10,12 @@ export interface Shot {
 
 /** Closer than this to the door (metres, straight line): the camera tightens on him and the door. */
 export const CLOSE_IN_M = 400;
-/** On the way and far: the frame reaches this share of the way ahead toward the door … */
+/**
+ * Within this of the door (metres, straight line; about five minutes on a motorbike in town) the frame
+ * holds him and the door together, so the customer watches him close in on the house.
+ */
+export const DOOR_IN_VIEW_M = 1500;
+/** On the way and farther: the frame reaches this share of the way ahead toward the door … */
 export const LOOK_AHEAD = 0.5;
 /** … and this share behind him, so he sits a little behind the middle with more road ahead. */
 export const LOOK_BEHIND = 0.2;
@@ -29,8 +34,8 @@ const PICKUP_SEARCH: [number, number] = [15.5, 15.5];
 
 /**
  * The story the camera tells for a food order: the kitchen close up while it cooks; the courier and
- * the kitchen while he goes to collect; the courier and the door on the way, tightening as he gets
- * close; the door once it arrived. A ride still searching sits on the pickup; rides otherwise and
+ * the kitchen while he goes to collect; the courier and the door on the way (the door joins the frame
+ * once he is a few minutes out), tightening as he gets close; the door once it arrived. A ride still searching sits on the pickup; rides otherwise and
  * anything unknown fall back to everything still ahead.
  */
 export function storyShot(input: {
@@ -53,6 +58,7 @@ export function storyShot(input: {
     if ((phase === 'to_pickup' || phase === 'at_pickup' || phase === 'preparing') && kitchen) return { points: some(courier, kitchen), zoom: WIDE };
     if (phase === 'on_the_way' && door) {
       if (toDoorM !== null && toDoorM <= CLOSE_IN_M) return { points: some(courier, door), zoom: DOOR_CLOSE };
+      if (courier && toDoorM !== null && toDoorM <= DOOR_IN_VIEW_M) return { points: [courier, door], zoom: WIDE };
       // Far still (f19, maps c4 "follow with look-ahead"): him near the middle with road ahead, instead
       // of courier and door pinned to opposite corners.
       if (courier) return { points: [courier, toward(courier, door, LOOK_AHEAD), toward(courier, door, -LOOK_BEHIND)], zoom: WIDE };

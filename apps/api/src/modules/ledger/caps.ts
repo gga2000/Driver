@@ -144,11 +144,19 @@ export class IdentityScoringCapProfiles implements DriverCapProfileResolver {
   }
 }
 
-/** What dispatch asks before offering (plan Step 5: over-cap drivers excluded after the current job). */
+/**
+ * What dispatch asks before offering (plan Step 5: over-cap drivers excluded after the current job).
+ *
+ * `unpostedIqd`: cash dispatch knows he took on a job that has just finished but that the ledger
+ * has not posted yet (the posting follows the trip's completion through the outbox). It counts
+ * toward his exposure exactly like posted cash, so the gap between "free again" and "cash posted"
+ * never lets an over-cap driver through. `cashPosted` tells dispatch when that posting has landed.
+ */
 export interface CapsPort {
-  isOverCap(driverId: string): Promise<boolean>;
-  canOffer(driverId: string, job?: JobExposure): Promise<boolean>;
+  isOverCap(driverId: string, unpostedIqd?: number): Promise<boolean>;
+  canOffer(driverId: string, job?: JobExposure, unpostedIqd?: number): Promise<boolean>;
   status(driverId: string): Promise<CapStatus>;
+  cashPosted(driverId: string, tripId: string, orderId?: string): Promise<boolean>;
 }
 
 /** What orders asks before accepting a cash order from a new account. */
@@ -156,8 +164,17 @@ export interface CashRiskPort {
   newCustomerCash(customerId: string, orderTotalIqd: number): Promise<{ allowed: boolean; requiresArrivingCall: boolean; priorCashOrders: number }>;
 }
 
+/**
+ * Speed x2: how long the partner app's own reads (heartbeat, status) keep a driver's cap role and tier,
+ * so his cash limit is worked out once (the tier reads his whole event history) instead of on every
+ * beat. His cash and earnings are still read every time. Dispatch's over-cap check never uses it.
+ */
+export const KEPT_LIMIT_MS = 5 * 60_000;
+
 @Injectable()
 export class CapsService implements CapsPort, CashRiskPort {
+  private readonly keptProfiles = new Map<string, { at: number; profile: Promise<{ role: CapRole; tier: CapTier }> }>();
+
   constructor(
     private readonly ledger: LedgerService,
     @Inject(MONEY_RULES) private readonly rules: MoneyRules,
@@ -169,8 +186,12 @@ export class CapsService implements CapsPort, CashRiskPort {
     return { earningsIqd: earnings.amount, cashIqd: cash.amount };
   }
 
-  async status(driverId: string, opts: { weekly?: boolean } = {}): Promise<CapStatus> {
-    const [{ role, tier }, pos] = await Promise.all([this.profiles.profile(driverId), this.position(driverId)]);
+  /**
+   * `keptLimit`: the role and tier from the last `KEPT_LIMIT_MS` (speed x2; the partner app's own
+   * reads only). Without it both are read now, as dispatch and the money desk need.
+   */
+  async status(driverId: string, opts: { weekly?: boolean; keptLimit?: boolean } = {}): Promise<CapStatus> {
+    const [{ role, tier }, pos] = await Promise.all([opts.keptLimit ? this.keptProfile(driverId) : this.profiles.profile(driverId), this.position(driverId)]);
     const capIqd = capFor(role, tier, this.rules);
     const owedIqd = owedOf(pos);
     return {
@@ -187,13 +208,39 @@ export class CapsService implements CapsPort, CashRiskPort {
     };
   }
 
-  async isOverCap(driverId: string): Promise<boolean> {
-    return (await this.status(driverId)).overCap;
+  private keptProfile(driverId: string): Promise<{ role: CapRole; tier: CapTier }> {
+    const now = Date.now();
+    const kept = this.keptProfiles.get(driverId);
+    if (kept && now - kept.at < KEPT_LIMIT_MS) return kept.profile;
+    if (this.keptProfiles.size > 5_000) for (const [id, k] of this.keptProfiles) if (now - k.at >= KEPT_LIMIT_MS) this.keptProfiles.delete(id);
+    const profile = this.profiles.profile(driverId);
+    const entry = { at: now, profile };
+    this.keptProfiles.set(driverId, entry);
+    profile.catch(() => {
+      if (this.keptProfiles.get(driverId) === entry) this.keptProfiles.delete(driverId);
+    });
+    return profile;
   }
 
-  async canOffer(driverId: string, job?: JobExposure): Promise<boolean> {
+  async isOverCap(driverId: string, unpostedIqd = 0): Promise<boolean> {
     const s = await this.status(driverId);
-    return canOfferJob(s.owedIqd, s.capIqd, job, this.rules);
+    return isOverCapAmount(s.owedIqd + Math.max(0, unpostedIqd), s.capIqd);
+  }
+
+  async canOffer(driverId: string, job?: JobExposure, unpostedIqd = 0): Promise<boolean> {
+    const s = await this.status(driverId);
+    return canOfferJob(s.owedIqd + Math.max(0, unpostedIqd), s.capIqd, job, this.rules);
+  }
+
+  /**
+   * Whether the money for this trip has reached his `cash:` account (any line of the trip on it). With
+   * `orderId`, only that order's lines count: on a trip with two cash drop-offs the first order's posting
+   * must not release the second order's hold.
+   */
+  async cashPosted(driverId: string, tripId: string, orderId?: string): Promise<boolean> {
+    const cash = Accounts.cash(driverId);
+    const events = orderId ? await this.ledger.eventsForOrder(orderId) : await this.ledger.eventsForTrip(tripId);
+    return events.some((e) => e.fromAccount === cash || e.toAccount === cash);
   }
 
   async newCustomerCash(customerId: string, orderTotalIqd: number) {

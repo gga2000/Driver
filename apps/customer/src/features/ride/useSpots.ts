@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useLiveZones } from '@/lib/zones-live';
 import type { MessageKey } from '@driver/i18n';
 import { placeLabelKey } from '@/features/places/PlaceForm';
 import { useLocale, useT } from '@/lib/i18n';
@@ -28,9 +29,10 @@ export function savedSpot(p: SavedPlace, title: string, locale: 'ar-IQ' | 'en'):
 
 /**
  * Everything "وين رايح؟" searches (saved places, recent trips, landmarks, restaurants, the 34 zones) and the
- * default pickup: the selected deliver-to place.
+ * default pickup: the selected deliver-to place. The home cards pass `liveAreas = false`: they show what is
+ * already loaded and leave the areas download to the ride screens (home's speed budget).
  */
-export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | null; landmarksLoading: boolean; landmarksFailed: boolean; retryLandmarks: () => void } {
+export function useRideSpots(liveAreas = true): { sources: SpotSources; defaultPickup: Spot | null; landmarksLoading: boolean; landmarksFailed: boolean; retryLandmarks: () => void } {
   const t = useT();
   const locale = useLocale();
   const prof = useProfile();
@@ -38,6 +40,7 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
   const landmarks = useLandmarks();
   const refetchLandmarks = landmarks.refetch;
   const shops = useShopPlaces();
+  const zones = useLiveZones(liveAreas);
   const lang = locale === 'en' ? 'en' : 'ar-IQ';
 
   return useMemo(() => {
@@ -51,12 +54,12 @@ export function useRideSpots(): { sources: SpotSources; defaultPickup: Spot | nu
         recent: ride.recent,
         landmarks: (landmarks.data ?? []).map((l) => landmarkSpot(l, lang, t(LANDMARK_KIND[l.kind]))),
         shops: (shops.data ?? []).map((m) => shopSpot(m, lang, t('ride.kind_shop'))).filter((x): x is Spot => x !== null),
-        zones: zoneSpots(lang, t('ride.zone_centre')),
+        zones: zoneSpots(lang, t('ride.zone_centre'), zones),
       },
       defaultPickup,
       landmarksLoading: landmarks.isLoading,
       landmarksFailed: landmarks.isError && !landmarks.data,
       retryLandmarks: () => void refetchLandmarks(),
     };
-  }, [prof, ride.recent, landmarks.data, landmarks.isLoading, landmarks.isError, refetchLandmarks, shops.data, lang, t]);
+  }, [prof, ride.recent, landmarks.data, landmarks.isLoading, landmarks.isError, refetchLandmarks, shops.data, zones, lang, t]);
 }

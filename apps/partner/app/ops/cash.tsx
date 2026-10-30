@@ -6,7 +6,7 @@ import { Avatar, Button, Card, Chip, EmptyState, Icon, Skeleton, StatusPill, Tex
 import { Screen } from '@/components/Screen';
 import { SectionHeader, TierPill } from '@/features/fleet/FleetParts';
 import { cashTone, maskedPhone } from '@/features/fleet/logic';
-import { amountInput, amountProblem, canConfirmCash, parseAmount, pressKey, quickAmounts, receiptKey, type PadKey } from '@/features/ops/logic';
+import { amountInput, amountProblem, canConfirmCash, parseAmount, pressKey, quickAmounts, receiptDue, receiptKey, type PadKey } from '@/features/ops/logic';
 import { CodeBoxes, CodePad } from '@/features/ops/OpsParts';
 import { useCashHolders, useRecordCashReceipt } from '@/features/ops/queries';
 import { capShare } from '@/features/work/logic';
@@ -76,8 +76,9 @@ function CourierCard({ h, onPress }: { h: OpsCashHolder; onPress: () => void }) 
             <Text variant="title" weight={700} tabular>
               {amountParam(h.heldIqd)}
             </Text>
+            {/* The cash he carries (what can be handed over); «عليه» under the bar is what counts against his cap. */}
             <Text variant="caption" color="textMuted">
-              دينار
+              {t('partner.ops_cash_held_unit')}
             </Text>
           </View>
         </View>
@@ -103,14 +104,16 @@ function HandOver({ courier, onChange }: { courier: OpsCashHolder; onChange: () 
   const locale = useLocale();
   const toast = useToast();
   const record = useRecordCashReceipt();
-  const [raw, setRaw] = useState(amountInput(String(courier.heldIqd)));
+  const due = receiptDue(courier);
+  const pay = courier.heldIqd - due;
+  const [raw, setRaw] = useState(amountInput(String(due)));
   const [code, setCode] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
   const nonce = useRef(Math.random().toString(36).slice(2, 10));
   const amount = parseAmount(raw);
-  const problem = amountProblem(amount, courier.heldIqd);
-  const chips = useMemo(() => quickAmounts(courier.heldIqd), [courier.heldIqd]);
-  const ready = canConfirmCash(amount, courier.heldIqd, code);
+  const problem = amountProblem(amount, due);
+  const chips = useMemo(() => quickAmounts(due), [due]);
+  const ready = canConfirmCash(amount, due, code);
 
   const onKey = (k: PadKey) => {
     setCodeError(null);
@@ -177,6 +180,11 @@ function HandOver({ courier, onChange }: { courier: OpsCashHolder; onChange: () 
           <Text variant="caption" color="textMuted" tabular>
             {t('partner.ops_cash_holds', { amount: amountParam(courier.heldIqd) })}
           </Text>
+          {pay > 0 ? (
+            <Text testID="ops-cash-own-pay" variant="caption" color="textMuted" tabular>
+              {t('partner.ops_cash_own_pay', { due: amountParam(due), pay: amountParam(pay) })}
+            </Text>
+          ) : null}
         </View>
         <Pressable testID="ops-cash-change" accessibilityRole="button" onPress={onChange} hitSlop={8}>
           <Text variant="label" weight={600} color="accentText">
@@ -200,12 +208,12 @@ function HandOver({ courier, onChange }: { courier: OpsCashHolder; onChange: () 
             style={{ flex: 1, fontSize: theme.type.numeralSm.size, color: theme.colors.text, ...theme.font(700), fontVariant: ['tabular-nums'], textAlign: 'right', padding: 0, outlineStyle: 'none' } as never}
           />
           <Text variant="title" color="textMuted">
-            دينار
+            {t('quote.currency')}
           </Text>
         </View>
         {problem === 'over' ? (
           <Text variant="footnote" color="dangerText" tabular>
-            {`${t('partner.ops_cash_over')} · ${t('partner.ops_cash_max', { amount: amountParam(courier.heldIqd) })}`}
+            {`${t('partner.ops_cash_over')} · ${t('partner.ops_cash_max', { amount: amountParam(due) })}`}
           </Text>
         ) : null}
         <View style={{ flexDirection: 'row', gap: theme.space[2], flexWrap: 'wrap' }}>

@@ -54,7 +54,7 @@ export function TopBar({ onSearch }: { onSearch: () => void }) {
         <button
           type="button"
           onClick={onSearch}
-          className="group flex h-9 w-full max-w-[460px] items-center gap-2.5 rounded-pill border border-line bg-surface px-3.5 text-start text-sm text-faint transition-colors hover:border-line-strong"
+          className="group flex h-9 w-full min-w-0 max-w-[460px] items-center gap-2.5 rounded-pill border border-line bg-surface px-3.5 text-start text-sm text-faint transition-colors hover:border-line-strong"
         >
           <IconSearch size={17} className="shrink-0 text-muted" />
           <span className="min-w-0 flex-1 truncate">{t('console.search_open')}</span>

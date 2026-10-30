@@ -20,7 +20,7 @@ const MAP_SCREEN_RESERVE = 160;
 const MAP_MIN_HEIGHT = 240;
 
 /**
- * «منين زبائنك» (maps program r6) on the insights screen: the town's zones shaded by how many of this
+ * «منين زباينك» (maps program r6) on the insights screen: the town's zones shaded by how many of this
  * store's orders were delivered there over the chosen range, and the same zones ranked. Areas only
  * (spec D7): the server names a zone from 5 delivered orders up and folds the rest into «مناطق ثانية»;
  * no pin, address or customer ever reaches the app. The outlines come from the delivery-area read.

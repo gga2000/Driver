@@ -1,8 +1,9 @@
 import { afterCommit, onRollback, type Tx } from '../../shared/db/unit-of-work.js';
-import type { EventFilter, EventsRepository, OutboxFilter } from './events.repository.js';
+import type { EventFilter, EventsRepository, OutboxFilter, OutboxRequeueSelect } from './events.repository.js';
 import { assertKeyedFilter, newId } from './events.repository.js';
 import type { OutboxPatch, OutboxRecord, OutboxStats, StoredEvent } from './events.types.js';
 import { OUTBOX_LEASE_MS } from './timestamps.js';
+import { matchesType } from './subscriber.registry.js';
 
 interface Delivery {
   outboxId: string;
@@ -182,6 +183,22 @@ export class InMemoryEventsRepository implements EventsRepository {
     );
   }
 
+  async firstOccurredAt(actorId: string): Promise<Date | null> {
+    let first: Date | null = null;
+    for (const e of this.byActor.get(actorId) ?? []) if (!first || e.occurredAt < first) first = e.occurredAt;
+    return first;
+  }
+
+  async countUpTo(actorId: string, types: readonly string[], cap: number): Promise<number> {
+    const wanted = new Set(types);
+    let n = 0;
+    for (const e of this.byActor.get(actorId) ?? []) {
+      if (n >= cap) break;
+      if (wanted.has(e.type)) n += 1;
+    }
+    return n;
+  }
+
   /** The committed events of several orders, in recording order. */
   private byOrders(orderIds: ReadonlySet<string>): StoredEvent[] {
     const out: StoredEvent[] = [];
@@ -193,6 +210,12 @@ export class InMemoryEventsRepository implements EventsRepository {
 
   async outboxStats(): Promise<OutboxStats> {
     return { ...this.stats };
+  }
+
+  async oldestDueAt(now: Date): Promise<Date | null> {
+    let oldest: Date | null = null;
+    for (const r of this.pendingRows.values()) if (r.nextAttemptAt <= now && (!oldest || r.nextAttemptAt < oldest)) oldest = r.nextAttemptAt;
+    return oldest;
   }
 
   async outbox(filter: OutboxFilter = {}): Promise<OutboxRecord[]> {
@@ -256,6 +279,24 @@ export class InMemoryEventsRepository implements EventsRepository {
     const d = this.delivery(outboxId, subscriber);
     d.attempts += 1;
     d.lastError = error;
+  }
+
+  async requeueFailed(select: OutboxRequeueSelect, now: Date, limit: number): Promise<string[]> {
+    const match = 'ids' in select ? ((ids) => (r: OutboxRecord) => ids.has(r.id))(new Set(select.ids)) : (r: OutboxRecord) => r.type === select.type && r.createdAt >= select.from && r.createdAt < select.to;
+    const picked = this.rows.filter((r) => r.status === 'failed' && match(r)).slice(0, limit);
+    for (const r of picked) await this.updateOutbox(r.id, { status: 'pending', attempts: 0, lastError: null, nextAttemptAt: now });
+    return picked.map((r) => r.id);
+  }
+
+  async stuckFor(subscriberPrefix: string, pendingTypes: readonly string[] | '*'): Promise<{ failed: number; oldestPendingAt: Date | null }> {
+    let failed = 0;
+    for (const r of this.rows) {
+      if (r.status !== 'failed') continue;
+      if ([...(this.deliveriesByRow.get(r.id)?.values() ?? [])].some((d) => d.subscriber.startsWith(subscriberPrefix) && !d.deliveredAt)) failed += 1;
+    }
+    let oldest: Date | null = null;
+    for (const r of this.pendingRows.values()) if (matchesType(pendingTypes, r.type) && (!oldest || r.createdAt < oldest)) oldest = r.createdAt;
+    return { failed, oldestPendingAt: oldest };
   }
 
   /** Delivery records (tests and the Console). */

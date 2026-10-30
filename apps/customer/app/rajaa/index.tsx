@@ -2,7 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import type { IntercityDirection } from '@driver/contracts';
-import { Button, Card, EmptyState, Icon, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
+import { Button, Card, EmptyState, Icon, QueryBoundary, Skeleton, StatusPill, Text, useTheme, useToast } from '@driver/ui';
 import { Screen } from '@/components/Screen';
 import { useFavourites } from '@/features/ride-habits/queries';
 import { RideHabitsStrip } from '@/features/ride-habits/Strip';
@@ -15,7 +15,11 @@ import { DepartureTile, FoldedDeparture } from '@/features/rajaa/DepartureTile';
 import { lastKnownLocation } from '@/features/rajaa/location';
 import { clockLabel, DEFAULT_DIRECTION, demandBanner, endpoints, flip, groupBoard, haversineM, PRIMARY_CORRIDOR, RIDER_TRAVELLING_AS, suggestDirection, publicPlaceName } from '@/features/rajaa/logic';
 import { boardTitle, cityName, seatsCount } from '@/features/rajaa/labels';
-import { garageName, useActiveBooking, useBoard, useCorridorBoards, useDriverCards, useNetwork, usePostDemand } from '@/features/rajaa/queries';
+import { garageName, useActiveBooking, useBoard, useCorridorBoards, useDriverCards, useMyBookings, useNetwork, usePostDemand, useSharedWithMe } from '@/features/rajaa/queries';
+import { returnOfferFor } from '@/features/rajaa/return-bundle';
+import { garageKey } from '@/features/rajaa/garage-cars';
+import { ReturnBundleStrip } from '@/features/rajaa/ReturnParts';
+import { SharedCarStrip } from '@/features/rajaa/ShareCarParts';
 import { useNow } from '@/features/rajaa/useNow';
 import { apiErrorMessage } from '@/lib/api';
 import { presetWindow } from '@/features/rajaa/return-trip';
@@ -64,6 +68,13 @@ export default function RajaaBoard() {
   // Who drives each car (first name, today's check-in): one read for the whole board (C-19).
   const drivers = useDriverCards((board.data?.departures ?? []).map((d) => d.id));
   const trip = useActiveBooking();
+  // Step 5: a seat out on this road makes the cars back on it «رايح وراجع» cheaper.
+  const mine = useMyBookings();
+  // Optional: when the read fails there is simply no offer line (the server prices the pair anyway).
+  const returnOffer = mine.isError ? null : returnOfferFor(mine.data, corridorId, direction);
+  // Step 6: a friend's shared car he joined, one tap back to its page.
+  const shared = useSharedWithMe();
+  const sharedCar = shared.isError ? null : (shared.data?.[0] ?? null);
   // Joy l9: the rider's favourite الرجعة drivers wear «سايقك المفضل» on their cars.
   const favs = useFavourites();
   const favDrivers = useMemo(() => new Set((favs.data ?? []).filter((f) => f.kinds.includes('intercity')).map((f) => f.driverId)), [favs.data]);
@@ -125,10 +136,20 @@ export default function RajaaBoard() {
     span,
   );
   const lines = corridors.map((c, i) => {
-    const deps = lineBoards[i]?.data?.departures ?? [];
-    const today = network.data ? filterBoard(groupBoard(deps, network.data.garages, endpoints(c.cityId, direction).from, now).flatMap((g) => g.departures), days[0]!, null) : [];
+    const deps = lineBoards[i]?.data?.departures;
+    if (!deps || !network.data) return { corridor: c, today: null, first: null };
+    const today = filterBoard(groupBoard(deps, network.data.garages, endpoints(c.cityId, direction).from, now).flatMap((g) => g.departures), days[0]!, null);
     return { corridor: c, today: today.length, first: [...today].sort((a, b) => a.departAt.getTime() - b.departAt.getTime())[0] ?? null };
   });
+  // A line whose count couldn't load says so once under the cards, with a retry (its card just leaves the count out).
+  const failedLines = lineBoards.filter((q) => q.isError && q.data === undefined);
+  const linesRead = {
+    data: failedLines.length === 0 ? true : undefined,
+    error: failedLines[0]?.error ?? null,
+    isPending: false,
+    isError: failedLines.length > 0,
+    refetch: () => failedLines.forEach((q) => void q.refetch()),
+  };
 
   const openDemand = () => router.push({ pathname: '/rajaa/demand', params: { corridor: corridorId, direction } });
   // s7: one tap posts the wish for the day (or part) with what we know: who travels, one seat, the garage.
@@ -184,6 +205,11 @@ export default function RajaaBoard() {
             }}
           />
         ) : null}
+        {failedLines.length > 0 ? (
+          <QueryBoundary query={linesRead} size="inline" skeleton={null} testID="rajaa-lines-read">
+            {() => null}
+          </QueryBoundary>
+        ) : null}
       </View>
 
       {window && presetAt ? (
@@ -198,6 +224,8 @@ export default function RajaaBoard() {
         </Card>
       ) : null}
 
+      {sharedCar ? <SharedCarStrip car={sharedCar} onPress={() => router.push({ pathname: '/rajaa/join/[code]', params: { code: sharedCar.code } })} /> : null}
+      {returnOffer ? <ReturnBundleStrip percent={returnOffer.percent} outAt={returnOffer.booking.departure.departAt} /> : null}
       {trip.data ? <TripPill booking={trip.data} garage={garageName(network.data, trip.data.departure.garageId)} now={now} /> : null}
 
       {/* Joy r5: a regular الرجعة asking now; the «رحلاتي الثابتة» row waits near the end. */}
@@ -259,6 +287,20 @@ export default function RajaaBoard() {
                     .join(' · ')}
                 </Text>
               </View>
+              {/* N12: the garage on the map with each car's seats over it (only the garages drawn in 3D). */}
+              {garageKey(g.garage.id) ? (
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: -theme.space[3] }}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon="map-pin"
+                    label={t('rajaa_garage.open')}
+                    accessibilityLabel={t('rajaa_garage.open_a11y', { garage: publicPlaceName(g.garage.nameAr) })}
+                    onPress={() => router.push({ pathname: '/rajaa/garage/[id]', params: { id: g.garage.id, corridor: corridorId, direction } })}
+                    testID={`garage-open-map-${g.garage.id}`}
+                  />
+                </View>
+              ) : null}
               {/* The calm line (keep list #1), now a caption under the first garage instead of above the route. */}
               {gi === 0 ? (
                 <View style={{ flexDirection: 'row', gap: theme.space[2], alignItems: 'flex-start', marginTop: -theme.space[1] }}>

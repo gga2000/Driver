@@ -101,12 +101,13 @@ export function Tabs<V extends string>({
   className?: string;
 }) {
   const onKey = useArrowKeys(options, value, onChange);
+  // Phones scroll the tabs sideways instead of wrapping one tab onto a line of its own.
   return (
     <div
       role="tablist"
       aria-label={label}
       onKeyDown={onKey}
-      className={cx('flex items-center gap-5 border-b border-line', className)}
+      className={cx('flex items-center gap-x-3 border-b border-line [scrollbar-width:none] max-sm:overflow-x-auto sm:flex-wrap sm:gap-x-5', className)}
     >
       {options.map((o) => {
         const on = o.value === value;

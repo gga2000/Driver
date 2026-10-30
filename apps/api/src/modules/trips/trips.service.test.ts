@@ -66,6 +66,25 @@ describe('TripsService — offer loop', () => {
     expect((await h.trips.accept(third.id, 'd1', { vehicleClass: 'bike' })).courierId).toBe('d1');
   });
 
+  it('money §2: a trip dispatch hands a courier who holds another is a batched second (the batch rate reaches settlement)', async () => {
+    const h = tripsHarness();
+    const first = await h.acceptedTrip('ord_1', 'd1');
+    const second = await h.foodTrip('ord_2');
+    await h.trips.offer(second.id);
+    await h.trips.accept(second.id, 'd1', { vehicleClass: 'bike' }, { assignedByDispatch: true });
+    expect((await h.trips.get(second.id)).batchId).toBe(first.id);
+    expect((await h.trips.get(first.id)).batchId).toBeNull();
+    expect(await h.trips.courierOf('ord_1')).toMatchObject({ tripId: first.id, courierId: 'd1', batchedSecond: false });
+    expect(await h.trips.courierOf('ord_2')).toMatchObject({ tripId: second.id, courierId: 'd1', batchedSecond: true });
+    // Free again, his next job is a first job.
+    await h.trips.cancel(first.id, 'platform', 'ops', 'test');
+    await h.trips.cancel(second.id, 'platform', 'ops', 'test');
+    const third = await h.foodTrip('ord_3');
+    await h.trips.offer(third.id);
+    await h.trips.accept(third.id, 'd1', { vehicleClass: 'bike' });
+    expect(await h.trips.courierOf('ord_3')).toMatchObject({ batchedSecond: false });
+  });
+
   it('order caps per vehicle class: a bike cannot take a car-sized order (edge-case A.16)', async () => {
     const h = tripsHarness();
     const t = await h.foodTrip('ord_big', { minVehicleClass: 'car' });

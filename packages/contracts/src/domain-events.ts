@@ -5,6 +5,7 @@ import {
   DepartureCancelledPayload,
   DriverCancelledPayload,
   ErrandMoneyPayload,
+  FoodCartWalkupCollectedPayload,
   LateMeterPayload,
   MerchantSettlementRequestedPayload,
   OrderMoneyPayload,
@@ -352,9 +353,18 @@ export type SafetyIncidentClosedPayload = z.infer<typeof SafetyIncidentClosedPay
 
 /**
  * `order.rated`: the customer's first scored rating landed, in the rating's own transaction. `stars`
- * is the delivery score (courier/driver), or the food score when he scored only the food.
+ * is the delivery score (courier/driver), or the food score when he scored only the food. `food` and
+ * `delivery` are each score as given (absent when he skipped it) and `orderType` the order's type, so
+ * the Console's low-rating case can say who to hear from (optional: older rows carry only `stars`).
  */
-export const OrderRatedPayload = z.object({ orderId: z.string().min(1), stars: RatingScore, cityId: CityId });
+export const OrderRatedPayload = z.object({
+  orderId: z.string().min(1),
+  stars: RatingScore,
+  cityId: CityId,
+  food: RatingScore.optional(),
+  delivery: RatingScore.optional(),
+  orderType: OrderType.optional(),
+});
 export type OrderRatedPayload = z.infer<typeof OrderRatedPayload>;
 
 /**
@@ -373,6 +383,26 @@ export type OrderStuckPayload = z.infer<typeof OrderStuckPayload>;
 /** `order.unstuck`: the order left the stuck list. `by` = who moved it out (the actor of its latest event; `system` for a timer). */
 export const OrderUnstuckPayload = z.object({ orderId: z.string().min(1), cityId: CityId, by: z.string().min(1) });
 export type OrderUnstuckPayload = z.infer<typeof OrderUnstuckPayload>;
+
+/**
+ * `departure.overdue`: a الرجعة departure entered the garage watch's overdue list (`routes.ops.overdueDepartures`):
+ * its driver never came (`driver_no_show`) or it left and has not arrived (`not_arrived`). On the
+ * `garage_board` aggregate, once per episode. `riders` = booked or checked-in seats' bookings then.
+ */
+export const DepartureOverduePayload = z.object({
+  departureId: z.string().min(1),
+  garageId: z.string().min(1),
+  corridorId: z.string().min(1),
+  reason: z.enum(['driver_no_show', 'not_arrived']),
+  since: z.coerce.date(),
+  riders: z.number().int().nonnegative(),
+  cityId: CityId,
+});
+export type DepartureOverduePayload = z.infer<typeof DepartureOverduePayload>;
+
+/** `departure.overdue_cleared`: it left the list, whatever moved it. `by` = the actor of its latest event since (`system` when none). */
+export const DepartureOverdueClearedPayload = z.object({ departureId: z.string().min(1), cityId: CityId, by: z.string().min(1) });
+export type DepartureOverdueClearedPayload = z.infer<typeof DepartureOverdueClearedPayload>;
 
 /** `order.merchant_unresponsive`: the kitchen is past its promised time with no heartbeat (dispatcher card, call). `cityId` optional: older events have none. */
 export const OrderMerchantUnresponsivePayload = z.object({
@@ -431,6 +461,7 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'subscription.renewed': SubscriptionChargePayload,
   'subscription.prorated': SubscriptionChargePayload,
   'merchant.settlement_requested': MerchantSettlementRequestedPayload,
+  'food_cart.walkup_collected': FoodCartWalkupCollectedPayload,
   'safety.incident_opened': SafetyIncidentOpenedPayload,
   'safety.incident_acked': SafetyIncidentAckedPayload,
   'safety.incident_closed': SafetyIncidentClosedPayload,
@@ -439,6 +470,8 @@ export const DOMAIN_EVENT_PAYLOADS = {
   'courier.cash_under_cap': CourierCashCapPayload,
   'order.stuck': OrderStuckPayload,
   'order.unstuck': OrderUnstuckPayload,
+  'departure.overdue': DepartureOverduePayload,
+  'departure.overdue_cleared': DepartureOverdueClearedPayload,
   'order.merchant_unresponsive': OrderMerchantUnresponsivePayload,
   'order.late_apology': OrderLateApologyPayload,
   'driver.document_submitted': DriverDocumentSubmittedPayload,

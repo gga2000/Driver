@@ -2,7 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Image } from 'expo-image';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
-import { DISH_LABELS, type AdminMenuItem, type DishLabel } from '@driver/contracts';
+import { DISH_KINDS, DISH_LABELS, type AdminMenuItem, type DishKind, type DishLabel } from '@driver/contracts';
 import { Button, ChipGroup, EmptyState, SegmentedControl, Skeleton, Stepper, Text, TextField, useTheme, withAlpha } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { LoadPending } from '@/components/Loadable';
@@ -12,16 +12,20 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { useLayout } from '@/lib/layout';
 import { amountParam, iqd } from '@/lib/money';
+import { InfoStrip } from '../board/Banners';
+import { guessedKind, lineLook } from '../board/kind';
 import { Glyph } from './Glyph';
 import { GroupSheet, HistorySheet, PriceSheet, ruleText, TierSheet } from './ItemSheets';
-import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, toDraftGroups, type DraftGroup } from './logic';
+import { categoryNames, draftKey, fromDraftGroups, itemStatus, offStep, parsePrice, sortOrderForNew, sugarGroup, toDraftGroups, wantsSugar, type DraftGroup } from './logic';
 import { LibrarySheet, libraryPhoto } from './LibrarySheet';
 import { absoluteUrl, pickPhotos, type PickedPhoto } from './photo';
+import { PhotoDownNote } from './PhotoDown';
 import { DishArt, Panel, PanelTitle, Pill, Toggle } from './parts';
 import { applyTiers, draftTiersOf, dropTiers, TIER_GROUP, type Tier, type TierKind } from './tiers';
 import { COUNTER } from '@/lib/counter';
 import { useMenu, useMenuActions, usePhotoUpload, usePriceHistory } from './queries';
 import { color } from '@driver/design-tokens';
+import { motifForDish } from '@driver/ui/dishes';
 
 interface Basics {
   nameAr: string;
@@ -32,6 +36,14 @@ interface Basics {
   price: string;
   /** The kitchen's labels shown to customers (joy o8): «حار», «جديد», «للعائلة». */
   labels: DishLabel[];
+  /** The ticket kind the owner set (k4/j6); null = the app guesses it from the name. */
+  kind: DishKind | null;
+}
+
+/** A drink's hot or cold, by the owner's kind when he set one (so «سحلب» marked a hot drink gets the sugar button). */
+function drinkTemp(name: string, section: string | undefined, kind: DishKind | null): 'hot' | 'cold' | null {
+  const look = lineLook(name, section, kind);
+  return look.kind === 'drink' ? look.temp : null;
 }
 
 function basicsOf(item: AdminMenuItem | null, category: string | null): Basics {
@@ -43,6 +55,7 @@ function basicsOf(item: AdminMenuItem | null, category: string | null): Basics {
     prepTimeMin: item?.prepTimeMin ?? 15,
     price: item ? String(item.priceIqd) : '',
     labels: [...(item?.labels ?? [])],
+    kind: item?.kind ?? null,
   };
 }
 
@@ -59,7 +72,8 @@ export function ItemEditor() {
   const params = useLocalSearchParams<{ id?: string; category?: string; photo?: string }>();
   // p1: opened from a tray's «ماكو صورة · دوس وصوّر»: the photo panel leads.
   const forPhoto = params.photo === '1';
-  const { store } = useCurrentStore();
+  // MER-06: prices, dishes, options and sections are the owner's; staff keep the photo and the daily switches.
+  const { store, canSeeMoney: owner } = useCurrentStore();
   const storeId = store?.orgId ?? null;
   const menu = useMenu(storeId);
   const actions = useMenuActions(storeId);
@@ -121,7 +135,8 @@ export function ItemEditor() {
     try {
       const uploadId = await upload(picked);
       await actions.replacePhoto.mutateAsync({ merchantOrgId: storeId, itemId: item.id, uploadId });
-      toast.show({ message: t('merchant.item.photo_done'), tone: 'success' });
+      // p4: it is on the customer menu now; our team looks at it today.
+      toast.show({ message: t('merchant.item.photo_done_review'), tone: 'success' });
       return true;
     } catch (err) {
       fail(err);
@@ -155,6 +170,7 @@ export function ItemEditor() {
           sortOrder: sortOrderForNew(menu.data?.categories ?? [], categoryAr),
           prepTimeMin: form.prepTimeMin,
           labels: form.labels,
+          kind: form.kind,
         });
         if (groups.length > 0) await actions.setModifiers.mutateAsync({ merchantOrgId: storeId, itemId: created.id, groups: fromDraftGroups(groups) });
         if (photo) {
@@ -178,6 +194,7 @@ export function ItemEditor() {
         ...(moved ? { sortOrder: sortOrderForNew(menu.data?.categories ?? [], categoryAr) } : {}),
         prepTimeMin: form.prepTimeMin,
         labels: form.labels,
+        kind: form.kind,
       });
       toast.show({ message: t('merchant.item.saved'), tone: 'success' });
     } catch (err) {
@@ -279,6 +296,7 @@ export function ItemEditor() {
   // ── panels ──
   const photoPanel = (
     <Panel testID="photo-panel" padded={false} style={[{ overflow: 'hidden' }, forPhoto && !photoUri ? { borderWidth: 2, borderColor: theme.colors.accent } : null]}>
+      {item && !photo ? <PhotoDownNote item={item} /> : null}
       <View style={{ aspectRatio: wide ? 4 / 3 : 16 / 9, backgroundColor: COUNTER.sand, alignItems: 'center', justifyContent: 'center' }}>
         {photoUri ? (
           <Image source={{ uri: photoUri }} style={{ width: '100%', height: '100%' }} contentFit="cover" accessibilityIgnoresInvertColors />
@@ -365,13 +383,13 @@ export function ItemEditor() {
   const pricePanel = item ? (
     <Panel testID="price-panel">
       <PanelTitle glyph="cash" title={t('merchant.item.price')} />
-      {soldByControl}
-      {tierList ?? (
+      {owner ? soldByControl : null}
+      {(owner ? tierList : null) ?? (
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: theme.space[3] }}>
           <Text variant="amount" tabular style={{ flex: 1 }}>
             {iqd(item.priceIqd, { locale })}
           </Text>
-          <Button testID="price-edit" size="sm" label={t('merchant.item.price_change')} onPress={() => setPriceOpen(true)} />
+          {owner ? <Button testID="price-edit" size="sm" label={t('merchant.item.price_change')} onPress={() => setPriceOpen(true)} /> : null}
         </View>
       )}
       <Pressable testID="price-history" accessibilityRole="button" onPress={() => setHistoryOpen(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], opacity: pressed ? 0.7 : 1 })}>
@@ -473,6 +491,28 @@ export function ItemEditor() {
           accessibilityLabel={t('merchant.item.labels')}
         />
       </View>
+      <View style={{ gap: theme.space[2] }} testID="item-kind">
+        <View style={{ gap: 2 }}>
+          <Text variant="label">{t('merchant.item.kind')}</Text>
+          <Text variant="caption" color="textMuted">
+            {t('merchant.item.kind_hint')}
+          </Text>
+        </View>
+        <ChipGroup
+          mode="single"
+          required
+          items={[
+            { id: 'auto', label: t('merchant.item.kind_auto', { guess: t(`merchant.item.kind_${guessedKind(form.nameAr, form.categoryAr)}`) }) },
+            ...DISH_KINDS.map((k) => ({ id: k, label: t(`merchant.item.kind_${k}`) })),
+          ]}
+          value={[form.kind ?? 'auto']}
+          onChange={(next) => {
+            const k = next[0];
+            set('kind', k && (DISH_KINDS as readonly string[]).includes(k) ? (k as DishKind) : null);
+          }}
+          accessibilityLabel={t('merchant.item.kind')}
+        />
+      </View>
       <TextField testID="item-name-en" label={t('merchant.item.name_en')} placeholder="Tikka wrap" value={form.nameEn} onChangeText={(v) => set('nameEn', v)} maxLength={80} autoCapitalize="words" />
     </Panel>
   );
@@ -522,14 +562,27 @@ export function ItemEditor() {
           </Pressable>
         ))
       )}
-      <Button
-        testID="group-add"
-        size="sm"
-        variant="secondary"
-        icon="plus"
-        label={t('merchant.item.group_add')}
-        onPress={() => setGroupEdit({ group: { key: draftKey('g'), nameAr: '', required: false, minSelect: 0, maxSelect: 1, modifiers: [{ key: draftKey('m'), nameAr: '', price: '0', available: true }] }, isNew: true })}
-      />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+        <Button
+          testID="group-add"
+          size="sm"
+          variant="secondary"
+          icon="plus"
+          label={t('merchant.item.group_add')}
+          onPress={() => setGroupEdit({ group: { key: draftKey('g'), nameAr: '', required: false, minSelect: 0, maxSelect: 1, modifiers: [{ key: draftKey('m'), nameAr: '', price: '0', available: true }] }, isNew: true })}
+        />
+        {/* k5: a drink gets the ready sugar choice in one tap; the sheet opens filled, the owner saves or edits it. */}
+        {wantsSugar(motifForDish(form.nameAr, form.categoryAr || undefined), drinkTemp(form.nameAr, form.categoryAr || undefined, form.kind), groups) ? (
+          <Button
+            testID="group-add-sugar"
+            size="sm"
+            variant="secondary"
+            icon="plus"
+            label={t('merchant.sugar.add')}
+            onPress={() => setGroupEdit({ group: sugarGroup({ group: t('merchant.sugar.group'), options: [t('merchant.sugar.none'), t('merchant.sugar.light'), t('merchant.sugar.normal'), t('merchant.sugar.extra')] }), isNew: true })}
+          />
+        ) : null}
+      </View>
     </Panel>
   );
 
@@ -548,6 +601,24 @@ export function ItemEditor() {
 
   const title = isNew ? t('merchant.item.new_title') : (item?.nameAr ?? t('merchant.item.title'));
   const subtitle = isNew ? (form.categoryAr ? t('merchant.item.new_in', { section: form.categoryAr }) : undefined) : (item?.categoryAr ?? t('merchant.menu.no_section'));
+
+  const ownerNote = <InfoStrip tone="neutral" icon="lock" testID="item-owner-only" text={t('merchant.item.owner_only')} />;
+  if (!owner) {
+    return (
+      <Page title={title} subtitle={subtitle} back testID="item-editor" maxWidth={760}>
+        {ownerNote}
+        {isNew ? null : (
+          <>
+            {photoPanel}
+            {pricePanel}
+            {availabilityPanel}
+          </>
+        )}
+        {item ? <HistorySheet visible={historyOpen} name={item.nameAr} history={history.data} loading={history.isLoading} onClose={() => setHistoryOpen(false)} /> : null}
+        <LibrarySheet visible={libraryOpen} name={form.nameAr} section={form.categoryAr || null} busy={uploading} onClose={() => setLibraryOpen(false)} onPick={(src) => void pickFromLibrary(src)} />
+      </Page>
+    );
+  }
 
   return (
     <Page title={title} subtitle={subtitle} back testID="item-editor" maxWidth={wide ? 1120 : 760}>

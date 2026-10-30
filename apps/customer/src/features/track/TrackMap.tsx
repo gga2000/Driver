@@ -3,19 +3,25 @@ import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import type { CourierPosition, NearbyVehicles as NearbyVehiclesData, OrderTracking } from '@driver/contracts';
 import { NearbyVehicles } from '@/features/ride/NearbyVehicles';
-import { Text, useTheme } from '@driver/ui';
+import { Text, useLiteMode, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
 import { distanceM, type LngLat, type Size } from './geo';
 import { BaseMap } from './map/BaseMap';
+import { GOLDEN_MAP, MAP_CREDIT } from './map/credit';
 import { useLabelAvoid } from './map/useLabelAvoid';
+import { routeWaypoints } from './map3d';
 import { CourierMarker, HeadingArrow, PlacePin, placePinSide, PrepRing, RadarPulse, RouteLine } from './map/Overlay';
 import { RecentreChip } from './map/RecentreChip';
+import { TRACK_3D, TrackMap3D } from './map/TrackMap3D';
 import { useFollowCamera } from './map/useFollowCamera';
 import { useRoadGlide } from './map/useRoadGlide';
 import { vehicleKind, type VehicleKind } from './map/Vehicle';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from './queries';
+import { placeKind, placeWord } from './place-kind';
 import { storyShot } from './story';
 import { phaseOf } from './timeline';
+
+export { routeWaypoints };
 
 /** The cooking ring moves this often (prep is minutes long). */
 const PREP_TICK_MS = 5_000;
@@ -42,18 +48,6 @@ export interface TrackMapProps {
   wave?: { part: 1 | 2 | 3; asked: number | 'all' } | null;
 }
 
-/** Where the route still goes after the courier: next stops of this order, in order. */
-export function routeWaypoints(v: OrderTracking): { start: LngLat | null; waypoints: LngLat[] } {
-  const stops = v.trip?.stops.filter((s) => s.mine && s.target && s.state !== 'completed' && s.state !== 'skipped') ?? [];
-  const home = v.dropoff?.pin ?? v.trip?.stops.find((s) => s.mine && s.type === 'dropoff')?.target ?? null;
-  const kitchen = v.merchant?.pin ?? null;
-  if (stops.length > 0) return { start: v.courier ? null : (kitchen ?? null), waypoints: stops.map((s) => s.target!) };
-  if (v.order.deliveredAt || v.order.state === 'closed' || v.order.state === 'delivered') return { start: null, waypoints: [] };
-  // No trip yet: kitchen → door.
-  if (kitchen && home) return { start: kitchen, waypoints: [home] };
-  return { start: null, waypoints: home ? [home] : [] };
-}
-
 /**
  * Map ≈ 60 % of the live screen: base map (MapLibre on the web, SVG zones on native), the road ahead
  * (`orders.route`) shortening as the courier glides along it between fixes — dead reckoning through
@@ -65,7 +59,20 @@ const WAVE_REACH = { 1: 0.45, 2: 0.72, 3: 1 } as const;
 /** The search shot with the nearest cars in it: wide enough for them, never closer than the plain search shot. */
 const SEARCH_WITH_CARS: readonly [number, number] = [13.5, 15.5];
 
-export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false, nearby = null, destinationKind = 'destination', wave = null }: TrackMapProps) {
+/**
+ * Food orders on the web with our Golden hour map: the 3D order map (Ali, 2026-10-09: "use it as much
+ * as possible"). Rides, low-data mode, the phones and a failed map file keep the flat map.
+ */
+export function TrackMap(props: TrackMapProps) {
+  const lite = useLiteMode();
+  const [failed, setFailed] = useState(false);
+  if (TRACK_3D && GOLDEN_MAP && !lite && !failed && props.view.order.type !== 'ride') {
+    return <TrackMap3D view={props.view} fix={props.fix} stale={props.stale} topInset={props.topInset} bottomInset={props.bottomInset} onFail={() => setFailed(true)} />;
+  }
+  return <FlatTrackMap {...props} />;
+}
+
+function FlatTrackMap({ view, fix, stale, topInset, bottomInset, searching = false, minutes = null, spotlight = false, nearby = null, destinationKind = 'destination', wave = null }: TrackMapProps) {
   const theme = useTheme();
   const t = useT();
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
@@ -142,7 +149,7 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
 
   // The courier is drawn over the pins: a name he would cover flips under its pin (QA 2026-10-07).
   const courierAt = fix?.pin ?? null;
-  const kitchenLabel = view.merchant?.name ?? t('track.kitchen_pin');
+  const kitchenLabel = view.merchant?.name ?? t(placeWord('track.kitchen_pin', placeKind(view.order)));
   const homeLabel = t(view.order.type === 'ride' ? 'track.destination_pin' : 'track.home_pin');
   const sideOf = (at: LngLat, label: string) => placePinSide(at, label, courierAt, Boolean(minutes), camera.drawn, size);
 
@@ -168,13 +175,13 @@ export function TrackMap({ view, fix, stale, topInset, bottomInset, searching = 
         </>
       ) : null}
       {!camera.follow ? <RecentreChip bottom={bottomInset + theme.space[5]} onPress={camera.recentre} /> : null}
-      {/* Tile credit (OSM raster today, the OSM-derived PMTiles later), clear of the sheet. */}
+      {/* Tile credit (the original OSM map, or our Golden hour tiles), clear of the sheet. */}
       <Text
         variant="caption"
         color="textMuted"
         style={{ position: 'absolute', right: theme.space[3], bottom: bottomInset + theme.space[1], fontSize: 10, lineHeight: 14, opacity: 0.8 }}
       >
-        © OpenStreetMap
+        {MAP_CREDIT}
       </Text>
     </View>
   );

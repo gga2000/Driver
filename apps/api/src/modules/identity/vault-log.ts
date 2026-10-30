@@ -38,12 +38,16 @@ export const CONSOLE_ORDER_RECIPIENT_PURPOSE = 'console_order_recipient';
 export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'console_names',
   'console_driver_search',
+  'console_order_search',
   'console_staff',
+  'console_people',
+  'console_phone_reveal',
   'document_review',
   'safety_desk',
   'safety_incident',
   'khat_sweep_alert',
   'intercity_pin_alert',
+  'intercity_ops_departure',
   'ride_start_code_alert',
   'support_case',
   'support_queue',
@@ -52,6 +56,7 @@ export const STAFF_READ_PURPOSES: ReadonlySet<string> = new Set([
   'ops_cash_round',
   'finance_cash_desk',
   'approvals_queue',
+  'account_close',
   CONSOLE_ORDER_RECIPIENT_PURPOSE,
 ]);
 

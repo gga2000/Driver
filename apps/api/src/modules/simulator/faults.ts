@@ -70,6 +70,15 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
   merchant_cash_reconciles: (s) => {
     first(s.merchants, 'a merchant').balanceIqd += 1000;
   },
+  merchant_cash_held_within_courier_cash: (s) => {
+    // A restaurant's screen still shows cash with a courier after he handed it all in to the company.
+    const m = first(s.merchants, 'a merchant');
+    m.holders = [...(m.holders ?? []), { courierId: 'fault_courier', amountIqd: 12_750 }];
+  },
+  driver_payout_within_owed: (s) => {
+    // Finance paid a driver more than the company owed him (a payout without the owed check).
+    s.ledger.push(row({ type: 'driver_payout', amount: 10_000_000, fromAccount: 'driver:fault_driver', toAccount: 'bank', occurredAt: new Date(8.64e15) }));
+  },
   points_per_food_order_capped: (s) => {
     const o = first(s.orders, 'a food order', (x) => x.type === 'food');
     s.ledger.push(row({ kind: 'points', type: 'points_earned', amount: 60, fromAccount: 'points_pool', toAccount: 'points:fault', orderId: o.id, postingGroupId: `points:${o.id}:fault` }));
@@ -78,6 +87,15 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     // The honest-delay credit posted twice for one delivery (a retried sweep without the per-order key).
     const o = first(s.orders, 'a food order', (x) => x.type === 'food');
     for (let i = 0; i < 2; i++) s.ledger.push(row({ type: 'credit_issued', amount: 1000, fromAccount: 'platform', toAccount: `customer:${o.ordererId}`, orderId: o.id, postingGroupId: `late_promise:${o.id}` }));
+  },
+  courier_delivery_line_matches_offer: (s) => {
+    // A batched second paid the whole delivery fee (the batch never reached the money fact).
+    const fees = new Map(s.orders.filter((o) => o.type === 'food').map((o) => [o.id, o.deliveryFeeIqd]));
+    const line = first(s.ledger, "a courier's whole delivery fee on a food order", (e) => e.type === 'delivery_fee' && e.toAccount.startsWith('driver:') && Boolean(e.tripId) && e.amount === fees.get(e.orderId ?? ''));
+    const driverId = line.toAccount.slice('driver:'.length);
+    const trip = first(s.trips, 'its trip', (t) => t.id === line.tripId);
+    trip.courierId = driverId;
+    (s.acceptedOffers ??= []).push({ tripId: trip.id, driverId, batched: true });
   },
   tip_after_rating_once_and_to_the_driver: (s) => {
     // The tip posted for a courier who never carried the order (a client-chosen driver id).
@@ -111,6 +129,16 @@ export const FAULTS: Readonly<Record<string, (s: SimSnapshot) => void>> = {
     const o = first(s.orders, 'a ride booked for later', (x) => x.type === 'ride' && x.scheduledFor !== null);
     const trip = first(s.trips, 'its trip', (t) => t.orders.some((l) => l.orderId === o.id));
     (s.dispatchLog ??= []).push({ tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_a', at: 0 }, { tripId: trip.id, type: 'dispatch.booked_confirmed', driverId: 'fault_b', at: 0 });
+  },
+  refused_parcel_two_fares: (s) => {
+    // The trip back charged to the receiver (a refusal booked against the wrong customer).
+    const o = first(s.orders, 'a refused parcel', (x) => x.type === 'parcel' && x.returnFareIqd != null);
+    s.ledger.push(row({ type: 'parcel_fee', amount: o.returnFareIqd!, fromAccount: 'customer:fault_receiver', toAccount: 'driver:fault', orderId: o.id }));
+  },
+  errand_paid_equals_receipt_plus_fees: (s) => {
+    // The receipt recorded but the total still priced on the customer's guess (no server recompute).
+    const o = first(s.orders, 'a delivered errand', (x) => x.type === 'errand' && x.deliveredAt !== null);
+    o.totalIqd += 1_000;
   },
   no_unexpected_errors: (s) => void s.errors.push({ where: 'fault', message: 'TypeError: boom' }),
 };

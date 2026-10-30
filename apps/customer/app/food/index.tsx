@@ -27,6 +27,7 @@ import { usePicks, useRestaurants } from '@/features/home/queries';
 import type { RestaurantSummary } from '@/features/home/restaurant-summary';
 import { appNow } from '@/lib/dev-clock';
 import { useT } from '@/lib/i18n';
+import { CartsChip } from '@/features/food-carts/CartsChip';
 
 /**
  * الأكل, behind the home food tile: «سوق الليل» (Ali 2026-10-08, A + B + C). A night photo of an
@@ -133,6 +134,7 @@ export default function FoodHome() {
                 </Text>
               </View>
               <DoorPhotos order={street.order} facts={list ? street.facts : null} width={inner} />
+              <CartsChip />
             </View>
           ) : null}
 
