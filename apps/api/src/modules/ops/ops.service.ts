@@ -1,9 +1,12 @@
 import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 import {
+  AZIZIYAH_MONEY_RULES,
   DriverError,
   type Actor,
   type AddLandmarkPhotoInput,
   type CashReceiptView,
+  type HomeKitchenApplication,
+  type HomeKitchenApplyInput,
   type LandmarksInput,
   type LandmarkPhotoView,
   type MerchantOnboardingInput,
@@ -20,6 +23,7 @@ import { UnitOfWork } from '../../shared/db/unit-of-work.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { localDateKey } from '../../shared/local-time.js';
 import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
+import { AuditLogService } from '../controls/index.js';
 import { DriverAccountService } from '../driver-account/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
@@ -33,6 +37,13 @@ export const CASH_TASK_SHARE_OF_CAP = 0.5;
 /** Wrong hand-over codes for one courier in a local day before his code locks until midnight. */
 export const HANDOVER_CODE_MAX_FAILURES = 5;
 const DAY_MS = 86_400_000;
+
+/** A cook's application as the Merchant app shows it (`draft` reads as waiting too). */
+function applicationView(o: OnboardingRecord): HomeKitchenApplication {
+  return { state: o.state === 'draft' ? 'submitted' : o.state, kitchenName: o.name, submittedAt: o.createdAt, rejectReason: o.state === 'rejected' ? (o.rejectReason ?? null) : null };
+}
+/** Cash receipts carry no city of their own; one city today (the audit page reads by city). */
+const CASH_CITY = 'aziziyah';
 
 function taskView(t: TaskRecord): OpsTask {
   return {
@@ -70,6 +81,7 @@ export class OpsService implements OpsPort, OnModuleInit {
     @Optional() private readonly places?: PlacesService,
     @Optional() @Inject(WINDOW_COUNTER) codeFailures?: WindowCounter,
     @Optional() private readonly landmarkFeed?: LandmarkFeedService,
+    @Optional() private readonly audits?: AuditLogService,
   ) {
     this.codeFailures = codeFailures ?? new InMemoryWindowCounter(clock);
   }
@@ -81,6 +93,8 @@ export class OpsService implements OpsPort, OnModuleInit {
 
   private readonly zones = new ZoneResolver();
   private readonly cashLock = new KeyedLock();
+  /** One cook's double tap on «أرسلي» makes one application (per person, in this process). */
+  private readonly applyLock = new KeyedLock();
   /** Wrong hand-over codes per `courierId:localDate`, shared by every API instance (review #22). */
   private readonly codeFailures: WindowCounter;
 
@@ -142,13 +156,18 @@ export class OpsService implements OpsPort, OnModuleInit {
     });
   }
 
+  /**
+   * Field ops takes a courier's cash against his daily code. Nobody takes in his own cash (a field ops
+   * person who also delivers hands it to a colleague), and every receipt is on the Console audit log.
+   */
   async recordCashReceipt(actor: Actor, input: RecordCashReceiptInput): Promise<CashReceiptView> {
+    if (input.courierId === actor.personId) throw new DriverError('staff_own_account');
     if (input.idempotencyKey) {
       const prior = await this.repo.cashReceiptByKey(input.idempotencyKey);
       if (prior && prior.courierId === input.courierId && prior.receivedById === actor.personId) return this.receiptView(prior);
       if (prior) throw new DriverError('invalid_input');
     }
-    await this.checkHandoverCode(actor, input.courierId, input.code);
+    await this.verifyCourierCode(actor, input.courierId, input.code);
     // One courier's receipts are serialised (in process, and across instances by an advisory lock in
     // the transaction): the held-cash check, the reference sequence and the posting see each other.
     const receipt = await this.cashLock.run(input.courierId, () => this.uow.run(async (tx) => {
@@ -160,6 +179,8 @@ export class OpsService implements OpsPort, OnModuleInit {
       }
       const before = await this.caps.status(input.courierId);
       if (input.amountIqd > Math.max(0, -before.cashIqd)) throw new DriverError('cash_receipt_exceeds_held');
+      // Only what he owes the company: the rest of the cash in his hand is his own pay.
+      if (input.amountIqd > before.owedIqd) throw new DriverError('cash_receipt_exceeds_owed');
       const now = this.clock.now();
       const reference = settlementReference('D', input.courierId, now, await this.repo.countCashReceipts(input.courierId, tx));
       const cashAfter = await this.merchantCash.recordDriverSettlement({ driverId: input.courierId, amountIqd: input.amountIqd, channel: 'ops_round', reference });
@@ -179,6 +200,10 @@ export class OpsService implements OpsPort, OnModuleInit {
         },
         { name: 'person', id: input.courierId },
       );
+      await this.audits?.record(
+        { cityId: CASH_CITY, actorId: actor.personId, action: 'cash.receipt', subjectKind: 'person', subjectId: input.courierId, summaryAr: `استلم ${input.amountIqd.toLocaleString('en-US')} دينار كاش من دليفري`, detail: { receiptId: row.id, amountIqd: input.amountIqd, reference, courierCashAfterIqd: cashAfter } },
+        tx,
+      );
       return row;
     }));
     return this.receiptView(receipt);
@@ -188,9 +213,10 @@ export class OpsService implements OpsPort, OnModuleInit {
    * The courier's 4-digit daily code is his confirmation of the hand-over; 10,000 values are quick to
    * walk, so after `HANDOVER_CODE_MAX_FAILURES` wrong codes for one courier in a local day the code is
    * locked until local midnight (and ops is alerted). Counted on the shared window counter (Redis
-   * with REDIS_URL), so the limit holds behind several API instances.
+   * with REDIS_URL), so the limit holds behind several API instances. A restaurant taking a courier's
+   * cash on its tablet checks the same code under the same lock (`merchantAdmin.money.receiveCourierCash`).
    */
-  private async checkHandoverCode(actor: Actor, courierId: string, code: string): Promise<void> {
+  async verifyCourierCode(actor: Actor, courierId: string, code: string): Promise<void> {
     const now = this.clock.now();
     const key = `${courierId}:${localDateKey(now)}`;
     // The counter is shared by every API instance (Redis with REDIS_URL; review 2026-10-04 #22); the
@@ -216,14 +242,25 @@ export class OpsService implements OpsPort, OnModuleInit {
   }
 
   async merchantOnboarding(actor: Actor, input: z.output<typeof MerchantOnboardingInput>): Promise<MerchantOnboardingView> {
+    // The kitchen's zone is the server's reading of its pin (fees, ETAs and the late promise start there).
+    const zoneKey = this.zones.resolve(input.cityId, input.location.pin);
+    if (!zoneKey) throw new DriverError('outside_zone');
+    const location = { zoneKey, pin: input.location.pin };
+    // The home rate is a home kitchen's only; refused before anything is written.
+    if (input.type !== 'home_kitchen' && input.commissionTier === 'home') throw new DriverError('commission_tier_home_only');
     for (const id of [...input.menuPhotoUploadIds, ...(input.shopPhotoUploadId ? [input.shopPhotoUploadId] : [])]) await this.assertUpload(actor.personId, id);
     const contactPersonId = await this.identity.ensurePersonByPhone(input.contact.phone, actor.personId, 'merchant_onboarding');
     await this.identity.nameIfMissing(contactPersonId, input.contact.name);
-    const org = await this.orgs.create({ type: input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
-    await this.orgs.setMerchantSettings(org.id, { location: input.location });
+    // A home kitchen is a restaurant org; its storefront is marked home when staff approve it.
+    const org = await this.orgs.create({ type: input.type === 'home_kitchen' ? 'restaurant' : input.type, name: input.name, cityId: input.cityId, ownerId: contactPersonId });
     if (input.settlementMode) await this.merchantCash.configure(org.id, { mode: input.settlementMode });
     const now = this.clock.now();
     return this.uow.run(async (tx) => {
+      // A new restaurant starts on `starter` unless the visit named another tier; the rate commits with its
+      // audit row below (the nested run joins this transaction).
+      // A home kitchen is always on the home rate (Ali, 2026-10-11: 10 %), never starter.
+      const commissionTier = input.type === 'home_kitchen' ? 'home' : input.commissionTier;
+      await this.orgs.setMerchantSettings(org.id, { location, commissionTier });
       const row = await this.repo.addOnboarding(
         {
           orgId: org.id,
@@ -231,7 +268,7 @@ export class OpsService implements OpsPort, OnModuleInit {
           name: input.name,
           type: input.type,
           contactPersonId,
-          location: input.location,
+          location,
           menuPhotoRefs: [...input.menuPhotoUploadIds],
           shopPhotoRef: input.shopPhotoUploadId ?? null,
           notes: input.notes ?? null,
@@ -262,8 +299,102 @@ export class OpsService implements OpsPort, OnModuleInit {
         { actorId: actor.personId, type: 'merchant.onboarding_drafted', occurredAt: now, payload: { onboardingId: row.id, merchantOrgId: org.id, cityId: input.cityId, type: input.type, menuPhotos: input.menuPhotoUploadIds.length } },
         { name: 'org', id: org.id },
       );
+      await this.audits?.record(
+        {
+          cityId: input.cityId,
+          actorId: actor.personId,
+          action: 'store.commission_tier_set',
+          subjectKind: 'store',
+          subjectId: org.id,
+          summaryAr: `سجّل ${input.name} بعمولة ${Math.round(AZIZIYAH_MONEY_RULES.commission[commissionTier] * 10_000) / 100}%`,
+          detail: { from: null, to: commissionTier, onboardingId: row.id },
+        },
+        tx,
+      );
       return { onboardingId: row.id, merchantOrgId: org.id, state: row.state, menuPhotos: row.menuPhotoRefs.length, taskId: task.id, createdAt: row.createdAt };
     });
+  }
+
+  /**
+   * أكل بيت «سجّل مطبخك»: a cook applies for a home kitchen from the Merchant app. She is both the
+   * one who sent it and its contact, so the approvals guard (`approval_own_item`) keeps her from
+   * deciding on it; staff call her and approve or turn it down in the Console queue. One application
+   * at a time: while one waits, asking again returns it. Her name goes to the identity vault only;
+   * nothing here carries a commission or price (the server sets the home rate on approval).
+   */
+  async homeKitchenApply(actor: Actor, input: HomeKitchenApplyInput): Promise<HomeKitchenApplication> {
+    return this.applyLock.run(actor.personId, async () => {
+      // Only her own kitchen application counts: a shop field ops is still drafting with her as contact is another thing.
+      const waiting = (await this.repo.onboardingsOfContact(actor.personId)).find((o) => o.type === 'home_kitchen' && (o.state === 'draft' || o.state === 'submitted'));
+      if (waiting) return applicationView(waiting);
+      const zoneKey = this.zones.resolve(input.cityId, input.door);
+      if (!zoneKey) throw new DriverError('outside_zone');
+      const location = { zoneKey, pin: input.door };
+      await this.identity.nameIfMissing(actor.personId, input.cookName);
+      const org = await this.orgs.create({ type: 'restaurant', name: input.kitchenName, cityId: input.cityId, ownerId: actor.personId });
+      const now = this.clock.now();
+      return this.uow.run(async (tx) => {
+        // The home rate (10 %) commits with its audit row, as for any new store.
+        await this.orgs.setMerchantSettings(org.id, { location, commissionTier: 'home' });
+        const row = await this.repo.addOnboarding(
+          {
+            orgId: org.id,
+            cityId: input.cityId,
+            name: input.kitchenName,
+            type: 'home_kitchen',
+            contactPersonId: actor.personId,
+            location,
+            menuPhotoRefs: [],
+            shopPhotoRef: null,
+            notes: input.landmark ?? null,
+            state: 'submitted',
+            createdById: actor.personId,
+            createdAt: now,
+          },
+          tx,
+        );
+        await this.repo.addTask(
+          {
+            cityId: input.cityId,
+            kind: 'merchant_followup',
+            refId: row.id,
+            title: `اتصل بـ ${input.kitchenName} (مطبخ بيت) وتأكد من الباب`,
+            state: 'open',
+            assigneeId: null,
+            dueAt: new Date(now.getTime() + DAY_MS),
+            payload: { merchantOrgId: org.id, homeKitchen: true },
+            completedAt: null,
+            completedById: null,
+            createdAt: now,
+          },
+          tx,
+        );
+        await this.events.emit(
+          tx,
+          { actorId: actor.personId, type: 'merchant.onboarding_drafted', occurredAt: now, payload: { onboardingId: row.id, merchantOrgId: org.id, cityId: input.cityId, type: 'home_kitchen', menuPhotos: 0 } },
+          { name: 'org', id: org.id },
+        );
+        await this.audits?.record(
+          {
+            cityId: input.cityId,
+            actorId: actor.personId,
+            action: 'store.commission_tier_set',
+            subjectKind: 'store',
+            subjectId: org.id,
+            summaryAr: `سجّل ${input.kitchenName} (مطبخ بيت) بعمولة ${Math.round(AZIZIYAH_MONEY_RULES.commission.home * 10_000) / 100}%`,
+            detail: { from: null, to: 'home', onboardingId: row.id },
+          },
+          tx,
+        );
+        return applicationView(row);
+      });
+    });
+  }
+
+  /** Her latest application, for the Merchant app's gate. */
+  async myHomeKitchenApplication(actor: Actor): Promise<HomeKitchenApplication> {
+    const mine = (await this.repo.onboardingsOfContact(actor.personId)).find((o) => o.type === 'home_kitchen');
+    return mine ? applicationView(mine) : { state: 'none', kitchenName: null, submittedAt: null, rejectReason: null };
   }
 
   /** Stored tasks (mine or unassigned) plus cash to collect now: couriers at ≥ half their cap or over it. */
@@ -378,7 +509,8 @@ export class OpsService implements OpsPort, OnModuleInit {
           actorId: actor.personId,
           type: input.approve ? 'merchant.activated' : 'merchant.onboarding_rejected',
           occurredAt: now,
-          payload: { onboardingId: row.id, merchantOrgId: row.orgId, cityId: row.cityId, contactPersonId: row.contactPersonId, reason: input.reason ?? null },
+          // `type` from the stored row (never the applicant's word): a home kitchen's storefront is set up on it.
+          payload: { onboardingId: row.id, merchantOrgId: row.orgId, cityId: row.cityId, contactPersonId: row.contactPersonId, type: row.type, reason: input.reason ?? null },
         },
         { name: 'org', id: row.orgId },
       );

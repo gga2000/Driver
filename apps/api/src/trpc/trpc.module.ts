@@ -3,16 +3,18 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { REQUEST_LIMITS, isDriverError, type AppContext, type ErrorCode, type SessionClaims } from '@driver/contracts';
 import { appRouter } from '@driver/contracts/router';
 import { ConfigModule, ConfigService } from '../modules/config/index.js';
-import { ConsoleModule, ConsoleReadService } from '../modules/console/index.js';
+import { ConsoleModule, ConsoleReadService, PeopleReadService } from '../modules/console/index.js';
 import { DispatchModule, DispatchService } from '../modules/dispatch/index.js';
 import { IdentityModule, IdentityService } from '../modules/identity/index.js';
 import { DriverAccountModule, DriverAccountService } from '../modules/driver-account/index.js';
 import { KhatModule, KhatService } from '../modules/khat/index.js';
 import { FleetModule, FleetService } from '../modules/fleet/index.js';
-import { OpsModule, OpsPickupSpotsService, OpsService } from '../modules/ops/index.js';
-import { MerchantAdminModule, MerchantAdminService } from '../modules/merchant-admin/index.js';
+import { OpsDishPhotosService, OpsModule, OpsPickupSpotsService, OpsService } from '../modules/ops/index.js';
+import { MerchantAdminModule, MerchantAdminService, StoresConsoleService } from '../modules/merchant-admin/index.js';
 import { MenuPhotosModule, MenuPhotosService } from '../modules/menu-photos/index.js';
-import { OrdersModule, OrdersRpc } from '../modules/orders/index.js';
+import { ShoppingModule, ShoppingService } from '../modules/shopping/index.js';
+import { FoodCartsModule, FoodCartsService } from '../modules/food-carts/index.js';
+import { OrdersModule, OrdersRpc, OrdersService } from '../modules/orders/index.js';
 import { PartnerModule, PartnerService } from '../modules/partner/index.js';
 import { CustomerWalletService, LedgerFacade, LedgerModule } from '../modules/ledger/index.js';
 import { HouseholdsRpc, OrgsModule } from '../modules/orgs/index.js';
@@ -20,21 +22,24 @@ import { PlacesModule, PlacesRpc } from '../modules/places/index.js';
 import { PricingModule, PricingService } from '../modules/pricing/index.js';
 import { RoutesModule, RoutesRpc } from '../modules/routes/index.js';
 import { ShareLinksService, TrackingModule, TrackingService } from '../modules/tracking/index.js';
-import { ChatModule, ChatService } from '../modules/chat/index.js';
+import { ChatModule, ChatService, TripChatService } from '../modules/chat/index.js';
 import { TripsModule, TripsRpc } from '../modules/trips/index.js';
 import { CatalogRpc } from '../modules/catalog/index.js';
-import { MerchantModule, MerchantService } from '../modules/merchant/index.js';
+import { MerchantModule, MerchantService, MerchantSetupService } from '../modules/merchant/index.js';
 import { TopUpsModule, TopUpService } from '../modules/topups/index.js';
 import { LiveModule, LiveService } from '../modules/live/index.js';
 import { NotifyModule, NotifyService } from '../modules/notify/index.js';
 import { ControlsModule, ControlsService } from '../modules/controls/index.js';
 import { ZoneChecksService, ZonesModule, ZonesService } from '../modules/zones/index.js';
-import { ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
+import { ClosuresModule, ClosuresService } from '../modules/closures/index.js';
+import { MapEditorModule, MapEditorService } from '../modules/map-editor/index.js';
+import { AccountCloseService, ControlRoomModule, ControlRoomService } from '../modules/control-room/index.js';
 import { SupportModule, SupportService } from '../modules/support/index.js';
 import { SafetyModule, SafetyService } from '../modules/safety/index.js';
 import { InsightsModule, InsightsService } from '../modules/insights/index.js';
 import { ReferralsModule, ReferralsService } from '../modules/referrals/index.js';
 import { RideHabitsModule, RideHabitsService } from '../modules/ride-habits/index.js';
+import { ParcelsModule, ParcelsService } from '../modules/parcels/index.js';
 import { PhoneBookingModule, PhoneBookingService } from '../modules/phone-booking/index.js';
 import { InboxModule, InboxService } from '../modules/inbox/index.js';
 import { OnCallModule, OnCallService } from '../modules/on-call/index.js';
@@ -72,8 +77,12 @@ export class TrpcService {
     private readonly fleet: FleetService,
     private readonly ops: OpsService,
     private readonly pickupSpots: OpsPickupSpotsService,
+    private readonly dishPhotos: OpsDishPhotosService,
     private readonly merchantAdmin: MerchantAdminService,
+    private readonly stores: StoresConsoleService,
     private readonly menuPhotos: MenuPhotosService,
+    private readonly shopping: ShoppingService,
+    private readonly foodCarts: FoodCartsService,
     private readonly ledger: LedgerFacade,
     private readonly prisma: PrismaService,
     private readonly queues: BullMqQueueFactory,
@@ -81,6 +90,7 @@ export class TrpcService {
     private readonly trips: TripsRpc,
     private readonly dispatch: DispatchService,
     private readonly consoleReads: ConsoleReadService,
+    private readonly people: PeopleReadService,
     private readonly routes: RoutesRpc,
     private readonly catalog: CatalogRpc,
     private readonly tracking: TrackingService,
@@ -89,20 +99,27 @@ export class TrpcService {
     private readonly households: HouseholdsRpc,
     private readonly partner: PartnerService,
     private readonly merchant: MerchantService,
+    private readonly merchantSetup: MerchantSetupService,
     private readonly topups: TopUpService,
     private readonly chat: ChatService,
+    private readonly tripChat: TripChatService,
     private readonly shareLinks: ShareLinksService,
     private readonly live: LiveService,
     private readonly notify: NotifyService,
     private readonly controls: ControlsService,
     private readonly controlRoom: ControlRoomService,
+    private readonly accountClose: AccountCloseService,
     private readonly support: SupportService,
     private readonly zones: ZonesService,
+    ordersService: OrdersService,
+    private readonly closures: ClosuresService,
+    private readonly mapEditor: MapEditorService,
     private readonly zoneChecks: ZoneChecksService,
     private readonly safety: SafetyService,
     private readonly insights: InsightsService,
     private readonly referrals: ReferralsService,
     private readonly rideHabits: RideHabitsService,
+    private readonly parcels: ParcelsService,
     private readonly phoneBookings: PhoneBookingService,
     private readonly onCall: OnCallService,
     private readonly inbox: InboxService,
@@ -110,6 +127,7 @@ export class TrpcService {
     @Inject(WINDOW_COUNTER) counter: WindowCounter,
   ) {
     this.limits = new RequestLimits(counter, ipModeFromEnv());
+    this.zones.attachPinSource(ordersService);
   }
 
   /** SCALE-20: per-person and per-address limits on every call (`request-limits.ts`). */
@@ -143,7 +161,8 @@ export class TrpcService {
       }
     }
     return {
-      pricing: { quote: (req) => this.pricing.keepQuote(req) },
+      // Perf z3: the same caller re-asking for the same trip gets its kept quote back (no new rows).
+      pricing: { quote: (req) => this.pricing.keepQuote(req, auth ? `p:${auth.sub}` : ip ? `ip:${ip}` : null) },
       config: { city: (id) => this.config.city(id) },
       health: { db: () => this.prisma.status(), redis: () => this.queues.status() },
       identity: this.identity,
@@ -152,8 +171,12 @@ export class TrpcService {
       fleet: this.fleet,
       ops: this.ops,
       pickupSpots: this.pickupSpots,
+      dishPhotos: this.dishPhotos,
       merchantAdmin: this.merchantAdmin,
+      stores: this.stores,
       menuPhotos: this.menuPhotos,
+      shopping: this.shopping,
+      foodCarts: this.foodCarts,
       orders: this.orders,
       trips: this.trips,
       dispatch: this.dispatch,
@@ -161,6 +184,7 @@ export class TrpcService {
       routes: this.routes,
       catalog: this.catalog,
       console: this.consoleReads,
+      people: this.people,
       tracking: this.tracking,
       places: this.places,
       wallet: this.wallet,
@@ -169,7 +193,9 @@ export class TrpcService {
       households: this.households,
       partner: this.partner,
       merchant: this.merchant,
+      merchantSetup: this.merchantSetup,
       chat: this.chat,
+      tripChat: this.tripChat,
       trackingShare: this.shareLinks,
       live: this.live,
       liveAuth,
@@ -177,12 +203,16 @@ export class TrpcService {
       notify: this.notify,
       controls: this.controls,
       controlRoom: this.controlRoom,
+      accountClose: this.accountClose,
       support: this.support,
       zones: this.zones,
+      closures: this.closures,
+      mapEditor: this.mapEditor,
       zoneChecks: this.zoneChecks,
       safety: this.safety,
       referrals: this.referrals,
       rideHabits: this.rideHabits,
+      parcels: this.parcels,
       phoneBookings: this.phoneBookings,
       onCall: this.onCall,
       inbox: this.inbox,
@@ -223,5 +253,5 @@ export class TrpcService {
   }
 }
 
-@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
+@Module({ imports: [PricingModule, ConfigModule, IdentityModule, DriverAccountModule, KhatModule, FleetModule, OpsModule, MerchantAdminModule, MenuPhotosModule, ShoppingModule, FoodCartsModule, OrdersModule, TripsModule, DispatchModule, LedgerModule, ConsoleModule, RoutesModule, TrackingModule, PlacesModule, OrgsModule, PartnerModule, MerchantModule, TopUpsModule, ChatModule, LiveModule, NotifyModule, ControlsModule, ControlRoomModule, SupportModule, ZonesModule, ClosuresModule, MapEditorModule, SafetyModule, InsightsModule, ReferralsModule, RideHabitsModule, ParcelsModule, PhoneBookingModule, GarageTaxiModule, OnCallModule, InboxModule], providers: [TrpcService], exports: [TrpcService] })
 export class TrpcModule {}

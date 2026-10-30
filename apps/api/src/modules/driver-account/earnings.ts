@@ -16,9 +16,10 @@ export const GROSS_TYPES: ReadonlySet<string> = new Set([
 
 /**
  * Cash he took from a customer at a stop: the price, its 0–249 rounding change and, when he had no
- * change ("الخردة علينا"), the rest of the note that went to the customer's wallet — the whole note.
+ * change ("الخردة علينا"), the rest of the note that went to the customer's wallet — the whole note —
+ * and (M-3, `debt_settled`) the cancellation fees the customer owed and paid with it.
  */
-export const CASH_IN_TYPES: ReadonlySet<string> = new Set(['cash_collected', 'cash_rounding_credit', 'cash_change_to_wallet']);
+export const CASH_IN_TYPES: ReadonlySet<string> = new Set(['cash_collected', 'cash_rounding_credit', 'cash_change_to_wallet', 'debt_settled']);
 
 /** Settlement lines move money already earned; they are not earnings. */
 export const SETTLEMENT_TYPES: ReadonlySet<string> = new Set(['driver_payout', 'driver_settlement', 'debt_settled']);

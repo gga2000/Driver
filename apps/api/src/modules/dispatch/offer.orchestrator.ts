@@ -61,7 +61,8 @@ export type TimerKind =
   | 'booked_open'
   | 'booked_fav_end'
   | 'booked_deadline'
-  | 'booked_remind';
+  | 'booked_remind'
+  | 'retry';
 
 export interface TimerJob {
   kind: TimerKind;
@@ -90,6 +91,15 @@ export const DURABLE_TIMER_GRACE_MS = 60_000;
 export const DISPATCH_QUEUE = Symbol('DISPATCH_QUEUE');
 
 /**
+ * A job nobody took stays red for the desk, and dispatch keeps looking in the background: one more
+ * offer after 1, 2 and then every 4 minutes, to drivers who have not said no to it (one who only let
+ * it ring out may get it again). A driver coming online or finishing a job tries at once.
+ */
+// Under `DURABLE_TIMER_MIN_DELAY_MS`: a lost retry only waits for the next one (or the desk), so none is kept durable.
+export const UNASSIGNED_RETRY = { firstSec: 60, maxSec: 240 } as const;
+const retryDelayMs = (done: number) => Math.min(UNASSIGNED_RETRY.firstSec * 2 ** done, UNASSIGNED_RETRY.maxSec) * 1000;
+
+/**
  * Joy l9: the offer a rider's favourite driver gets alone, for `RIDE_HABIT_RULES.favourite.offerWindowSec`,
  * when the search for his booked ride starts (wave 0, before the normal waves).
  */
@@ -103,6 +113,11 @@ export const DISPATCH_QUEUE_NAME = 'dispatch';
 
 /** The first-accept lock is the assignment claim; it outlives any trip. */
 const LOCK_TTL_MS = 24 * 3600 * 1000;
+/**
+ * How long a finished job's cash counts toward the driver's cap if its ledger posting is never seen
+ * (a trip that collected nothing). The posting normally lands within a second through the outbox.
+ */
+export const CASH_HOLD_MS = 10 * 60_000;
 const SYSTEM = 'system';
 /** A ride still looking for its driver: the rider may watch the offered drivers and nudge one (ride step 3). */
 const SEARCHING: ReadonlySet<DispatchStatus> = new Set(['searching', 'rebroadcast', 'awaiting_dispatcher', 'needs_dispatcher']);
@@ -477,9 +492,41 @@ export class OfferOrchestrator {
       await this.schedule('wave_end', r, expiresAt, i + 1);
       return;
     }
-    // Every wave sent (or empty): wait for the re-broadcast at 60 s.
+    // Every wave sent (or empty): nobody new to ask, so it rings again for those already asked.
+    if (await this.ringAgain(r, cfg, rebroadcastAt)) return;
     r.nextTimerAt = rebroadcastAt;
     await this.store.saveRequest(r);
+  }
+
+  /**
+   * Ali 2026-10-21: with nobody new to ask (one driver in the area, or the last wave out), the offer does
+   * not vanish until the re-broadcast: it rings again, `acceptTimeoutSec` at a time, for every driver
+   * already asked who has not said «مو هسة» and is still free. A last stretch shorter than two rings is
+   * one ring up to the re-broadcast, so no ring is a few seconds long. Money is untouched: the +500 at the
+   * re-broadcast still keys on each driver's first wave.
+   */
+  private async ringAgain(r: DispatchRequest, cfg: DispatchConfig, rebroadcastAt: number): Promise<boolean> {
+    const now = this.now();
+    const left = rebroadcastAt - now;
+    if (left <= 0) return false;
+    const offers = (await this.repo.listByTrip(r.tripId)).filter((o) => o.pass === 1);
+    const declined = new Set(offers.filter((o) => o.state === 'declined').map((o) => o.driverId));
+    const asked = [...new Set(offers.map((o) => o.driverId))].filter((id) => !declined.has(id));
+    if (asked.length === 0) return false;
+    const chosen = await this.candidates(r, cfg, { requireIdle: true, only: asked });
+    if (chosen.length === 0) return false;
+    const ringMs = cfg.acceptTimeoutSec * 1000;
+    const expiresAt = left < 2 * ringMs ? rebroadcastAt : now + ringMs;
+    const seconds = Math.round((expiresAt - now) / 1000);
+    const ids = chosen.map((c) => c.ranked.driverId);
+    await this.createOffers(r, 'smart_broadcast', chosen, { wave: r.wave, pass: 1, expiresAt, compensation: () => r.fallbackCompensationIqd ?? 0 });
+    await this.trips.offer(r.tripId, ids, seconds);
+    await this.emit('dispatch.wave_sent', r, { wave: r.wave, driverIds: ids, seconds, radiusKm: null, again: true });
+    r.nextTimerAt = expiresAt;
+    await this.store.saveRequest(r);
+    // Past the re-broadcast's own time the re-broadcast takes over; otherwise this wave's end rings again.
+    if (expiresAt < rebroadcastAt) await this.schedule('wave_end', r, expiresAt, r.wave);
+    return true;
   }
 
   private async onWaveEnd(r: DispatchRequest, wave: number): Promise<void> {
@@ -500,9 +547,19 @@ export class OfferOrchestrator {
     await this.expireOpen(r, () => true);
     const offers = await this.repo.listByTrip(r.tripId);
     const inWaves12 = new Set(offers.filter((o) => o.pass === 1 && (o.wave === 1 || o.wave === 2)).map((o) => o.driverId));
-    const excluded = new Set(offers.filter(isDeclinedOrIgnored).map((o) => o.driverId));
-    const ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
-    const compensation = (driverId: string) => Math.max(inWaves12.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd, r.fallbackCompensationIqd ?? 0);
+    const ignoredOnly = new Set(offers.filter(isDeclinedOrIgnored).map((o) => o.driverId));
+    const declinedOnly = new Set(offers.filter((o) => o.state === 'declined').map((o) => o.driverId));
+    let excluded = ignoredOnly;
+    let ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
+    // Ali 2026-10-21: a driver who let it run out is skipped only while someone else can take it; when
+    // nobody else is free he gets it again (one who said «مو هسة» never does).
+    if (ranked.length === 0 && declinedOnly.size < ignoredOnly.size) {
+      excluded = declinedOnly;
+      ranked = await this.candidates(r, cfg, { requireIdle: true, exclude: excluded });
+    }
+    // Edge-case §6: no +500 for a driver who ignored it; asked again only because nobody else is free,
+    // he gets the job back at its first price (no gain from letting the far offer run out).
+    const compensation = (driverId: string) => Math.max(inWaves12.has(driverId) || ignoredOnly.has(driverId) ? 0 : cfg.rebroadcastCompensationIqd, r.fallbackCompensationIqd ?? 0);
     const expiresAt = (r.searchStartedAt ?? r.createdAt) + cfg.customerFreeCancelAfterSec * 1000;
 
     r.status = 'rebroadcast';
@@ -574,7 +631,14 @@ export class OfferOrchestrator {
     const cands = await this.candidates(r, cfg, { requireIdle: false, exclude: offered });
     const expiresAt = this.now() + cfg.acceptTimeoutSec * 1000;
     r.nextTimerAt = expiresAt;
+    await this.offerFirstFit(r, cfg, cands, pass, expiresAt);
+    // A pass with nobody to offer still waits its 20 s: couriers free up.
+    await this.store.saveRequest(r);
+    await this.schedule('assign_timeout', r, expiresAt, pass);
+  }
 
+  /** auto_assign: the offer goes to the best candidate who is free or can batch it; false when none can. */
+  private async offerFirstFit(r: DispatchRequest, cfg: DispatchConfig, cands: readonly Candidate[], pass: number, expiresAt: number, extra: Record<string, unknown> = {}): Promise<boolean> {
     const next: BatchOrder = {
       tripId: r.tripId,
       pickup: r.pickup,
@@ -602,12 +666,10 @@ export class OfferOrchestrator {
       r.departAt = departAt;
       await this.createOffers(r, 'auto_assign', [c], { wave: 1, pass, expiresAt, compensation: () => 0 });
       await this.trips.offer(r.tripId, [c.ranked.driverId], cfg.acceptTimeoutSec);
-      await this.emit('dispatch.offer_sent', r, { driverId: c.ranked.driverId, pass, batchWith, departAt: departAt === null ? null : new Date(departAt).toISOString() });
-      break;
+      await this.emit('dispatch.offer_sent', r, { driverId: c.ranked.driverId, pass, batchWith, departAt: departAt === null ? null : new Date(departAt).toISOString(), ...extra });
+      return true;
     }
-    // A pass with nobody to offer still waits its 20 s: couriers free up.
-    await this.store.saveRequest(r);
-    await this.schedule('assign_timeout', r, expiresAt, pass);
+    return false;
   }
 
   /**
@@ -639,7 +701,7 @@ export class OfferOrchestrator {
   private async offerRouteDriver(r: DispatchRequest, cfg: DispatchConfig): Promise<void> {
     const driverId = r.routeDriverId;
     const p = driverId ? await this.presence.get(driverId) : null;
-    if (!driverId || !p || (await this.caps.isOverCap(driverId))) {
+    if (!driverId || !p || (await this.isOverCap(driverId))) {
       await this.openSubstituteWave(r, cfg, 1);
       return;
     }
@@ -845,7 +907,7 @@ export class OfferOrchestrator {
   /** Online, no job in hand, the vehicle and cap fit: he can head to the pickup now. */
   private async readyToStart(r: DispatchRequest, driverId: string): Promise<boolean> {
     const p = await this.presence.get(driverId);
-    if (!p || (await this.store.driverJobs(driverId)).length > 0 || (await this.caps.isOverCap(driverId))) return false;
+    if (!p || (await this.store.driverJobs(driverId)).length > 0 || (await this.isOverCap(driverId))) return false;
     return (await this.bookedFit(r, p)) > 0;
   }
 
@@ -885,7 +947,7 @@ export class OfferOrchestrator {
   private async bookedFit(r: DispatchRequest, p: DriverPresence): Promise<number> {
     const fit = this.staticFit(r, p);
     if (fit === 0) return 0;
-    return (await this.caps.canOffer(p.driverId, this.exposure(r))) ? fit : 0;
+    return (await this.canOffer(p.driverId, this.exposure(r))) ? fit : 0;
   }
 
   /** The confirm lock lives until a day after the ride. */
@@ -1046,7 +1108,7 @@ export class OfferOrchestrator {
   /** Runs under the driver's lock: everything below reads his jobs as they are now. */
   private async acceptOffer(driverId: string, offerId: string): Promise<{ outcome: 'assigned'; tripId: string; compensationIqd: number }> {
     const { offer, r } = await this.openOfferOf(driverId, offerId);
-    if (await this.caps.isOverCap(driverId)) throw new DriverError('over_cap');
+    if (await this.isOverCap(driverId)) throw new DriverError('over_cap');
     if (!(await this.fitsCurrentJobs(r, offer, driverId))) {
       // Two offers reached him while he was free and he took the other one first: this one is
       // declined for him (the request moves on) instead of becoming an unchecked batch or a second ride.
@@ -1242,7 +1304,7 @@ export class OfferOrchestrator {
     const p = await this.presence.get(input.driverId);
     const warnings: string[] = [];
     if (!p) warnings.push('offline');
-    if (await this.caps.isOverCap(input.driverId)) warnings.push('over_cap');
+    if (await this.isOverCap(input.driverId)) warnings.push('over_cap');
     // Review #20: his roles on his registered vehicle do not cover this vertical — the same warning.
     if (p && (vehicleFit(r.vertical, p.vehicle) === 0 || (p.verticals && !p.verticals.includes(r.vertical)))) warnings.push('vehicle_fit');
     if (p && this.edgeBlocked(r, p)) warnings.push('edge_zone');
@@ -1304,6 +1366,27 @@ export class OfferOrchestrator {
     });
   }
 
+  /**
+   * Trips tells us cash was taken at a drop-off (`stop.completed`, before `trip.completed`): it is in
+   * his hand from now on, and counts toward his cap until the ledger posts it (a cash hold). The hold is
+   * the drop-off's order's (`orderId`), so on a trip with two cash drop-offs each order's cash stays held
+   * until that order's posting lands. Idempotent per stop, so a redelivered event changes nothing.
+   */
+  async cashCollected(tripId: string, stopId: string, amountIqd: number, orderId?: string): Promise<void> {
+    if (amountIqd <= 0) return;
+    const r = await this.store.getRequest(tripId);
+    const driverId = r?.assignedDriverId;
+    if (!driverId) return;
+    const held = (await this.store.cashHolds(driverId)).find((h) => h.tripId === tripId && h.orderId === orderId);
+    const collected = { ...held?.collected, [stopId]: amountIqd };
+    const sum = Object.values(collected).reduce((n, v) => n + v, 0);
+    await this.store.addCashHold(
+      driverId,
+      { tripId, ...(orderId ? { orderId } : {}), amountIqd: Math.max(held?.amountIqd ?? 0, sum), collected, until: this.now() + CASH_HOLD_MS },
+      CASH_HOLD_MS,
+    );
+  }
+
   /** Trips tells us the courier has the order in the bag (batching skips its pickup from now on). */
   async markPickedUp(tripId: string): Promise<void> {
     const r = await this.store.getRequest(tripId);
@@ -1317,10 +1400,66 @@ export class OfferOrchestrator {
     const r = await this.store.getRequest(tripId);
     if (!r) return;
     if (r.assignedDriverId) {
+      // The cash he took reaches the ledger after this event (order → ledger through the outbox).
+      // Until it does it still counts toward his cap, or the gap would let an over-cap driver be offered.
+      // The cash recorded at the door when trips told us (a whole note with change to the wallet, owed
+      // fees) can be more than the order's total; never count less than either.
+      // Drop-offs that told us their cash hold it per order; the request's cash is its order's when the
+      // request names one, else it is the trip's and only what no order's hold already covers is added.
+      const orderId = r.orderId ?? undefined;
+      const holds = (await this.store.cashHolds(r.assignedDriverId)).filter((h) => h.tripId === tripId);
+      const held = holds.find((h) => h.orderId === orderId);
+      const heldByOrders = orderId ? 0 : holds.reduce((n, h) => n + (h.orderId ? h.amountIqd : 0), 0);
+      const cash = Math.max((r.cashIqd ?? 0) - heldByOrders, held?.amountIqd ?? 0);
+      if (cash > 0) await this.store.addCashHold(r.assignedDriverId, { ...held, tripId, ...(orderId ? { orderId } : {}), amountIqd: cash, until: this.now() + CASH_HOLD_MS }, CASH_HOLD_MS);
       await this.store.removeDriverJob(r.assignedDriverId, tripId);
       await this.presence.resetZoneClock(r.assignedDriverId);
     }
     await this.retire(r);
+    // He is free again: a red job nobody took may be his now.
+    if (r.assignedDriverId) await this.retryUnassigned(r.cityId);
+  }
+
+  /**
+   * A driver came online or freed up: every red job in the city that dispatch may still offer by itself
+   * (no offer of it ringing now) tries once more at once, instead of waiting for its next retry.
+   */
+  async retryUnassigned(cityId: string): Promise<void> {
+    for (const r of await this.store.activeRequests(cityId)) {
+      if (!this.retryable(r)) continue;
+      if ((await this.repo.listByTrip(r.tripId)).some((o) => OPEN_STATES.includes(o.state) && o.expiresAt.getTime() > this.now())) continue;
+      await this.uow.run(() => this.onRetry(r, (r.retries ?? 0) + 1));
+    }
+  }
+
+  /** Red, and its policy offers by itself (not a held / suggest-only job, not a departure or a route). */
+  private retryable(r: DispatchRequest): boolean {
+    return r.status === 'needs_dispatcher' && !r.suggestOnly && (r.policy === 'auto_assign' || r.policy === 'smart_broadcast');
+  }
+
+  /**
+   * One background retry: the card stays red and the desk may override at any time;
+   * the job goes to the best free driver who has not declined it (auto_assign: one courier, batching
+   * rules as always; rides: every idle fitting driver), and the next retry is set on the backoff.
+   */
+  private async onRetry(r: DispatchRequest, step: number): Promise<void> {
+    if (!this.retryable(r) || (r.retries ?? 0) >= step) return;
+    const cfg = this.baseConfig(r.cityId, r.vertical);
+    await this.expireOpen(r, () => true);
+    const declined = new Set((await this.repo.listByTrip(r.tripId)).filter((o) => o.state === 'declined').map((o) => o.driverId));
+    const cands = await this.candidates(r, cfg, { requireIdle: r.policy === 'smart_broadcast', exclude: declined });
+    const expiresAt = this.now() + cfg.acceptTimeoutSec * 1000;
+    r.retries = step;
+    if (r.policy === 'auto_assign') {
+      await this.offerFirstFit(r, cfg, cands, r.pass, expiresAt, { retry: step });
+    } else if (cands.length > 0) {
+      const ids = cands.map((c) => c.ranked.driverId);
+      await this.createOffers(r, 'smart_broadcast', cands, { wave: r.wave, pass: r.pass, expiresAt, compensation: () => 0 });
+      await this.trips.offer(r.tripId, ids, cfg.acceptTimeoutSec);
+      await this.emit('dispatch.wave_sent', r, { wave: r.wave, driverIds: ids, seconds: cfg.acceptTimeoutSec, radiusKm: null, retry: step });
+    }
+    await this.store.saveRequest(r);
+    await this.schedule('retry', r, this.now() + retryDelayMs(step), step + 1);
   }
 
   async board(cityId: string): Promise<DispatchBoard> {
@@ -1370,19 +1509,17 @@ export class OfferOrchestrator {
 
   /**
    * The driver's own open, unexpired offer in the city with its request (Partner app's offer card).
-   * Newest first when two reached him at once. Read-only.
+   * Newest first when two reached him at once. Read-only. Speed x2: starts from his own open offers
+   * (one indexed read) rather than every live trip's offers, then keeps the newest whose request is
+   * still on the city's board, unassigned and not cancelled.
    */
   async openOfferFor(driverId: string, cityId: string): Promise<{ offer: OfferRecord; request: DispatchRequest } | null> {
-    const now = this.now();
-    let best: { offer: OfferRecord; request: DispatchRequest } | null = null;
-    for (const r of await this.store.activeRequests(cityId)) {
-      if (r.status === 'cancelled' || r.assignedDriverId) continue;
-      for (const o of await this.repo.listByTrip(r.tripId)) {
-        if (o.driverId !== driverId || !OPEN_STATES.includes(o.state) || o.expiresAt.getTime() <= now) continue;
-        if (!best || o.sentAt.getTime() > best.offer.sentAt.getTime()) best = { offer: o, request: r };
-      }
+    for (const o of await this.repo.openByDriver(driverId, new Date(this.now()))) {
+      const r = await this.store.getRequest(o.tripId);
+      if (!r || r.cityId !== cityId || r.status === 'cancelled' || r.assignedDriverId) continue;
+      if (await this.store.isActive(cityId, r.tripId)) return { offer: o, request: r };
     }
-    return best;
+    return null;
   }
 
   // ───────────────────────── the rider's side (ride step 3) ─────────────────────────
@@ -1499,6 +1636,8 @@ export class OfferOrchestrator {
           return this.onBookedDeadline(r);
         case 'booked_remind':
           return this.onBookedRemind(r);
+        case 'retry':
+          return this.onRetry(r, job.step);
       }
     });
   }
@@ -1584,7 +1723,7 @@ export class OfferOrchestrator {
       const jobs = await this.store.driverJobs(p.driverId);
       if (f.requireIdle && jobs.length > 0) continue;
       if (jobs.length > 0 && jobs.length >= batchLimit(p.vehicle, cfg.maxBatch)) continue;
-      if (!(await this.caps.canOffer(p.driverId, this.exposure(r)))) continue;
+      if (!(await this.canOffer(p.driverId, this.exposure(r)))) continue;
       pool.push({ presence: p, jobs, distanceKm, fit });
     }
     const byId = new Map(pool.map((c) => [c.presence.driverId, c]));
@@ -1643,8 +1782,10 @@ export class OfferOrchestrator {
 
   /** s5 / s4: the rider's avoid list and favourites, when the job is a rider's and ride habits are bound. */
   private async riderLists(job: DispatchJob): Promise<{ avoidDriverIds: string[]; favouriteDriverIds: string[] }> {
-    if (!job.riderId || !this.riders) return { avoidDriverIds: [], favouriteDriverIds: [] };
-    const [avoid, favourites] = await Promise.all([this.riders.avoided(job.riderId), this.riders.favourites(job.riderId)]);
+    const dropped = job.avoidDriverIds ?? [];
+    if (!job.riderId || !this.riders) return { avoidDriverIds: [...dropped], favouriteDriverIds: [] };
+    const [mine, favourites] = await Promise.all([this.riders.avoided(job.riderId), this.riders.favourites(job.riderId)]);
+    const avoid = [...new Set([...mine, ...dropped])];
     return { avoidDriverIds: avoid, favouriteDriverIds: favourites.filter((id) => !avoid.includes(id)) };
   }
 
@@ -1686,6 +1827,25 @@ export class OfferOrchestrator {
   }
 
   /** Cash the job puts in the driver's hand (a cash order's total); none = prepaid. */
+  /** Over his cash cap, counting the cash of finished jobs the ledger has not posted yet. */
+  async isOverCap(driverId: string): Promise<boolean> {
+    return this.caps.isOverCap(driverId, await this.unpostedCash(driverId));
+  }
+
+  private async canOffer(driverId: string, job: JobExposure): Promise<boolean> {
+    return this.caps.canOffer(driverId, job, await this.unpostedCash(driverId));
+  }
+
+  /** Cash of his finished jobs still waiting for its ledger posting; holds that are posted or expired go. */
+  private async unpostedCash(driverId: string): Promise<number> {
+    let total = 0;
+    for (const h of await this.store.cashHolds(driverId)) {
+      if (h.until <= this.now() || (await this.caps.cashPosted(driverId, h.tripId, h.orderId))) await this.store.removeCashHold(driverId, h.tripId, h.orderId);
+      else total += h.amountIqd;
+    }
+    return total;
+  }
+
   private exposure(r: DispatchRequest): JobExposure {
     const cash = r.cashIqd ?? 0;
     return cash > 0 ? { valueIqd: cash, prepaid: false } : { valueIqd: 0, prepaid: true };
@@ -1704,6 +1864,8 @@ export class OfferOrchestrator {
     r.nextTimerAt = null;
     await this.store.saveRequest(r);
     await this.emit('dispatch.needs_dispatcher', r, { reason });
+    // Red for the desk, but not forgotten: dispatch keeps offering it in the background.
+    if (this.retryable(r)) await this.schedule('retry', r, this.now() + retryDelayMs(r.retries ?? 0), (r.retries ?? 0) + 1);
   }
 
   private async emit(type: string, r: DispatchRequest, payload: Record<string, unknown>, actorId: string = SYSTEM): Promise<void> {

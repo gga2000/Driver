@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { vi } from 'vitest';
+import { FakeClock } from '../../shared/clock.js';
 import { ProviderError } from '../../shared/messaging/http.js';
+import { notifyDeliveries } from '../../shared/metrics.js';
+import { SMS_DAY_KEY, SMS_DAY_MS } from '../../shared/sms-budget.js';
+import { InMemoryWindowCounter } from '../../shared/window-counter.js';
+import type { NotifySmsBudget } from './notify.engine.js';
 import { inQuietHours, quietHoursEnd } from './notify.engine.js';
+import { twinStillWanted } from './notify.subscribers.js';
 import type { PromoHold } from '../controls/index.js';
 import { CallbackWhatsApp, notifyHarness, ScriptedPush } from './test-harness.js';
 
@@ -71,7 +79,7 @@ describe('notify routing', () => {
       ['order_receipt', 'whatsapp', 'suppressed', 'preference:whatsappReceipts'],
       ['marketing_offer', 'push', 'suppressed', 'preference:marketing'],
     ]);
-    expect(await h.service.preferences(h.actor('cust'))).toEqual({ orderUpdates: true, chat: true, whatsappReceipts: false, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true });
+    expect(await h.service.preferences(h.actor('cust'))).toEqual({ orderUpdates: true, chat: true, whatsappReceipts: false, smsFallback: true, marketing: false, dishPots: true, regularTrips: true, sameRide: true, foodCarts: true });
   });
 
   it('never lets a preference switch off safety, work or money messages', async () => {
@@ -96,6 +104,19 @@ describe('quiet hours and the marketing cap', () => {
     expect(inQuietHours(new Date('2026-10-05T05:00:00Z'))).toBe(false); // 08:00
     expect(quietHoursEnd(new Date('2026-10-04T20:30:00Z')).toISOString()).toBe('2026-10-05T05:00:00.000Z');
     expect(quietHoursEnd(new Date('2026-10-05T01:00:00Z')).toISOString()).toBe('2026-10-05T05:00:00.000Z');
+  });
+
+  it('holds the owner\'s «فريقنا عدّل بمحلك» push overnight and sends it at 08:00, once for the event', async () => {
+    const h = notifyHarness({ start: '2026-10-04T21:00:00Z' }); // 00:00 local
+    await h.register('owner', undefined, 'merchant');
+    const req = { eventId: 'sc1', template: 'merchant_staff_changed' as const, to: 'owner', params: { change: 'غيّرنا أوقات الدوام' } };
+    await h.service.dispatch(req);
+    await h.service.dispatch(req); // a retried event: the same row, never a second push
+    await h.run();
+    expect((await h.rows({ personId: 'owner' })).map((r) => [r.status, r.reason])).toEqual([['deferred', 'quiet_hours']]);
+    h.clock.set('2026-10-05T05:00:00Z');
+    await h.run();
+    expect((await h.rows({ personId: 'owner' })).map((r) => r.status)).toEqual(['sent']);
   });
 
   it('holds marketing until 08:00 and sends transactional messages at once', async () => {
@@ -204,6 +225,22 @@ describe('SMS twins', () => {
     ]);
   });
 
+  it('sends no new-order twin once the order no longer waits for the kitchen (accepted in the 30 s)', async () => {
+    const push = new ScriptedPush();
+    let waiting = true;
+    const h = notifyHarness({ push, twinWanted: (row) => twinStillWanted({ order: async (id) => (id === 'o1' ? { id, type: 'food', customerId: 'cust', merchantOrgId: 'm1', totalIqd: 0, itemCount: 1, waitingForKitchen: waiting } : null) }, row) });
+    await h.register('owner', 'ExponentPushToken[owner-1]', 'merchant');
+    await h.service.dispatch({ eventId: 'ev1', template: 'merchant_new_order', to: 'owner', orderId: 'o1', params: { id: 'X', items: '1', orderId: 'o1' } });
+    await h.run();
+    waiting = false;
+    await h.run(30 * SEC);
+    expect(h.sms.sent).toHaveLength(0);
+    expect((await h.rows({ orderId: 'o1' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['push', 'sent', null],
+      ['sms', 'suppressed', 'no_longer_needed'],
+    ]);
+  });
+
   it('sends no twin when the receipt confirms the push', async () => {
     const push = new ScriptedPush();
     push.receipt.set('t1', { ok: true });
@@ -309,6 +346,150 @@ describe('SMS twins', () => {
   });
 });
 
+describe('WhatsApp not set up (a live host without WHATSAPP_TOKEN)', () => {
+  const sos = { name: 'حيدر ك.', role: 'سايق', what: 'مشوار تكتك #1290', link: 'https://console.driver.iq/safety/sos_1', incidentId: 'sos_1' };
+
+  it('safety page with no WhatsApp -> SMS after 30 s', async () => {
+    const push = new ScriptedPush(); // the push is taken but its receipt never confirms it
+    const h = notifyHarness({ push, whatsapp: null });
+    await h.register('owner', 'ExponentPushToken[owner-1]', 'partner');
+    await h.service.dispatch({ eventId: 'ev1', template: 'sos_dispatch_alert', to: 'owner', params: sos });
+    await h.run();
+    expect((await h.rows({ personId: 'owner' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['push', 'sent', null],
+      ['whatsapp', 'skipped', 'not_configured'],
+    ]);
+    await h.run(29 * SEC);
+    expect(h.sms.sent).toHaveLength(0);
+    await h.run(1 * SEC);
+    expect(h.sms.sentTo('+9647701110003')).toHaveLength(1);
+
+    // Someone with no app at all gets the SMS at once: nothing else could reach him.
+    await h.service.dispatch({ eventId: 'ev2', template: 'sos_dispatch_alert', to: 'courier', params: sos });
+    await h.run();
+    expect((await h.rows({ personId: 'courier' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['push', 'skipped', 'no_device'],
+      ['whatsapp', 'skipped', 'not_configured'],
+      ['sms', 'sent', null],
+    ]);
+  });
+
+  it('a WhatsApp-only safety message (the emergency contact) goes by SMS straight away', async () => {
+    const h = notifyHarness({ whatsapp: null });
+    await h.service.dispatch({ eventId: 'ev1', template: 'sos_emergency_contact', to: 'guardian', params: { name: 'علي', link: 'https://driver.iq/sos/abc' } });
+    await h.run();
+    expect((await h.rows({ personId: 'guardian' })).map((r) => [r.channel, r.status, r.reason])).toEqual([
+      ['whatsapp', 'skipped', 'not_configured'],
+      ['sms', 'sent', null],
+    ]);
+  });
+});
+
+describe('the shared daily SMS budget', () => {
+  function budget(dailyBudget: number, alerts: unknown[], throttle = true) {
+    let counter: InMemoryWindowCounter | undefined;
+    const make = (clock: FakeClock): NotifySmsBudget => {
+      counter = new InMemoryWindowCounter(clock);
+      return { counter, dailyBudget, throttle, alert: async (a) => void alerts.push(a) };
+    };
+    return { make, counter: () => counter! };
+  }
+  const order = (n: number) => ({ eventId: `ev${n}`, template: 'merchant_new_order' as const, to: 'owner', params: { id: String(n), items: '1', orderId: `o${n}` } });
+
+  it('counts every notification SMS in the same day counter as sign-in codes, alerting at 50/80/100 % once each', async () => {
+    const alerts: unknown[] = [];
+    const b = budget(4, alerts);
+    const h = notifyHarness({ smsBudget: b.make });
+    for (let n = 1; n <= 4; n += 1) await h.service.dispatch(order(n)); // no device: each twin goes at once
+    await h.run();
+    expect(h.sms.sent).toHaveLength(4);
+    expect(await b.counter().count(SMS_DAY_KEY, SMS_DAY_MS)).toBe(4);
+    expect(alerts).toEqual([
+      { level: 50, count: 2, limit: 4 },
+      { level: 80, count: 4, limit: 4 },
+      { level: 100, count: 4, limit: 4 },
+    ]);
+  });
+
+  it('past 100 %: SMS twins are skipped (sms_budget), safety twins and SMS-first messages still go', async () => {
+    const alerts: unknown[] = [];
+    const b = budget(2, alerts);
+    const h = notifyHarness({ smsBudget: b.make });
+    await h.service.dispatch(order(1));
+    await h.service.dispatch(order(2));
+    await h.run();
+    await h.service.dispatch(order(3));
+    await h.service.dispatch({ eventId: 'sos', template: 'courier_unreachable_reminder', to: 'cust', params: { orderId: 'o9' } });
+    await h.service.dispatch({ eventId: 'ph', template: 'phone_ride_matched', to: 'cust', params: { driver: 'علي', car: 'تكتك', eta: 'بعد 5 دقايق' } });
+    await h.run();
+    const sms = (await h.rows()).filter((r) => r.channel === 'sms').map((r) => [r.template, r.status, r.reason]);
+    expect(sms.sort((x, y) => String(x).localeCompare(String(y)))).toEqual([
+      ['courier_unreachable_reminder', 'sent', null],
+      ['merchant_new_order', 'sent', null],
+      ['merchant_new_order', 'sent', null],
+      ['merchant_new_order', 'skipped', 'sms_budget'],
+      ['phone_ride_matched', 'sent', null],
+    ]);
+  });
+
+  it('OTP_BUDGET_MODE=alert: past 100 % the twins still go', async () => {
+    const b = budget(1, [], false);
+    const h = notifyHarness({ smsBudget: b.make });
+    await h.service.dispatch(order(1));
+    await h.service.dispatch(order(2));
+    await h.run();
+    expect(h.sms.sent).toHaveLength(2);
+  });
+});
+
+describe('delivery outcomes ops can see', () => {
+  const value = (channel: string, result: string) => notifyDeliveries.values.get(`channel="${channel}",result="${result}"`) ?? 0;
+
+  it('counts notify_delivery_total{channel,result} and reports a refused account at error level', async () => {
+    const errors: string[] = [];
+    const warns: string[] = [];
+    const err = vi.spyOn(Logger.prototype, 'error').mockImplementation((m: unknown) => void errors.push(String(m)));
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation((m: unknown) => void warns.push(String(m)));
+    try {
+      const push = new ScriptedPush();
+      const h = notifyHarness({ push });
+      await h.register('cust');
+      const before = { sent: value('push', 'sent'), account: value('push', 'account'), failed: value('push', 'failed') };
+      await h.service.dispatch({ eventId: 'ev1', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+      await h.run();
+      push.throwNext.push(new ProviderError('expo', 'http_401', 'unauthorized', true));
+      await h.service.dispatch({ eventId: 'ev2', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+      await h.run();
+      push.throwNext.push(new ProviderError('expo', 'http_400', 'bad request', true));
+      await h.service.dispatch({ eventId: 'ev3', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+      await h.run();
+      expect({ sent: value('push', 'sent') - before.sent, account: value('push', 'account') - before.account, failed: value('push', 'failed') - before.failed }).toEqual({ sent: 1, account: 1, failed: 1 });
+      expect(errors.filter((m) => m.includes('http_401'))).toHaveLength(1);
+      expect(errors.some((m) => m.includes('http_400'))).toBe(false);
+      expect(warns.some((m) => m.includes('http_400'))).toBe(true);
+    } finally {
+      err.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('an SMS account with no balance left is an account problem too', async () => {
+    const errors: string[] = [];
+    const err = vi.spyOn(Logger.prototype, 'error').mockImplementation((m: unknown) => void errors.push(String(m)));
+    try {
+      const h = notifyHarness();
+      const before = value('sms', 'account');
+      vi.spyOn(h.sms, 'send').mockRejectedValueOnce(new ProviderError('otpiq', 'http_400', 'Insufficient balance', true));
+      await h.service.dispatch({ eventId: 'ev1', template: 'merchant_new_order', to: 'owner', params: { id: '1', items: '1', orderId: 'o1' } });
+      await h.run();
+      expect(value('sms', 'account') - before).toBe(1);
+      expect(errors.some((m) => m.includes('sms provider refused our account'))).toBe(true);
+    } finally {
+      err.mockRestore();
+    }
+  });
+});
+
 describe('retries and token pruning', () => {
   it('retries a transient provider error with exponential backoff', async () => {
     const push = new ScriptedPush();
@@ -324,6 +505,27 @@ describe('retries and token pruning', () => {
     expect(h.queue.pending().map((j) => j.readyAt.getTime() - h.clock.now().getTime())).toContain(2000);
     await h.run(2 * SEC);
     expect((await h.repo.delivery(row!.id))).toMatchObject({ status: 'sent', attempts: 3, reason: null });
+  });
+
+  it('a job rerun after the send went out (writing "sent" failed) never sends the message again', async () => {
+    const push = new ScriptedPush();
+    const h = notifyHarness({ push });
+    await h.register('cust');
+    const update = h.repo.updateDelivery.bind(h.repo);
+    let failOnce = true;
+    h.repo.updateDelivery = async (id, patch, now) => {
+      if (patch.status === 'sent' && failOnce) {
+        failOnce = false;
+        throw new Error('database timeout');
+      }
+      return update(id, patch, now);
+    };
+    const [row] = await h.service.dispatch({ eventId: 'ev1', template: 'order_accepted', to: 'cust', params: { merchant: 'x', orderId: 'o' } });
+    await expect(h.run()).rejects.toThrow('database timeout'); // one attempt: the queue does not rerun it by itself
+    expect(push.sent).toHaveLength(1);
+    await h.engine.process({ kind: 'send', deliveryId: row!.id }); // the queue (or a stalled-job check) runs it again
+    await h.run(10 * SEC); // and no retry of notify's own is waiting either
+    expect(push.sent).toHaveLength(1);
   });
 
   it('gives up after maxAttempts, and fails a permanent error at once', async () => {

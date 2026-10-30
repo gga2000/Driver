@@ -1,131 +1,53 @@
 import { Platform, View } from 'react-native';
-import { useSyncExternalStore } from 'react';
+import { Fragment, useSyncExternalStore } from 'react';
 import { Button, ModalSheet, Text, useTheme } from '@driver/ui';
 import { useT } from '@/lib/i18n';
+import { MIcon } from '@/components/MIcon';
 import { printInBrowser } from '@/print/printer';
 import { previewQueue } from '@/print/preview-queue';
-import type { Receipt, ReceiptLine } from '@/print/receipt';
-import { color } from '@driver/design-tokens';
+import type { PrintJob } from '@/print/doc';
+import { PaperDoc } from './PaperDoc';
 
-const INK = color.neutral[1000];
-const PAPER = color.neutral[0];
-
-/** One line of the ticket drawn like thermal print: black on white, bold notes, dashed rules. */
-function PaperLine({ line }: { line: ReceiptLine }) {
+/** The papers of one job, top to bottom, with the cut between them (as they come out of the printer). */
+export function JobPapers({ job, pxPerMm = 4 }: { job: PrintJob; pxPerMm?: number }) {
   const theme = useTheme();
-  const ink = { color: INK };
-  switch (line.kind) {
-    case 'title':
-      return (
-        <Text weight={700} align="center" style={[ink, { fontSize: 17, lineHeight: 28 }]}>
-          {line.text}
-        </Text>
-      );
-    case 'number':
-      return (
-        <Text weight={700} align="center" tabular style={[ink, { fontSize: 34, lineHeight: 48 }]}>
-          {line.text}
-        </Text>
-      );
-    case 'meta':
-    case 'footer':
-      return (
-        <Text variant="caption" align="center" tabular style={ink}>
-          {line.text}
-        </Text>
-      );
-    case 'payment':
-      return (
-        <View style={{ borderWidth: line.cash ? 1.5 : 0, borderColor: INK, borderRadius: 4, paddingVertical: 2, marginTop: theme.space[1] }}>
-          <Text variant="label" weight={line.cash ? 700 : 500} align="center" tabular style={ink}>
-            {line.text}
-          </Text>
-        </View>
-      );
-    case 'person':
-      return (
-        <View style={{ marginTop: theme.space[2], gap: 2 }}>
-          <View style={{ backgroundColor: INK, paddingHorizontal: 6, borderRadius: 2 }}>
-            <Text variant="label" weight={700} style={{ color: PAPER }}>
-              {line.text}
-            </Text>
-          </View>
-          {line.note ? (
-            <Text variant="label" weight={700} style={ink}>
-              {line.note}
-            </Text>
-          ) : null}
-        </View>
-      );
-    case 'item':
-      return (
-        <View style={{ marginTop: 4, opacity: line.removed ? 0.45 : 1 }}>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Text weight={700} tabular style={[ink, { fontSize: 16, lineHeight: 26, minWidth: 30 }]}>
-              {`${line.qty}×`}
-            </Text>
-            <Text weight={600} style={[ink, { flex: 1, fontSize: 16, lineHeight: 26, textDecorationLine: line.removed ? 'line-through' : 'none' }]}>
-              {line.name}
-            </Text>
-          </View>
-          {line.modifiers.length ? (
-            <Text variant="footnote" style={[ink, { paddingStart: 38 }]}>
-              {line.modifiers.join(' · ')}
-            </Text>
-          ) : null}
-          {line.note ? (
-            <Text variant="footnote" weight={700} style={[ink, { paddingStart: 38 }]}>
-              {line.note}
-            </Text>
-          ) : null}
-        </View>
-      );
-    case 'note':
-      return (
-        <Text variant="label" weight={700} style={ink}>
-          {line.text}
-        </Text>
-      );
-    case 'total':
-      return (
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Text variant="label" weight={700} style={ink}>
-            {line.label}
-          </Text>
-          <Text variant="label" weight={700} tabular style={ink}>
-            {line.value}
-          </Text>
-        </View>
-      );
-    case 'divider':
-      return <View style={{ borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: INK, marginVertical: 6 }} />;
-  }
-}
-
-/** The 80 mm ticket on screen (72 mm printable ≈ 300 px), on a paper strip with a torn edge feel. */
-export function ReceiptPaper({ receipt }: { receipt: Receipt }) {
-  const theme = useTheme();
+  const t = useT();
   return (
-    <View testID="receipt-paper" style={{ alignSelf: 'center', width: 320, backgroundColor: PAPER, paddingHorizontal: 14, paddingTop: 16, paddingBottom: 20, borderRadius: 4, shadowColor: theme.colors.shadow, shadowOpacity: 0.16, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4, borderWidth: 1, borderColor: theme.colors.border }}>
-      {receipt.lines.map((l, i) => (
-        <PaperLine key={i} line={l} />
+    <View style={{ alignItems: 'center', gap: theme.space[3] }}>
+      {job.docs.map((d, i) => (
+        <Fragment key={`${d.kind}-${i}`}>
+          {i > 0 ? (
+            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], alignSelf: 'stretch' }}>
+              <View style={{ flex: 1, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: theme.colors.borderStrong }} />
+              <MIcon name="receipt" size={16} color="textMuted" />
+              <View style={{ flex: 1, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: theme.colors.borderStrong }} />
+            </View>
+          ) : null}
+          <View style={{ shadowColor: theme.colors.shadow, shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 3, borderRadius: 2 }}>
+            <PaperDoc doc={d} pxPerMm={pxPerMm} testID={`paper-${d.kind}`} />
+          </View>
+        </Fragment>
       ))}
+      <Text variant="footnote" color="textMuted" align="center">
+        {t('merchant.printer.preview_hint')}
+      </Text>
     </View>
   );
 }
 
-/** Mounted once at the root: shows whatever ticket the printer (or "شوف الوصل") put in the preview. */
+/** Mounted once at the root: shows whatever job the printer (or "شوف الوصل") put in the preview. */
 export function ReceiptPreview() {
   const theme = useTheme();
   const t = useT();
   const current = useSyncExternalStore(previewQueue.subscribe, previewQueue.get, previewQueue.get);
   if (!current) return null;
+  const mm = current.docs[0]?.paper.paperMm ?? 80;
   return (
     <ModalSheet
       visible
       onClose={() => previewQueue.close()}
       title={t('merchant.receipt.preview_title')}
-      subtitle={t('merchant.receipt.paper')}
+      subtitle={t('merchant.receipt.paper_mm', { mm })}
       testID="receipt-preview"
       footer={
         Platform.OS === 'web' ? (
@@ -133,8 +55,8 @@ export function ReceiptPreview() {
         ) : undefined
       }
     >
-      <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.xl, paddingVertical: theme.space[6] }}>
-        <ReceiptPaper receipt={current} />
+      <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.xl, paddingVertical: theme.space[6], paddingHorizontal: theme.space[2] }}>
+        <JobPapers job={current} />
       </View>
     </ModalSheet>
   );

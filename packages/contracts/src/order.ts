@@ -5,9 +5,10 @@ import { TRUSTED_CONTACTS_MAX, type Actor } from './identity-io.js';
 import { LatePromiseBasis } from './ledger-rules.js';
 import type { ComplimentInput, ComplimentOffer, ComplimentResult } from './order-compliment.js';
 import type { TipOffer, TipOrderInput, TipResult } from './order-tip.js';
-import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
+import type { CashStanding, ResolveDisputeInput, StaffActionResult, StaffCancelOrderInput, StaffChargeCourierInput, StaffCloseOrderInput, StaffCourierLostInput, StaffErrandReceiptInput, StaffMarkDeliveredInput, StaffOpsSwitches, StuckOrder, StuckOrdersInput } from './order-staff-io.js';
 import { Participant, ParticipantInput } from './participant.js';
 import { RideCargo, RideCargoInput } from './ride-cargo.js';
+import { ErrandItemSpec, WeightG } from './shop-lines.js';
 import { VehicleClass } from './trip.js';
 
 /** Mirrors the Prisma `OrderType` enum. Seat and subscription orders belong to routes (Steps 5–7). */
@@ -74,8 +75,17 @@ export const OrderLineInput = z
     pointsEligible: z.boolean().default(true),
     /** Merchant the item came from; every line must match the order's merchant (edge-case review A.11). */
     merchantOrgId: z.string().optional(),
+    /**
+     * A kilo-sold shop item (2026-10-11): the grams on the scale, with `qty` 1. The server prices it
+     * from the item's kilo price (`priceForWeight`); only items the shop sells by the kilo take it.
+     */
+    weightG: WeightG.optional(),
+    /** A «دوّرلي» item's details beside its words in `freeText`; errand orders only. */
+    errandItem: ErrandItemSpec.optional(),
   })
-  .refine((l) => Boolean(l.catalogItemId ?? l.freeText), { message: 'a line needs a catalog item or free text' });
+  .refine((l) => Boolean(l.catalogItemId ?? l.freeText), { message: 'a line needs a catalog item or free text' })
+  .refine((l) => l.weightG === undefined || (l.catalogItemId !== undefined && l.qty === 1), { message: 'a weighed line is one catalog item' })
+  .refine((l) => l.errandItem === undefined || (l.catalogItemId === undefined && l.freeText !== undefined), { message: 'an errand item is a free-text line' });
 export type OrderLineInput = z.input<typeof OrderLineInput>;
 
 /** The longest name a booker gives the person he books a ride for (a first name or «أم علي»). */
@@ -192,6 +202,11 @@ export const PlaceOrderInput = z.object({
    */
   statedTenderIqd: Iqd.positive().optional(),
   /**
+   * M-3 «ينضاف لطلبك الجاي»: the owed fees the checkout showed (`orders.quote` → `debtCollectIqd`). A
+   * different figure (paid at an agent meanwhile, or another order took it) is `price_changed`.
+   */
+  debtCollectIqd: Iqd.min(0).optional(),
+  /**
    * W-02 / J-D10: spend the customer's points on this order («استخدم نقاطك»). The server decides how
    * many (his available points, capped by the delivery fee + service fee and by the price) and takes
    * them off the delivery fee first, then the service fee. Merchant orders only; ignored otherwise.
@@ -259,6 +274,10 @@ export const OrderLine = z.object({
   pointsEligible: z.boolean(),
   /** `unavailable` while a partial-accept proposal is open; `removed` once the customer approved it. */
   availability: z.enum(['available', 'unavailable', 'removed']),
+  /** A weighed line: the grams and the kilo price it was sold at (`unitPriceIqd` is the line's price). */
+  weightG: z.number().int().nullable().optional(),
+  perKgIqd: Iqd.nullable().optional(),
+  errandItem: ErrandItemSpec.nullable().optional(),
 });
 export type OrderLine = z.infer<typeof OrderLine>;
 
@@ -384,10 +403,20 @@ export const Order = z.object({
   /** "الخردة علينا": the note the customer said he will pay with (a hint for the courier); null/absent = none. */
   statedTenderIqd: Iqd.nullable().optional(),
   /**
+   * M-3 «ينضاف لطلبك الجاي»: cancellation fees he owed, collected in cash with this order on top of
+   * `totalIqd` (the courier takes `totalIqd + debtCollectIqd`); absent = none.
+   */
+  debtCollectIqd: Iqd.positive().optional(),
+  /**
    * "الخردة علينا": what went to the customer's wallet at the door because the courier had no change
    * ("باقي الكاش"), on top of the rounding `changeIqd`; null/absent = none.
    */
   changeToWalletIqd: Iqd.nullable().optional(),
+  /**
+   * طرود (Ali, 2026-10-12): the receiver refused and the courier is bringing the parcel back. The fare of
+   * the trip back, already in `totalIqd` (the sender pays both trips at the hand-back); null/absent = none.
+   */
+  returnFareIqd: z.number().int().nullable().optional(),
   /** «عزيمة» (joy g1): a gift for the recipient participant; null/absent = an ordinary order. */
   gift: z.object({ hidePrices: z.boolean() }).nullable().optional(),
   /**
@@ -451,6 +480,11 @@ export const OrderQuote = z.object({
    * people on a group order. 0/absent when it earns none.
    */
   pointsEarn: z.number().int().min(0).optional(),
+  /**
+   * M-3 «ينضاف لطلبك الجاي» (cash food and shop orders, `CASH_DEBT_COLLECT`): the cancellation fees he
+   * owes, handed over with this order on top of `totalIqd` and its own line at checkout; absent = none.
+   */
+  debtCollectIqd: Iqd.positive().optional(),
 });
 export type OrderQuote = z.infer<typeof OrderQuote>;
 
@@ -608,6 +642,8 @@ export interface OrdersPort {
   /** W3 staff way-out (docs/api/staff-ops.md): audited, with a reason; money outcomes behind their switches. */
   opsCancel(actor: Actor, input: StaffCancelOrderInput): Promise<StaffActionResult>;
   opsMarkDelivered(actor: Actor, input: StaffMarkDeliveredInput): Promise<StaffActionResult>;
+  /** «دوّرلي»: ops record the shopper's receipt when his photo would not send (audited; same rules as his own entry). */
+  opsErrandReceipt(actor: Actor, input: StaffErrandReceiptInput): Promise<StaffActionResult>;
   opsClose(actor: Actor, input: StaffCloseOrderInput): Promise<StaffActionResult>;
   opsCourierLost(actor: Actor, input: StaffCourierLostInput): Promise<StaffActionResult>;
   opsChargeCourier(actor: Actor, input: StaffChargeCourierInput): Promise<StaffActionResult>;
@@ -642,6 +678,35 @@ export function parseOrderTicket(text: string): string | null {
   const western = text.replace(EASTERN_DIGITS, (d) => String((d.charCodeAt(0) - (d >= '۰' ? 0x06f0 : 0x0660)) % 10));
   const m = /^\s*#?\s*(\d{4})\s*$/.exec(western);
   return m && m[1]! >= '1000' ? m[1]! : null;
+}
+
+/**
+ * What a Console order search is looking for (Yes-list v7), from what support typed:
+ * - `ticket`: an order number ("1284", "#1284"). Four bare digits are also the last four of the
+ *   customer's phone (`tail`), since that is what a caller reads out; "#1284" is the number only.
+ * - `phone`: a whole Iraqi mobile ("0770 123 4567", "+964 770…"): every order of that customer.
+ * - `name`: Arabic letters and no digits ("حيدر"): orders whose customer's display name matches.
+ * - `text`: anything else (an id, a note): the plain substring search.
+ */
+export type OrderQuery =
+  | { kind: 'ticket'; ticket: string; tail: string | null }
+  | { kind: 'tail'; tail: string }
+  | { kind: 'phone'; phone: string }
+  | { kind: 'name'; name: string }
+  | { kind: 'text'; text: string };
+
+export function classifyOrderQuery(text: string): OrderQuery | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const western = trimmed.replace(EASTERN_DIGITS, (d) => String((d.charCodeAt(0) - (d >= '۰' ? 0x06f0 : 0x0660)) % 10));
+  const ticket = parseOrderTicket(trimmed);
+  const bare = /^\d{4}$/.test(western);
+  if (ticket) return { kind: 'ticket', ticket, tail: bare ? western : null };
+  if (bare) return { kind: 'tail', tail: western };
+  const digits = western.replace(/[\s\-+()]/g, '');
+  if (/^\d{10,14}$/.test(digits)) return { kind: 'phone', phone: digits };
+  if (/[\u0600-\u06FF]/.test(trimmed) && !/\d/.test(western)) return { kind: 'name', name: trimmed };
+  return { kind: 'text', text: trimmed };
 }
 
 /** Words that mean an allergy in Iraqi Arabic, MSA and English (M-09). */

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { isDriverError, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
+import { describe, expect, it, vi } from 'vitest';
+import { isDriverError, PartnerGoOnlineResult, PartnerStatus, type Order, type PartnerOnlineGate, type RoleKind, type Stop, type Trip, type VehicleClass, type Vertical } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { PartnerService } from './partner.service.js';
 import type { PartnerBookedRecord, PartnerCapStatus, PartnerDeps, PartnerPresence } from './ports.js';
@@ -112,6 +112,8 @@ function harness(
     roads?: Array<readonly { lat: number; lng: number }[]>;
     lastFix?: { lat: number; lng: number } | null;
     rideOrder?: boolean;
+    /** A «دوّرلي» order: no merchant behind the pickup. */
+    errandOrder?: boolean;
     /** c9: the ride was booked for someone else, by this name. */
     rideFor?: string;
     places?: PartnerDeps['places'];
@@ -123,10 +125,16 @@ function harness(
     answers?: Array<{ driverId: string; tripId: string; answer: string }>;
     /** HUNT-02: the food order was priced «بالشارع». */
     street?: boolean;
+    /** «المدينة حيّة»: the city's kitchens and placed orders. */
+    town?: PartnerDeps['town'];
+    /** «المدينة حيّة»: who is online (default: the N17 pair), and a clock the test can move. */
+    live?: Array<{ driverId: string; zoneId: string; lat: number; lng: number; free: boolean }>;
+    clock?: FakeClock;
+    /** Today's ledger lines (default: two delivery fees on orders a and b). */
+    lines?: Array<{ type: string; amountIqd: number; tripId?: string; orderId?: string }>;
   } = {},
 ) {
   let presence: PartnerPresence | null = opts.online ? { cityId: 'aziziyah', lat: 32.905, lng: 45.06, vehicle: 'bike', tier: 'silver', zoneId: 'centre' } : null;
-  const offerTrip = opts.offerTrip ?? null;
   const deps: PartnerDeps = {
     presence: {
       get: async () => presence,
@@ -139,15 +147,24 @@ function harness(
         presence = null;
       },
       zones: async () => ['centre', 'zakur'],
+      // N17: one courier waiting in zakur (him), one busy in the centre.
+      live: async () =>
+        opts.live ?? [
+          { driverId: 'drv1', zoneId: 'zakur', lat: 32.9, lng: 45.07, free: true },
+          { driverId: 'drv2', zoneId: 'centre', lat: 32.905, lng: 45.06, free: false },
+        ],
     },
     dispatch: {
-      openOffer: async () =>
-        offerTrip
+      openOffer: async () => {
+        // Read on each call, so a test can make an offer ring between two beats (perf o4).
+        const offerTrip = opts.offerTrip ?? null;
+        return offerTrip
           ? {
               offer: { id: 'do_1', tripId: offerTrip.id, wave: 1, state: 'sent', distanceKm: 0.8, compensationIqd: 0, sentAt: NOW, seenAt: null, expiresAt: new Date(NOW.getTime() + 15_000), ...(opts.offerPolicy ? { policy: opts.offerPolicy } : {}) },
               request: { tripId: offerTrip.id, vertical: 'food', zoneId: 'street_30', dropoffZoneId: 'zakur', pickup: KITCHEN },
             }
-          : null,
+          : null;
+      },
       waitingZones: async () => ['centre', 'centre', 'centre'],
       ...(opts.booked
         ? {
@@ -160,7 +177,7 @@ function harness(
     },
     trips: {
       forDriver: async () => opts.trips ?? [],
-      get: async (id) => [...(opts.trips ?? []), ...(offerTrip ? [offerTrip] : [])].find((t) => t.id === id)!,
+      get: async (id) => [...(opts.trips ?? []), ...(opts.offerTrip ? [opts.offerTrip] : [])].find((t) => t.id === id)!,
       lastPosition: async () => (opts.lastFix ? { pin: opts.lastFix, driverId: actor.personId } : null),
     },
     ...(opts.roads
@@ -177,7 +194,9 @@ function harness(
       get: async (id) =>
         opts.rideFor
           ? order({ type: 'ride', merchantOrgId: null, participants: [{ id: 'pt1', role: 'rider', personId: 'mum', label: null, note: null }] as Order['participants'] })
-          : opts.rideOrder
+          : opts.errandOrder
+            ? order({ type: 'errand', merchantOrgId: null, lines: [] })
+            : opts.rideOrder
             ? order({ type: 'ride', merchantOrgId: null, ...(opts.rideCargo ? { rideCargo: opts.rideCargo } : {}) })
             : id === 'o2'
               ? order({ id: 'o2', paymentMethod: 'wallet' })
@@ -189,10 +208,11 @@ function harness(
     quotes: { quote: () => null },
     money: {
       cap: async () => ({ tier: 'silver', owedIqd: 128_000, capIqd: 150_000, capRemainingIqd: 22_000, overCap: false, cashIqd: -131_000, ...opts.cap }),
-      driverLines: async () => [
-        { type: 'delivery_fee', amountIqd: 1_000, orderId: 'a' },
-        { type: 'delivery_fee', amountIqd: 1_500, orderId: 'b' },
-      ],
+      driverLines: async () =>
+        opts.lines ?? [
+          { type: 'delivery_fee', amountIqd: 1_000, orderId: 'a' },
+          { type: 'delivery_fee', amountIqd: 1_500, orderId: 'b' },
+        ],
       batchShare: 0.7,
       take: () => null,
     },
@@ -202,9 +222,13 @@ function harness(
     ...(opts.places ? { places: opts.places } : {}),
     ...(opts.pickupSpots ? { pickupSpots: opts.pickupSpots } : {}),
     ...(opts.climate ? { climate: opts.climate } : {}),
+    ...(opts.town ? { town: opts.town } : {}),
   };
-  return new PartnerService(deps, new FakeClock(opts.now ?? NOW));
+  return new PartnerService(deps, opts.clock ?? new FakeClock(opts.now ?? NOW));
 }
+
+/** The harness options a test changes between two beats (perf o4). */
+type Mutable = NonNullable<Parameters<typeof harness>[0]>;
 
 describe('PartnerService', () => {
   it('status offline: modes from roles, cash vs cap with the near-cap warning, today, demand', async () => {
@@ -244,6 +268,58 @@ describe('PartnerService', () => {
     const off = await svc.goOffline(actor);
     expect(off.online).toBe(false);
     expect(off.onlineSince).toBeNull();
+  });
+
+  it('perf o4: an old app (no knownVersion) gets the full status, as before', async () => {
+    const svc = harness();
+    const at = { lat: 32.9095, lng: 45.0635 };
+    const res = await svc.goOnline(actor, { cityId: 'aziziyah', at });
+    expect(res).not.toHaveProperty('changed');
+    expect(res).toEqual(await svc.status(actor));
+    // The wire shape still reads as a status for an old client.
+    expect(PartnerStatus.parse(PartnerGoOnlineResult.parse(res))).toMatchObject({ online: true, position: at, zoneId: 'street_30' });
+  });
+
+  it('perf o4: with knownVersion, an unchanged work state answers only the version, without building the status', async () => {
+    const svc = harness();
+    const lines = vi.spyOn(svc['deps'].money, 'driverLines');
+    const at = { lat: 32.9095, lng: 45.0635 };
+    // No version held yet (""): the status and its version.
+    const first = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: '' });
+    if (!first.changed) throw new Error('expected the status');
+    expect(first.status).toEqual(await svc.status(actor));
+    expect(first.version).toMatch(/^[\w-]{16}$/);
+    expect(PartnerGoOnlineResult.parse(first)).toEqual(first);
+    lines.mockClear();
+    // Same work state: the version alone, and today's earnings were never read.
+    const same = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: first.version });
+    expect(same).toEqual({ changed: false, version: first.version });
+    expect(PartnerGoOnlineResult.parse(same)).toEqual(same);
+    // Moving within the zone is not a change: the app knows its own position.
+    expect(await svc.goOnline(actor, { cityId: 'aziziyah', at: { lat: at.lat + 0.001, lng: at.lng }, knownVersion: first.version })).toEqual({ changed: false, version: first.version });
+    expect(lines).not.toHaveBeenCalled();
+    // A stale or unknown version always gets the status.
+    const stale = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: 'stale' });
+    expect(stale).toMatchObject({ changed: true, version: first.version, status: { online: true } });
+  });
+
+  it.each([
+    ['his cash moved', (o: Mutable) => (o.cap = { owedIqd: 140_000, capRemainingIqd: 10_000 })],
+    ['an offer is ringing', (o: Mutable) => (o.offerTrip = trip('t_offer', []))],
+    ['a job is his', (o: Mutable) => (o.trips = [trip('t_job', [])])],
+    ['the gate closed (check-in alone, after midnight)', (o: Mutable) => (o.gate = NO_CHECKIN)],
+  ])('perf o4: when %s, the heartbeat sends the new status with a new version', async (_name, change) => {
+    const o: Mutable = { now: new Date('2026-10-02T21:30:00Z') };
+    const svc = harness(o);
+    const at = { lat: 32.9095, lng: 45.0635 };
+    const first = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: '' });
+    change(o);
+    const next = await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: first.version });
+    if (!next.changed) throw new Error('expected the status');
+    expect(next.version).not.toBe(first.version);
+    expect(next.status).toEqual(await svc.status(actor));
+    // And the beat after that is quiet again.
+    expect(await svc.goOnline(actor, { cityId: 'aziziyah', at, knownVersion: next.version })).toEqual({ changed: false, version: next.version });
   });
 
   it.each([
@@ -290,6 +366,12 @@ describe('PartnerService', () => {
     expect(await harness({ online: true, offerTrip: t, roads: [], rideOrder: true }).offerRoute(actor, { offerId: 'do_1' })).toMatchObject({ polyline6: null });
   });
 
+  it('the counter code is for our merchants only: a food pickup shows it, a دوّرلي pickup none', async () => {
+    const t = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN), stop('s2', 1, 'dropoff', 'zakur', HOME)]);
+    expect((await harness({ trips: [t] }).activeJob(actor))!.stops[0]!.pickupCode).toMatch(/^\d{4}$/);
+    expect((await harness({ trips: [trip('t1', t.stops, { vertical: 'errand' })], errandOrder: true }).activeJob(actor))!.stops[0]!.pickupCode).toBeNull();
+  });
+
   it('«رمز المشوار» (ride s1): a night ride’s pickup still to do says a code is needed, never the code', async () => {
     const ride = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'arrived'), stop('s2', 1, 'dropoff', 'zakur', HOME)], { vertical: 'taxi', state: 'arrived_pickup' });
     const job = await harness({ trips: [ride], rideOrder: true, startCodeFor: ['o1'] }).activeJob(actor);
@@ -315,13 +397,77 @@ describe('PartnerService', () => {
     expect(await harness({ trips: [], roads: [] }).jobRoute(actor)).toMatchObject({ polyline6: null });
   });
 
-  it('demandMap (maps program d5): waiting now, the usual pickups this hour, drivers there', async () => {
-    const m = await harness().demandMap(actor);
-    // The harness: three jobs waiting in the centre, drivers in the centre and zakur, no history.
-    expect(m.zones).toEqual([
-      { zoneId: 'centre', waiting: 3, expected: 0, drivers: 1, level: 'hot' },
-      { zoneId: 'zakur', waiting: 0, expected: 0, drivers: 1, level: 'calm' },
-    ]);
+  it('demandGlow (N17): no counts, the short zone picked for the nearest free courier, one picture per 3 minutes', async () => {
+    const h = harness();
+    // The harness: three jobs waiting in the centre with one (busy) courier there; he waits in zakur.
+    const g = await h.demandGlow(actor);
+    expect(g.zones).toEqual([{ zoneId: 'centre', level: 'hot', forYou: true }]);
+    // Another courier reading the same picture sees the centre warm: it was picked for drv1.
+    expect((await h.demandGlow({ ...actor, personId: 'drv9' })).zones).toEqual([{ zoneId: 'centre', level: 'warm', forYou: false }]);
+    expect((await h.demandGlow(actor)).at).toEqual(g.at);
+  });
+
+  it('townPulse («المدينة حيّة»): shops cooking near him, areas only from 3 orders, drivers a picture late and only in threes', async () => {
+    const placed = [6, 7, 8].map((m) => ({ zoneId: 'centre', placedAt: new Date(NOW.getTime() - m * 60_000) }));
+    let reads = 0;
+    const town: PartnerDeps['town'] = {
+      activity: async () => {
+        reads++;
+        return { kitchens: [{ merchantOrgId: 'm1', pin: KITCHEN, state: 'preparing', acceptedAt: new Date(NOW.getTime() - 5 * 60_000), promisedReadyAt: new Date(NOW.getTime() + 15 * 60_000) }], placed: [...placed, { zoneId: 'zakur', placedAt: placed[0]!.placedAt }] };
+      },
+    };
+    const h = harness({ online: true, town });
+    const p = await h.townPulse(actor);
+    expect(p.kitchens).toEqual([{ id: 'm1', at: KITCHEN, state: 'cooking', progress: 0.25 }]);
+    expect(p.areas).toEqual([{ zoneId: 'centre', n: 3 }]);
+    // Two drivers online: never a cell under three, and the first picture has no drivers at all (a picture late).
+    expect(p.drivers).toEqual([]);
+    // One shared picture per 20 s for the whole city.
+    await h.townPulse({ ...actor, personId: 'drv9' });
+    expect(reads).toBe(1);
+    // Without the town feed the map is quiet, not broken.
+    expect(await harness({ online: true }).townPulse(actor)).toMatchObject({ kitchens: [], areas: [], drivers: [] });
+  });
+
+  it('townNow (the customer live map): the drivers\' city picture, cut for a customer, no second read', async () => {
+    let reads = 0;
+    const town: PartnerDeps['town'] = {
+      activity: async () => {
+        reads++;
+        return { kitchens: [{ merchantOrgId: 'm1', pin: KITCHEN, state: 'ready', acceptedAt: new Date(NOW.getTime() - 20 * 60_000), promisedReadyAt: NOW }], placed: [] };
+      },
+    };
+    const h = harness({ online: true, town });
+    await h.townPulse(actor);
+    expect(await h.townNow({ lat: 32.905, lng: 45.06 })).toEqual({ at: NOW, cooking: [{ id: 'm1', at: KITCHEN }], drivers: [] });
+    expect(reads).toBe(1);
+  });
+
+  it('townPulse: three drivers in one cell show only once their picture is a full minute old, never sooner', async () => {
+    const clock = new FakeClock(NOW);
+    const three = [1, 2, 3].map((i) => ({ driverId: `d${i}`, zoneId: 'centre', lat: 32.905 + i * 0.00005, lng: 45.06, free: true }));
+    const h = harness({ online: true, live: three, clock });
+    const seen: number[] = [];
+    // A picture every 20 s (what a busy city makes): 0, 20, 40, 60, 80 s.
+    for (let s = 0; s <= 80; s += 20) {
+      clock.set(new Date(NOW.getTime() + s * 1000));
+      seen.push((await h.townPulse(actor)).drivers.reduce((n, d) => n + d.n, 0));
+    }
+    expect(seen).toEqual([0, 0, 0, 3, 3]);
+  });
+
+  it('myDay («يومي»): his finished trips today with what each earned, from the same lines as today', async () => {
+    const done = trip('t1', [stop('s1', 0, 'pickup', 'street_30', KITCHEN, 'completed'), stop('s2', 1, 'dropoff', 'zakur', HOME, 'completed')], { state: 'completed', courierId: actor.personId, completedAt: new Date(NOW.getTime() - 3_600_000) });
+    const someoneElse = trip('t2', [stop('s3', 0, 'pickup', 'street_30', KITCHEN)], { courierId: 'drv7', completedAt: NOW });
+    const lines = [
+      { type: 'delivery_fee', amountIqd: 1_250, tripId: 't1', orderId: 'o1' },
+      { type: 'tip', amountIqd: 500, tripId: 't1', orderId: 'o1' },
+      { type: 'delivery_fee', amountIqd: 900, tripId: 't2', orderId: 'o2' },
+      { type: 'driver_payout', amountIqd: -2_000 },
+    ];
+    const day = await harness({ trips: [done, someoneElse], lines }).myDay(actor);
+    expect(day.jobs).toEqual([{ tripId: 't1', pickup: KITCHEN, dropoff: HOME, doneAt: done.completedAt, earnedIqd: 1_750 }]);
+    expect(day.earningsIqd).toBe(2_650);
   });
 
   it('currentOffer: zones, merchant prep, cash to collect, ring, named pay', async () => {
@@ -340,6 +486,8 @@ describe('PartnerService', () => {
       collectIqd: 15_500,
     });
     expect(offer!.tripKm).toBeGreaterThan(2);
+    // The phone counts the ring from the server's clock, not its own.
+    expect(offer!.serverNow).toEqual(NOW);
   });
 
   it('joy l9: a ride the rider booked asking for him says so — and nothing else about who', async () => {

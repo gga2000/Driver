@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { consoleBaseFromEnv } from '../../shared/console-link.js';
 import { ControlsModule } from '../controls/index.js';
 import { EventsModule } from '../events/index.js';
 import { IdentityModule } from '../identity/index.js';
@@ -22,6 +23,13 @@ import {
   type ConsoleWatchConfig,
 } from './console-watch.service.js';
 import {
+  HANDOVER_REPOSITORY,
+  InMemoryHandoverRepository,
+  PrismaHandoverRepository,
+  type HandoverRepository,
+} from './handover.repository.js';
+import { HandoverService } from './handover.service.js';
+import {
   ON_CALL_CONFIG,
   ON_CALL_PORT,
   OnCallService,
@@ -42,7 +50,9 @@ function envInt(name: string, fallback: number): number {
  * Also the Console watching itself (`console_presence`, `console_watch_alerts`): staff screens'
  * heartbeats, and the people on call told when nobody is watching or live updates are down.
  *
- * Env: CONSOLE_BASE_URL (the link in the WhatsApp), ON_CALL_TICK_MS (default 5000; 0 turns the
+ * And the shift handover note on Today (`handover_notes`, `handover_acks`).
+ *
+ * Env: CONSOLE_BASE_URL (the link in the WhatsApp; unset: no link, `shared/console-link.ts`), ON_CALL_TICK_MS (default 5000; 0 turns the
  * ladder sweep and the watch off), CONSOLE_WATCH_CITIES (comma-separated, default aziziyah).
  */
 @Module({
@@ -57,7 +67,7 @@ function envInt(name: string, fallback: number): number {
     {
       provide: ON_CALL_CONFIG,
       useFactory: (): OnCallConfig => ({
-        consoleBase: process.env['CONSOLE_BASE_URL'] ?? 'https://console.driver.iq',
+        consoleBase: consoleBaseFromEnv(),
         tickMs: envInt('ON_CALL_TICK_MS', 5_000),
       }),
     },
@@ -76,9 +86,16 @@ function envInt(name: string, fallback: number): number {
           .split(',')
           .map((c) => c.trim())
           .filter(Boolean),
-        consoleBase: process.env['CONSOLE_BASE_URL'] ?? 'https://console.driver.iq',
+        consoleBase: consoleBaseFromEnv(),
       }),
     },
+    {
+      provide: HANDOVER_REPOSITORY,
+      useFactory: (prisma: PrismaService): HandoverRepository =>
+        prisma.configured ? new PrismaHandoverRepository(prisma) : new InMemoryHandoverRepository(),
+      inject: [PrismaService],
+    },
+    HandoverService,
     ConsoleWatchService,
     OnCallService,
     { provide: ON_CALL_PORT, useExisting: OnCallService },

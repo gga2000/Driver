@@ -15,6 +15,8 @@
 //   POST /demo/board/courier?metres=900          a ready order whose courier drives in from `metres` away
 //                                               (a fix every 2 s, ≈ 30 km/h) and arrives at the counter:
 //                                               the courier radar, the arriving chime and the pickup code
+import { avatarPng } from '../../../../scripts/dev/demo-avatar.mjs';
+
 export default async function register(ctx) {
   const { orders, orgs, trips, dispatch, identity, ledger, vehicles } = ctx.services;
   const { khalid } = ctx.stores;
@@ -70,6 +72,21 @@ export default async function register(ctx) {
     return [group, cash, prepaid];
   }
 
+  // Driver photos (Ali, 2026-10-06): every other demo courier has an approved main photo (a drawn
+  // portrait), so the board's courier map (N16) shows a face; the rest show the initial (the fallback).
+  const { DriverAccountService } = await ctx.load('modules/driver-account/index.js');
+  const { BLOB_STORE } = await ctx.load('modules/places/index.js');
+  async function giveMainPhoto(personId, seed) {
+    const bytes = avatarPng(seed);
+    const store = ctx.app.get(BLOB_STORE);
+    const ticket = await store.createUpload({ ownerId: personId, contentType: 'image/png', sizeBytes: bytes.length });
+    const u = new URL(ticket.uploadUrl, 'http://x');
+    await store.receive({ id: ticket.uploadId, exp: u.searchParams.get('exp'), sig: u.searchParams.get('sig'), contentType: 'image/png', bytes });
+    const account = ctx.app.get(DriverAccountService);
+    const sent = await account.setMainPhoto({ personId, sessionId: 'demo' }, { uploadId: ticket.uploadId });
+    await account.reviewDocument({ personId: 'demo-field-ops', sessionId: 'demo' }, { documentId: sent.latest.documentId, decision: 'approve' });
+  }
+
   // ── couriers (named, verified, with a plate) ──
   const NAMES = ['حيدر كاظم', 'عباس فاضل', 'كرار عادل', 'مرتضى سالم'];
   let courierSeq = 0;
@@ -81,6 +98,7 @@ export default async function register(ctx) {
     const id = (await identity.verifyOtp({ phone, code })).personId;
     await identity.grantRole({ personId: 'system:demo' }, { personId: id, kind: 'courier' });
     await identity.setName({ personId: id, sessionId: 'demo' }, NAMES[(courierSeq - 1) % NAMES.length]);
+    if (courierSeq % 2 === 1) await giveMainPhoto(id, `merchant-courier:${courierSeq}`);
     vehicles.register?.(id, { vehicleClass: 'bike', plate: `واسط ${45670 + courierSeq}` });
     await dispatch.presence.online(id, { cityId: 'aziziyah', at, vehicle: 'bike', tier: 'silver' });
     return id;

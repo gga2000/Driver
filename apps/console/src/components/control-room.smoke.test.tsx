@@ -277,14 +277,34 @@ describe('control room pages render', () => {
       couriers: [{ driverId: 'd1', name: 'مرتضى', zoneKey: 'zakur', zone_ar: 'زاكور', online: true, heldIqd: 48_000, owedIqd: 52_000, capIqd: 75_000, fill: 0.69, overCap: false, tier: 'bronze' }],
       merchants: [{ merchantId: 'org_1', name: 'مطعم خالد', payableIqd: 120_000, mode: 'nightly_courier', exposureCapIqd: 300_000, overExposure: false }],
       handovers: [{ at: AT, kind: 'courier_to_merchant', courierId: 'd1', courierName: 'مرتضى', counterpart: 'مطعم خالد', amountIqd: 30_000, reference: 'h1' }],
-      round: { at: LATER, stops: [{ seq: 1, zoneKey: 'zakur', zone_ar: 'زاكور', couriers: [{ driverId: 'd1', name: 'مرتضى', heldIqd: 48_000, overCap: false }], totalIqd: 48_000 }], totalIqd: 48_000 },
+      round: { at: LATER, stops: [{ seq: 1, zoneKey: 'zakur', zone_ar: 'زاكور', couriers: [{ driverId: 'd1', name: 'مرتضى', heldIqd: 48_000, dueIqd: 48_000, overCap: false }], totalIqd: 48_000 }], totalIqd: 48_000 },
       nightly: { ok: true, message_ar: 'الدفتر متوازن', moneyNet: 0, pointsNet: 0, kindViolations: 0, checkedAt: AT, lastClose: null },
       totals: { cashInFieldIqd: 48_000, merchantsPayableIqd: 120_000, collectedTodayIqd: 30_000, couriersOverCap: 0 },
+      commissionDue: [],
     };
     const html = wrap(<FinanceDesk desk={desk} />);
     for (const text of ['الدفتر متوازن', 'ماكو فرق', 'جولة الساعة', 'زاكور', 'مرتضى', 'مطعم خالد', '48,000', 'لازم يسلّم 52,000 دينار', 'للمطعم 120,000 دينار', 'سلّم 30,000 دينار لمطعم خالد', 'تسليمات اليوم', 'خريطة الجولة']) expect(html).toContain(text);
     // Words, not signs (K-16).
     expect(html).not.toMatch(/\d,\d{3}-/);
+    // No starter store is past 7 weeks: no reminder card.
+    expect(html).not.toContain('سعر البداية قرّب يخلص');
+  });
+
+  it('finance: a starter store past 7 weeks shows the reminder with its start date and days', () => {
+    const desk: FinanceDeskView = {
+      cityId: 'aziziyah',
+      at: AT,
+      localDate: '2026-10-04',
+      couriers: [],
+      merchants: [],
+      handovers: [],
+      round: { at: LATER, stops: [], totalIqd: 0 },
+      nightly: { ok: true, message_ar: 'الدفتر متوازن', moneyNet: 0, pointsNet: 0, kindViolations: 0, checkedAt: AT, lastClose: null },
+      totals: { cashInFieldIqd: 0, merchantsPayableIqd: 0, collectedTodayIqd: 0, couriersOverCap: 0 },
+      commissionDue: [{ merchantOrgId: 'org_2', name: 'كباب الزهراء', starterSince: new Date('2026-08-15T09:00:00Z'), days: 50 }],
+    };
+    const html = wrap(<FinanceDesk desk={desk} />);
+    for (const text of ['سعر البداية قرّب يخلص', 'كباب الزهراء', 'من 15/8/2026 · 50 يوم']) expect(html).toContain(text);
   });
 
   it('wall: six metrics against the playbook targets and orders per day', () => {

@@ -7,7 +7,12 @@ import {
   type ConsoleNames,
   type ConsoleNamesInput,
   type ConsolePort,
+  classifyOrderQuery,
+  DriverError,
+  type CustomerHistory,
+  type CustomerHistoryInput,
   type DriverPin,
+  type LedgerEventType,
   type DriverPositions,
   type DriverRosterRow,
   type DriversListInput,
@@ -18,22 +23,33 @@ import {
   type OrderLedgerLine,
   type OrderSearchInput,
   type OrderSearchPage,
+  type MoneyAlarm,
+  type NotifyStuck,
+  type OutboxRequeueInput,
+  type OutboxRequeueResult,
   type OutboxView,
   type RightNow,
   type SimulatorStartInput,
   type SimulatorStatus,
+  type SmsDayView,
 } from '@driver/contracts';
 import { TripsService } from '../trips/index.js';
 import { replayMarks, thinPoints, trailPurged } from './replay.js';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { startOfLocalMonth } from '../../shared/local-time.js';
+import { SMS_DAY_KEY, SMS_DAY_MS, smsDailyBudgetFromEnv } from '../../shared/sms-budget.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { CatalogService } from '../catalog/index.js';
+import { AuditLogService } from '../controls/index.js';
 import { DispatchService, type LiveDriver } from '../dispatch/index.js';
 import { DriverAccountService } from '../driver-account/index.js';
 import { EventsService, type StoredEvent } from '../events/index.js';
 import { FleetService } from '../fleet/index.js';
 import { IdentityService, type RosterRow } from '../identity/index.js';
 import { CapsService, LedgerService, MerchantCashService } from '../ledger/index.js';
+import { NotifyService } from '../notify/index.js';
 import { OrdersService } from '../orders/index.js';
 import { OrgsService } from '../orgs/index.js';
 import { ScoringService } from '../scoring/index.js';
@@ -46,6 +62,12 @@ export const RECENT_FAILED_OUTBOX = 20;
 export const CONSOLE_NAMES_PURPOSE = 'console_names';
 /** Vault-access purpose of the drivers list's name search. */
 export const CONSOLE_DRIVER_SEARCH_PURPOSE = 'console_driver_search';
+/** The support card's last orders (s5). */
+export const CUSTOMER_RECENT_ORDERS = 5;
+/** What the company gave a customer into their wallet (s5): refunds, credits, late-promise and rounding credits. */
+export const CUSTOMER_CREDIT_TYPES: ReadonlySet<LedgerEventType> = new Set(['refund', 'credit_issued', 'late_penalty_rider_credit', 'cash_rounding_credit']);
+/** Vault-access purpose of the orders search by phone tail or customer name (Yes-list v7). */
+export const CONSOLE_ORDER_SEARCH_PURPOSE = 'console_order_search';
 /**
  * A name, tier or documents filter reads the whole roster (a town's drivers, a few hundred at most)
  * and pages the matches in memory; this bounds that read.
@@ -78,6 +100,13 @@ export class ConsoleReadService implements ConsolePort {
     @Optional() private readonly accounts?: DriverAccountService,
     /** The replay's trails (maps program o2); the replay is empty without it. */
     @Optional() private readonly trips?: TripsService,
+    /** The shared window counter that holds the day's SMS count; 0 without it. */
+    @Optional() @Inject(WINDOW_COUNTER) private readonly counter?: WindowCounter,
+    /** The admin's outbox requeue writes its audit row in the same transaction. */
+    @Optional() private readonly audits?: AuditLogService,
+    @Optional() private readonly uow?: UnitOfWork,
+    /** Stuck outgoing messages on the System page; 0 without it. */
+    @Optional() private readonly notify?: NotifyService,
   ) {}
 
   // ───────────────────────── names (K-01) ─────────────────────────
@@ -243,8 +272,60 @@ export class ConsoleReadService implements ConsolePort {
 
   // ───────────────────────── orders ─────────────────────────
 
-  searchOrders(input: z.infer<typeof OrderSearchInput>): Promise<OrderSearchPage> {
-    return this.orders.search(input);
+  /**
+   * Orders history. Support also finds a caller's order the way the caller can say it (v7): the
+   * last four digits of the phone (alongside the order number they also are), the whole number, or
+   * the customer's name. The tail and the name are matched by identity among the window's orderers
+   * (a logged vault read, the staff member as accessor); a whole number is a hash lookup.
+   */
+  async searchOrders(input: z.infer<typeof OrderSearchInput>, accessorId: string): Promise<OrderSearchPage> {
+    const q = input.text ? classifyOrderQuery(input.text) : null;
+    if (!q || q.kind === 'text') return this.orders.search(input);
+    const rest = { ...input, text: undefined };
+    if (q.kind === 'phone') {
+      // Only a number that is not an Iraqi mobile means "no orders"; a real failure stays an error.
+      const personId = await this.identity.personIdByPhone(q.phone).catch((e: unknown) => {
+        if (e instanceof DriverError && e.code === 'phone_invalid') return null;
+        throw e;
+      });
+      return personId ? this.orders.search({ ...rest, ordererIds: [personId] }) : { rows: [], nextCursor: null };
+    }
+    const { cityId, states, type, merchantOrgId, paymentMethod, zoneKey, from, to } = input;
+    const window = { cityId, states, type, merchantOrgId, paymentMethod, zoneKey, from, to };
+    const tail = q.kind === 'ticket' ? q.tail : q.kind === 'tail' ? q.tail : null;
+    const among = q.kind === 'ticket' && !tail ? [] : await this.orders.ordererIdsIn(window, q.kind !== 'name');
+    const hits =
+      q.kind === 'name'
+        ? await this.identity.matchDisplayNames(among, q.name, accessorId, CONSOLE_ORDER_SEARCH_PURPOSE)
+        : tail
+          ? await this.identity.matchPhoneTails(among, tail, accessorId, CONSOLE_ORDER_SEARCH_PURPOSE)
+          : [];
+    if (q.kind === 'ticket') return this.orders.search({ ...input, alsoOrdererIds: hits });
+    if (q.kind === 'tail') return this.orders.search({ ...rest, from: rest.from ?? this.orders.ticketWindowFrom(), ordererIds: hits });
+    // A name nobody matches may still be a word in a note.
+    return hits.length > 0 ? this.orders.search({ ...rest, ordererIds: hits }) : this.orders.search(input);
+  }
+
+  /**
+   * s5: the support card's history of one customer — their last orders (any state, newest first)
+   * and the credits that reached their wallet this month (Baghdad). Pseudonymous: ids and amounts.
+   */
+  async customerHistory(input: z.infer<typeof CustomerHistoryInput>): Promise<CustomerHistory> {
+    const from = startOfLocalMonth(this.clock.now());
+    const account = `customer:${input.customerId}`;
+    const [orders, lines] = await Promise.all([
+      this.orders.search({ cityId: input.cityId, ordererIds: [input.customerId], limit: CUSTOMER_RECENT_ORDERS }),
+      this.ledger.eventsSince(account, from),
+    ]);
+    const credits = lines.filter((e) => e.kind === 'money' && e.toAccount === account && CUSTOMER_CREDIT_TYPES.has(e.type)).reverse();
+    return {
+      recentOrders: orders.rows,
+      credits: {
+        from,
+        totalIqd: credits.reduce((a, e) => a + e.amount, 0),
+        lines: credits.slice(0, CUSTOMER_RECENT_ORDERS).map((e) => ({ id: e.id, at: e.occurredAt, type: e.type, label_ar: ledgerLineLabel(e.type, 'ar-IQ'), amountIqd: e.amount, orderId: e.orderId ?? null })),
+      },
+    };
   }
 
   async orderEvents(orderId: string): Promise<EventLogEntry[]> {
@@ -322,6 +403,50 @@ export class ConsoleReadService implements ConsolePort {
   async outbox(): Promise<OutboxView> {
     const [stats, recentFailed] = await Promise.all([this.events.outboxStats(), this.events.recentFailedOutbox(RECENT_FAILED_OUTBOX)]);
     return { ...stats, recentFailed };
+  }
+
+  /**
+   * Admin re-drive of failed outbox rows (by ids, or one type written in a time range): back to
+   * pending with attempts reset, the audit row in the same transaction, so a requeue is never
+   * unaccounted for. Only the subscribers that had not delivered a row run again.
+   */
+  async requeueOutbox(input: OutboxRequeueInput, actorId: string): Promise<OutboxRequeueResult> {
+    if (!this.audits || !this.uow) throw new Error('outbox requeue needs the audit log');
+    const audits = this.audits;
+    const select = 'ids' in input ? { ids: input.ids } : { type: input.type, from: input.from, to: input.to };
+    const scope = 'ids' in input ? `${input.ids.length} id` : `${input.type} ${input.from.toISOString()} → ${input.to.toISOString()}`;
+    const ids = await this.uow.run(async (tx) => {
+      const moved = await this.events.requeueFailedOutbox(select, tx);
+      await audits.record(
+        {
+          cityId: null,
+          actorId,
+          action: 'outbox.requeue',
+          subjectKind: 'outbox',
+          subjectId: 'ids' in input ? (input.ids.length === 1 ? input.ids[0]! : 'ids') : input.type,
+          summaryAr: `رجّع ${moved.length} حدث فاشل للطابور (${scope})`,
+          detail: { requeued: moved.length, ids: moved.slice(0, 50), ...('ids' in input ? {} : { type: input.type, from: input.from.toISOString(), to: input.to.toISOString() }) },
+        },
+        tx,
+      );
+      return moved;
+    });
+    return { requeued: ids.length };
+  }
+
+  /** The money alarm: ledger postings stuck in the outbox (failed, or pending longer than 2 min). */
+  async moneyAlarm(): Promise<MoneyAlarm> {
+    return this.events.moneyAlarm();
+  }
+
+  /** Outgoing messages claimed for a send more than 5 min ago with no outcome (read only, never resent). */
+  async notifyStuck(): Promise<NotifyStuck> {
+    return this.notify ? this.notify.stuckSends() : { stuck: 0, oldestSec: 0 };
+  }
+
+  /** SMS sent in the last 24 h (sign-in codes and notification texts) and the budget they share. */
+  async smsDay(): Promise<SmsDayView> {
+    return { sent: this.counter ? await this.counter.count(SMS_DAY_KEY, SMS_DAY_MS) : 0, budget: smsDailyBudgetFromEnv() };
   }
 
   /** Live simulator (plan Step 7): progress while running, and the latest run's report summary. */

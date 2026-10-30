@@ -26,3 +26,16 @@ export function chipsFitInline(w: HeaderWidths): boolean {
   const needed = w.fixed.reduce((s, x) => s + x, 0) + w.chips.reduce((s, x) => s + x, 0) + w.gap * (items - 1) + 2 * w.padding;
   return needed <= w.row;
 }
+
+/**
+ * Day-one d04: the header's one alarm slot. `alerts` come most urgent first; the first takes the slot,
+ * the rest go into «…» with everything else (printer, missed orders, the money line).
+ */
+export function headerSlot<T>(alerts: readonly T[]): { slot: T | null; rest: T[] } {
+  return { slot: alerts[0] ?? null, rest: alerts.slice(1) };
+}
+
+/** «…» wears a dot while something inside it needs a look: a red item, or one with its own dot. */
+export function menuNeedsLook(items: readonly { tone: string; dot?: boolean | undefined }[]): boolean {
+  return items.some((a) => a.dot === true || a.tone === 'danger');
+}

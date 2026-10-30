@@ -23,12 +23,22 @@ class Counter {
     const k = key(labels);
     this.values.set(k, (this.values.get(k) ?? 0) + by);
   }
-  render(): string {
+  /** `extra`: labels added to every line (the process role of a counter kept outside `Metrics`). */
+  render(extra: Labels = {}): string {
+    const pre = key(extra);
     const lines = [`# HELP ${this.name} ${this.help}`, `# TYPE ${this.name} counter`];
-    for (const [k, v] of this.values) lines.push(`${this.name}{${k}} ${v}`);
+    for (const [k, v] of this.values) lines.push(`${this.name}{${[pre, k].filter(Boolean).join(',')}} ${v}`);
     return lines.join('\n');
   }
 }
+
+/**
+ * Final outcomes of notification deliveries by channel (`push`, `sms`, `whatsapp`) and result: `sent`
+ * (the provider took it), `failed` (given up on), `account` (refused for our own account: bad
+ * credentials, no permission, no balance). Counted by the notify engine, wherever it runs; rendered
+ * by `Metrics` (docs/deploy/observability.md has the alert).
+ */
+export const notifyDeliveries = new Counter('driver_notify_delivery_total', 'Final notification delivery outcomes by channel and result (sent, failed, account).');
 
 class Histogram {
   private readonly series = new Map<string, { counts: number[]; sum: number; count: number }>();
@@ -105,7 +115,7 @@ export class Metrics {
       `# HELP driver_event_loop_delay_p99_seconds Event loop delay, 99th percentile since the last scrape.\n# TYPE driver_event_loop_delay_p99_seconds gauge\ndriver_event_loop_delay_p99_seconds${this.suffix()} ${this.loop.percentile(99) / 1e9}`,
     ];
     this.loop.reset();
-    return [this.calls.render(), this.duration.render(), this.http.render(), ...process_, ...this.gauges.map((g) => g()).filter(Boolean)].join('\n') + '\n';
+    return [this.calls.render(), this.duration.render(), this.http.render(), notifyDeliveries.render(this.labels), ...process_, ...this.gauges.map((g) => g()).filter(Boolean)].join('\n') + '\n';
   }
 
   private suffix(): string {

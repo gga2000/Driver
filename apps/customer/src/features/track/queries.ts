@@ -109,6 +109,28 @@ export function useOrderRoute(orderId: string, enabled: boolean, stage: string) 
   return q;
 }
 
+/**
+ * N6 «ليش متأخر»: the route's slow stretch for the running-late banner. It reads the same cached
+ * route the map keeps fresh (no polling or stage refetch of its own); null until the server names one.
+ */
+export function useSlowStretch(orderId: string, enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const q = useQuery({ ...api.orders.route.queryOptions({ orderId }), enabled: signedIn && enabled, staleTime: ROUTE_STALE_MS });
+  return enabled ? (q.data?.slowStretch ?? null) : null;
+}
+
+/**
+ * N20 «شارع مسدود»: the closed streets the courier's route was sent around, for the order sheet's one line. Like
+ * `useSlowStretch`, it reads the cached route the map keeps fresh; empty until the server names one.
+ */
+export function useRouteClosures(orderId: string, enabled: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  const q = useQuery({ ...api.orders.route.queryOptions({ orderId }), enabled: signedIn && enabled, staleTime: ROUTE_STALE_MS });
+  return enabled ? (q.data?.closures ?? null) : null;
+}
+
 export function useCancellationPreview(orderId: string, enabled: boolean) {
   const api = useApi();
   return useQuery({ ...api.orders.cancellationPreview.queryOptions({ orderId }), enabled, staleTime: 5_000 });

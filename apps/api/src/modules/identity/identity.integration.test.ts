@@ -174,4 +174,30 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     await expect(prisma.prisma.$executeRaw`UPDATE "identity_vault"."vault_access_logs" SET "purpose" = 'tampered' WHERE "person_id" = ${personId}`).rejects.toBeTruthy();
     await expect(prisma.prisma.$executeRaw`DELETE FROM "identity_vault"."vault_access_logs" WHERE "person_id" = ${personId}`).rejects.toBeTruthy();
   });
+  it('account close: vault row, sessions, devices and codes go, roles are revoked, the person row stays; twice is a no-op', async () => {
+    const other = `0771${Date.now().toString().slice(-7)}`;
+    const otherE164 = `+964${other.slice(1)}`;
+    clock.advanceSeconds(31);
+    await service.requestOtp({ phone: other, purpose: 'login' });
+    const res = await service.verifyOtp({ phone: other, code: sms.lastCodeFor(otherE164)!, device: { fingerprint: `it-close-${other}`, platform: 'web' } });
+    await service.grantRole({ personId: 'system:it', sessionId: 'it' }, { personId: res.personId, kind: 'courier' });
+    await service.attachVaultRef(res.personId, 'documentRefs', { ref: 'up_it_close', kind: 'photo', recordId: 'doc_it' });
+    expect(await service.storedFileRefs(res.personId, personId)).toEqual(['up_it_close']);
+    expect((await service.accountCloseState(res.personId)).closable).toBe(true);
+
+    const sessionIds = (await prisma.prisma.session.findMany({ where: { personId: res.personId }, select: { id: true } })).map((x) => x.id);
+    expect(sessionIds.length).toBeGreaterThan(0);
+    expect(await service.closeAccount(res.personId, personId)).toBe(true);
+    // Each deleted session is announced as signed out (notify drops its push tokens on it).
+    const signedOut = events.events.filter((e) => e.type === 'session.signed_out' && e.payload['personId'] === res.personId).map((e) => e.payload['sessionId']);
+    expect(signedOut.sort()).toEqual([...sessionIds].sort());
+    const db = prisma.prisma;
+    expect(await db.personIdentity.findUnique({ where: { personId: res.personId } })).toBeNull();
+    expect(await db.session.count({ where: { personId: res.personId } })).toBe(0);
+    expect(await db.device.count({ where: { personId: res.personId } })).toBe(0);
+    expect(await db.otpChallenge.count({ where: { phoneHash: hashPhone(otherE164, pepper) } })).toBe(0);
+    expect(await db.role.count({ where: { personId: res.personId, revokedAt: null } })).toBe(0);
+    expect((await db.person.findUniqueOrThrow({ where: { id: res.personId } })).deletedAt).toBeInstanceOf(Date);
+    expect(await service.closeAccount(res.personId, personId)).toBe(false);
+  });
 });

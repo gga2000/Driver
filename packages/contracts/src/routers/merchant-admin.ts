@@ -24,15 +24,17 @@ import {
   OrderWho,
   OrderWhoInput,
   MyMerchant,
+  MyStaffInvite,
   PriceChange,
   PriceUpdateOutput,
   ProposeDealInput,
   RemoveStaffInput,
   ResendStaffInviteInput,
+  RespondStaffInviteInput,
   ReorderCategoriesInput,
   ReplacePhotoInput,
   RespondDisputeInput,
-  ReviewDealInput,
+  ReceiveCourierCashInput,
   SetAvailabilityInput,
   SetDealActiveInput,
   SetModifiersInput,
@@ -46,18 +48,19 @@ import {
 } from '../merchant-admin-io.js';
 import { DecideMenuShotInput, MenuPhotoRequestRef, MenuPhotoRequestView, RequestMenuPhotosInput } from '../menu-photos-io.js';
 import { KitchenStoryView, MerchantPotView, SetKitchenStoryInput, SetPotInput } from '../habits-io.js';
+import { HomeKitchenDish, HomeKitchenView, SaveHomeDishInput, SetHomeTodayInput } from '../home-kitchen-admin-io.js';
+import { StaffChange, StoreHistoryInput } from '../store-setup-io.js';
 import { protectedProcedure, router } from '../trpc.js';
 
 /** Coarse gate; the API checks the role is scoped to `merchantOrgId` and owner-only where noted. */
 export const MERCHANT_ADMIN_ROLES: readonly RoleKind[] = ['merchant_owner', 'merchant_staff'];
-/** Platform approval of merchant deals (city config switch). */
-export const DEAL_REVIEWERS: readonly RoleKind[] = ['admin', 'support'];
 
 const p = protectedProcedure(MERCHANT_ADMIN_ROLES);
 
 /**
- * `merchantAdmin.*` — Merchant app wave 2: menu, deals, money, insights, staff. Owner-only:
- * `money.*`, `staff.*`, `activity.*` (who pressed what), `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
+ * `merchantAdmin.*` — Merchant app wave 2: menu, deals, money, insights, staff. `staff.myInvites` and
+ * `staff.respondInvite` need only a sign-in (the invitee's own). Owner-only:
+ * `money.*`, `staff.*`, `activity.*` (who pressed what), `staffChanges` (what our team changed), `deals.project` / `deals.propose` / `deals.setActive` (FORBIDDEN for staff).
  */
 export const merchantAdminRouter = router({
   /** Merchants the caller works at, with his role at each. */
@@ -94,7 +97,6 @@ export const merchantAdminRouter = router({
     project: p.input(ProposeDealInput).output(DealProjectionView).query(({ ctx, input }) => ctx.merchantAdmin.dealsProject(ctx.actor, input)),
     propose: p.input(ProposeDealInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsPropose(ctx.actor, input)),
     setActive: p.input(SetDealActiveInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsSetActive(ctx.actor, input)),
-    review: protectedProcedure(DEAL_REVIEWERS).input(ReviewDealInput).output(DealView).mutation(({ ctx, input }) => ctx.merchantAdmin.dealsReview(ctx.actor, input)),
   }),
   money: router({
     today: p.input(MerchantScope).output(MoneyToday).query(({ ctx, input }) => ctx.merchantAdmin.moneyToday(ctx.actor, input)),
@@ -103,6 +105,8 @@ export const merchantAdminRouter = router({
     statement: p.input(StatementInput).output(WeeklyStatement).query(({ ctx, input }) => ctx.merchantAdmin.moneyStatement(ctx.actor, input)),
     disputes: p.input(MerchantScope).output(z.array(MerchantDispute)).query(({ ctx, input }) => ctx.merchantAdmin.moneyDisputes(ctx.actor, input)),
     respondDispute: p.input(RespondDisputeInput).output(MerchantDispute).mutation(({ ctx, input }) => ctx.merchantAdmin.moneyRespondDispute(ctx.actor, input)),
+    /** The restaurant takes its cash from a courier (owner; the courier's daily code confirms). */
+    receiveCourierCash: p.input(ReceiveCourierCashInput).output(MerchantCashAccount).mutation(({ ctx, input }) => ctx.merchantAdmin.moneyReceiveCourierCash(ctx.actor, input)),
   }),
   insights: p.input(InsightsInput).output(MerchantInsights).query(({ ctx, input }) => ctx.merchantAdmin.insights(ctx.actor, input)),
   /** S-M6: the day's summary card (at close, or from 00:30 for the day before); owner and staff. */
@@ -114,7 +118,16 @@ export const merchantAdminRouter = router({
     remove: p.input(RemoveStaffInput).output(z.object({ removed: z.boolean() })).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRemove(ctx.actor, input)),
     /** A pending invite goes out again (owner only; once per 10 min; the row after). */
     resendInvite: p.input(ResendStaffInviteInput).output(StaffMember).mutation(({ ctx, input }) => ctx.merchantAdmin.staffResendInvite(ctx.actor, input)),
+    /**
+     * PRV-08: the signed-in person's own waiting invites (any signed-in user: the invitee holds no
+     * merchant role yet). Store name, role and dates only.
+     */
+    myInvites: protectedProcedure().output(z.array(MyStaffInvite)).query(({ ctx }) => ctx.merchantAdmin.staffMyInvites(ctx.actor)),
+    /** PRV-08: the invitee accepts (joins with the invite's role) or declines; his invites after. */
+    respondInvite: protectedProcedure().input(RespondStaffInviteInput).output(z.array(MyStaffInvite)).mutation(({ ctx, input }) => ctx.merchantAdmin.staffRespondInvite(ctx.actor, input)),
   }),
+  /** «فريقنا عدّل بمحلك»: what Driver's team changed at his store from the Console, newest first. Owner only. */
+  staffChanges: p.input(StoreHistoryInput).output(z.array(StaffChange)).query(({ ctx, input }) => ctx.stores.ownerChanges(ctx.actor, input)),
   /** «مين سوّى شنو»: who accepted, rejected, readied, extended, handed over, sold out. Owner only. */
   activity: router({
     today: p.input(ActivityTodayInput).output(MerchantActivity).query(({ ctx, input }) => ctx.merchantAdmin.activityToday(ctx.actor, input)),
@@ -125,6 +138,12 @@ export const merchantAdminRouter = router({
     get: p.input(MerchantScope).output(MerchantPotView).query(({ ctx, input }) => ctx.merchantAdmin.potGet(ctx.actor, input)),
     set: p.input(SetPotInput).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potSet(ctx.actor, input)),
     clear: p.input(MerchantScope).output(MerchantPotView).mutation(({ ctx, input }) => ctx.merchantAdmin.potClear(ctx.actor, input)),
+  }),
+  /** أكل بيت (home-kitchen mode): her dishes and reservations; the owner saves dishes, owner and staff set today's plates. */
+  home: router({
+    get: p.input(MerchantScope).output(HomeKitchenView).query(({ ctx, input }) => ctx.merchantAdmin.homeGet(ctx.actor, input)),
+    saveDish: p.input(SaveHomeDishInput).output(HomeKitchenDish).mutation(({ ctx, input }) => ctx.merchantAdmin.homeSaveDish(ctx.actor, input)),
+    setToday: p.input(SetHomeTodayInput).output(HomeKitchenDish).mutation(({ ctx, input }) => ctx.merchantAdmin.homeSetToday(ctx.actor, input)),
   }),
   /** «مطاعمنا» (joy h5): the owner's lines and the year; shown to customers only when he says so (owner writes). */
   story: router({

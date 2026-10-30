@@ -35,6 +35,19 @@ export const serverClock = {
   },
 };
 
+let acceptMs = 90_000;
+
+/**
+ * FLW-14: how long a kitchen has to answer a new order, as the server's board says
+ * (`acceptWindowSec`). The countdown rings start from it rather than a fixed 90 s.
+ */
+export const acceptWindow = {
+  ms: (): number => acceptMs,
+  setSec(sec: number) {
+    if (Number.isFinite(sec) && sec > 0) acceptMs = sec * 1000;
+  },
+};
+
 /** A slice of server time; the component re-renders only when `select` returns something new. */
 export function useServerSelect<T extends string | number | boolean | null>(select: (now: number) => T): T {
   const get = () => select(serverClock.now());

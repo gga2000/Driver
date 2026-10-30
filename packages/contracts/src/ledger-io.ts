@@ -30,6 +30,12 @@ const Payer = {
    * from the 0–249 rounding change. Cash only; the orders module has already checked it.
    */
   changeToWalletIqd: Iqd.positive().optional(),
+  /**
+   * M-3 (THIN-01, «ينضاف لطلبك الجاي»): of `cashCollectedIqd`, the cancellation fees he owed and pays
+   * off with this order's cash, back onto his wallet as its own line (`debt_settled`, memo `owed_fees`).
+   * Cash only; the orders module locked it on the order when it was placed.
+   */
+  debtCollectIqd: Iqd.positive().optional(),
   /** Points the customer redeems (100 = 1,000 IQD), against the delivery fee first, then the service fee (J-D10, `pointsRedemption`). */
   pointsRedeemed: z.number().int().nonnegative().default(0),
   /** Legacy (G-88 500-step rounding): ignored since the 250 change-to-wallet rule (2026-10-04). */
@@ -84,6 +90,8 @@ export const ErrandMoneyPayload = z.object({
   /** Receipt total the shopper paid from float. */
   actualCostIqd: Iqd.nonnegative(),
   errandFeeIqd: Iqd.nonnegative(),
+  /** A batched second errand (Ali 2026-10-12): the shopper earns the batch share of the fee, as on an order. */
+  batchedSecond: z.boolean().default(false),
   serviceFeeIqd: Iqd.nonnegative().optional(),
   tipIqd: Iqd.nonnegative().default(0),
 });
@@ -110,6 +118,11 @@ export const RideMoneyPayload = z.object({
   tipIqd: Iqd.nonnegative().default(0),
   /** Rebroadcast compensation (decisions §6), platform-funded, only for eligible drivers. */
   pickupCompensationIqd: Iqd.nonnegative().default(0),
+  /**
+   * Step 6 (a private car shared by link): the friends who paid their places from their own wallets.
+   * Each pays his part of the fare straight to the driver; the payer above owes the rest.
+   */
+  sharedBy: z.array(z.object({ customerId: z.string().min(1), amountIqd: Iqd.positive() })).default([]),
 }).refine((p) => p.requestId !== undefined || p.tripId !== undefined, { message: 'tripId is required unless requestId is set', path: ['tripId'] });
 export type RideMoneyPayload = z.input<typeof RideMoneyPayload>;
 
@@ -124,6 +137,11 @@ export const SeatMoneyPayload = z.object({
   frontPremiumIqd: Iqd.nonnegative().default(0),
   /** Walk-up seats carry no commission at launch (domain §2). */
   walkUp: z.boolean().default(false),
+  /**
+   * Step 5: the return-trip discount the company pays (`intercityReturnBundle.fundedBy` platform), on
+   * the booking's first seat. The driver is paid the full fare; the rider is charged this much less.
+   */
+  platformDiscountIqd: Iqd.nonnegative().default(0),
 });
 export type SeatMoneyPayload = z.input<typeof SeatMoneyPayload>;
 
@@ -201,6 +219,25 @@ export const MerchantSettlementRequestedPayload = z.object({
   reference: z.string().min(1).optional(),
 });
 export type MerchantSettlementRequestedPayload = z.input<typeof MerchantSettlementRequestedPayload>;
+
+/**
+ * `food_cart.walkup_collected`: a cart («عربانة») owner handed over a walk-over ticket and took the
+ * cash in person. The platform's share is the restaurants' pickup commission on the ticket total,
+ * computed and saved on the ticket by the food-carts module; the ledger posts it as a debt the cart's
+ * merchant account owes (group `food_cart_walkup:<walkupId>:commission`). `occurredAt` comes from
+ * the event envelope (`ledgerPayload`).
+ */
+export const FoodCartWalkupCollectedPayload = z.object({
+  walkupId: z.string().min(1),
+  cartId: z.string().min(1),
+  merchantOrgId: z.string().min(1),
+  occurredAt: z.coerce.date(),
+  totalIqd: Iqd.nonnegative(),
+  commissionIqd: Iqd.nonnegative(),
+});
+export type FoodCartWalkupCollectedPayload = z.input<typeof FoodCartWalkupCollectedPayload>;
+/** Memo prefix of a walk-over ticket's commission line: the pickup tier (`commission:pickup`), then `:walkup:<ticket id>`. */
+export const WALKUP_COMMISSION_MEMO = 'commission:pickup:walkup:';
 
 // ───────────────────────── router IO ─────────────────────────
 

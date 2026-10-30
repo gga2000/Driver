@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { Platform } from 'react-native';
 import type { ChatThreadKind } from '@driver/contracts';
 import { ChatThread } from '@driver/ui';
+import { LostItemResolve } from '@driver/ui/lost-item';
 import { currentFix, photoUri, pickGatePhoto, uploadPhoto } from '@/features/account/device';
 import { apiErrorCode, apiErrorMessage, useApiClient } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
@@ -63,6 +64,12 @@ export function ChatScreen({ orderId, kind, orderNumber }: { orderId: string; ki
         return { uploadId, localUri: picked.uri };
       }}
       voice={voice}
+      // s7 «انحلّت»: while a lost-item ask keeps the driver chat open, either side can close it.
+      pinned={
+        withCourier && thread.data?.lostItem === 'open' ? (
+          <LostItemResolve t={t} resolve={() => actions.resolveLostItem.mutateAsync({ orderId })} errorMessage={(err, fallback) => apiErrorMessage(err, fallback, locale)} />
+        ) : undefined
+      }
       liveStatus={liveStatus}
       orderReplies={(keys) => orderQuickReplies(keys, live)}
       // The support team needs words and photos, not his location.

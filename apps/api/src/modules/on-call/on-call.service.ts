@@ -17,6 +17,10 @@ import {
   type AlertLadderInput,
   type ConsolePresentInput,
   type ConsoleWatch,
+  type HandoverAckInput,
+  type HandoverInput,
+  type HandoverNote,
+  type HandoverWriteInput,
   type IncidentForPaging,
   type LadderStep,
   type OnCallAddInput,
@@ -34,6 +38,7 @@ import {
 } from '@driver/contracts';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { consoleLinkParam } from '../../shared/console-link.js';
 import { PROCESS_ROLE, runsJobs, type ProcessRole } from '../../shared/process-role.js';
 import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { AuditLogService } from '../controls/index.js';
@@ -41,6 +46,7 @@ import { EventsService, type PublishedEvent } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { NotifyService } from '../notify/index.js';
 import { ConsoleWatchService } from './console-watch.service.js';
+import { HandoverService } from './handover.service.js';
 import {
   ON_CALL_REPOSITORY,
   type AlertBrief,
@@ -61,8 +67,8 @@ const DESK_AR: Record<OnCallDesk, string> = { sos: 'الطوارئ', cash: 'ال
 const DESKS: readonly OnCallDesk[] = ['sos', 'cash'];
 
 export interface OnCallConfig {
-  /** The Console origin, for the link in the WhatsApp ("افتح الكونسول"). */
-  consoleBase: string;
+  /** The Console origin, for the link in the WhatsApp ("افتح الكونسول"); null: no link (`consoleLinkParam`). */
+  consoleBase: string | null;
   /** How often the ladder sweep runs (0: off; tests drive `tick()` themselves). */
   tickMs: number;
 }
@@ -103,6 +109,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
     @Inject(CLOCK) private readonly clock: Clock,
     private readonly watch: ConsoleWatchService,
     @Optional() @Inject(PROCESS_ROLE) private readonly role: ProcessRole = 'all',
+    @Optional() private readonly handovers?: HandoverService,
   ) {}
 
   onModuleInit(): void {
@@ -130,6 +137,22 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
   onModuleDestroy(): void {
     for (const off of this.offs.splice(0)) off();
     if (this.ticker) clearInterval(this.ticker);
+  }
+
+  // ───────────────────────── the shift handover note (h5) ─────────────────────────
+
+  private handover_(): HandoverService {
+    if (!this.handovers) throw new DriverError('internal');
+    return this.handovers;
+  }
+  handover(actor: Actor, input: z.output<typeof HandoverInput>): Promise<HandoverNote | null> {
+    return this.handover_().latest(actor, input);
+  }
+  handoverWrite(actor: Actor, input: z.output<typeof HandoverWriteInput>): Promise<HandoverNote> {
+    return this.handover_().write(actor, input);
+  }
+  handoverAck(actor: Actor, input: z.output<typeof HandoverAckInput>): Promise<HandoverNote> {
+    return this.handover_().ack(actor, input);
   }
 
   // ───────────────────────── the roster ─────────────────────────
@@ -457,7 +480,7 @@ export class OnCallService implements OnCallServicePort, OnCallPort, OnModuleIni
       name: await this.raiserName(l),
       role: ROLE_AR[l.brief.role ?? ''] ?? 'شخص',
       what: this.what(l.brief),
-      link: `${this.config.consoleBase.replace(/\/$/, '')}/safety/${l.alertId}`,
+      link: consoleLinkParam(this.config.consoleBase, `/safety/${l.alertId}`, l.alertId),
       incidentId: l.alertId,
     };
     for (const personId of to) {

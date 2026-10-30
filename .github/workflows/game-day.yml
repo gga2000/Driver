@@ -1,0 +1,240 @@
+# Driver (درايفر) — game day: break the staging twin on purpose, one fault at a time (docs/launch/game-day.md).
+#
+# Run by hand: Actions → Game day → Run workflow, pick the fault. Staging only: the job runs in the
+# `staging` GitHub environment and refuses any app that does not end in `-staging` and any database that
+# is not the staging project. Faults marked "(undoes itself)" put staging back before the run ends; the
+# others have a matching undo button (redis-start, push-restore, sms-restore). `status` changes nothing.
+#
+#   missing-setting   row 1   starts one extra machine without REDIS_URL, keeps its refusal, deletes it (undoes itself)
+#   redis-blip-20s    row 3   stops Redis, starts it again 20 s later, logs health.ready every 2 s (undoes itself)
+#   redis-stop        row 4   stops Redis until redis-start
+#   restart-one-web   rows 4 and 9   SIGTERM to one web machine (it finishes its requests and starts again)
+#   push-fail         row 5   phone notifications go to an address that refuses every call, until push-restore
+#   sms-slow          row 6   sign-in texts go to a gateway that answers after 8 s, until sms-restore
+#   lock-orders-20s   row 7   locks the orders table for 20 s, timing health.live meanwhile (undoes itself)
+#   urgent-deploy     row 12  deploys main with --strategy immediate (no health gate), as docs/deploy/runbook.md
+#
+# Rows 2, 8, 10, 11 and 13 use buttons that already exist (the Console, Supabase, Deploy, Backup), and the
+# database block in row 12 is done in Supabase's settings: docs/launch/game-day.md says how.
+# Setting a Fly secret restarts the API machines one at a time; the faults that do so say it in the summary.
+name: Game day
+
+on:
+  workflow_dispatch:
+    inputs:
+      fault:
+        description: Which fault (docs/launch/game-day.md)
+        type: choice
+        options:
+          - status
+          - missing-setting
+          - redis-blip-20s
+          - redis-stop
+          - redis-start
+          - restart-one-web
+          - push-fail
+          - push-restore
+          - sms-slow
+          - sms-restore
+          - lock-orders-20s
+          - urgent-deploy
+        default: status
+
+# Not the deploy-staging group: row 12 ships an urgent deploy while a normal one is stuck waiting.
+concurrency:
+  group: game-day-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  fault:
+    name: game day → ${{ inputs.fault }}
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+      DATABASE_REF: ${{ vars.DATABASE_REF }}
+      API_APP: ${{ vars.FLY_API_APP }}
+      REDIS_APP: ${{ vars.FLY_REDIS_APP || 'driver-redis-staging' }}
+      # A gateway that answers 200 after 8 s (any URL that does the same will do).
+      SLOW_URL: ${{ vars.GAMEDAY_SLOW_URL || 'https://httpbin.org/delay/8' }}
+      FAULT: ${{ inputs.fault }}
+    steps:
+      - name: Staging never reaches production
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          fail() { echo "::error title=Staging guard::$1 (docs/launch/game-day.md)"; exit 1; }
+          [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+          [[ "$API_APP" == *-staging ]] || fail "FLY_API_APP must be set on the staging environment and end in -staging"
+          [[ "$REDIS_APP" == *-staging ]] || fail "FLY_REDIS_APP must end in -staging"
+          [ -n "$FLY_API_TOKEN" ] || fail "secret FLY_API_TOKEN is not set on the staging environment"
+          if [ "$FAULT" = lock-orders-20s ]; then
+            [ -n "$DIRECT_URL" ] || fail "secret DIRECT_URL is not set on the staging environment"
+            [ -n "$DATABASE_REF" ] || fail "set DATABASE_REF (the staging Supabase project ref)"
+            [[ "$DIRECT_URL" == *"$DATABASE_REF"* ]] || fail "DIRECT_URL is not the staging database"
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      - name: Before
+        run: |
+          echo "### Game day: $FAULT ($(date -u +%H:%M:%S) UTC)" >> "$GITHUB_STEP_SUMMARY"
+          curl -sS -m 5 "https://${API_APP}.fly.dev/trpc/health.ready" | jq -c '.result.data.json // .' || true
+
+      - name: Fault
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          base="https://${API_APP}.fly.dev/trpc"
+          note() { echo "$1"; echo "- $1" >> "$GITHUB_STEP_SUMMARY"; }
+          ids() { flyctl machines list --app "$1" --json | jq -r --arg s "$2" --arg g "${3:-}" \
+            '.[] | select(.state == $s) | select($g == "" or .config.metadata.fly_process_group == $g) | .id'; }
+          secret_names() { flyctl secrets list --app "$API_APP" --json | jq -r '(. // [])[] | (.Name // .name)'; }
+          has_secret() { grep -qx "$1" <<< "$(secret_names)"; }
+          # health.ready every 2 s for $1 seconds: time, db, redis (what the results page needs).
+          watch_ready() {
+            local end=$(( $(date +%s) + $1 ))
+            while [ "$(date +%s)" -lt "$end" ]; do
+              printf '%s ' "$(date -u +%H:%M:%S)"
+              curl -sS -m 3 "$base/health.ready" | jq -c '.result.data.json // {error: .error.json.message}' 2>/dev/null || echo '{"answer":"none"}'
+              sleep 2
+            done
+          }
+
+          case "$FAULT" in
+            status)
+              note "Nothing changed." ;;
+
+            missing-setting)
+              image=$(flyctl machines list --app "$API_APP" --json | jq -r '[.[] | select(.config.metadata.fly_process_group == "app")][0].config.image')
+              [ -n "$image" ] && [ "$image" != null ] || { echo "::error::no web machine to copy the image from"; exit 1; }
+              byname() { flyctl machines list --app "$API_APP" --json | jq -r '.[] | select(.name == "gameday-missing-setting") | .id'; }
+              for old in $(byname); do flyctl machine destroy "$old" --app "$API_APP" --force > /dev/null; done
+              # Not in [http_service], so it never takes traffic; the running machines are not touched.
+              flyctl machine run --app "$API_APP" --region fra --vm-size shared-cpu-1x --vm-memory 512 \
+                --restart no --name gameday-missing-setting --metadata gameday=missing-setting --detach \
+                "$image" -- /usr/bin/env -u REDIS_URL DRIVER_ROLE=web node dist/main.js > /dev/null
+              id=$(byname | head -1)
+              [ -n "$id" ] || { echo "::error::the extra machine was not created"; exit 1; }
+              note "Started machine $id without REDIS_URL."
+              for _ in $(seq 1 30); do
+                state=$(flyctl machines list --app "$API_APP" --json | jq -r --arg id "$id" '.[] | select(.id == $id) | .state')
+                [ "$state" = stopped ] && break; sleep 2
+              done
+              note "Its state after the wait: $state (pass: stopped by itself)."
+              # Only the refusal line: nothing else from this machine's log goes into the run.
+              refusal=
+              for _ in $(seq 1 10); do
+                refusal=$(flyctl logs --app "$API_APP" --machine "$id" --no-tail 2>/dev/null | grep -o 'refusing to boot[^"]*' | head -1 || true)
+                [ -n "$refusal" ] && break; sleep 3
+              done
+              flyctl machine destroy "$id" --app "$API_APP" --force > /dev/null
+              note "Deleted machine $id."
+              if [ -n "$refusal" ]; then note "Its message: \`$refusal\`"
+              else echo "::error title=Row 1::the machine did not log a clear refusal"; exit 1; fi ;;
+
+            redis-blip-20s)
+              mapfile -t m < <(ids "$REDIS_APP" started)
+              [ ${#m[@]} -gt 0 ] || { echo "::error::Redis is not running (run redis-start first)"; exit 1; }
+              flyctl machines stop "${m[@]}" --app "$REDIS_APP"
+              note "Redis stopped at $(date -u +%H:%M:%S)."
+              watch_ready 20
+              flyctl machines start "${m[@]}" --app "$REDIS_APP"
+              note "Redis started again at $(date -u +%H:%M:%S)."
+              watch_ready 40 ;;
+
+            redis-stop)
+              mapfile -t m < <(ids "$REDIS_APP" started)
+              [ ${#m[@]} -eq 0 ] || flyctl machines stop "${m[@]}" --app "$REDIS_APP"
+              note "Redis stopped at $(date -u +%H:%M:%S). Undo: redis-start."
+              watch_ready 20 ;;
+
+            redis-start)
+              mapfile -t m < <(ids "$REDIS_APP" stopped)
+              [ ${#m[@]} -eq 0 ] || flyctl machines start "${m[@]}" --app "$REDIS_APP"
+              note "Redis started at $(date -u +%H:%M:%S)."
+              watch_ready 30 ;;
+
+            restart-one-web)
+              id=$(ids "$API_APP" started app | head -1)
+              [ -n "$id" ] || { echo "::error::no running web machine"; exit 1; }
+              note "SIGTERM to web machine $id at $(date -u +%H:%M:%S); it finishes what it is serving, then starts again."
+              flyctl machine restart "$id" --app "$API_APP" --signal SIGTERM
+              note "Back at $(date -u +%H:%M:%S)."
+              watch_ready 20 ;;
+
+            push-fail)
+              has_secret GAMEDAY_FAULT_PUSH && { echo "::error::push-fail is already on (run push-restore)"; exit 1; }
+              has_secret EXPO_PUSH_URL && { echo "::error::EXPO_PUSH_URL is already set on staging: change it by hand"; exit 1; }
+              # Port 9 on the machine itself refuses at once: every send fails and is retried.
+              flyctl secrets set --app "$API_APP" PUSH_PROVIDER=expo EXPO_PUSH_URL=http://127.0.0.1:9 GAMEDAY_FAULT_PUSH=1 > /dev/null
+              note "Phone notifications now fail (from $(date -u +%H:%M:%S); the API machines restarted one by one). Undo: push-restore." ;;
+
+            push-restore)
+              has_secret GAMEDAY_FAULT_PUSH || { note "push-fail was not on; nothing changed."; exit 0; }
+              flyctl secrets unset --app "$API_APP" PUSH_PROVIDER EXPO_PUSH_URL GAMEDAY_FAULT_PUSH > /dev/null
+              note "Phone notifications back to staging's normal at $(date -u +%H:%M:%S)." ;;
+
+            sms-slow)
+              has_secret GAMEDAY_FAULT_SMS && { echo "::error::sms-slow is already on (run sms-restore)"; exit 1; }
+              has_secret SMS_HTTP_URL && { echo "::error::staging has a real SMS gateway set: change it by hand"; exit 1; }
+              flyctl secrets set --app "$API_APP" SMS_PROVIDER=http SMS_HTTP_URL="$SLOW_URL" GAMEDAY_FAULT_SMS=1 > /dev/null
+              note "Sign-in texts now take 8 s (from $(date -u +%H:%M:%S); the API machines restarted one by one). Sign in with a test number. Undo: sms-restore." ;;
+
+            sms-restore)
+              has_secret GAMEDAY_FAULT_SMS || { note "sms-slow was not on; nothing changed."; exit 0; }
+              flyctl secrets set --app "$API_APP" --stage SMS_PROVIDER=fake > /dev/null
+              flyctl secrets unset --app "$API_APP" --stage SMS_HTTP_URL GAMEDAY_FAULT_SMS > /dev/null
+              flyctl secrets deploy --app "$API_APP" > /dev/null
+              note "Sign-in texts back to staging's normal at $(date -u +%H:%M:%S)." ;;
+
+            lock-orders-20s)
+              # The lock is taken within 5 s or not at all, and ends with the transaction after 20 s.
+              psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -q -c \
+                "BEGIN; SET LOCAL lock_timeout = '5s'; LOCK TABLE public.orders IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(20); COMMIT;" &
+              lock=$!
+              sleep 1
+              note "Orders locked at $(date -u +%H:%M:%S) for 20 s. health.live answer times (pass: each under 0.5 s):"
+              slow=0
+              for _ in $(seq 1 8); do
+                t=$(curl -sS -o /dev/null -m 5 -w '%{http_code} %{time_total}' "$base/health.live" 2>/dev/null) || true
+                [ -n "$t" ] || t="none 5"
+                echo "$(date -u +%H:%M:%S) $t"
+                awk -v s="${t#* }" 'BEGIN { exit !(s >= 0.5) }' && slow=$((slow + 1))
+                sleep 2
+              done
+              wait "$lock" || { echo "::error::the lock was not taken (someone else held the table)"; exit 1; }
+              note "Lock released at $(date -u +%H:%M:%S); health.live answers at or over 0.5 s: $slow of 8."
+              [ "$slow" -eq 0 ] || { echo "::error title=Row 7::health.live slowed down while orders were locked"; exit 1; } ;;
+
+            urgent-deploy)
+              note "Deploying $GITHUB_REF_NAME@${GITHUB_SHA::7} with --strategy immediate at $(date -u +%H:%M:%S)."
+              flyctl deploy . --config deploy/fly/api.toml --dockerfile apps/api/Dockerfile --app "$API_APP" \
+                --remote-only --strategy immediate --image-label "gameday-${GITHUB_SHA::7}" \
+                --env APP_RELEASE="${GITHUB_REF_NAME}@${GITHUB_SHA::7}"
+              note "Deployed at $(date -u +%H:%M:%S)."
+              watch_ready 30 ;;
+          esac
+
+      - name: After
+        if: always()
+        run: |
+          {
+            echo '| app | process | state |'
+            echo '| --- | --- | --- |'
+            for app in "$API_APP" "$REDIS_APP"; do
+              flyctl machines list --app "$app" --json | jq -r --arg a "$app" \
+                '.[] | "| \($a) | \(.config.metadata.fly_process_group // "-") | \(.state) |"'
+            done
+            printf '\nhealth.ready: `%s`\n' "$(curl -sS -m 5 "https://${API_APP}.fly.dev/trpc/health.ready" | jq -c '.result.data.json // .' 2>/dev/null || echo none)"
+          } >> "$GITHUB_STEP_SUMMARY"

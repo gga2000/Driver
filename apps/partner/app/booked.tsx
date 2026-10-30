@@ -51,7 +51,7 @@ export default function BookedJobsScreen() {
 
   return (
     <Screen testID="booked-jobs" edges={['bottom']} contentStyle={{ gap: theme.space[4] }}>
-      <Stack.Screen options={{ title: t('partner.booked_title') }} />
+      <Stack.Screen options={{ title: t('partner.booked_title_later') }} />
       {!data ? (
         q.isError || slow ? (
           <RetryState

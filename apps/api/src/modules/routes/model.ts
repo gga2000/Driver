@@ -1,4 +1,6 @@
 import type {
+  AgreementKind,
+  AgreementState,
   BookingOrigin,
   BookingState,
   DemandPostState,
@@ -7,10 +9,14 @@ import type {
   IntercitySeatId,
   IntercitySeatLayout,
   IntercityVehicleKind,
+  OfferCashState,
   PickupStatus,
   PinAlertKind,
   PinAttemptResult,
   RajaaRatingTag,
+  RequestPlaceId,
+  RequestShareBoardedBy,
+  RequestShareMemberState,
   RequestState,
   ReviewHideReason,
   SeatPayment,
@@ -85,7 +91,7 @@ export interface DepartureRecord {
 }
 
 export interface PickupRecord {
-  kind: 'garage' | 'meeting_point' | 'door';
+  kind: 'garage' | 'meeting_point' | 'door' | 'pin';
   meetingPointId: string | null;
   lat: number;
   lng: number;
@@ -93,6 +99,35 @@ export interface PickupRecord {
   feeIqd: number;
   status: PickupStatus;
   detourMin: number | null;
+  /** Step 4: the agreement a pin pickup's price comes from; absent/null otherwise. */
+  agreementId?: string | null;
+}
+
+/** Step 4: a booking's agreed door drop (its price is the booking's `dropoffFeeIqd`). */
+export interface DropoffRecord {
+  agreementId: string;
+  lat: number;
+  lng: number;
+  note: string | null;
+}
+
+/** Step 4: one agreed-price ask on a departure (docs/specs/2026-10-08-agreed-trip-prices.md). */
+export interface AgreementRecord {
+  id: string;
+  departureId: string;
+  riderId: string;
+  driverId: string;
+  kind: AgreementKind;
+  lat: number;
+  lng: number;
+  note: string | null;
+  state: AgreementState;
+  amountIqd: number | null;
+  askedAt: Date;
+  proposedAt: Date | null;
+  expiresAt: Date | null;
+  decidedAt: Date | null;
+  bookingId: string | null;
 }
 
 export interface BookingRecord {
@@ -108,12 +143,22 @@ export interface BookingRecord {
   seatPriceIqd: number;
   frontPremiumIqd: number;
   pickupFeeIqd: number;
+  /** Step 4: the agreed door drop's price; absent = 0. */
+  dropoffFeeIqd?: number;
+  /** Step 4: the agreed door drop; absent/null = the destination garage. */
+  dropoff?: DropoffRecord | null;
   payment: SeatPayment | null;
   prepaid: boolean;
   trusted: boolean;
   pin: string;
   pickup: PickupRecord;
   largeBags: boolean;
+  /** Step 5: small children riding free on a lap; absent = 0. */
+  lapChildren?: number;
+  /** Step 5: the return-trip discount (off the total); absent = 0. */
+  returnDiscountIqd?: number;
+  /** Step 5: the rider's booking the other way it is paired with; absent/null = none. */
+  returnPairId?: string | null;
   heldUntil: Date | null;
   bookedAt: Date | null;
   atGarageAt: Date | null;
@@ -179,14 +224,19 @@ export interface RequestPlaceRecord {
   lat?: number | undefined;
   lng?: number | undefined;
   garageId?: string | undefined;
+  placeId?: RequestPlaceId | undefined;
 }
 
 export interface RequestOfferRecord {
   id: string;
   driverId: string;
   priceIqd: number;
+  /** w1: hours of waiting included and the extra-hour price (on «يستناك وترجع» trips only). */
+  wait: { includedHours: number; extraHourIqd: number } | null;
   at: Date;
   state: 'open' | 'picked' | 'withdrawn' | 'lost';
+  /** Step 4b a6 «احجز وادفع كاش»: the rider asked this driver, and his answer; null when never asked. */
+  cash: OfferCashState | null;
 }
 
 export interface RequestRecord {
@@ -209,11 +259,56 @@ export interface RequestRecord {
   priceCapIqd: number | null;
   offers: RequestOfferRecord[];
   pickedOfferId: string | null;
+  /** The deposit amount: held on the wallet, or on a cash reservation only owed on a no-show. */
   depositIqd: number | null;
+  /** Step 4b a6: picked on the driver's «احجز وادفع كاش» yes, so nothing is held on the wallet. */
+  cashReserved: boolean;
   driverArrivedAt: Date | null;
   driverArrivedPin: { lat: number; lng: number } | null;
+  /** w2: the waiting clock on a «يستناك وترجع» trip, started and stopped by the driver. */
+  waitStartedAt: Date | null;
+  waitEndedAt: Date | null;
+  /** k2 «جيب واحد»: the person fetched (a person id only; the name the poster gave is in the vault). */
+  fetchPersonId: string | null;
+  /** Step 6 (item 56): the car shared by link; null until the booker opens it. */
+  share: RequestShareRecord | null;
   closedAt: Date | null;
   createdAt: Date;
+}
+
+/** Step 6: a shared private car. Everyone in it = the request's `seats`. */
+export interface RequestShareRecord {
+  code: string;
+  /** The booker's own places (him and his family). */
+  bookerPlaces: number;
+  /** One place's price, fixed when the link opened (`sharePlaceIqd`). */
+  placeIqd: number;
+  openedAt: Date;
+  /** Friends who joined, oldest first (left and released rows are kept). */
+  members: RequestShareMemberRecord[];
+}
+
+export interface RequestShareMemberRecord {
+  id: string;
+  personId: string;
+  places: number;
+  amountIqd: number;
+  state: RequestShareMemberState;
+  joinedAt: Date;
+  closedAt: Date | null;
+  /** Way C: when he got in («صعدت»), and who said so; null until then. */
+  boardedAt: Date | null;
+  boardedBy: RequestShareBoardedBy | null;
+}
+
+/** Places friends hold now. */
+export function sharedPlaces(s: RequestShareRecord): number {
+  return s.members.filter((m) => m.state === 'joined').reduce((n, m) => n + m.places, 0);
+}
+
+/** What friends' wallets cover now. */
+export function sharedIqd(s: RequestShareRecord | null): number {
+  return s ? s.members.filter((m) => m.state === 'joined' || m.state === 'paid').reduce((n, m) => n + m.amountIqd, 0) : 0;
 }
 
 /**
@@ -248,11 +343,21 @@ export const OPEN_DEPARTURE: readonly IntercityDepartureState[] = ['scheduled', 
 export const FINISHED_RUN: readonly IntercityDepartureState[] = ['arrived', 'closed'];
 
 export function bookingTotal(
-  b: Pick<BookingRecord, 'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd'>,
+  b: Pick<
+    BookingRecord,
+    'seatIds' | 'seatPriceIqd' | 'frontPremiumIqd' | 'pickupFeeIqd' | 'dropoffFeeIqd' | 'returnDiscountIqd'
+  >,
 ): number {
   return (
     b.seatIds.length * b.seatPriceIqd +
     (b.seatIds.includes('front') ? b.frontPremiumIqd : 0) +
-    b.pickupFeeIqd
+    b.pickupFeeIqd +
+    (b.dropoffFeeIqd ?? 0) -
+    (b.returnDiscountIqd ?? 0)
   );
+}
+
+/** Step 5: the return-trip discount on `seats` seats at `seatPriceIqd`: `percent` off, rounded down to 250. */
+export function returnDiscount(seats: number, seatPriceIqd: number, percent: number): number {
+  return Math.floor((seats * seatPriceIqd * percent) / 100 / 250) * 250;
 }

@@ -2,6 +2,7 @@ import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import type { OpsTaskKind } from '@driver/contracts';
 import { Icon, Text, resolveColor, useTheme, withAlpha, type ColorValue, type IconName } from '@driver/ui';
+import { DigitPad } from '@/components/DigitPad';
 import { useT } from '@/lib/i18n';
 import { CODE_LENGTH, type PadKey } from './logic';
 
@@ -41,7 +42,9 @@ export function ActionTile({
   testID?: string;
 }) {
   const theme = useTheme();
-  const fg = dark ? theme.colors.bg : theme.colors.text;
+  // Check-up item 4: the lead tile is ink by day; at night a raised ember panel, never a cream block.
+  const night = theme.scheme === 'dark';
+  const fg = dark && !night ? theme.colors.bg : theme.colors.text;
   return (
     <Pressable
       testID={testID}
@@ -52,9 +55,9 @@ export function ActionTile({
           borderRadius: theme.radius.xl,
           padding: theme.space[4],
           gap: theme.space[3],
-          backgroundColor: dark ? theme.colors.text : theme.colors.surface,
-          borderWidth: dark ? 0 : 1,
-          borderColor: theme.colors.border,
+          backgroundColor: dark ? (night ? theme.colors.surfaceRaised : theme.colors.text) : theme.colors.surface,
+          borderWidth: dark ? (night ? 1.5 : 0) : 1,
+          borderColor: dark && night ? theme.colors.accentBorder : theme.colors.border,
           opacity: pressed ? 0.88 : 1,
         },
         style,
@@ -65,13 +68,13 @@ export function ActionTile({
           {glyph === 'camera' ? <CameraGlyph size={24} color="accentText" /> : <Icon name={icon ?? 'plus'} size={22} color={dark ? 'onAccent' : 'accentText'} strokeWidth={2.2} />}
         </View>
         {meta ? (
-          <View style={{ backgroundColor: withAlpha(theme.colors.bg, dark ? 0.14 : 0), borderRadius: theme.radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
-            <Text variant="caption" weight={600} tabular style={{ color: dark ? theme.colors.bg : theme.colors.textMuted }}>
+          <View style={{ backgroundColor: withAlpha(fg, dark ? 0.14 : 0), borderRadius: theme.radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
+            <Text variant="caption" weight={600} tabular style={{ color: dark ? fg : theme.colors.textMuted }}>
               {meta}
             </Text>
           </View>
         ) : (
-          <Icon name="chevron-forward" size={18} color={dark ? 'bg' : 'textMuted'} />
+          <Icon name="chevron-forward" size={18} color={dark ? fg : 'textMuted'} />
         )}
       </View>
       <View style={{ gap: 2 }}>
@@ -120,48 +123,17 @@ export function CodeBoxes({ code, error }: { code: string; error?: boolean }) {
   );
 }
 
-const PAD: readonly (PadKey | null)[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', null, '0', 'del'];
-
-/** Numeric keypad for the code: phone order (1-2-3 on top, left to right) even in RTL. */
+/** Numeric keypad for the code: the app's one keypad (`DigitPad`). */
 export function CodePad({ onKey, disabled }: { onKey: (k: PadKey) => void; disabled?: boolean }) {
-  const theme = useTheme();
   const t = useT();
   return (
-    <View testID="ops-code-pad" style={{ direction: 'ltr', flexDirection: 'row', flexWrap: 'wrap', rowGap: theme.space[2], columnGap: theme.space[2] }}>
-      {PAD.map((k, i) =>
-        k === null ? (
-          <View key={`gap-${i}`} style={{ width: '31.5%', height: 52 }} />
-        ) : (
-          <Pressable
-            key={k}
-            testID={`ops-pad-${k}`}
-            disabled={disabled}
-            accessibilityRole="button"
-            accessibilityLabel={k === 'del' ? t('partner.ops_cash_clear') : k}
-            onPress={() => onKey(k)}
-            style={({ pressed }) => ({
-              width: '31.5%',
-              height: 52,
-              borderRadius: theme.radius.lg,
-              backgroundColor: pressed ? theme.colors.accentTint : k === 'del' ? 'transparent' : theme.colors.surface,
-              borderWidth: k === 'del' ? 0 : 1,
-              borderColor: theme.colors.border,
-              alignItems: 'center',
-              justifyContent: 'center',
-            })}
-          >
-            {k === 'del' ? (
-              // Backspace points left like on every phone keypad: `arrow-forward` is mirrored in RTL.
-              <Icon name="arrow-forward" size={22} color="text" />
-            ) : (
-              <Text variant="heading" weight={600} tabular>
-                {k}
-              </Text>
-            )}
-          </Pressable>
-        ),
-      )}
-    </View>
+    <DigitPad
+      testID="ops-code-pad"
+      keyTestID={(k) => `ops-pad-${k === 'back' ? 'del' : k}`}
+      deleteLabel={t('partner.ops_cash_clear')}
+      disabled={disabled}
+      onKey={(k) => onKey(k === 'back' ? 'del' : k)}
+    />
   );
 }
 

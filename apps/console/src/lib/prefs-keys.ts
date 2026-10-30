@@ -5,6 +5,8 @@ export const PREF_KEYS = {
   density: 'driver.console.density',
   sidebar: 'driver.console.sidebar',
   navSettings: 'driver.console.nav-settings',
+  todayService: 'driver.console.today-service',
+  orderViews: 'driver.console.order-views',
 } as const;
 
 /** Inlined in <head>: reads the stored prefs and sets the attributes before first paint. */

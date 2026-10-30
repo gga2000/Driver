@@ -3,6 +3,7 @@ import {
   AZIZIYAH_MONEY_RULES,
   HoldSeatInput,
   type IntercitySeatId,
+  type MoneyRules,
   type PickupChoice,
   type SeatPayment,
   type TravellingAs,
@@ -20,7 +21,9 @@ import {
   type IntercityRules,
 } from './intercity.config.js';
 import { TrailCheckpointWaiver, type CheckpointWaiver } from './late-meter.js';
+import { AgreementsService } from './agreements.service.js';
 import { RequestBoardService } from './request-board.service.js';
+import { InMemoryRequestRiders } from './request-riders.js';
 import { InMemoryRoutesRepository } from './routes.repository.js';
 import { RoutesRpc } from './routes.rpc.js';
 import { RoutesScheduler } from './scheduler.js';
@@ -37,7 +40,7 @@ export const NAHDHA = INTERCITY_NETWORK.garages.find((g) => g.id === 'mp_garage_
  * 15:00 Baghdad). Shared by the unit tests.
  */
 export function routesHarness(
-  opts: { start?: string; rules?: Partial<IntercityRules>; waiver?: CheckpointWaiver } = {},
+  opts: { start?: string; rules?: Partial<IntercityRules>; waiver?: CheckpointWaiver; money?: Partial<MoneyRules> } = {},
 ) {
   const clock = new FakeClock(opts.start ?? '2026-10-03T12:00:00Z');
   const repo = new InMemoryRoutesRepository();
@@ -47,6 +50,8 @@ export function routesHarness(
   const writer = new RoutesWriter(uow, repo);
   const ids = new SequentialIds();
   const rules: IntercityRules = { ...INTERCITY_RULES, ...opts.rules };
+  /** k2: whom «جيب واحد» trips fetch (typed numbers only), names kept like the vault, reads recorded. */
+  const riders = new InMemoryRequestRiders({ '07701000001': 'p_rider' });
   const requests = new RequestBoardService(
     repo,
     events,
@@ -56,6 +61,7 @@ export function routesHarness(
     INTERCITY_NETWORK,
     rules,
     ids,
+    riders,
   );
   const departures = new DeparturesService(
     repo,
@@ -66,15 +72,16 @@ export function routesHarness(
     requests,
     INTERCITY_NETWORK,
     rules,
-    AZIZIYAH_MONEY_RULES,
+    { ...AZIZIYAH_MONEY_RULES, ...opts.money },
     opts.waiver ?? new TrailCheckpointWaiver(),
     ids,
   );
   const demand = new DemandService(repo, events, clock, writer, departures, INTERCITY_NETWORK, ids);
+  const agreements = new AgreementsService(repo, events, clock, writer, departures, INTERCITY_NETWORK, rules, ids);
   /** Riders' names as identity would hold them; every read recorded like the vault log. */
   const riderNames = new Map<string, string>();
   const nameReads: Array<{ personId: string; accessorId: string; purpose: string }> = [];
-  const rpc = new RoutesRpc(departures, demand, requests, repo, {
+  const rpc = new RoutesRpc(departures, demand, requests, agreements, repo, {
     firstNamesFor: async (ids, accessorId, purpose) => {
       const out: Record<string, string | null> = {};
       for (const id of new Set(ids)) {
@@ -92,11 +99,11 @@ export function routesHarness(
       return out;
     },
   });
-  const scheduler = new RoutesScheduler(writer, departures, demand, requests);
+  const scheduler = new RoutesScheduler(writer, departures, demand, requests, agreements);
 
   const at = (minutesFromNow: number) => new Date(clock.now().getTime() + minutesFromNow * 60_000);
 
-  /** Driver `d1` announces from البوابة ١ to Baghdad, leaving in 2 h (latest +30 min), a saloon. */
+  /** Driver `d1` announces from البوابة 1 to Baghdad, leaving in 2 h (latest +30 min), a saloon. */
   function announce(over: Partial<AnnounceInput> & { driverId?: string } = {}) {
     const { driverId = 'd1', ...rest } = over;
     return departures.announce(
@@ -182,7 +189,9 @@ export function routesHarness(
     requests,
     departures,
     demand,
+    agreements,
     rpc,
+    riders,
     riderNames,
     nameReads,
     scheduler,

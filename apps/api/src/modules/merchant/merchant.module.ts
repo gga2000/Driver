@@ -1,7 +1,8 @@
 import { RoutingModule } from '../routing/index.js';
+import type { DishKind } from '@driver/contracts';
 import { Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
-import { CatalogModule, CatalogService } from '../catalog/index.js';
+import { CatalogModule, CatalogService, kindOfLabels } from '../catalog/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { OrdersModule, OrdersService } from '../orders/index.js';
@@ -13,6 +14,8 @@ import { ControlsModule, ControlsService } from '../controls/index.js';
 import { PricingModule, PricingService } from '../pricing/index.js';
 import { ZonesModule, ZonesService } from '../zones/index.js';
 import { foodDeliveryFee } from './area.js';
+import { HomeKitchenActivation } from './home-kitchen-activation.js';
+import { MERCHANT_SETUP_CATALOG, MerchantSetupService, setupCatalogOf, type SetupCatalogPort } from './setup.service.js';
 import {
   MERCHANT_AREA,
   MERCHANT_CATALOG,
@@ -20,6 +23,7 @@ import {
   MERCHANT_ORDERS,
   MERCHANT_PEOPLE,
   MERCHANT_PHOTOS,
+  MERCHANT_SETUP_LINE,
   MERCHANT_STORES,
   MERCHANT_TRIPS,
   MerchantService,
@@ -51,6 +55,10 @@ import {
         grants: async (personId) => (await identity.me({ personId, sessionId: 'merchant:stores' })).roles,
         hasRole: (personId, kind, orgId) => identity.hasRole(personId, kind, orgId),
         courierFirstName: async (courierId, accessorId) => (await identity.courierCard(courierId, accessorId)).firstName,
+        courierCard: async (courierId, accessorId) => {
+          const { firstName, photoRef } = await identity.courierCard(courierId, accessorId);
+          return { firstName, photoRef };
+        },
         courierVehicle: async (courierId, vehicleId) => {
           const v = await vehicles.forCourier(courierId, vehicleId);
           return v ? { vehicleClass: v.vehicleClass, plate: v.plate } : null;
@@ -62,12 +70,22 @@ import {
       provide: MERCHANT_CATALOG,
       useFactory: (catalog: CatalogService): MerchantCatalogPort => ({
         itemNames: async (orgId, ids) => new Map((await catalog.itemsOf(orgId, ids)).map((i) => [i.id, i.nameAr])),
+        isHomeKitchen: async (orgId) => Boolean((await catalog.storefront(orgId))?.home),
+        itemKinds: async (orgId, ids) => {
+          const kinds = new Map<string, DishKind>();
+          for (const i of await catalog.itemsOf(orgId, ids)) {
+            const kind = kindOfLabels(i.labels);
+            if (kind) kinds.set(i.id, kind);
+          }
+          return kinds;
+        },
         storefrontHours: async (orgId) =>
           (await catalog.storefront(orgId))?.hours.map((w) => ({
             dow: w.dow,
             start: w.start,
             end: w.end,
           })) ?? null,
+        storefrontTags: async (orgId) => (await catalog.storefront(orgId))?.tags ?? null,
         mirrorHours: async (orgId, windows) => {
           const front = await catalog.storefront(orgId);
           if (front)
@@ -115,8 +133,18 @@ import {
       }),
       inject: [BLOB_STORE],
     },
+    // «جهّز محلك»: dishes, photos, the menu-photo draft and the storefront through the catalog's own calls.
+    {
+      provide: MERCHANT_SETUP_CATALOG,
+      useFactory: (catalog: CatalogService): SetupCatalogPort => setupCatalogOf(catalog),
+      inject: [CatalogService],
+    },
+    MerchantSetupService,
+    // أكل بيت: a cook's kitchen approved in the Console becomes a home kitchen at the 10% tier.
+    HomeKitchenActivation,
+    { provide: MERCHANT_SETUP_LINE, useExisting: MerchantSetupService },
     MerchantService,
   ],
-  exports: [MerchantService],
+  exports: [MerchantService, MerchantSetupService],
 })
 export class MerchantModule {}

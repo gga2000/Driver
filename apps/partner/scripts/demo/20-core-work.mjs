@@ -6,13 +6,15 @@
 //        …&for=1                               booked by the buyer for «أم علي» (ride ideas c9/s3): the offer
 //                                              and the job name her, «اتصل بالراكب» calls her number
 //   POST /demo/offer?who=tuktuk&kind=favourite a ride booked for later asking for him (joy l9): his minute alone
-//   POST /demo/job?who=courier&step=…          an accepted food job at: to_pickup · at_pickup ·
+//   POST /demo/job?who=courier&step=…          an accepted food job at: to_pickup · at_pickup · ready ·
 //                                              to_dropoff · at_dropoff · unreachable
 //        …&door=1                              to the customer's saved home with a door photo and note,
 //                                              never delivered to before ("اتصل قبل لا توصل", maps f6/a5)
 //        …&tender=25000                        the customer said "راح أدفع بـ 25,000" at checkout
 //                                              ("الخردة علينا": the job card and the door helper show it)
 //        …&street=1                            the customer chose «بالشارع» (HUNT-02): he comes out to the street
+//        …&owed=500                            the customer owed a 500 دينار cancel fee (M-3): the stop asks for
+//                                              the order plus the fee and names it (`owedFeesIqd`)
 //        …&gift=1                              a «عزيمة» paid from the sender's wallet with the prices hidden:
 //                                              «هدية · لا تذكر السعر» at the door, no receipt in the bag (joy g1)
 //   POST /demo/online?who=…                    puts him online where his persona works
@@ -73,13 +75,13 @@ export default async function register(demo) {
   }
 
   let topUps = 0;
-  async function placeAccepted(restaurant, lines, dropoff, prepMinutes = 12, paymentMethod = 'cash', note, statedTenderIqd, extra = {}) {
+  async function placeAccepted(restaurant, lines, dropoff, prepMinutes = 12, paymentMethod = 'cash', note, statedTenderIqd, extra = {}, by = buyer()) {
     // A prepaid (wallet) order needs a wallet that covers it (wallet_insufficient): the buyer topped up.
     if (paymentMethod === 'wallet') {
       const account = demo.Accounts.customer(buyer());
       await services.ledger.recordAll({ id: `demo:topup:buyer:${++topUps}:${Date.now()}`, kind: 'money', occurredAt: new Date(), refs: {}, lines: [{ type: 'credit_issued', amount: 50_000, fromAccount: demo.Accounts.bank, toAccount: account, memo: 'topup:agent' }], controls: [{ account, net: 50_000 }] });
     }
-    const placed = await orders.place(buyer(), { cityId: CITY, type: 'food', merchantOrgId: demo.restaurants[restaurant].orgId, lines, paymentMethod, dropoff, ...(note ? { note } : {}), ...(statedTenderIqd ? { statedTenderIqd } : {}), ...extra });
+    const placed = await orders.place(by, { cityId: CITY, type: 'food', merchantOrgId: demo.restaurants[restaurant].orgId, lines, paymentMethod, dropoff, ...(note ? { note } : {}), ...(statedTenderIqd ? { statedTenderIqd } : {}), ...extra });
     await orders.merchantAccept('demo-staff', { orderId: placed.id, prepMinutes });
     await orders.markPreparing('demo-staff', { orderId: placed.id });
     const trip = await trips.activeForOrder(placed.id);
@@ -97,7 +99,16 @@ export default async function register(demo) {
   }
 
   /** An accepted food job for him, moved to `step`. */
-  async function job(personId, step, tender, door, gift = false, street = false) {
+  async function job(personId, step, tender, door, gift = false, street = false, owed = 0) {
+    // M-3: a late cancel left a customer owing `owed` (as the cancel posting would), so his next cash
+    // order collects it. The buyer's wallet has credit, so this order is another customer's («حسن»).
+    let by = buyer();
+    if (owed > 0) {
+      by = await demo.person({ key: 'debtor', phone: '07701110019', name: 'حسن' });
+      const account = demo.Accounts.customer(by);
+      const fee = owed + (await services.ledger.balance(account)).amount;
+      if (fee > 0) await services.ledger.recordAll({ id: `demo:owed:${Date.now()}`, kind: 'money', occurredAt: new Date(), refs: {}, lines: [{ type: 'cancellation_fee', amount: fee, fromAccount: account, toAccount: demo.Accounts.merchantCash(demo.restaurants.khalid.orgId), memo: 'merchant' }], controls: [] });
+    }
     const { order, trip } = await placeAccepted(
       'khalid',
       [
@@ -114,6 +125,7 @@ export default async function register(demo) {
         ...(gift ? { participants: [{ ref: 'mum', role: 'recipient', label: 'أم علي', phone: '07801112233' }], gift: { hidePrices: true } } : {}),
         ...(street ? { options: { streetHandover: true } } : {}),
       },
+      by,
     );
     const offerId = await offerTo(trip.id, personId);
     await dispatch.respond({ personId, sessionId: 'demo' }, { offerId, accept: true });
@@ -125,6 +137,7 @@ export default async function register(demo) {
     await trips.arrive(trip.id, pickup.id, personId, { pin: KHALID_PIN });
     if (step === 'at_pickup') return { tripId: trip.id, orderId: order.id };
     await orders.markReady('demo-staff', { orderId: order.id });
+    if (step === 'ready') return { tripId: trip.id, orderId: order.id };
     await trips.completeStop(trip.id, pickup.id, personId);
     const mid = { lat: 32.8995, lng: 45.0702 };
     await dispatch.presence.heartbeat(personId, mid).catch(() => undefined);
@@ -168,7 +181,7 @@ export default async function register(demo) {
     await clear(p.personId);
     await ensureOnline(query.who, p.personId, p.vehicle ?? 'bike');
     const tender = query.tender ? Number(query.tender) : undefined;
-    demo.json(res, 200, { step, ...(await job(p.personId, step, tender, query.door === '1', query.gift === '1', query.street === '1')) });
+    demo.json(res, 200, { step, ...(await job(p.personId, step, tender, query.door === '1', query.gift === '1', query.street === '1', query.owed ? Number(query.owed) : 0)) });
   });
 
   demo.route('/demo/offer', async ({ res, query }) => {

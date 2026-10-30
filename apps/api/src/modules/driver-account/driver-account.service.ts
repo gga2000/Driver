@@ -6,6 +6,11 @@ import {
   DriverError,
   encodeDomainEvent,
   MY_BEST_DAYS,
+  PARTNER_DRIVING_ROLES,
+  type DriverPauseStatusInput,
+  type DriverPauseView,
+  type LiftDriverPauseInput,
+  type PauseDriverInput,
   type EarningsJobLine,
   type MyBestView,
   type Actor,
@@ -41,6 +46,7 @@ import { UnitOfWork, type Tx } from '../../shared/db/unit-of-work.js';
 import { KeyedLock } from '../../shared/keyed-lock.js';
 import { localDateKey, localPeriod, nextLocalSunday, startOfLocalDay } from '../../shared/local-time.js';
 import { ConfigService } from '../config/index.js';
+import { AuditLogService, StaffNames } from '../controls/index.js';
 import { EventsService } from '../events/index.js';
 import { IdentityService } from '../identity/index.js';
 import { LedgerFacade } from '../ledger/index.js';
@@ -49,7 +55,7 @@ import { BLOB_STORE, type BlobStore } from '../places/index.js';
 import { deliveryRatings, nudgesFor, OBSERVATION_DAYS, reliabilityCard, RELIABILITY_WINDOW_DAYS } from '../scoring/index.js';
 import { SupportService } from '../support/index.js';
 import { TripsService } from '../trips/index.js';
-import { DRIVER_ACCOUNT_REPOSITORY, type CheckInRecord, type DocumentRecord, type DriverAccountRepository } from './driver-account.repository.js';
+import { DRIVER_ACCOUNT_REPOSITORY, isUniqueViolation, type CheckInRecord, type DocumentRecord, type DriverAccountRepository, type PauseRecord } from './driver-account.repository.js';
 import { composeEarnings } from './earnings.js';
 import { HANDOVER_SECRET, HandoverCodes } from './handover-code.js';
 import { composeReceipt, receiptNote, type ReceiptContext } from './receipt.js';
@@ -167,6 +173,9 @@ export class DriverAccountService implements DriverAccountPort {
     @Optional() private readonly config?: ConfigService,
     /** Joy l4: customers' kind words (the orders module's compliments); absent in tests that don't need them. */
     @Optional() private readonly kindWords?: OrderComplimentsService,
+    /** r6 staff pause: the audit trail and the staff names on it (absent in tests that don't pause). */
+    @Optional() private readonly audits?: AuditLogService,
+    @Optional() private readonly names?: StaffNames,
   ) {
     this.codes = new HandoverCodes(secret);
   }
@@ -244,13 +253,14 @@ export class DriverAccountService implements DriverAccountPort {
     const now = this.clock.now();
     // His finished trips of the window (completed, or cancelled after accepting): a trip accepted in
     // the window ends in it too. `forDriver` would give only the unfinished ones.
-    const [events, trips, ratings, cash] = await Promise.all([
-      this.events.forActor(driverId),
+    const [events, firstEventAt, trips, ratings, cash] = await Promise.all([
+      this.events.forActor(driverId, { from: new Date(now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS) }),
+      this.events.firstActivityOf(driverId),
       this.trips.endedForDriver(driverId, new Date(now.getTime() - RELIABILITY_WINDOW_DAYS * DAY_MS)),
       deliveryRatings({ trips: this.trips, orders: this.orders }, driverId, now),
       this.ledger.driverLedger({ driverId, from: new Date(now.getTime() - 15 * DAY_MS) }).then((v) => v.cash.lines),
     ]);
-    const firstActiveAt = events.length > 0 ? new Date(Math.min(...events.map((e) => e.occurredAt.getTime()))) : now;
+    const firstActiveAt = firstEventAt ?? now;
     const dayNumber = Math.floor((now.getTime() - firstActiveAt.getTime()) / DAY_MS) + 1;
     const visibleFrom = new Date(firstActiveAt.getTime() + OBSERVATION_DAYS * DAY_MS);
     const observation = dayNumber <= OBSERVATION_DAYS;
@@ -294,13 +304,11 @@ export class DriverAccountService implements DriverAccountPort {
     const current = await this.repo.currentDocuments([driverId]);
     const docs = latestPerKind(current);
     const roles = await this.identity.activeRoles(driverId);
-    const required: DriverDocumentKind[] = ['national_id_front', 'national_id_back', 'photo'];
-    if (roles.some((r) => CAR_ROLES.includes(r))) required.push('licence', 'vehicle_registration');
     const views = docs.map((d) => documentView(d, now));
     return {
       driverId,
       documents: views,
-      missing: required.filter((k) => !docs.some((d) => d.kind === k)),
+      missing: missingDocuments(requiredDocuments(roles), current),
       // An approved document stays current until its renewal is approved, so a pending upload never
       // lifts an expiry (review 2026-10-04 #18).
       blocksOnline: expiredDocuments(current, now).length > 0,
@@ -532,12 +540,84 @@ export class DriverAccountService implements DriverAccountPort {
 
   /** What the Partner shell (and `partner` presence) checks before going online. */
   async onlineGateFor(personId: string): Promise<OnlineGate> {
-    const [checkIn, current] = await Promise.all([this.checkInStatusFor(personId), this.repo.currentDocuments([personId])]);
+    const [checkIn, current, roles] = await Promise.all([this.checkInStatusFor(personId), this.repo.currentDocuments([personId]), this.identity.activeRoles(personId)]);
     const reasons: OnlineGate['reasons'] = [];
+    // A staff pause (r6) comes first: nothing he does in the app lifts it, ops does.
+    if (await this.repo.activePause(personId)) reasons.push({ code: 'staff_paused', message_ar: 'وقّفنا حسابك مؤقتاً لحد ما نراجع بلاغ. فريق العمليات راح يتواصل وياك' });
     if (checkIn.lockedOut) reasons.push({ code: 'checkin_locked', message_ar: 'فشل التحقق مرتين اليوم. فريق العمليات راح يتواصل وياك' });
     else if (checkIn.required && !checkIn.verifiedToday) reasons.push({ code: 'checkin_required', message_ar: 'سوّي التحقق اليومي بالسيلفي قبل ما تشتغل' });
     for (const d of expiredDocuments(current, this.clock.now())) reasons.push({ code: 'document_expired', message_ar: `${DOCUMENT_KIND_AR[d.kind]} منتهية. جدّدها حتى تشتغل` });
+    // Every paper his driving roles need must be on file and approved: never uploaded, rejected or
+    // still under review keeps him offline (an expired one is the reason above).
+    for (const kind of missingDocuments(requiredDocuments(roles), current)) reasons.push({ code: 'document_missing', message_ar: `${DOCUMENT_KIND_AR[kind]} ناقصة أو ما انقبلت بعد. ارفعها ونراجعها حتى تشتغل` });
     return { canGoOnline: reasons.length === 0, reasons, checkIn };
+  }
+
+  // ───────────────────────── staff pause (r6, Ali 2026-10-08) ─────────────────────────
+
+  async pauseStatus(_actor: Actor, input: DriverPauseStatusInput): Promise<DriverPauseView> {
+    return this.pauseView(input.personId, await this.repo.activePause(input.personId));
+  }
+
+  /**
+   * Pauses a courier or driver while a report is looked into: the online gate closes (his app's
+   * heartbeat drops him within 30 s), a job he is on carries on. Audited with the note's length
+   * only; pausing someone already paused changes nothing. Nobody pauses himself.
+   */
+  async pause(actor: Actor, input: PauseDriverInput): Promise<DriverPauseView> {
+    if (input.personId === actor.personId) throw new DriverError('staff_own_account');
+    if (!(await this.identity.rosterEntry(input.personId, PARTNER_DRIVING_ROLES))) throw new DriverError('invalid_input');
+    const now = this.clock.now();
+    const pause = await this.uow
+      .run(async (tx) => {
+      const open = await this.repo.activePause(input.personId, tx);
+      if (open) return open;
+      const row = await this.repo.createPause({ personId: input.personId, reason: input.reason, ticketId: input.ticketId ?? null, note: input.note, pausedAt: now, pausedById: actor.personId }, tx);
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'driver.paused', occurredAt: now, payload: { personId: input.personId, pauseId: row.id, reason: input.reason, ticketId: input.ticketId ?? null, cityId: SHIFT_CITY } },
+        { name: 'person', id: input.personId },
+      );
+      await this.audits?.record(
+        { cityId: SHIFT_CITY, actorId: actor.personId, action: 'driver.pause', subjectKind: 'person', subjectId: input.personId, summaryAr: input.reason === 'safety_report' ? 'وقّف سايق لحد ما ينراجع بلاغ سلامة' : 'وقّف سايق', detail: { pauseId: row.id, reason: input.reason, ticketId: input.ticketId ?? null, noteLength: input.note.length } },
+        tx,
+      );
+      return row;
+      })
+      .catch(async (err: unknown) => {
+        // Two staff pausing at the same moment: the index lets one row in, the other is "already paused".
+        const open = isUniqueViolation(err) ? await this.repo.activePause(input.personId) : null;
+        if (!open) throw err;
+        return open;
+      });
+    return this.pauseView(input.personId, pause);
+  }
+
+  /** Lifting is someone else's call too: a staff member who also drives never lifts his own pause. */
+  async liftPause(actor: Actor, input: LiftDriverPauseInput): Promise<DriverPauseView> {
+    if (input.personId === actor.personId) throw new DriverError('staff_own_account');
+    const now = this.clock.now();
+    await this.uow.run(async (tx) => {
+      const open = await this.repo.activePause(input.personId, tx);
+      if (!open) throw new DriverError('invalid_input');
+      await this.repo.liftPause(open.id, { liftedAt: now, liftedById: actor.personId, liftNote: input.note }, tx);
+      await this.events.emit(
+        tx,
+        { actorId: actor.personId, type: 'driver.unpaused', occurredAt: now, payload: { personId: input.personId, pauseId: open.id, cityId: SHIFT_CITY } },
+        { name: 'person', id: input.personId },
+      );
+      await this.audits?.record(
+        { cityId: SHIFT_CITY, actorId: actor.personId, action: 'driver.lift_pause', subjectKind: 'person', subjectId: input.personId, summaryAr: 'رجّع سايق للشغل', detail: { pauseId: open.id, pausedForMin: Math.round((now.getTime() - open.pausedAt.getTime()) / 60_000), noteLength: input.note.length } },
+        tx,
+      );
+    });
+    return this.pauseView(input.personId, null);
+  }
+
+  private async pauseView(personId: string, p: PauseRecord | null): Promise<DriverPauseView> {
+    if (!p) return { personId, active: null };
+    const names = this.names ? await this.names.of([p.pausedById]) : {};
+    return { personId, active: { id: p.id, reason: p.reason, ticketId: p.ticketId, note: p.note, pausedAt: p.pausedAt, pausedById: p.pausedById, pausedByName: names[p.pausedById] ?? null } };
   }
 
   async handoverCode(actor: Actor): Promise<HandoverCode> {
@@ -702,6 +782,23 @@ export class DriverAccountService implements DriverAccountPort {
 }
 
 /** Current documents past their expiry, one per kind (an expired approved one blocks until its renewal is approved). */
+/** The papers a person's driving roles need: ID and photo for all, licence and registration for car roles; none for back office. */
+export function requiredDocuments(roles: readonly RoleKind[]): DriverDocumentKind[] {
+  if (!roles.some((r) => DRIVING_ROLES.includes(r))) return [];
+  const required: DriverDocumentKind[] = ['national_id_front', 'national_id_back', 'photo'];
+  if (roles.some((r) => CAR_ROLES.includes(r))) required.push('licence', 'vehicle_registration');
+  return required;
+}
+
+/**
+ * Required kinds with no approved document in the current set. An approved one stays current until
+ * its renewal is approved, so a renewal under review never counts as missing; an expired approved
+ * one is not missing either (it is `document_expired`).
+ */
+function missingDocuments(required: readonly DriverDocumentKind[], current: readonly DocumentRecord[]): DriverDocumentKind[] {
+  return required.filter((k) => !current.some((d) => d.kind === k && d.status === 'approved'));
+}
+
 function expiredDocuments(current: readonly DocumentRecord[], now: Date): DocumentRecord[] {
   const byKind = new Map<string, DocumentRecord>();
   for (const d of current) if (documentStatus(d, now) === 'expired' && !byKind.has(d.kind)) byKind.set(d.kind, d);

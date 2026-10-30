@@ -59,6 +59,15 @@ export function createLearnStore(store: KeyValueStorage) {
 
 export const learn = createLearnStore(platformStorage);
 
+/**
+ * Day-one d09: the lesson never covers a waiting order. While orders wait (or before the board has
+ * loaded and we can't tell) it is held; it comes at the first quiet moment, and steps aside again if
+ * an order arrives while it is open.
+ */
+export function lessonNow(p: { due: boolean; waiting: number; boardLoaded: boolean }): boolean {
+  return p.due && p.boardLoaded && p.waiting === 0;
+}
+
 /** Whether to show the lesson now: never before storage has answered (no flash for people who know). */
 export function useLessonDue(personId: string | null | undefined): boolean {
   useEffect(() => {

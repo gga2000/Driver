@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DriverError, LATE_PROMISE_MEMO, type LedgerEvent } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { savedBetween } from '../ledger/index.js';
-import { InsightsService, type InsightsSources } from './insights.service.js';
+import { InsightsService, type InsightsSources, type StatsSources } from './insights.service.js';
+
+/** «شهرك» tests never read the stats sources. */
+const NO_STATS = {} as StatsSources;
 import { MonthCardJob } from './month-card.job.js';
 import { monthCounts, pointsEarnedBetween, type MonthOrder } from './month.js';
 
@@ -61,7 +64,7 @@ describe('monthCounts (joy w6)', () => {
 });
 
 describe('savedBetween (w10 and w6 share it)', () => {
-  it('points used, the delay credit and change kept, inside the range only; a top-up is not a saving', () => {
+  it('only what came off his bills, inside the range: not change kept, not the delay credit, not a top-up (Ali, 2026-10-11)', () => {
     const events = [
       ev({ type: 'promo_funded', amount: 1_000 }),
       ev({ type: 'credit_issued', amount: 1_500, memo: LATE_PROMISE_MEMO }),
@@ -69,7 +72,7 @@ describe('savedBetween (w10 and w6 share it)', () => {
       ev({ type: 'cash_change_to_wallet', amount: 750 }),
       ev({ type: 'promo_funded', amount: 2_000, occurredAt: day('2026-10-02T10:00:00Z') }),
     ];
-    expect(savedBetween('customer:me', events, day('2026-08-31T21:00:00Z'), day('2026-09-30T21:00:00Z'))).toBe(3_250);
+    expect(savedBetween('customer:me', events, day('2026-08-31T21:00:00Z'), day('2026-09-30T21:00:00Z'))).toBe(1_000);
   });
 });
 
@@ -101,7 +104,7 @@ describe('wallet.month (InsightsService)', () => {
 
   it('names the top kitchen and dish, counts الرجعة, saved and points; reads only the caller', async () => {
     const src = sources();
-    const v = await new InsightsService(src, clock).month(actor, { month: '2026-09' });
+    const v = await new InsightsService(src, clock, NO_STATS).month(actor, { month: '2026-09' });
     expect(v).toEqual({
       month: '2026-09',
       earliestMonth: '2025-10',
@@ -119,12 +122,61 @@ describe('wallet.month (InsightsService)', () => {
   });
 
   it('defaults to this month; refuses the future and more than 12 months back', async () => {
-    const svc = new InsightsService(sources({ ordersPlacedBy: async () => [], seatsTravelled: async () => 0, eventsFor: async () => [] }), clock);
+    const svc = new InsightsService(sources({ ordersPlacedBy: async () => [], seatsTravelled: async () => 0, eventsFor: async () => [] }), clock, NO_STATS);
     const now = await svc.month(actor, {});
     expect(now).toMatchObject({ month: '2026-10', hasActivity: false, topKitchen: null, topDish: null, savedIqd: 0 });
     await expect(svc.month(actor, { month: '2026-11' })).rejects.toBeInstanceOf(DriverError);
     await expect(svc.month(actor, { month: '2025-09' })).rejects.toBeInstanceOf(DriverError);
     expect((await svc.month(actor, { month: '2025-10' })).month).toBe('2025-10');
+  });
+});
+
+describe('wallet.stats (InsightsService): cached reads and roads', () => {
+  it('a second open within a minute re-reads nothing; a road between the same ends is asked for once', async () => {
+    const clock = new FakeClock('2026-10-07T09:00:00Z');
+    let orderReads = 0;
+    const roads: string[] = [];
+    const ride = (id: string, at: string) => ({ ...meal(id, 'x', at, []), type: 'ride' as const, merchantOrgId: null, scheduledFor: null, promisedReadyAt: null, promisedRideMin: null });
+    const stats: StatsSources = {
+      ordersEverBy: async () => {
+        orderReads += 1;
+        return [ride('r1', '2026-10-03T10:00:00Z'), ride('r2', '2026-10-04T10:00:00Z')];
+      },
+      rideOf: async () => ({ vertical: 'taxi', driverId: 'd1', acceptedAt: null, pickupArrivedAt: null, dropoffPlaceId: null, from: { lat: 32.9, lng: 45.06 }, to: { lat: 32.91, lng: 45.07 } }),
+      bookingsOf: async () => [],
+      placeNames: async () => new Map(),
+      homeOf: async () => null,
+      roadBetween: async (from, to) => {
+        roads.push(`${from.lat},${to.lat}`);
+        return null;
+      },
+      walletLines: () => [],
+      restaurantsInCity: async () => 3,
+    };
+    const svc = new InsightsService(sources({ eventsFor: async () => [] }), clock, stats);
+    const actor = { personId: 'me', sessionId: 's' };
+    const first = await svc.stats(actor, { period: 'month' });
+    expect(first.trips.traces).toEqual([{ service: 'taxi', from: { lat: 32.9, lng: 45.06 }, to: { lat: 32.91, lng: 45.07 }, count: 2 }]);
+    await svc.stats(actor, { period: 'month' });
+    expect(orderReads).toBe(1);
+    clock.set('2026-10-07T09:01:01Z');
+    await svc.stats(actor, { period: 'month' });
+    expect(orderReads).toBe(2);
+    expect(roads).toHaveLength(1);
+  });
+
+  it('a year or all-time page ignores the month it is sent (one cache entry), and a future month is refused before any read', async () => {
+    const clock = new FakeClock('2026-10-07T09:00:00Z');
+    let orderReads = 0;
+    const stats = { ordersEverBy: async () => (orderReads++, []), rideOf: async () => null, bookingsOf: async () => [], placeNames: async () => new Map(), homeOf: async () => null, roadBetween: async () => null, walletLines: () => [], restaurantsInCity: async () => 3 } satisfies StatsSources;
+    const svc = new InsightsService(sources({ eventsFor: async () => [] }), clock, stats);
+    const actor = { personId: 'me', sessionId: 's' };
+    await svc.stats(actor, { period: 'year', month: '2026-01' });
+    await svc.stats(actor, { period: 'year', month: '2026-02' });
+    await svc.stats(actor, { period: 'year' });
+    expect(orderReads).toBe(1);
+    await expect(svc.stats(actor, { period: 'month', month: '2026-11' })).rejects.toBeInstanceOf(DriverError);
+    expect(orderReads).toBe(1);
   });
 });
 

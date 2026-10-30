@@ -18,7 +18,8 @@ picks are server rules; the Merchant app's side (t5, r5, x6, p4) is built in the
   pause window). A scheduled order still goes in: the kitchen is offered it later, by which time the
   tablet may be back (the existing no-answer timer covers it if not).
 - The storefront card shows the shop **closed** while its tablet is offline, so customers don't build
-  a basket they can't order.
+  a basket they can't order. A quick pause's return time («يرجع الساعة X») is left off while the tablet
+  is offline: past X the shop would still be closed, so the card shows it paused with no time.
 - A shop whose tablet never connected (no heartbeat at all) is not paused by this rule: it has no
   heartbeat to lose (field ops set such shops up first; the 90 s no-answer timer still protects them).
 - The heartbeat comes back → the shop opens again on the next read; nothing to switch back on.

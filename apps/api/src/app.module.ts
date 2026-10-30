@@ -13,6 +13,8 @@ import { OpsModule } from './modules/ops/index.js';
 import { PromotionsModule } from './modules/promotions/index.js';
 import { MerchantAdminModule } from './modules/merchant-admin/index.js';
 import { MenuPhotosModule } from './modules/menu-photos/index.js';
+import { ShoppingModule } from './modules/shopping/index.js';
+import { FoodCartsModule } from './modules/food-carts/index.js';
 import { LedgerModule } from './modules/ledger/index.js';
 import { NotifyModule } from './modules/notify/index.js';
 import { OrdersModule } from './modules/orders/index.js';
@@ -29,6 +31,7 @@ import { SafetyModule } from './modules/safety/index.js';
 import { InsightsModule } from './modules/insights/index.js';
 import { ReferralsModule } from './modules/referrals/index.js';
 import { RideHabitsModule } from './modules/ride-habits/index.js';
+import { ParcelsModule } from './modules/parcels/index.js';
 import { PhoneBookingModule } from './modules/phone-booking/index.js';
 import { InboxModule } from './modules/inbox/index.js';
 import { OnCallModule } from './modules/on-call/index.js';
@@ -52,6 +55,8 @@ import { TrpcModule } from './trpc/trpc.module.js';
     TopUpsModule,
     MerchantAdminModule,
     MenuPhotosModule,
+    ShoppingModule,
+    FoodCartsModule,
     OrgsModule,
     ConfigModule,
     PlacesModule,
@@ -71,6 +76,7 @@ import { TrpcModule } from './trpc/trpc.module.js';
     InsightsModule,
     ReferralsModule,
     RideHabitsModule,
+    ParcelsModule,
     PhoneBookingModule,
     OnCallModule,
     InboxModule,

@@ -64,7 +64,7 @@ describe('evening-before booked rides (review #28)', () => {
     expect(h.trips.offers).toEqual([]);
 
     await runTo(h, SHOW);
-    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['d1'], timeoutSec: 15 }]);
+    expect(h.trips.offers).toEqual([{ tripId: 't1', driverIds: ['d1'], timeoutSec: 25 }]);
     expect(h.trips.assigns).toEqual([{ tripId: 't1', driverId: 'd1', compensationIqd: 0, batchWith: [] }]);
     const r = await h.service.getRequest('t1');
     expect(r).toMatchObject({ status: 'assigned', assignedDriverId: 'd1' });
@@ -93,7 +93,7 @@ describe('evening-before booked rides (review #28)', () => {
     await runTo(h, SHOW);
     // NTF-05: the rider hears that the search for his driver started.
     expect(h.events.ofType('dispatch.booked_search_started').map((e) => e.payload)).toEqual([expect.objectContaining({ orderId: 'o1', scheduledFor: T.toISOString() })]);
-    expect(h.trips.offers[0]).toEqual({ tripId: 't1', driverIds: ['d1', 'd2'], timeoutSec: 15 });
+    expect(h.trips.offers[0]).toEqual({ tripId: 't1', driverIds: ['d1', 'd2'], timeoutSec: 25 });
     expect((await h.offers('t1')).every((o) => o.compensationIqd === 0)).toBe(true);
   });
 
@@ -143,7 +143,7 @@ describe('evening-before booked rides (review #28)', () => {
     await runTo(h, SHOW);
     expect(h.events.last('dispatch.booked_released')?.payload).toMatchObject({ orderId: 'o1', driverId: 'd1', reason: 'no_show', reopened: false });
     expect((await booked(h))?.state).toBe('released');
-    expect(h.trips.offers[0]).toEqual({ tripId: 't1', driverIds: ['d2'], timeoutSec: 15 });
+    expect(h.trips.offers[0]).toEqual({ tripId: 't1', driverIds: ['d2'], timeoutSec: 25 });
     expect(h.trips.assigns).toEqual([]);
   });
 

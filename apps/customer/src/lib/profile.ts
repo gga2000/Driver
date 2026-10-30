@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { AZIZIYAH_ZONES, TravellingAs, type DeliveryPoint, type SavedPlaceView, type SavePlaceInput } from '@driver/contracts';
+import { TravellingAs, type DeliveryPoint, type SavedPlaceView, type SavePlaceInput } from '@driver/contracts';
 import { toWesternDigits } from './phone';
+import { liveZones } from './zones-state';
 import { storage as platformStorage, type KeyValueStorage } from './storage';
 
 /**
@@ -82,7 +83,7 @@ const EMPTY: ProfileState = {
 };
 
 export function zoneName(zoneId: string, locale: AppLocale = 'ar-IQ'): string {
-  const z = AZIZIYAH_ZONES.find((x) => x.id === zoneId);
+  const z = liveZones().find((x) => x.id === zoneId);
   if (!z) return zoneId;
   // Seed names carry Eastern digits ("شارع ٣٠"); the voice guide wants 0–9 everywhere.
   return locale === 'en' ? z.name_en : toWesternDigits(z.name_ar);
@@ -95,7 +96,7 @@ export function zoneName(zoneId: string, locale: AppLocale = 'ar-IQ'): string {
 export function deliveryPointOf(place: SavedPlace): DeliveryPoint {
   const link = place.synced ? { placeId: place.id } : {};
   if (place.pin) return { zoneKey: place.zoneId, pin: place.pin, ...link };
-  const z = AZIZIYAH_ZONES.find((x) => x.id === place.zoneId);
+  const z = liveZones().find((x) => x.id === place.zoneId);
   return z ? { zoneKey: z.id, pin: { lat: z.lat, lng: z.lng }, ...link } : { zoneKey: place.zoneId, ...link };
 }
 
@@ -121,7 +122,7 @@ export function fromServerPlace(v: SavedPlaceView): SavedPlace {
  * the door later with "موقعي هنا"), family/other become custom places named by their label.
  */
 export function toServerDraft(p: SavedPlace, labelName: (label: PlaceLabel) => string): SavePlaceInput {
-  const z = AZIZIYAH_ZONES.find((x) => x.id === p.zoneId);
+  const z = liveZones().find((x) => x.id === p.zoneId);
   const pin = p.pin ?? (z ? { lat: z.lat, lng: z.lng } : { lat: 32.905, lng: 45.06 });
   return {
     cityId: 'aziziyah',

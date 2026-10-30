@@ -108,10 +108,11 @@ order.
 | `wallet.requestTopUp` | the customer | `{amountIqd}` 5,000–100,000, steps of 1,000 | `TopUpView {topUpId, amountIqd, code (6 digits), qrPayload "DRVTU:<code>", state, createdAt, expiresAt (+24 h), confirmedAt, channel, reference, dailyRemainingIqd}` |
 | `wallet.topUpStatus` | the customer | `{topUpId?}` (else his latest) | `TopUpView \| null` — the code screen polls it every 3 s |
 | `ops.topUpLookup` / `ops.confirmTopUp` | `field_ops`, `admin` | `{code}` / `{code, amountIqd, idempotencyKey?}` | `TopUpLookupView {amountIqd, state, expiresAt, customerName (first), customerPhoneMasked}` / `TopUpConfirmation {reference T-XXXX-XXXX, walletBalanceIqd, …}` |
-| `partner.topUpLookup` / `partner.confirmTopUp` | `courier` | same | same — only for a customer whose live order he is carrying (`topup_courier_not_assigned`) |
+| `partner.topUpLookup` / `partner.confirmTopUp` | `courier` | same | same, but `TopUpConfirmation` without `walletBalanceIqd` (a courier never sees a customer's balance) — only for a customer whose live order he is carrying (`topup_courier_not_assigned`) |
 
 Rules: one live code per customer (a new amount replaces it; the same amount returns it); per local day
-at most 5 codes and 200,000 IQD requested-or-confirmed; codes expire after 24 h; single use (conditional
+at most 5 codes and 200,000 IQD requested-or-confirmed (a customer's requests run one at a time on every
+instance, so parallel taps can't pass the limit or leave two live codes; THIN-13); codes expire after 24 h; single use (conditional
 `pending → confirmed`, concurrent taps credit once; a retry with the same `idempotencyKey` by the same
 agent returns the receipt); the counted cash must equal the requested amount. `code` accepts the QR
 payload (`DRVTU:` prefix) and spaces.

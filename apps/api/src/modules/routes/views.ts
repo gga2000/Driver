@@ -12,8 +12,12 @@ import type {
   PrepayRail,
   RequestOfferDriver,
   RequestPostView,
+  RequestShareView,
   TravellingAs,
+  UsualRange,
+  MoneyRules,
 } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES } from '@driver/contracts';
 import { haversineMeters } from '../trips/index.js';
 import type { DeparturesService } from './departures.service.js';
 import type { CorridorConfig, GarageConfig } from './intercity.config.js';
@@ -27,6 +31,7 @@ import {
   type PickupRecord,
   type RequestRecord,
 } from './model.js';
+import { waitClockOf } from './request-board.service.js';
 import { adjacencyViolation, hasFrontSeat, seatsOf } from './seat-map.js';
 
 /** Wire views of the routes records (contracts `routes-io.ts`). Pure apart from reading the clock and config through `DeparturesService`. */
@@ -91,6 +96,7 @@ export function pickupView(
     feeIqd: p.feeIqd,
     status: p.status,
     detourMin: p.detourMin,
+    agreementId: p.agreementId ?? null,
   };
 }
 
@@ -104,7 +110,8 @@ export function departureSummary(s: DeparturesService, dep: DepartureRecord): De
   return {
     id: dep.id,
     corridorId: dep.corridorId,
-    cityId: s.corridor(dep.corridorId).cityId,
+    // A list must still show if a corridor is ever retired from config; the app falls back to its own lookup.
+    cityId: s.network.corridors.find((c) => c.id === dep.corridorId)?.cityId,
     direction: dep.direction,
     garageId: dep.garageId,
     departAt: dep.departAt,
@@ -188,6 +195,11 @@ export function bookingView(
     seatPriceIqd: b.seatPriceIqd,
     frontPremiumIqd: b.frontPremiumIqd,
     pickupFeeIqd: b.pickupFeeIqd,
+    dropoffFeeIqd: b.dropoffFeeIqd ?? 0,
+    returnDiscountIqd: b.returnDiscountIqd ?? 0,
+    returnPairBookingId: b.returnPairId ?? null,
+    returnOfferPercent: owner ? s.returnOfferPercent(dep, b) : null,
+    lapChildren: b.lapChildren ?? 0,
     totalIqd: bookingTotal(b),
     payment: b.payment,
     prepaid: b.prepaid,
@@ -195,6 +207,7 @@ export function bookingView(
     heldUntil: b.heldUntil,
     pin: owner && LIVE.includes(b.state) ? b.pin : null,
     pickup: pickupView(b.pickup, s, dep),
+    dropoff: b.dropoff ? { ...b.dropoff, feeIqd: b.dropoffFeeIqd ?? 0 } : null,
     largeBags: b.largeBags,
     movedToBookingId: b.movedToBookingId,
     movedFromBookingId: b.movedFromBookingId,
@@ -229,7 +242,9 @@ export function driverDepartureView(
       prepayRail: prepayRail(b),
       totalIqd: bookingTotal(b),
       pickup: pickupView(b.pickup, s, dep),
+      dropoff: b.dropoff ? { ...b.dropoff, feeIqd: b.dropoffFeeIqd ?? 0 } : null,
       largeBags: b.largeBags,
+      lapChildren: b.lapChildren ?? 0,
       atGarage: b.atGarageAt !== null,
       checkedInAt: b.checkedInAt,
       meterMinutes: b.state === 'booked' ? riderMeterMinutes(dep, bookings, b, now) : b.lateMinutes,
@@ -289,7 +304,17 @@ export function demandView(p: DemandPostRecord): DemandPostView {
  * A request as its rider (or, with `viewerDriverId`, one offering driver) sees it. `drivers` carries
  * the offering drivers' cards for the rider (R-01); without it every offer's `driver` is null.
  */
-export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?: ReadonlyMap<string, RequestOfferDriver>): RequestPostView {
+export function requestView(
+  r: RequestRecord,
+  viewerDriverId?: string,
+  drivers?: ReadonlyMap<string, RequestOfferDriver>,
+  usualRange: UsualRange | null = null,
+  rules: Pick<MoneyRules, 'requestWaitExtra' | 'requestCashReservation'> = AZIZIYAH_MONEY_RULES,
+  /** k2: the fetched person's name, read from the vault for the poster or the picked driver only. */
+  riderName: string | null = null,
+  /** Step 6: the shared car as this viewer sees it, and whether the booker can open the link now. */
+  sharing: { share: RequestShareView | null; shareable: boolean } = { share: null, shareable: false },
+): RequestPostView {
   const offers = viewerDriverId ? r.offers.filter((o) => o.driverId === viewerDriverId) : r.offers;
   return {
     id: r.id,
@@ -302,6 +327,7 @@ export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?:
     travellingAs: r.travellingAs,
     note: r.note,
     details: r.details,
+    usualRange,
     // y4: only the rider learns how many drivers opened it.
     seenBy: viewerDriverId ? 0 : r.seenDriverIds.length,
     state: r.state,
@@ -311,12 +337,20 @@ export function requestView(r: RequestRecord, viewerDriverId?: string, drivers?:
       id: o.id,
       driverId: o.driverId,
       priceIqd: o.priceIqd,
+      wait: o.wait,
       at: o.at,
       state: o.state,
       driver: drivers?.get(o.driverId) ?? null,
+      cash: o.cash,
     })),
     pickedOfferId: r.pickedOfferId,
     depositIqd: r.depositIqd,
+    cashReserved: r.cashReserved,
+    cashReservationOn: rules.requestCashReservation.enabled,
+    waitClock: waitClockOf(r, rules.requestWaitExtra),
+    rider: r.fetchPersonId && riderName !== null ? { name: riderName } : null,
+    share: sharing.share,
+    shareable: !viewerDriverId && sharing.shareable,
     createdAt: r.createdAt,
   };
 }

@@ -29,6 +29,24 @@ describe('board days and parts (s2, s5)', () => {
     expect(filterBoard(deps, days[0]!, 'noon')).toEqual([]);
   });
 
+  it('between midnight and 4, cars still leaving tonight stay on today (and today\'s night)', () => {
+    // 02:51 Baghdad on the 9th (23:51 UTC on the 8th): the Elantra +20 min, the GMC +50, the Tahoe at 04:15.
+    const small = new Date('2026-10-08T23:51:00Z');
+    const d = boardDays(small);
+    expect(d[0]!.start.toISOString()).toBe('2026-10-08T21:00:00.000Z');
+    const elantra = at('2026-10-09T00:11:00Z');
+    const gmc = at('2026-10-09T00:41:00Z');
+    const tahoe = at('2026-10-09T01:15:00Z');
+    const tonight = at('2026-10-09T16:00:00Z'); // 19:00 Baghdad
+    const deps = [elantra, gmc, tahoe, tonight];
+    expect(filterBoard(deps, d[0]!, null)).toEqual(deps);
+    expect(filterBoard(deps, d[0]!, 'night')).toEqual([elantra, gmc, tonight]);
+    expect(filterBoard(deps, d[0]!, 'morning')).toEqual([tahoe]);
+    expect(dayCounts(deps, d)).toEqual({ today: 4, tomorrow: 0, after: 0 });
+    // The night before stays off tomorrow and the day after.
+    expect(filterBoard([elantra], d[1]!, null)).toEqual([]);
+  });
+
   it('parts already over are gone from today', () => {
     expect(partsAhead(days[0]!, now)).toEqual(['morning', 'noon', 'afternoon', 'night']);
     expect(partsAhead(days[0]!, new Date('2026-10-07T13:00:00Z'))).toEqual(['afternoon', 'night']);

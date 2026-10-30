@@ -139,6 +139,106 @@ select {
 .ops-landmark[data-hidden] {
   visibility: hidden;
 }
+/* Console › محرر الخريطة: a place's pin (icon in a round badge) with its name under it. */
+.map-edit-pin {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  outline: none;
+}
+.map-edit-dot {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgb(var(--c-surface));
+  border: 1.5px solid rgb(var(--c-line-strong));
+  box-shadow: 0 2px 4px rgb(var(--c-shadow) / 0.3);
+  transition: transform 120ms ease;
+}
+.map-edit-dot svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: rgb(var(--c-text));
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.map-edit-pin[data-kind='restaurant'] .map-edit-dot {
+  background: rgb(var(--c-accent));
+  border-color: rgb(var(--c-accent-hover));
+}
+.map-edit-pin[data-kind='restaurant'] .map-edit-dot svg {
+  stroke: rgb(var(--c-on-accent));
+}
+.map-edit-pin[data-tone='hidden'] {
+  opacity: 0.45;
+}
+.map-edit-pin[data-tone='hidden'] .map-edit-dot,
+.map-edit-pin[data-tone='before'] .map-edit-dot {
+  border-style: dashed;
+  background: rgb(var(--c-surface-2));
+}
+.map-edit-pin[data-tone='before'] {
+  opacity: 0.7;
+}
+.map-edit-pin[data-tone='after'] .map-edit-dot {
+  background: rgb(var(--c-accent));
+  border-color: rgb(var(--c-text));
+  border-width: 2px;
+}
+.map-edit-pin[data-selected] .map-edit-dot,
+.map-edit-pin:focus-visible .map-edit-dot {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px rgb(var(--c-surface)), 0 0 0 5.5px rgb(var(--c-focus));
+}
+.map-edit-label,
+.map-edit-rename {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  border-radius: 6px;
+  background: rgb(var(--c-surface) / 0.94);
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  color: rgb(var(--c-text));
+  box-shadow: 0 1px 2px rgb(var(--c-shadow) / 0.2);
+}
+.map-edit-label[data-collide] {
+  visibility: hidden;
+}
+.map-edit-pin:hover .map-edit-label,
+.map-edit-pin:focus-visible .map-edit-label {
+  visibility: visible;
+}
+.map-edit-pin:hover,
+.map-edit-pin:focus-visible {
+  z-index: 2;
+}
+.map-edit-rename {
+  width: 11rem;
+  border: 1.5px solid rgb(var(--c-focus));
+  outline: none;
+  text-align: start;
+}
+.map-edit-box {
+  position: absolute;
+  border: 1.5px dashed rgb(var(--c-focus));
+  background: rgb(var(--c-accent) / 0.12);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-edit-dot {
+    transition: none;
+  }
+}
 .ops-pin {
   position: absolute;
   width: 24px;
@@ -330,6 +430,10 @@ select {
 .maplibregl-ctrl-attrib {
   /* Solid, not see-through: over a half-loaded map the contrast changed run to run (axe, dark /map). */
   background: rgb(var(--c-surface)) !important;
+  color: rgb(var(--c-muted));
+}
+/* The Golden hour map's credit is plain text, not a link: keep it readable in the dark theme too. */
+.maplibregl-ctrl-attrib-inner {
   color: rgb(var(--c-muted));
 }
 .maplibregl-ctrl-attrib a,

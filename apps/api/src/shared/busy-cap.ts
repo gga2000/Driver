@@ -87,13 +87,20 @@ export function createBusyCap(max: number = maxInflightFromEnv(process.env['MAX_
   const cap = ((req: Request, res: Response, next: NextFunction) => {
     if (max <= 0 || exempt(req)) return next();
     const slot: Slot = { state, res, counted: false, refused: false, closed: false };
-    // `finish` when the answer went out, `close` when the caller hung up first: either frees the slot.
+    // Freed as the answer is written (`end`): `finish` only fires a tick or more after the bytes leave,
+    // and a caller who already has them may ask again first and find the slot still taken. `close`
+    // frees it when the caller hung up before any answer; `finish` stays as a fallback. Freeing is once.
     const release = () => {
       slot.closed = true;
       if (!slot.counted) return;
       slot.counted = false;
       state.inflight -= 1;
     };
+    const end = res.end;
+    res.end = function (this: Response, ...args: Parameters<Response['end']>) {
+      release();
+      return end.apply(this, args);
+    } as Response['end'];
     res.once('finish', release);
     res.once('close', release);
     slots.run(slot, next);

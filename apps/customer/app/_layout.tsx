@@ -17,6 +17,7 @@ import { LockScreenOrder, lockScreenOrderSupported } from '@/features/track/lock
 import { SosOutboxSync } from '@/features/safety/SosOutboxSync';
 import { QuickActionsSync } from '@/features/shortcuts/QuickActionsSync';
 import { ApiProvider } from '@/lib/api';
+import { ZoneSync } from '@/lib/zones-live';
 import { CachedPhoto } from '@/lib/cached-photo';
 import { LiteHint } from '@/features/data-saver/LiteHint';
 import { SeasonWatcher } from '@/components/SeasonWatcher';
@@ -110,6 +111,8 @@ export default function RootLayout() {
                 <SystemBanner />
                 {/* Quiet days from the Console (system.season): no celebrations or moment sounds. */}
                 <SeasonWatcher />
+                {/* The areas ops edits in the Console reach names, pickers and the ride list. */}
+                <ZoneSync />
                 {/* An SOS pressed offline is sent even after the app was closed (FLOW-05). */}
                 <SosOutboxSync />
                 {/* The first slow connection offers low-data mode once (speed g4). */}
@@ -203,11 +206,20 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
         <Stack.Screen name="regular/index" options={{ title: t('habits.regular_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="regular/edit" options={{ title: t('habits.edit_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
         <Stack.Screen name="regular/[id]" options={{ title: t('habits.occ_title'), headerLeft: () => <HeaderBack fallback="/regular" /> }} />
+        {/* Food carts «عربانات» (2026-10-11): the list, a cart, a walk-over ticket, the carts on the map. */}
+        <Stack.Screen name="food-carts/index" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/ticket/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="food-carts/map" options={{ headerShown: false }} />
         <Stack.Screen name="drivers" options={{ title: t('habits.fav_title'), headerLeft: () => <HeaderBack fallback="/account" /> }} />
         <Stack.Screen name="chat/[orderId]" options={{ headerShown: false }} />
         <Stack.Screen name="share/[token]" options={{ headerShown: false }} />
         {/* SOS: the emergency contact's live-location page (public, signed token). */}
         <Stack.Screen name="sos/[token]" options={{ headerShown: false }} />
+        {/* طرود: the send sheet, the parcel's page, and the receiver's door page (public, by the link's token). */}
+        <Stack.Screen name="parcel/index" options={{ headerShown: false }} />
+        <Stack.Screen name="parcel/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="p/[token]" options={{ headerShown: false }} />
         {/* الرجعة (spec §2): board → seat booking → hold/pay → boarding pass; demand and request boards. */}
         {/* Opened from a push with no history, every الرجعة screen still has a way back (C-26, A-02). */}
         <Stack.Screen name="rajaa/index" options={{ title: t('home.rajaa_title'), headerLeft: () => <HeaderBack /> }} />

@@ -5,7 +5,8 @@
  * colours here and uses the theme for everything else (buttons, sheets, text roles).
  *
  * One job per colour: saffron = a new order that needs you, green = ready, red = allergy or late,
- * gold = busy mode, date brown = the status bar and quiet labels. No blue or teal anywhere.
+ * gold = busy mode, date brown = the status bar and quiet labels, cardamom olive = a drink on a
+ * ticket, rose = a sweet on a ticket (j6). No blue or teal anywhere.
  */
 export const COUNTER = {
   /** Status bar, count badges for the cooking lane, quiet labels. */
@@ -47,6 +48,12 @@ export const COUNTER = {
   shutterGroove: '#8F7D68',
   shutterBox: '#6E5B47',
   glow: '#FFE2A8',
+  /** j6 colour by kind: a drink's edge and mark on a ticket (cardamom olive), and its wash. */
+  kindDrink: '#5A5714',
+  kindDrinkWash: '#EFECD2',
+  /** j6: a sweet's edge and mark on a ticket (rose, not the late red), and its wash. */
+  kindSweet: '#9A3656',
+  kindSweetWash: '#F9E4EA',
 } as const;
 
 export type CounterColor = keyof typeof COUNTER;

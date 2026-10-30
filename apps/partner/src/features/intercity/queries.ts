@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import type { IntercityDirection } from '@driver/contracts';
+import type { IntercityDirection, IntercityNetwork } from '@driver/contracts';
 import { useApi } from '@/lib/api';
 import { useSignedIn } from '@/lib/session';
+import { publicPlaceName } from './logic';
 
 /**
  * الرجعة, driver side (`routes.driver.*`, `routes.requestBoard.*`). The garage board polls every 10 s,
@@ -16,7 +17,19 @@ export const DEPARTURE_POLL_MS = 5_000;
 export function useNetwork() {
   const api = useApi();
   const signedIn = useSignedIn();
-  return useQuery({ ...api.routes.network.queryOptions(), enabled: signedIn, staleTime: 10 * 60_000 });
+  return useQuery({ ...api.routes.network.queryOptions(), enabled: signedIn, staleTime: 10 * 60_000, select: publicNetwork });
+}
+
+/** Drivers never see the "(مسودة)" marker on an unverified garage, meeting point or checkpoint. */
+function publicNetwork(n: IntercityNetwork): IntercityNetwork {
+  return {
+    garages: n.garages.map((g) => ({ ...g, nameAr: publicPlaceName(g.nameAr) })),
+    corridors: n.corridors.map((c) => ({
+      ...c,
+      meetingPoints: c.meetingPoints.map((p) => ({ ...p, nameAr: publicPlaceName(p.nameAr) })),
+      checkpoints: c.checkpoints.map((p) => ({ ...p, nameAr: publicPlaceName(p.nameAr) })),
+    })),
+  };
 }
 
 export function useMyDepartures() {
@@ -80,6 +93,21 @@ export function useRiderNames(departureId: string, bookingIds: readonly string[]
   return q;
 }
 
+/**
+ * Step 4: riders' price asks on his open departure (pin on the road, door drop). Each read names the
+ * riders from the vault (logged), so this polls slower than the departure: every 20 s while open.
+ */
+export const AGREEMENTS_POLL_MS = 20_000;
+export function useDepartureAgreements(departureId: string, open: boolean) {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({
+    ...api.routes.agreements.onDeparture.queryOptions({ departureId }),
+    enabled: signedIn && !!departureId && open,
+    refetchInterval: open ? AGREEMENTS_POLL_MS : false,
+  });
+}
+
 function useInvalidateRoutes() {
   const api = useApi();
   const qc = useQueryClient();
@@ -101,6 +129,7 @@ export function useDriverActions() {
     respondPickup: useMutation({ ...api.routes.driver.respondPickup.mutationOptions(), ...opts }),
     depart: useMutation({ ...api.routes.driver.depart.mutationOptions(), ...opts }),
     arrive: useMutation({ ...api.routes.driver.arrive.mutationOptions(), ...opts }),
+    propose: useMutation({ ...api.routes.agreements.propose.mutationOptions(), ...opts }),
   };
 }
 
@@ -112,8 +141,14 @@ export function useRequestActions() {
     // No invalidate: nothing on the driver's screens changes when he is counted as having seen it.
     seen: useMutation(api.routes.requestBoard.seen.mutationOptions()),
     offer: useMutation({ ...api.routes.requestBoard.offer.mutationOptions(), ...opts }),
+    /** 4b a6: his answer to a rider's «احجز وادفع كاش». */
+    answerCash: useMutation({ ...api.routes.requestBoard.answerCash.mutationOptions(), ...opts }),
     arrived: useMutation({ ...api.routes.requestBoard.arrived.mutationOptions(), ...opts }),
+    waitStart: useMutation({ ...api.routes.requestBoard.waitStart.mutationOptions(), ...opts }),
+    waitEnd: useMutation({ ...api.routes.requestBoard.waitEnd.mutationOptions(), ...opts }),
     complete: useMutation({ ...api.routes.requestBoard.complete.mutationOptions(), ...opts }),
     riderNoShow: useMutation({ ...api.routes.requestBoard.riderNoShow.mutationOptions(), ...opts }),
+    /** Way C: his «أكّد الصعود» for a shared car's friend whose phone can't. */
+    boardFor: useMutation({ ...api.routes.requestBoard.shareBoardFor.mutationOptions(), ...opts }),
   };
 }

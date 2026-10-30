@@ -53,13 +53,21 @@ function dayStartOf(at: Date, offsetMin: number): number {
   return baghdadMidnight(new Date(at.getTime() - 4 * HOUR), offsetMin);
 }
 
+/**
+ * A car is on its own Baghdad day, except that today also keeps the small hours still ahead: between
+ * midnight and 4 a car leaving at 02:30 belongs to last night, which is not on the board, so it shows
+ * under today (and today's «الليل»).
+ */
 export function onDay(dep: Pick<DepartureCard, 'departAt'>, day: BoardDay, offsetMin: number = IRAQ_UTC_OFFSET_MIN): boolean {
-  return dayStartOf(dep.departAt, offsetMin) === day.start.getTime();
+  const start = dayStartOf(dep.departAt, offsetMin);
+  return start === day.start.getTime() || (day.id === 'today' && start < day.start.getTime());
 }
 
 export function inPart(dep: Pick<DepartureCard, 'departAt'>, day: BoardDay, part: DayPartId): boolean {
   const s = partSpan(day, part);
-  return dep.departAt >= s.start && dep.departAt < s.end;
+  if (dep.departAt >= s.start && dep.departAt < s.end) return true;
+  // Today's small hours (0–4) are the end of a night that started yesterday: they count as today's night.
+  return part === 'night' && day.id === 'today' && dep.departAt >= day.start && dep.departAt.getTime() < day.start.getTime() + 4 * HOUR;
 }
 
 /** The cars on a day (and a part of it when one is picked). */

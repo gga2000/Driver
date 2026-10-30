@@ -1,6 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
+  AZIZIYAH_ZONES,
+  type LatLng,
+  DEMAND_GLOW_RULES,
   DEMAND_MAP_RULES,
+  demandGlow,
+  glowFor,
+  type DemandGlowSnapshot,
+  type PartnerDemandGlow,
   DriverError,
   sortCargo,
   PARTNER_DRIVING_ROLES,
@@ -13,11 +20,16 @@ import {
   type OrderRoute,
   type PartnerBookedJob,
   type PartnerBookedJobs,
-  type PartnerDemandMap,
   type PartnerGoOnlineInput,
+  type PartnerGoOnlineResult,
+  type PartnerHeartbeatAck,
   type PartnerJob,
   type PartnerDoor,
   type PartnerPickupSpot,
+  type PartnerErrandReceipt,
+  type PartnerErrandReceiptInput,
+  type PartnerShopItem,
+  type PartnerShopList,
   type PartnerJobStop,
   type PartnerMerchantPrep,
   type PartnerClimateCheck,
@@ -30,11 +42,13 @@ import {
   type RoleKind,
   type VehicleClass,
   type Trip,
+  zoneServiceBounds,
 } from '@driver/contracts';
+import { TOWN_PULSE_RULES, townNowFor, townPulseFor, townPulseSnapshot, type CustomerTownNow, type PartnerMyDay, type PartnerTownPulse, type TownPulseSnapshot } from '@driver/contracts/town-pulse';
 import { pickupCodeFor } from '../../shared/pickup-code.js';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { FAVOURITE_OFFER_POLICY, servedVerticals } from '../dispatch/index.js';
-import { buildPay, demandHint, demandZones, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines } from './logic.js';
+import { buildPay, demandHint, forecastWindows, gateAllowsHeartbeat, gateErrorCode, kmBetween, merchantPrep, NEAR_CAP_SHARE, nearestLandmark, offerClimate, startOfLocalDay, todayFromLines, workStateVersion } from './logic.js';
 import { DEFAULT_CITY, PARTNER_DEPS, type PartnerBookedRecord, type PartnerDeps, type PartnerPresence } from './ports.js';
 
 /** x5: what the riders on these orders carry (a ride has one order; a batch of food has none). */
@@ -54,6 +68,11 @@ const FORECAST_CACHE_MS = 5 * 60_000;
 @Injectable()
 export class PartnerService implements PartnerPort {
   private readonly forecasts = new Map<string, { bucket: number; byZone: Map<string, number> }>();
+  /** N17: one glow picture per city per `DEMAND_GLOW_RULES.snapshotMs` (aggregated and a few minutes old). */
+  private readonly glows = new Map<string, { bucket: number; snap: Promise<DemandGlowSnapshot> }>();
+  /** «المدينة حيّة»: one picture per city per `snapshotMs`, and the drivers as the pictures saw them (shown at least `driversDelayMs` late). */
+  private readonly pulses = new Map<string, { bucket: number; snap: Promise<TownPulseSnapshot> }>();
+  private readonly pulseDrivers = new Map<string, Array<{ at: number; drivers: Array<{ driverId: string; lat: number; lng: number }> }>>();
 
   constructor(
     @Inject(PARTNER_DEPS) private readonly deps: PartnerDeps,
@@ -120,6 +139,18 @@ export class PartnerService implements PartnerPort {
     return climate.check(driverId);
   }
 
+  /**
+   * «دوّرلي»: the shops' receipt total and photo, from the courier of this trip at its errand shops
+   * stop. Orders does the money and the checks that matter (arrived, not picked up, his own photo).
+   */
+  async errandReceipt(actor: Actor, input: PartnerErrandReceiptInput): Promise<PartnerErrandReceipt> {
+    const trip = await this.deps.trips.get(input.tripId);
+    if (trip.courierId !== actor.personId) throw new DriverError('forbidden');
+    const stop = trip.stops.find((s) => s.id === input.stopId);
+    if (!stop || stop.type !== 'pickup' || !stop.orderId || !this.deps.orders.errandReceipt) throw new DriverError('order_state_conflict');
+    return this.deps.orders.errandReceipt(actor.personId, { orderId: stop.orderId, totalIqd: input.totalIqd, photoUploadId: input.photoUploadId });
+  }
+
   /** نعم / لا for this shift; only while the question stands (`climate_check_none` otherwise). */
   async answerClimateCheck(actor: Actor, input: AnswerClimateCheckInput): Promise<PartnerStatus> {
     const id = actor.personId;
@@ -131,11 +162,35 @@ export class PartnerService implements PartnerPort {
   }
 
   /**
-   * Scoring §2: no daily check-in, a lock-out after two failed check-ins or an expired document keep
-   * him offline. A refused call while he is online (the heartbeat) also takes him out of the index,
-   * except for the check-in alone between local midnight and 04:00 (`gateAllowsHeartbeat`).
+   * Go online, and the heartbeat that keeps him there. Scoring §2: no daily check-in, a lock-out after
+   * two failed check-ins or an expired document keep him offline. A refused call while he is online
+   * (the heartbeat) also takes him out of the index, except for the check-in alone between local
+   * midnight and 04:00 (`gateAllowsHeartbeat`).
+   *
+   * Perf o4: an app that sends `knownVersion` gets the small `PartnerHeartbeatAck` — when his work
+   * state still has that version, only `{ changed: false, version }`, without building the status;
+   * otherwise the full status with its new version. Without `knownVersion`, the full status as before,
+   * so older apps keep working.
    */
-  async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerStatus> {
+  goOnline(actor: Actor, input: Omit<PartnerGoOnlineInput, 'knownVersion'> & { knownVersion?: undefined }): Promise<PartnerStatus>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput & { knownVersion: string }): Promise<PartnerHeartbeatAck>;
+  goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult>;
+  async goOnline(actor: Actor, input: PartnerGoOnlineInput): Promise<PartnerGoOnlineResult> {
+    const beat = await this.beat(actor, input);
+    if (input.knownVersion === undefined) return this.status(actor);
+    const id = actor.personId;
+    const [trips, offer, climateCheck] = await Promise.all([
+      this.deps.trips.forDriver(id),
+      this.deps.dispatch.openOffer(id, beat.presence.cityId),
+      this.climateCheckOf(id, beat.roles, beat.presence.vehicle),
+    ]);
+    const version = workStateVersion({ ...beat, tripIds: trips.map((t) => t.id), offerId: offer?.offer.id ?? null, climateCheck });
+    if (version === input.knownVersion) return { changed: false, version };
+    return { changed: true, version, status: await this.status(actor) };
+  }
+
+  /** Checks the gate and the vehicle, then marks him online; what it read is half his work state (o4). */
+  private async beat(actor: Actor, input: PartnerGoOnlineInput) {
     const id = actor.personId;
     const [gate, present] = await Promise.all([this.deps.gate.onlineGate(id), this.deps.presence.get(id)]);
     if (!gateAllowsHeartbeat(gate, present !== null, this.clock.now())) {
@@ -153,14 +208,16 @@ export class PartnerService implements PartnerPort {
       if (present) await this.deps.presence.offline(id);
       throw new DriverError('vehicle_not_registered');
     }
-    await this.deps.presence.online(id, {
+    const presence = await this.deps.presence.online(id, {
       cityId: input.cityId,
       at: input.at,
       vehicle,
       tier: cap.tier,
       verticals,
     });
-    return this.status(actor);
+    // Just came online (not the 30-s beat): a job nobody took may be his now.
+    if (!present) await this.deps.dispatch.retryUnassigned?.(input.cityId);
+    return { roles, registered, gate, presence, cap };
   }
 
   async goOffline(actor: Actor): Promise<PartnerStatus> {
@@ -191,7 +248,7 @@ export class PartnerService implements PartnerPort {
     const names = await this.merchantNames(orders);
     const pickupLabel = orders[0]?.merchantOrgId ? (names.get(orders[0].merchantOrgId) ?? null) : null;
     const dropPin = dropStop?.target ?? null;
-    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd + (o.debtCollectIqd ?? 0), 0);
     return {
       offerId: offer.id,
       tripId: trip.id,
@@ -199,6 +256,7 @@ export class PartnerService implements PartnerPort {
       wave: offer.wave,
       sentAt: offer.sentAt,
       expiresAt: offer.expiresAt,
+      serverNow: now,
       ringSec: Math.max(1, Math.round((offer.expiresAt.getTime() - offer.sentAt.getTime()) / 1000)),
       seen: offer.seenAt !== null || offer.state === 'seen',
       // Spec: the offer names zones. Every driver in every wave sees it, so a person's door (the
@@ -261,7 +319,7 @@ export class PartnerService implements PartnerPort {
     });
     const dropStop = trip.stops.find((s) => s.type === 'dropoff');
     const dropPin = dropStop?.target ?? null;
-    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd, 0);
+    const collect = orders.filter((o) => o.paymentMethod === 'cash').reduce((s, o) => s + o.totalIqd + (o.debtCollectIqd ?? 0), 0);
     return {
       tripId: trip.id,
       vertical: r.request.vertical,
@@ -290,31 +348,142 @@ export class PartnerService implements PartnerPort {
     if (!orders[0]?.merchantOrgId) return none;
     const from = { lat: presence.lat, lng: presence.lng };
     const r = await this.deps.roads.path([from, found.request.pickup]);
-    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
   }
 
   async jobRoute(actor: Actor): Promise<OrderRoute> {
     const now = this.clock.now();
     const none: OrderRoute = { polyline6: null, basis: 'estimated', from: null, computedAt: now };
-    const trip = await this.jobTrip(actor.personId);
-    if (!trip || !this.deps.roads) return none;
+    const way = await this.jobWay(actor.personId);
+    if (!way || !this.deps.roads) return none;
+    const { from, ahead } = way;
+    const r = await this.deps.roads.path([from, ...ahead]);
+    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now, ...(r.closures?.length ? { closures: r.closures } : {}) };
+  }
+
+  /**
+   * Where he is on his job (his last fix on the trip, else his live position) and the stops still ahead;
+   * null off a job. Also N20's «الشارع مسدود قدامي»: the report is taken from here, never from the app.
+   */
+  async jobWay(personId: string): Promise<{ cityId: string; from: LatLng; ahead: LatLng[] } | null> {
+    const trip = await this.jobTrip(personId);
+    if (!trip) return null;
     const ahead = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .filter((s) => s.state !== 'completed' && s.state !== 'skipped' && s.target)
       .map((s) => s.target!);
     const fix = await this.deps.trips.lastPosition?.(trip.id);
-    const presence = fix && fix.driverId === actor.personId ? null : await this.deps.presence.get(actor.personId);
-    const from = fix && fix.driverId === actor.personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
-    if (!from || ahead.length === 0) return none;
-    const r = await this.deps.roads.path([from, ...ahead]);
-    return { polyline6: r.polyline6, basis: r.basis, from, computedAt: now };
+    const presence = fix && fix.driverId === personId ? null : await this.deps.presence.get(personId);
+    const from = fix && fix.driverId === personId ? fix.pin : presence ? { lat: presence.lat, lng: presence.lng } : null;
+    return from && ahead.length > 0 ? { cityId: trip.cityId, from, ahead } : null;
   }
 
-  async demandMap(actor: Actor): Promise<PartnerDemandMap> {
+  /**
+   * N17 «وين الطلبات»: the city's glow picture, taken once per `snapshotMs` and shared by every courier;
+   * his own view keeps only the busy zone picked for him hot. Advice only: dispatch never reads it.
+   */
+  async demandGlow(actor: Actor): Promise<PartnerDemandGlow> {
     const now = this.clock.now();
     const cityId = (await this.deps.presence.get(actor.personId))?.cityId ?? DEFAULT_CITY;
-    const [waiting, drivers, expected] = await Promise.all([this.deps.dispatch.waitingZones(cityId), this.deps.presence.zones(cityId), this.expectedPickups(cityId, now)]);
-    return { zones: demandZones(waiting, drivers, expected), at: now };
+    const bucket = Math.floor(now.getTime() / DEMAND_GLOW_RULES.snapshotMs);
+    let hit = this.glows.get(cityId);
+    if (!hit || hit.bucket !== bucket) {
+      const snap = this.takeGlow(cityId, now);
+      hit = { bucket, snap };
+      this.glows.set(cityId, hit);
+      // A failed picture is not kept: the next read tries again.
+      snap.catch(() => {
+        if (this.glows.get(cityId) === hit) this.glows.delete(cityId);
+      });
+    }
+    return glowFor(await hit.snap, actor.personId);
+  }
+
+  /**
+   * «المدينة حيّة» (Partner live map home): kitchens cooking or ready around him, new orders per area and
+   * drivers per cell. Every driver in a city reads the same picture, rebuilt at most every `snapshotMs`.
+   */
+  async townPulse(actor: Actor): Promise<PartnerTownPulse> {
+    const now = this.clock.now();
+    const presence = await this.deps.presence.get(actor.personId);
+    const snap = await this.pulseOf(presence?.cityId ?? DEFAULT_CITY, now);
+    return townPulseFor(snap, { driverId: actor.personId, at: presence ? { lat: presence.lat, lng: presence.lng } : null });
+  }
+
+  /** «العزيزية هسة» (the customer's live map): the same city picture, cut around the customer's place. */
+  async townNow(at: LatLng): Promise<CustomerTownNow> {
+    // Outside the city's box: nothing, and no picture is built for it (lane A, 2026-10-28).
+    const city = zoneServiceBounds(DEFAULT_CITY);
+    if (!city || at.lat < city.minLat || at.lat > city.maxLat || at.lng < city.minLng || at.lng > city.maxLng) return { at: this.clock.now(), cooking: [], drivers: [] };
+    return townNowFor(await this.pulseOf(DEFAULT_CITY, this.clock.now()), at, city);
+  }
+
+  /** The city's picture for this `snapshotMs` bucket: built once, shared by every reader. */
+  private pulseOf(cityId: string, now: Date): Promise<TownPulseSnapshot> {
+    const bucket = Math.floor(now.getTime() / TOWN_PULSE_RULES.snapshotMs);
+    let hit = this.pulses.get(cityId);
+    if (!hit || hit.bucket !== bucket) {
+      const snap = this.takePulse(cityId, now);
+      const fresh = { bucket, snap };
+      hit = fresh;
+      this.pulses.set(cityId, fresh);
+      snap.catch(() => {
+        if (this.pulses.get(cityId) === fresh) this.pulses.delete(cityId);
+      });
+    }
+    return hit.snap;
+  }
+
+  private async takePulse(cityId: string, now: Date): Promise<TownPulseSnapshot> {
+    const R = TOWN_PULSE_RULES;
+    const from = new Date(now.getTime() - R.ordersDelayMs - R.ordersWindowMs);
+    const to = new Date(now.getTime() - R.ordersDelayMs);
+    const [activity, live] = await Promise.all([
+      this.deps.town ? this.deps.town.activity(cityId, from, to) : Promise.resolve({ kitchens: [], placed: [] }),
+      this.deps.presence.live ? this.deps.presence.live(cityId) : Promise.resolve([]),
+    ]);
+    // Drivers at least `driversDelayMs` late: keep each picture's positions and show the newest one
+    // that is old enough (lane A's privacy rule: no live positions, whatever the picture rate).
+    const seen = this.pulseDrivers.get(cityId) ?? [];
+    seen.push({ at: now.getTime(), drivers: live.map((d) => ({ driverId: d.driverId, lat: d.lat, lng: d.lng })) });
+    const oldEnough = now.getTime() - R.driversDelayMs;
+    let pick = -1;
+    seen.forEach((p, i) => {
+      if (p.at <= oldEnough) pick = i;
+    });
+    // Older than the one shown are never needed again.
+    const kept = pick > 0 ? seen.slice(pick) : seen;
+    this.pulseDrivers.set(cityId, kept);
+    const drivers = pick >= 0 ? seen[pick]!.drivers : [];
+    return townPulseSnapshot({ at: now, kitchens: activity.kitchens, placed: activity.placed, drivers });
+  }
+
+  /** «يومي»: today's deliveries with what each earned, from the same ledger lines as today's money. */
+  async myDay(actor: Actor): Promise<PartnerMyDay> {
+    const now = this.clock.now();
+    const lines = await this.deps.money.driverLines(actor.personId, startOfLocalDay(now));
+    const perTrip = new Map<string, typeof lines>();
+    for (const l of lines) if (l.tripId) perTrip.set(l.tripId, [...(perTrip.get(l.tripId) ?? []), l]);
+    const jobs: PartnerMyDay['jobs'] = [];
+    for (const [tripId, tripLines] of perTrip) {
+      const trip = await this.deps.trips.get(tripId).catch(() => null);
+      if (!trip || trip.courierId !== actor.personId || !trip.completedAt) continue;
+      const pickup = trip.stops.find((s) => s.type === 'pickup')?.target ?? null;
+      const dropoff = [...trip.stops].reverse().find((s) => s.type === 'dropoff')?.target ?? null;
+      jobs.push({ tripId, pickup, dropoff, doneAt: trip.completedAt, earnedIqd: todayFromLines(tripLines).earningsIqd });
+    }
+    jobs.sort((a, b) => a.doneAt.getTime() - b.doneAt.getTime());
+    return { jobs, earningsIqd: todayFromLines(lines).earningsIqd };
+  }
+
+  private async takeGlow(cityId: string, now: Date): Promise<DemandGlowSnapshot> {
+    const [waitingZones, drivers, expected] = await Promise.all([
+      this.deps.dispatch.waitingZones(cityId),
+      this.deps.presence.live ? this.deps.presence.live(cityId) : Promise.resolve([]),
+      this.expectedPickups(cityId, now),
+    ]);
+    const centres = new Map(AZIZIYAH_ZONES.map((z) => [z.id, { lat: z.lat, lng: z.lng }] as const));
+    return demandGlow({ waitingZones, drivers, expected, centres, at: now });
   }
 
   /**
@@ -355,6 +524,7 @@ export class PartnerService implements PartnerPort {
     const rideJob = trip.vertical === 'taxi' || trip.vertical === 'tuktuk';
     const riders = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.riderOf(o, actor.personId)] as const)));
     const recipients = new Map(await Promise.all(orders.map(async (o) => [o.id, await this.recipientOf(o, actor.personId)] as const)));
+    const lists = await this.shopListsOf(trip, byId);
     const stops: PartnerJobStop[] = [...trip.stops]
       .sort((a, b) => a.seq - b.seq)
       .map((s) => {
@@ -368,11 +538,15 @@ export class PartnerService implements PartnerPort {
           zoneId: s.zoneKey,
           pin: s.target,
           label: s.type === 'pickup' && order?.merchantOrgId ? (names.get(order.merchantOrgId) ?? null) : null,
+          // The map editor's «الخريطة غلط» and the after-pickup «جان هنا؟» report this kitchen by its id.
+          merchantOrgId: s.type === 'pickup' && !rideJob && order?.merchantOrgId ? order.merchantOrgId : null,
           orderId: s.orderId,
           // M-09: the courier reads the customer's note for him; an order placed with one note for
           // everyone (no courier note) keeps showing that one.
           note: isDrop ? (order?.courierNote ?? order?.note ?? null) : null,
-          collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd : 0,
+          // M-3: the owed fees the order collects ride on the cash he takes (`owedFeesIqd` names them).
+          collectIqd: isDrop && order?.paymentMethod === 'cash' ? order.totalIqd + (order.debtCollectIqd ?? 0) : 0,
+          ...(isDrop && order?.paymentMethod === 'cash' && order.debtCollectIqd ? { owedFeesIqd: order.debtCollectIqd } : {}),
           // HUNT-02: «بالشارع» — the customer comes out to the street; he calls instead of going to the door.
           ...(isDrop && order?.streetHandover ? { streetHandover: true } : {}),
           // "الخردة علينا": the note the customer said he will pay with, so he brings the change.
@@ -380,8 +554,9 @@ export class PartnerService implements PartnerPort {
           arrivedAt: s.arrivedAt,
           completedAt: s.completedAt,
           // Maps program r4: the code he shows at the counter, while the pickup is still to do. Rides have
-          // no counter (and a second 4-digit number next to the night trip code would only confuse).
-          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
+          // no counter (and a second 4-digit number next to the night trip code would only confuse); nor
+          // does a دوّرلي shop or a parcel sender (it has its own PIN): only an order from one of our merchants.
+          pickupCode: s.type === 'pickup' && s.orderId && !rideJob && order?.merchantOrgId && s.state !== 'completed' && s.state !== 'skipped' ? pickupCodeFor(s.orderId, trip.courierId ?? actor.personId) : null,
           door: doors.get(s.id) ?? null,
           pickupSpot: spots.get(s.id) ?? null,
           // «عزيمة» (joy g1): «هدية — لا تذكر السعر» at the door, no receipt in the bag at the kitchen.
@@ -394,6 +569,8 @@ export class PartnerService implements PartnerPort {
           recipient: isDrop && s.orderId ? (recipients.get(s.orderId) ?? null) : null,
           // j2: the public landmark it is near, for the headline and the spoken prompt.
           landmark: s.target ? nearestLandmark(s.target) : null,
+          // «الليستة»: a دوّرلي pickup still to do.
+          shopList: lists.get(s.id) ?? null,
         };
       });
     const request = { vertical: trip.vertical, zoneId: trip.stops.find((s) => s.type === 'pickup')?.zoneKey ?? '', dropoffZoneId: trip.stops.find((s) => s.type === 'dropoff')?.zoneKey ?? null };
@@ -401,7 +578,8 @@ export class PartnerService implements PartnerPort {
       vertical: trip.vertical,
       orders,
       feeComponents: this.feeComponents(trip.cityId, request, orders[0]),
-      batchedSecond: false,
+      // The batch rate his offer showed, kept once he took it (the ledger pays the same).
+      batchedSecond: trip.batchId !== null && trip.batchId !== trip.id,
       batchShare: this.deps.money.batchShare,
       compensationIqd: 0,
       take: this.deps.money.take(trip.vertical),
@@ -488,6 +666,46 @@ export class PartnerService implements PartnerPort {
   }
 
   /** Orders currently on the trip (detached ones are someone else's now). */
+  /**
+   * «الليستة» on دوّرلي pickups still to do of the job on his screen (activeJob reads only his own trip).
+   * Gone once the pickup is done or the trip ends; photo and voice links are minted per read.
+   */
+  private async shopListsOf(trip: Trip, orders: ReadonlyMap<string, Order>): Promise<Map<string, PartnerShopList>> {
+    const out = new Map<string, PartnerShopList>();
+    if (trip.cancelledAt !== null || trip.completedAt !== null) return out;
+    const media = this.deps.errandMedia;
+    for (const s of trip.stops) {
+      if (s.type !== 'pickup' || s.state === 'completed' || s.state === 'skipped' || !s.orderId) continue;
+      const order = orders.get(s.orderId);
+      if (order?.type !== 'errand') continue;
+      const items: PartnerShopItem[] = [];
+      let listMaxIqd: number | null = null;
+      for (const l of order.lines) {
+        const e = l.errandItem;
+        if (!e) continue;
+        listMaxIqd ??= e.listMaxIqd ?? null;
+        const where = e.where;
+        items.push({
+          what: l.freeText ?? '',
+          qty: l.qty,
+          unit: e.unit,
+          where:
+            where.kind === 'app'
+              ? { kind: 'app', name: (await this.deps.merchants.name(where.shopId)) ?? null, pin: null }
+              : where.kind === 'known'
+                ? { kind: 'known', name: where.name, pin: where.pin }
+                : { kind: 'near', name: null, pin: null },
+          ifMissing: e.ifMissing,
+          maxIqd: e.maxIqd,
+          photoUrl: media && e.photoUploadId ? media.readUrl(e.photoUploadId) : null,
+          voice: media && e.voiceUploadId && e.voiceSec ? { url: media.readUrl(e.voiceUploadId), sec: e.voiceSec } : null,
+        });
+      }
+      if (items.length) out.set(s.id, { items, listMaxIqd });
+    }
+    return out;
+  }
+
   private async ordersOf(trip: Trip): Promise<Order[]> {
     const ids = trip.orders.filter((o) => o.detachedAt === null).map((o) => o.orderId);
     const found = await Promise.all(ids.map((oid) => this.deps.orders.get(oid)));

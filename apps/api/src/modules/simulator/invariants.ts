@@ -1,5 +1,6 @@
 import { AFTER_TIP_MEMO, AZIZIYAH_MONEY_RULES, isNightAt, latePromiseTerms, rideSearchStartsAt, TERMINAL_ORDER_STATES, shiftGuarantee, type LedgerEvent, type Order, type Trip } from '@driver/contracts';
-import type { DispatchMoment, DoorCashRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
+import { buildPay } from '../partner/index.js';
+import type { AcceptedOfferRecord, DispatchMoment, DoorCashRecord, ErrandReceiptRecord, HandoverRecord, HotWaitRecord, ObservedOffer, ReplayRecord } from './context.js';
 
 /**
  * Named invariants (plan Step 7 + amendments). Each check is a pure function of the end-of-run
@@ -39,9 +40,14 @@ export interface SimSnapshot {
   handovers: HandoverRecord[];
   /** Cash drop-offs as the couriers recorded them (absent in hand-built snapshots). */
   doorCash?: DoorCashRecord[];
-  merchants: Array<{ merchantId: string; balanceIqd: number }>;
+  /** Offers the couriers accepted and whether the card showed the batch rate (absent in hand-built snapshots). */
+  acceptedOffers?: AcceptedOfferRecord[];
+  /** `holders`: couriers the merchant's live balance says hold its cash (absent in hand-built snapshots). */
+  merchants: Array<{ merchantId: string; balanceIqd: number; holders?: Array<{ courierId: string; amountIqd: number }> }>;
   /** Absent in hand-built snapshots. */
   guarantee?: GuaranteeSnapshot;
+  /** «دوّرلي» receipts the server accepted (absent in hand-built snapshots). */
+  errandReceipts?: ErrandReceiptRecord[];
   /** s1: every ride pickup the server completed (its `stop.completed` events); absent in hand-built snapshots. */
   rideStarts?: RideStartRecord[];
   errors: Array<{ where: string; message: string }>;
@@ -76,6 +82,10 @@ const MAX_EXAMPLES = 5;
 const LATE_PROMISE_GROUP = 'late_promise:';
 /** Posting group prefix of the tip after a good rating (`afterTipGroupId`). */
 const AFTER_TIP_GROUP = 'tip:';
+/** What a «دوّرلي» customer pays for (`postErrand`): the goods, the errand's delivery fee, the service fee, the tip. */
+const ERRAND_CHARGE_TYPES = new Set(['errand_cost_actual', 'errand_fee', 'service_fee', 'tip']);
+/** What the shopper is credited: the goods he paid for at the shops, the delivery fee and the tip. */
+const ERRAND_SHOPPER_TYPES = new Set(['errand_cost_actual', 'errand_fee', 'tip']);
 const TERMINAL_TRIPS = new Set(['completed', 'customer_cancelled', 'driver_cancelled', 'platform_cancelled', 'failed']);
 
 export const isPointsAccount = (a: string) => a.startsWith('points:') || a.startsWith('points_pending:') || a === 'points_pool';
@@ -242,7 +252,9 @@ export const INVARIANTS: readonly Definition[] = [
           continue;
         }
         if (o.totalIqd % step !== 0) bad.push(`${o.id} (${o.type}) cash total ${o.totalIqd}`);
-        const collected = sum(r, (e) => e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet');
+        // M-3: owed fees paid with the order's cash (`debt_settled`) are part of the note he took.
+        const debtPaid = sum(r, (e) => e.type === 'debt_settled');
+        const collected = sum(r, (e) => e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet' || e.type === 'debt_settled');
         if (collected % step !== 0) bad.push(`${o.id} (${o.type}) collected ${collected}`);
         if (r.some((e) => e.type === 'rounding_residue')) bad.push(`${o.id} (${o.type}) has a rounding_residue line (rounding must be change to the wallet)`);
         if (extra % step !== 0 || extra > RULES.changeToWalletMaxIqd) bad.push(`${o.id} (${o.type}) change to the wallet ${extra} (must be in ${step}s, ≤ ${RULES.changeToWalletMaxIqd})`);
@@ -250,7 +262,7 @@ export const INVARIANTS: readonly Definition[] = [
         // Cash on hand == collected: what left the collector's cash account for this order is the note he recorded.
         const rec = door.get(o.id);
         if (rec && collected > 0) {
-          const onHand = sum(r, (e) => e.fromAccount.startsWith('cash:') && (e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet'));
+          const onHand = sum(r, (e) => e.fromAccount.startsWith('cash:') && (e.type === 'cash_collected' || e.type === 'cash_rounding_credit' || e.type === 'cash_change_to_wallet' || e.type === 'debt_settled'));
           if (onHand !== rec.collectedIqd) bad.push(`${o.id} (${o.type}) courier cash on hand ${onHand} ≠ the ${rec.collectedIqd} he recorded`);
           if (extra !== rec.changeToWalletIqd) bad.push(`${o.id} (${o.type}) change to the wallet ${extra} ≠ the ${rec.changeToWalletIqd} he recorded`);
         }
@@ -258,9 +270,9 @@ export const INVARIANTS: readonly Definition[] = [
         const groups = new Set(moneyGroupsOf(s.ledger, o.id));
         const payer = `customer:${o.ordererId}`;
         const net = r.filter((e) => e.postingGroupId && groups.has(e.postingGroupId)).reduce((n, e) => n + (e.toAccount === payer ? e.amount : 0) - (e.fromAccount === payer ? e.amount : 0), 0);
-        const rounding = net - extra;
+        const rounding = net - extra - debtPaid;
         if (rounding < 0 || rounding >= step) bad.push(`${o.id} (${o.type}) customer left at ${net} after paying ${collected} for ${o.totalIqd} (rounding change must be 0–${step - 1}, plus ${extra} no-change credit)`);
-        if (net !== (o.changeIqd ?? 0) + extra) bad.push(`${o.id} (${o.type}) wallet change ${net} ≠ the order's "الباقي رصيد" ${o.changeIqd ?? 0} + recorded no-change credit ${extra}`);
+        if (net !== (o.changeIqd ?? 0) + extra + debtPaid) bad.push(`${o.id} (${o.type}) wallet change ${net} ≠ the order's "الباقي رصيد" ${o.changeIqd ?? 0} + recorded no-change credit ${extra}`);
       }
       return { checked: s.orders.length, bad };
     },
@@ -337,6 +349,90 @@ export const INVARIANTS: readonly Definition[] = [
     },
   },
   {
+    name: 'merchant_cash_held_within_courier_cash',
+    description:
+      'Σ of restaurants’ cash shown as held by a courier ≤ the cash he still holds, and ≥ what he collected for them less what he handed over, handed in and the company paid them (each hand-in counted once across restaurants)',
+    run: (s) => {
+      const bad: string[] = [];
+      const withHolders = s.merchants.filter((m) => m.holders !== undefined);
+      const shown = new Map<string, number>();
+      for (const m of withHolders) for (const h of m.holders ?? []) shown.set(h.courierId, (shown.get(h.courierId) ?? 0) + h.amountIqd);
+      const held = (courierId: string) => {
+        const acct = `cash:${courierId}`;
+        return Math.max(0, sum(s.ledger, (e) => e.fromAccount === acct) - sum(s.ledger, (e) => e.toAccount === acct));
+      };
+      for (const [courierId, amount] of shown) {
+        const h = held(courierId);
+        if (amount > h) bad.push(`${courierId}: restaurants show ${amount} with him, he holds ${h}`);
+      }
+      // The floor: restaurant cash he collected (net per order), less his hand-overs to them, less every
+      // hand-in to the company (each counted once, however many restaurants he carried for), less
+      // whatever the company paid those restaurants or they are owed short of what couriers hold.
+      const known = new Set(withHolders.map((m) => m.merchantId));
+      const groups = new Map<string, LedgerEvent[]>();
+      for (const e of s.ledger) if (e.postingGroupId) groups.set(e.postingGroupId, [...(groups.get(e.postingGroupId) ?? []), e]);
+      const raw = new Map<string, Map<string, number>>();
+      const add = (k: string, m: string, by: number) => {
+        const row = raw.get(k) ?? new Map<string, number>();
+        row.set(m, (row.get(m) ?? 0) + by);
+        raw.set(k, row);
+      };
+      for (const e of s.ledger) {
+        if (e.type === 'cash_collected' && e.fromAccount.startsWith('cash:') && e.postingGroupId) {
+          const k = e.fromAccount.slice(5);
+          const net = new Map<string, number>();
+          for (const l of groups.get(e.postingGroupId) ?? []) {
+            if (l.toAccount.startsWith('merchant_cash:')) net.set(l.toAccount.slice(14), (net.get(l.toAccount.slice(14)) ?? 0) + l.amount);
+            if (l.fromAccount.startsWith('merchant_cash:')) net.set(l.fromAccount.slice(14), (net.get(l.fromAccount.slice(14)) ?? 0) - l.amount);
+          }
+          for (const [m, n] of net) if (n > 0) add(k, m, n);
+        }
+        if (e.type === 'merchant_paid_by_courier' && e.fromAccount.startsWith('merchant_cash:') && e.toAccount.startsWith('cash:')) add(e.toAccount.slice(5), e.fromAccount.slice(14), -e.amount);
+      }
+      const owedTo = new Map<string, number>();
+      for (const row of raw.values()) for (const [m, n] of row) owedTo.set(m, (owedTo.get(m) ?? 0) + Math.max(0, n));
+      const slack = (m: string) => {
+        const acct = `merchant_cash:${m}`;
+        const payouts = sum(s.ledger, (e) => e.fromAccount === acct && e.type === 'merchant_payout');
+        const balance = withHolders.find((x) => x.merchantId === m)?.balanceIqd ?? 0;
+        return payouts + Math.max(0, (owedTo.get(m) ?? 0) - Math.max(0, balance));
+      };
+      let floors = 0;
+      for (const [k, row] of raw) {
+        const ms = [...row.entries()].filter(([m, n]) => n > 0 && known.has(m));
+        if (ms.length === 0) continue;
+        floors += 1;
+        const handIns = sum(s.ledger, (e) => e.type === 'driver_settlement' && e.toAccount === `cash:${k}`);
+        const floor = Math.min(held(k), ms.reduce((n, [, v]) => n + v, 0) - handIns - ms.reduce((n, [m]) => n + slack(m), 0));
+        const got = shown.get(k) ?? 0;
+        if (got < floor) bad.push(`${k}: restaurants show ${got} with him, at least ${floor} of their cash is still in his hand`);
+      }
+      return { checked: shown.size + floors, bad };
+    },
+  },
+  {
+    name: 'driver_payout_within_owed',
+    description: 'a payout to a driver never leaves him owing the company (cash + earnings ≥ 0 right after each driver_payout line)',
+    run: (s) => {
+      const bad: string[] = [];
+      const payees = new Set(s.ledger.filter((e) => e.type === 'driver_payout').map((e) => e.fromAccount.slice('driver:'.length)));
+      for (const id of payees) {
+        const mine = s.ledger
+          .filter((e) => [e.fromAccount, e.toAccount].some((a) => a === `driver:${id}` || a === `cash:${id}`))
+          .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.recordedAt.getTime() - b.recordedAt.getTime());
+        let net = 0;
+        for (const e of mine) {
+          for (const acct of [`driver:${id}`, `cash:${id}`]) {
+            if (e.toAccount === acct) net += e.amount;
+            if (e.fromAccount === acct) net -= e.amount;
+          }
+          if (e.type === 'driver_payout' && net < 0) bad.push(`${id}: paid ${e.amount} and now owes ${-net}`);
+        }
+      }
+      return { checked: payees.size, bad };
+    },
+  },
+  {
     name: 'points_per_food_order_capped',
     description: 'points earned ≤ 50 per food order',
     run: (s) => {
@@ -378,6 +474,34 @@ export const INVARIANTS: readonly Definition[] = [
         }
       }
       return { checked: byGroup.size, bad };
+    },
+  },
+  {
+    name: 'courier_delivery_line_matches_offer',
+    description:
+      "the delivery fee the ledger pays a courier on a food or grocery order, and the errand fee it pays a shopper, is what his accepted offer showed (Partner's buildPay): the whole fee, or the batch share (money §2, 70 %, errands too since Ali 2026-10-12) when he took it while holding another job; an errand's receipt is not part of it",
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const orders = new Map(s.orders.map((o) => [o.id, o]));
+      const trips = new Map(s.trips.map((t) => [t.id, t]));
+      for (const a of s.acceptedOffers ?? []) {
+        const trip = trips.get(a.tripId);
+        if (!trip || trip.courierId !== a.driverId) continue;
+        for (const link of trip.orders) {
+          const o = orders.get(link.orderId);
+          if (link.detachedAt || !o || (o.type !== 'food' && o.type !== 'grocery_catalog' && o.type !== 'errand')) continue;
+          const feeType = o.type === 'errand' ? 'errand_fee' : 'delivery_fee';
+          const paid = s.ledger.filter((e) => e.kind === 'money' && e.type === feeType && e.orderId === o.id && e.tripId === trip.id && e.toAccount === `driver:${a.driverId}`);
+          if (paid.length === 0) continue;
+          checked += 1;
+          const offer = buildPay({ vertical: trip.vertical, orders: [o], batchedSecond: a.batched, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null });
+          const shown = offer.components.filter((c) => c.key !== 'tip' && c.key !== 'pickup_compensation').reduce((n, c) => n + c.amountIqd, 0);
+          const got = paid.reduce((n, e) => n + e.amount, 0);
+          if (got !== shown) bad.push(`${o.id}: courier ${a.driverId} paid ${got} ${o.type === 'errand' ? 'errand fee' : 'delivery'}, his offer showed ${shown}${a.batched ? ' (batched second)' : ''} on a ${o.deliveryFeeIqd} fee`);
+        }
+      }
+      return { checked, bad };
     },
   },
   {
@@ -538,6 +662,86 @@ export const INVARIANTS: readonly Definition[] = [
             break;
           }
         }
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'refused_parcel_two_fares',
+    description:
+      'طرود «رفضت تستلم» (Ali, 2026-10-12): a parcel the receiver refused is one order on one trip with one courier — its door stop skipped for the refusal and a hand-back stop after it; the sender pays both trips: once closed, the parcel fee from customer:<sender> is the order total (out + back, the trip back > 0), all of it to that trip’s courier, and no ledger line of the order touches any other customer (the receiver is never charged)',
+    run: (s) => {
+      const bad: string[] = [];
+      const rows = byOrder(s.ledger);
+      let checked = 0;
+      for (const o of s.orders) {
+        if (o.returnFareIqd == null) continue;
+        checked += 1;
+        if (o.type !== 'parcel') bad.push(`${o.id} (${o.type}): a trip back on a non-parcel order`);
+        if (o.returnFareIqd <= 0 || o.returnFareIqd >= o.totalIqd) bad.push(`${o.id}: trip back ${o.returnFareIqd} of a ${o.totalIqd} total (both trips must be in it)`);
+        const trips = s.trips.filter((t) => t.orders.some((l) => l.orderId === o.id));
+        if (trips.length !== 1) {
+          bad.push(`${o.id}: on ${trips.length} trips (one trip out and back)`);
+          continue;
+        }
+        const trip = trips[0]!;
+        const drops = trip.stops.filter((st) => st.orderId === o.id && st.type === 'dropoff').sort((a, b) => a.seq - b.seq);
+        const door = drops.find((st) => st.state === 'skipped' && st.skipReason === 'parcel_refused');
+        if (!door || !drops.some((st) => st.seq > door.seq)) bad.push(`${o.id}: trip ${trip.id} has no refused door stop with a hand-back after it`);
+        const sender = `customer:${o.ordererId}`;
+        const r = rows.get(o.id) ?? [];
+        for (const e of r) for (const a of [e.fromAccount, e.toAccount]) if (a.startsWith('customer:') && a !== sender) bad.push(`${o.id}: ledger ${e.type} touches ${a}, not the sender`);
+        if (o.state !== 'closed') continue;
+        const fees = r.filter((e) => e.type === 'parcel_fee');
+        const paid = sum(fees, (e) => e.fromAccount === sender);
+        if (paid !== o.totalIqd) bad.push(`${o.id}: sender's parcel fee ${paid} ≠ total ${o.totalIqd} (out ${o.totalIqd - o.returnFareIqd} + back ${o.returnFareIqd})`);
+        for (const e of fees) if (!trip.courierId || e.toAccount !== `driver:${trip.courierId}`) bad.push(`${o.id}: parcel fee to ${e.toAccount}, not the trip's courier (${trip.courierId ?? 'none'})`);
+      }
+      return { checked, bad };
+    },
+  },
+  {
+    name: 'errand_paid_equals_receipt_plus_fees',
+    description:
+      '«دوّرلي»: every delivered errand costs the customer exactly its receipt + delivery fee + service fee + tip (a cash total rounded up to 250, the rest change to his wallet); the order\'s goods and the ledger\'s errand cost are the receipt, and the shopper who recorded it is credited the receipt, his offer\'s share of the fee (all of it, or 70 % on a batched second with the rest booked as batched_margin) and the tip',
+    run: (s) => {
+      const bad: string[] = [];
+      let checked = 0;
+      const receipts = new Map((s.errandReceipts ?? []).map((r) => [r.orderId, r]));
+      const rows = byOrder(s.ledger);
+      const step = RULES.cashStepIqd;
+      for (const o of s.orders) {
+        if (o.type !== 'errand' || o.deliveredAt === null || (o.state !== 'delivered' && o.state !== 'closed')) continue;
+        checked += 1;
+        const rec = receipts.get(o.id);
+        if (!rec) {
+          bad.push(`${o.id}: delivered with no receipt recorded`);
+          continue;
+        }
+        const price = rec.receiptIqd + o.deliveryFeeIqd + o.serviceFeeIqd + o.tipIqd;
+        const due = o.paymentMethod === 'cash' ? Math.ceil(price / step) * step : price;
+        if (o.itemsTotalIqd !== rec.receiptIqd) bad.push(`${o.id}: goods ${o.itemsTotalIqd} ≠ receipt ${rec.receiptIqd}`);
+        if (o.totalIqd !== due) bad.push(`${o.id}: total ${o.totalIqd} ≠ ${due} (receipt ${rec.receiptIqd} + delivery ${o.deliveryFeeIqd} + service ${o.serviceFeeIqd} + tip ${o.tipIqd}, ${o.paymentMethod})`);
+        const r = rows.get(o.id) ?? [];
+        const cost = sum(r, (e) => e.type === 'errand_cost_actual');
+        if (cost !== rec.receiptIqd) bad.push(`${o.id}: ledger errand cost ${cost} ≠ receipt ${rec.receiptIqd}`);
+        const charged = sum(r, (e) => ERRAND_CHARGE_TYPES.has(e.type)) - sum(r, (e) => e.type === 'promo_funded');
+        if (charged !== price) bad.push(`${o.id}: customer charged ${charged} ≠ ${price}`);
+        // A batched second errand (Ali 2026-10-12, #312) pays the shopper his offer's share of the fee
+        // (buildPay, 70 %); the rest is the platform's batched_margin. Both errand_fee lines are the customer's.
+        const shopper = `driver:${rec.courierId}`;
+        const trip = s.trips.find((t) => t.courierId === rec.courierId && t.orders.some((l) => l.orderId === o.id && !l.detachedAt));
+        const batched = trip ? (s.acceptedOffers ?? []).some((a) => a.tripId === trip.id && a.driverId === rec.courierId && a.batched) : false;
+        const share = batched
+          ? buildPay({ vertical: trip!.vertical, orders: [o], batchedSecond: true, batchShare: AZIZIYAH_MONEY_RULES.batchedSecondCourierShare, compensationIqd: 0, take: null })
+              .components.filter((c) => c.key !== 'tip' && c.key !== 'pickup_compensation')
+              .reduce((n, c) => n + c.amountIqd, 0)
+          : o.deliveryFeeIqd;
+        const margin = sum(r, (e) => e.type === 'errand_fee' && e.toAccount === 'platform' && e.memo === 'batched_margin');
+        if (margin !== o.deliveryFeeIqd - share) bad.push(`${o.id}: batched_margin ${margin} ≠ ${o.deliveryFeeIqd - share} (fee ${o.deliveryFeeIqd}, shopper share ${share}${batched ? ', batched second' : ''})`);
+        const credited = sum(r, (e) => ERRAND_SHOPPER_TYPES.has(e.type) && e.toAccount === shopper);
+        const owed = rec.receiptIqd + share + o.tipIqd;
+        if (credited !== owed) bad.push(`${o.id}: shopper ${rec.courierId} credited ${credited} ≠ ${owed}`);
       }
       return { checked, bad };
     },

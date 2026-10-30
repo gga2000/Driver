@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
+  CLOSABLE_ROLES,
   DEFAULT_SAFETY_PREFS,
   DriverError,
   RIDE_RIDER_NAME_MAX,
@@ -10,6 +11,7 @@ import {
   searchScore,
   REVERIFY_AFTER_IDLE_DAYS,
   SHARED_PHONE_FORBIDDEN_ROLES,
+  STAFF_SESSION_MAX_SEC,
   type Actor,
   type ChangePhoneConfirmInput,
   type ChangePhoneStartInput,
@@ -34,6 +36,7 @@ import {
   type VerifyOtpInput,
   type VerifyOtpOutput,
 } from '@driver/contracts';
+import { PHONE_REVEAL_ROLES, PhoneRevealReason as PhoneRevealReasonEnum, type PhoneRevealReason } from '@driver/contracts/people';
 import type { z } from 'zod';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { UnitOfWork, afterCommit, type Tx } from '../../shared/db/unit-of-work.js';
@@ -44,8 +47,17 @@ import { IDENTITY_REPOSITORY, type EmergencyContactRecord, type IdentityRecord, 
 import { OtpService } from './otp.service.js';
 import { hashPhone, invitePhoneHint, maskPhone, normalizeIraqiPhone } from './phone.js';
 import { OtpGuard } from './rate-limit.js';
-import { InMemoryWindowCounter } from '../../shared/window-counter.js';
+import { isStagingTestNumber, STAFF_ROLES, type StagingTestConfig } from './staging-test.js';
+import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
+
+const HOUR_MS = 3_600_000;
+/** Whole numbers one staff member may show in an hour before it refuses and ops is alerted. */
+export const STAFF_REVEAL_PER_HOUR = 30;
+/** VaultAccessLog purpose of a Console number reveal (a fail-closed staff read, vault-log.ts). */
+export const STAFF_PHONE_REVEAL_PURPOSE = 'console_phone_reveal';
+export const PHONE_REVEAL_LIMIT_EVENT = 'security.phone_reveal_limit';
+const PHONE_REVEAL_REASONS = PhoneRevealReasonEnum.options;
 import { DevSmsProvider } from '../../shared/messaging/sms.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms/provider.js';
 import type { WhatsAppPort } from '../../shared/messaging/whatsapp.js';
@@ -56,6 +68,8 @@ export const OTP_WHATSAPP = Symbol('OTP_WHATSAPP');
 export const PHONE_PEPPER = Symbol('PHONE_PEPPER');
 /** The one OTP guard (`rate-limit.ts`); bound by the module on the shared window counter. */
 export const OTP_REQUEST_GUARD = Symbol('OTP_REQUEST_GUARD');
+/** Staging test numbers' fixed code (`staging-test.ts`); null = off. */
+export const STAGING_TEST = Symbol('STAGING_TEST');
 
 type RequestOtp = z.infer<typeof RequestOtpInput>;
 type VerifyOtp = z.infer<typeof VerifyOtpInput>;
@@ -97,6 +111,8 @@ export class IdentityService implements IdentityPort {
   private readonly sessions: SessionService;
   private readonly guardians: GuardianService;
   private readonly selfReads: SelfReadLogWindow;
+  /** Staff number reveals per person per hour (`staffRevealPhone`), in the shared counter (Redis across machines when set). */
+  private readonly reveals: WindowCounter;
   /** In-flight phone changes keyed by personId (new phone stays out of the vault until confirmed). */
   private readonly phoneChanges = new Map<string, { newE164: string; newHash: string; startedAt: Date }>();
 
@@ -109,13 +125,16 @@ export class IdentityService implements IdentityPort {
     @Inject(PHONE_PEPPER) private readonly pepper: string,
     sessions?: SessionService,
     @Optional() @Inject(OTP_REQUEST_GUARD) otpGuard?: OtpGuard,
-    @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort,
+    @Optional() @Inject(OTP_WHATSAPP) otpWhatsApp?: WhatsAppPort | null,
+    @Optional() @Inject(STAGING_TEST) private readonly stagingTest: StagingTestConfig | null = null,
+    @Optional() @Inject(WINDOW_COUNTER) counter?: WindowCounter,
   ) {
     const guard = otpGuard ?? new OtpGuard(new InMemoryWindowCounter(clock), new EventOtpAlerts(events, clock));
-    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp);
+    this.otp = new OtpService(repo, sms, clock, pepper, guard, otpWhatsApp ?? undefined, stagingTest);
     this.sessions = sessions ?? new SessionService(repo, clock, { keys: [{ kid: 'k1', secret: pepper }], activeKid: 'k1' });
     this.guardians = new GuardianService(repo, this.otp, events, clock);
     this.selfReads = new SelfReadLogWindow(clock, selfReadLogWindowMsFromEnv());
+    this.reveals = counter ?? new InMemoryWindowCounter(clock);
   }
 
   // ───────────────────────── phone helpers ─────────────────────────
@@ -135,7 +154,7 @@ export class IdentityService implements IdentityPort {
     const { e164, hash, masked } = this.phone(input.phone);
     return this.uow.run(async (tx) => {
       const res = await this.otp.request(e164, hash, 'login', tx, input.channel, { ip: origin.ip ?? null, deviceFingerprint: input.device?.fingerprint ?? null });
-      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel };
+      return { phoneMasked: masked, expiresAt: res.expiresAt, resendAfterSec: res.resendAfterSec, channel: res.channel, whatsapp: res.whatsappAvailable };
     });
   }
 
@@ -164,8 +183,10 @@ export class IdentityService implements IdentityPort {
         await this.repo.updatePerson(person.id, { sharedFamilyPhone: true }, tx);
       }
       const deviceId = input.device ? (await this.registerDevice(person.id, input.device, now, true, tx)).id : null;
+      if (!isNew && this.isStagingTest(e164) && (await this.holdsStaffRole(person.id, tx))) throw new DriverError('forbidden');
       await this.markVerified(person.id, now, tx, isNew ? 'person.verified' : 'person.reverified', person.lastVerifiedAt === null);
-      const { tokens } = await this.sessions.open(person.id, deviceId, tx);
+      const staff = !isNew && (await this.holdsStaffRole(person.id, tx));
+      const { tokens } = await this.sessions.open(person.id, deviceId, tx, staff ? STAFF_SESSION_MAX_SEC : undefined);
       return { personId: person.id, isNew, tokens };
     });
   }
@@ -177,7 +198,19 @@ export class IdentityService implements IdentityPort {
     }
     const created = await this.repo.createDevice({ personId, fingerprint: device.fingerprint, platform: device.platform, appVersion: device.appVersion ?? null, verifiedAt: verified ? now : null, now }, tx);
     await this.events.emit(tx, { actorId: personId, type: 'device.registered', occurredAt: now, payload: { personId, deviceId: created.id, platform: device.platform, verified } }, { name: 'person', id: personId });
+    if (await this.holdsStaffRole(personId, tx)) await this.alertStaffDevice(personId, created.id, device.platform, now, tx);
     return created;
+  }
+
+  /**
+   * A staff member signed in from a device never seen on this account: every admin hears of it (the
+   * notify subscriber pushes `staff_new_device`), so a stranger on a staff account is noticed and
+   * can be cut off from the Console's «الموظفين» page.
+   */
+  private async alertStaffDevice(personId: string, deviceId: string, platform: string, now: Date, tx: Tx) {
+    const { people } = await this.repo.peopleWithRoles(['admin'], { limit: 50 }, tx);
+    const adminIds = people.filter(({ roles }) => roles.some((r) => r.kind === 'admin' && r.frozenAt === null)).map(({ person }) => person.id);
+    await this.events.emit(tx, { actorId: personId, type: 'staff.new_device', occurredAt: now, payload: { personId, deviceId, platform, adminIds } }, { name: 'person', id: personId });
   }
 
   /** Sets lastVerifiedAt, thaws frozen roles and emits person.verified (first time) or person.reverified. */
@@ -207,7 +240,9 @@ export class IdentityService implements IdentityPort {
         const d = await this.registerDevice(s.personId, device, now, false, tx);
         await this.freezeForReverification(s.personId, now, 'new_device', tx);
         return { deviceId: d.id };
-      }, async (s) => (device ? ((await this.repo.findDevice(s.personId, device.fingerprint, tx))?.id ?? 'unknown-device') : null));
+      }, async (s) => (device ? ((await this.repo.findDevice(s.personId, device.fingerprint, tx))?.id ?? 'unknown-device') : null),
+      // Staff sessions end 12 h after they opened, refreshes or not.
+      async (s) => ((await this.holdsStaffRole(s.personId, tx)) ? new Date(s.createdAt.getTime() + STAFF_SESSION_MAX_SEC * 1000) : null));
       await this.checkIdle(session.personId, now, tx);
       return tokens;
     });
@@ -219,6 +254,25 @@ export class IdentityService implements IdentityPort {
       if (refreshToken) await this.sessions.revokeByRefreshToken(refreshToken, tx);
       // Notify drops the push tokens this session registered (a signed-out phone gets nothing).
       await this.events.emit(tx, { actorId: actor.personId, type: 'session.signed_out', occurredAt: this.clock.now(), payload: { personId: actor.personId, sessionId: actor.sessionId } }, { name: 'person', id: actor.personId });
+    });
+  }
+
+  /**
+   * Ends every live session of a person on every device (their next call or refresh is refused, the
+   * auth cache drops them on every API machine) and drops each session's push tokens. Joins the
+   * caller's unit of work, so a role revoke or an audited admin action commits it with its own rows.
+   */
+  async endAllSessions(actor: Actor | { personId: string }, personId: string, reason: 'admin' | 'role_revoked'): Promise<{ ended: number }> {
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person) throw new DriverError('person_not_found');
+      const now = this.clock.now();
+      const ids = await this.repo.revokeSessionsOf(personId, now, tx);
+      for (const sessionId of ids) {
+        await this.events.emit(tx, { actorId: actor.personId, type: 'session.signed_out', occurredAt: now, payload: { personId, sessionId } }, { name: 'person', id: personId });
+      }
+      await this.events.emit(tx, { actorId: actor.personId, type: 'session.all_ended', occurredAt: now, payload: { personId, endedBy: actor.personId, reason, sessions: ids.length } }, { name: 'person', id: personId });
+      return { ended: ids.length };
     });
   }
 
@@ -320,6 +374,11 @@ export class IdentityService implements IdentityPort {
       const person = await this.repo.findPersonById(input.personId, tx);
       if (!person) throw new DriverError('person_not_found');
       if (person.sharedFamilyPhone && SHARED_PHONE_FORBIDDEN_ROLES.includes(input.kind)) throw new DriverError('shared_phone_role_forbidden');
+      // A staging test number (anyone holding the fixed code can sign in with it) is never made staff.
+      if (this.stagingTest && STAFF_ROLES.includes(input.kind)) {
+        const phone = (await this.repo.readIdentity(input.personId, tx))?.phoneE164;
+        if (phone && isStagingTestNumber(phone)) throw new DriverError('forbidden');
+      }
       const now = this.clock.now();
       const orgId = input.orgId ?? null;
       const { role, created } = await this.repo.upsertRole({ personId: input.personId, kind: input.kind, orgId, grantedBy: actor.personId, now }, tx);
@@ -339,6 +398,9 @@ export class IdentityService implements IdentityPort {
       const now = this.clock.now();
       await this.repo.revokeRole(role.id, now, tx);
       await this.events.emit(tx, { actorId: actor.personId, type: 'role.revoked', occurredAt: now, payload: { personId: input.personId, kind: input.kind, orgId, revokedBy: actor.personId } }, { name: 'person', id: input.personId });
+      // A staff role taken away ends every session the person has, in this same transaction: a device
+      // signed in before (a lost phone) can never pick the role up again when it is granted back.
+      if (STAFF_ROLES.includes(input.kind)) await this.endAllSessions(actor, input.personId, 'role_revoked');
     });
   }
 
@@ -535,6 +597,28 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * Console order search by the last four digits a caller reads out (Yes-list v7): which of
+   * `personIds` have a phone ending in `tail`. One read of the people and one of the vault rows; a
+   * log row (`phone_e164`, the staff member as accessor, `purpose`) for each person returned, since
+   * the search tells staff whose number ends that way. The number itself never leaves identity.
+   */
+  async matchPhoneTails(personIds: readonly string[], tail: string, accessorId: string, purpose: string): Promise<string[]> {
+    const ids = [...new Set(personIds)];
+    if (ids.length === 0 || !/^\d{4}$/.test(tail)) return [];
+    return this.uow.run(async (tx) => {
+      const live = (await this.repo.findPeopleByIds(ids, tx)).filter((p) => !p.deletedAt).map((p) => p.id);
+      if (live.length === 0) return [];
+      const hits = new Set((await this.repo.readIdentities(live, tx)).filter((i) => i.phoneE164.endsWith(tail)).map((i) => i.personId));
+      const now = this.clock.now();
+      await this.repo.logVaultAccessMany(
+        [...hits].filter((id) => id !== accessorId).map((personId) => ({ personId, accessorId, purpose, fieldsRead: ['phone_e164'], now })),
+        tx,
+      );
+      return ids.filter((id) => hits.has(id));
+    });
+  }
+
+  /**
    * Customer spec §10: the display name and the emergency contact go to the vault only (domain §13);
    * the public side records just that the profile changed, never the values.
    */
@@ -661,19 +745,20 @@ export class IdentityService implements IdentityPort {
    * Household cards (domain §12): name and masked phone of each member for another member to see.
    * Every read is logged against the member read (purpose household_view). Deleted people are left
    * out — no vault read, nothing shown — like `firstNamesFor` / `courierCard` (review 2026-10-04 #23);
-   * callers render a missing card as a nameless row.
+   * callers render a missing card as a nameless row. `phoneHint` ("0780 ••• 4455") is for a team list
+   * whose reader added the person by number (merchant staff), the same form their invite showed.
    */
-  async memberCards(personIds: readonly string[], accessorId: string, purpose = 'household_view'): Promise<Record<string, { name: string | null; phoneMasked: string }>> {
+  async memberCards(personIds: readonly string[], accessorId: string, purpose = 'household_view'): Promise<Record<string, { name: string | null; phoneMasked: string; phoneHint: string }>> {
     return this.uow.run(async (tx) => {
       const now = this.clock.now();
-      const out: Record<string, { name: string | null; phoneMasked: string }> = {};
+      const out: Record<string, { name: string | null; phoneMasked: string; phoneHint: string }> = {};
       for (const personId of new Set(personIds)) {
         const person = await this.repo.findPersonById(personId, tx);
         if (!person || person.deletedAt) continue;
         const identity = await this.repo.readIdentity(personId, tx);
         if (!identity) continue;
         if (personId !== accessorId) await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['name', 'phone_e164'], now }, tx);
-        out[personId] = { name: identity.name, phoneMasked: maskPhone(identity.phoneE164) };
+        out[personId] = { name: identity.name, phoneMasked: maskPhone(identity.phoneE164), phoneHint: invitePhoneHint(identity.phoneE164) };
       }
       return out;
     });
@@ -932,6 +1017,56 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  // ───────────────────────── account close (docs/api/account-close.md) ─────────────────────────
+
+  /** Whether the Console closes this account (he holds or held a partner or merchant role) and when it was closed. */
+  async accountCloseState(personId: string): Promise<{ closable: boolean; closedAt: Date | null; roles: RoleKind[] }> {
+    const person = await this.repo.findPersonById(personId);
+    if (!person) throw new DriverError('person_not_found');
+    const roles = await this.repo.roleKindsEver(personId);
+    return { closable: roles.some((k) => (CLOSABLE_ROLES as readonly RoleKind[]).includes(k)), closedAt: person.deletedAt, roles };
+  }
+
+  /**
+   * Every storage file the vault points at for this person (document photos, check-in selfies, his
+   * main photo, the photos of children he enrolled), so the account close can delete the bytes before
+   * the refs go. A staff read: logged, and refused if the log row can't be written.
+   */
+  async storedFileRefs(personId: string, accessorId: string): Promise<string[]> {
+    return this.uow.run(async (tx) => {
+      const identity = await this.repo.readIdentity(personId, tx);
+      const refs = new Set<string>();
+      for (const field of ['documentRefs', 'selfieRefs'] as const) for (const r of await this.repo.vaultRefs(personId, field, tx)) if (typeof r['ref'] === 'string') refs.add(r['ref']);
+      if (identity?.mainPhotoRef) refs.add(identity.mainPhotoRef);
+      for (const c of await this.repo.childIdentitiesOf(personId, tx)) if (c.photoRef) refs.add(c.photoRef);
+      if (identity) await this.repo.logVaultAccess({ personId, accessorId, purpose: 'account_close', fieldsRead: ['document_refs', 'selfie_refs', 'main_photo_ref'], now: this.clock.now() }, tx);
+      return [...refs];
+    });
+  }
+
+  /**
+   * Closes the account (admin, from the Console): his identity, the children he enrolled, the names he
+   * gave or was given, his devices, sessions and sign-in codes are deleted and every role revoked, in
+   * the caller's transaction when there is one. His number is free again: signing in with it later
+   * makes a new account. False when he was already closed.
+   */
+  async closeAccount(personId: string, actorId: string): Promise<boolean> {
+    return this.uow.run(async (tx) => {
+      const now = this.clock.now();
+      const roles = await this.repo.rolesOf(personId, tx);
+      const closed = await this.repo.closeAccount(personId, now, tx);
+      if (!closed) return false;
+      // Each deleted session is announced as signed out, as a logout is: notify drops its push tokens.
+      for (const sessionId of closed.sessionIds) {
+        await this.events.emit(tx, { actorId, type: 'session.signed_out', occurredAt: now, payload: { personId, sessionId } }, { name: 'person', id: personId });
+      }
+      for (const r of roles) {
+        await this.events.emit(tx, { actorId, type: 'role.revoked', occurredAt: now, payload: { personId, kind: r.kind, orgId: r.orgId, revokedBy: actorId } }, { name: 'person', id: personId });
+      }
+      return true;
+    });
+  }
+
   /** Orgs where the person holds a live (unfrozen) grant of one of `kinds`: merchant staff, fleet owners. */
   async scopedOrgs(personId: string, kinds: readonly RoleKind[]): Promise<Array<{ orgId: string; kind: RoleKind }>> {
     const roles = await this.repo.rolesOf(personId);
@@ -957,6 +1092,41 @@ export class IdentityService implements IdentityPort {
       const identity = await this.repo.readIdentity(personId, tx);
       if (!identity) return null;
       await this.repo.logVaultAccess({ personId, accessorId, purpose, fieldsRead: ['phone_e164'], now: this.clock.now() }, tx);
+      return identity.phoneE164;
+    });
+  }
+
+  /**
+   * «اكشف الرقم» in the Console's «الناس» pages: one staff member sees one person's whole number,
+   * for a reason from the fixed list. Checked here, not only at the router: the reader must hold a
+   * live support, dispatcher or admin role; their own record never (they know it), another staff
+   * member's only for an admin; at most `STAFF_REVEAL_PER_HOUR` an hour each, past which it refuses
+   * and raises a `security.phone_reveal_limit` alert (so the button can't page through the city's
+   * numbers). The read and its VaultAccessLog row (purpose `console_phone_reveal`) share one unit of
+   * work, and the log failing fails the read (a staff purpose). Null for unknown or deleted people.
+   */
+  async staffRevealPhone(actor: Actor, personId: string, reason: PhoneRevealReason): Promise<string | null> {
+    if (!(PHONE_REVEAL_REASONS as readonly string[]).includes(reason)) throw new DriverError('invalid_input');
+    const mine = await this.repo.rolesOf(actor.personId);
+    const live = mine.filter((r) => r.frozenAt === null).map((r) => r.kind);
+    if (!PHONE_REVEAL_ROLES.some((k) => live.includes(k))) throw new DriverError('forbidden');
+    if (personId === actor.personId) throw new DriverError('forbidden');
+    if (!live.includes('admin') && (await this.holdsStaffRole(personId))) throw new DriverError('forbidden');
+    const gate = await this.reveals.hit(`reveal:${actor.personId}`, HOUR_MS, STAFF_REVEAL_PER_HOUR);
+    if (!gate.allowed) {
+      await this.events.emit(
+        undefined,
+        { actorId: actor.personId, type: PHONE_REVEAL_LIMIT_EVENT, occurredAt: this.clock.now(), payload: { staffId: actor.personId, count: gate.count, limit: STAFF_REVEAL_PER_HOUR } },
+        { name: 'security', id: 'phone_reveal' },
+      );
+      throw new DriverError('rate_limited');
+    }
+    return this.uow.run(async (tx) => {
+      const person = await this.repo.findPersonById(personId, tx);
+      if (!person || person.deletedAt) return null;
+      const identity = await this.repo.readIdentity(personId, tx);
+      if (!identity) return null;
+      await this.repo.logVaultAccess({ personId, accessorId: actor.personId, purpose: STAFF_PHONE_REVEAL_PURPOSE, fieldsRead: ['phone_e164'], now: this.clock.now() }, tx);
       return identity.phoneE164;
     });
   }
@@ -1112,6 +1282,7 @@ export class IdentityService implements IdentityPort {
       const next = this.phone(input.newPhone);
       if (next.hash === current.phoneHash) throw new DriverError('phone_change_same_number');
       if (await this.repo.findPersonByPhoneHash(next.hash, tx)) throw new DriverError('phone_change_taken');
+      if (this.isStagingTest(next.e164) && (await this.holdsStaffRole(actor.personId, tx))) throw new DriverError('forbidden');
       const a = await this.otp.request(current.phoneE164, current.phoneHash, 'phone_change', tx, undefined, { actorId: actor.personId });
       await this.otp.request(next.e164, next.hash, 'phone_change', tx, undefined, { actorId: actor.personId });
       this.phoneChanges.set(actor.personId, { newE164: next.e164, newHash: next.hash, startedAt: this.clock.now() });
@@ -1157,7 +1328,39 @@ export class IdentityService implements IdentityPort {
     });
   }
 
+  /** Whether this number signs in with the staging fixed code (the range is on and it is in it). */
+  private isStagingTest(e164: string): boolean {
+    return this.stagingTest !== null && isStagingTestNumber(e164);
+  }
+
+  /**
+   * Whether the person holds a staff role (frozen grants count too). Money that staff move (a cash
+   * top-up confirmed, a support refund) never lands on a staff account.
+   */
+  async holdsStaffRole(personId: string, tx?: Tx): Promise<boolean> {
+    return (await this.repo.rolesOf(personId, tx)).some((r) => STAFF_ROLES.includes(r.kind));
+  }
+
   // ───────────────────────── dev ─────────────────────────
+
+  /**
+   * Staging only: a staging test number's fixed code, for the code screen's «عبّيه» button (Ali, 8 Oct).
+   * Null when the range is off (every host but staging), for any other number, and for a test number
+   * that holds a staff role. Nothing personal is read: the code is the range's, not the person's.
+   */
+  async stagingTestCode(phone: string): Promise<{ code: string | null }> {
+    if (!this.stagingTest) return { code: null };
+    let n: { e164: string; hash: string };
+    try {
+      n = this.phone(phone);
+    } catch {
+      return { code: null };
+    }
+    if (!isStagingTestNumber(n.e164)) return { code: null };
+    const person = await this.repo.findPersonByPhoneHash(n.hash);
+    if (person && (await this.holdsStaffRole(person.id))) return { code: null };
+    return { code: this.stagingTest.code };
+  }
 
   async devLastOtp(phone: string): Promise<{ phoneMasked: string; code: string | null }> {
     const { e164, masked } = this.phone(phone);

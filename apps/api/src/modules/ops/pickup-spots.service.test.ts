@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DriverError, type Actor, type RoleKind } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
+import { NoDatabaseRunner, UnitOfWork } from '../../shared/db/unit-of-work.js';
+import { CatalogService, InMemoryCatalogRepository } from '../catalog/index.js';
 import { AuditLogService, InMemoryControlsRepository, StaffNames } from '../controls/index.js';
 import type { IdentityService } from '../identity/index.js';
 import { MerchantService, type MerchantAreaPort, type MerchantEventsPort, type MerchantOrdersPort, type MerchantPeoplePort, type MerchantPhotosPort, type MerchantTripsPort } from '../merchant/index.js';
@@ -26,7 +28,8 @@ const code = async (p: Promise<unknown>) => {
  */
 async function setup() {
   const clock = new FakeClock('2026-10-07T09:00:00Z');
-  const orgs = new OrgsService(undefined, clock);
+  const uow = new UnitOfWork(new NoDatabaseRunner());
+  const orgs = new OrgsService(undefined, clock, undefined, uow);
   const khalid = await orgs.create({ type: 'restaurant', name: 'مطعم خالد', cityId: 'aziziyah', ownerId: OWNER.personId });
   const karim = await orgs.create({ type: 'grocer', name: 'أسواق كريم', cityId: 'aziziyah', ownerId: 'p_karim' });
   const elsewhere = await orgs.create({ type: 'restaurant', name: 'مطعم الكوت', cityId: 'kut', ownerId: 'p_kut' });
@@ -67,8 +70,9 @@ async function setup() {
   const auditRepo = new InMemoryControlsRepository();
   const identity = { firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === HAIDER.personId ? 'حيدر' : null])) } as unknown as IdentityService;
   const audits = new AuditLogService(auditRepo, new StaffNames(identity, clock), clock);
-  const svc = new OpsPickupSpotsService(merchant, orgs, audits);
-  return { clock, orgs, khalid, karim, elsewhere, home, merchant, svc, auditRepo, recorded, removed };
+  const catalog = new CatalogService(new InMemoryCatalogRepository(), clock);
+  const svc = new OpsPickupSpotsService(merchant, orgs, audits, catalog, uow);
+  return { uow, audits, clock, orgs, khalid, karim, elsewhere, home, merchant, catalog, svc, auditRepo, recorded, removed };
 }
 
 describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)', () => {
@@ -76,14 +80,30 @@ describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)'
     const h = await setup();
     await h.merchant.setPickupSpot(OWNER, { merchantOrgId: h.khalid.id, note: 'الشباك اليسار', photoIds: ['up_owner_window'] });
     expect(await h.svc.stores(HAIDER, { cityId: 'aziziyah' })).toEqual([
-      { merchantOrgId: h.karim.id, name: 'أسواق كريم', type: 'grocer', note: null, photos: 0, updatedAt: null },
-      { merchantOrgId: h.khalid.id, name: 'مطعم خالد', type: 'restaurant', note: 'الشباك اليسار', photos: 1, updatedAt: h.clock.now() },
+      { merchantOrgId: h.karim.id, name: 'أسواق كريم', type: 'grocer', note: null, photos: 0, updatedAt: null, shopPhoto: false, dishes: 0, dishesNoPhoto: 0 },
+      { merchantOrgId: h.khalid.id, name: 'مطعم خالد', type: 'restaurant', note: 'الشباك اليسار', photos: 1, updatedAt: h.clock.now(), shopPhoto: false, dishes: 0, dishesNoPhoto: 0 },
+    ]);
+  });
+
+  it('k6 «للتكملة»: says whether the shop photo is up and how many dishes show no picture', async () => {
+    const h = await setup();
+    await h.catalog.saveStorefront({ orgId: h.khalid.id, cityId: 'aziziyah', nameAr: 'مطعم خالد', cuisineAr: 'مشويات', minOrderIqd: 0, photoUrl: 'upload:up_front' });
+    const own = await h.catalog.addItem({ orgId: h.khalid.id, nameAr: 'تكة', priceIqd: 2500 });
+    await h.catalog.replacePhoto(h.khalid.id, own.id, 'upload:up_tikka');
+    const library = await h.catalog.addItem({ orgId: h.khalid.id, nameAr: 'كباب', priceIqd: 3000 });
+    await h.catalog.replacePhoto(h.khalid.id, library.id, '/library/kebab-1.jpg', undefined, 'kebab');
+    await h.catalog.addItem({ orgId: h.khalid.id, nameAr: 'شوربة', priceIqd: 1500 });
+    await h.catalog.addItem({ orgId: h.karim.id, nameAr: 'صمون', priceIqd: 250 });
+    const rows = await h.svc.stores(HAIDER, { cityId: 'aziziyah' });
+    expect(rows.map((r) => [r.name, r.shopPhoto, r.dishes, r.dishesNoPhoto])).toEqual([
+      ['أسواق كريم', false, 1, 1],
+      ['مطعم خالد', true, 3, 1],
     ]);
   });
 
   it('field ops set the spot with their own photos; couriers get it, the store’s event and the audit say who', async () => {
     const h = await setup();
-    expect(await h.svc.get(HAIDER, { merchantOrgId: h.khalid.id })).toEqual({ merchantOrgId: h.khalid.id, storeName: 'مطعم خالد', note: null, photos: [], canEdit: true, updatedAt: null, consoleEdit: null });
+    expect(await h.svc.get(HAIDER, { merchantOrgId: h.khalid.id })).toEqual({ merchantOrgId: h.khalid.id, storeName: 'مطعم خالد', note: null, photos: [], canEdit: true, updatedAt: null, consoleEdit: null, kitchen: null });
     const saved = await h.svc.set(HAIDER, { merchantOrgId: h.khalid.id, note: '  من الشباك اليسار جنب باب المطبخ ', photoIds: ['up_haider_window'] });
     expect(saved).toMatchObject({
       storeName: 'مطعم خالد',
@@ -131,5 +151,51 @@ describe('OpsPickupSpotsService — Console › المطاعم (Ali 2026-10-07)'
     expect(await code(h.svc.get(HAIDER, { merchantOrgId: h.home.id }))).toBe('org_not_found');
     expect(await code(h.svc.set(HAIDER, { merchantOrgId: 'org_missing', note: 'x', photoIds: [] }))).toBe('org_not_found');
     expect(h.auditRepo.auditRows).toEqual([]);
+  });
+
+  it('«حرّك مكان المطعم»: the zone is read from the new pin, outside town is refused, and the move is audited', async () => {
+    const h = await setup();
+    await h.orgs.setMerchantSettings(h.khalid.id, { location: { zoneKey: 'centre' } });
+    expect((await h.svc.get(HAIDER, { merchantOrgId: h.khalid.id })).kitchen).toEqual({ zoneKey: 'centre', zoneName: 'العزيزية (مركز)', pin: null });
+    const moved = await h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 32.887, lng: 45.0765 } });
+    expect(moved.kitchen).toEqual({ zoneKey: 'zakur', zoneName: 'زاكور', pin: { lat: 32.887, lng: 45.0765 } });
+    expect((await h.orgs.merchantSettings(h.khalid.id)).location).toEqual({ zoneKey: 'zakur', pin: { lat: 32.887, lng: 45.0765 } });
+    expect(h.auditRepo.auditRows.at(-1)).toMatchObject({
+      actorId: HAIDER.personId,
+      action: 'store.kitchen_moved',
+      subjectKind: 'store',
+      subjectId: h.khalid.id,
+      summaryAr: 'حرّك مكان مطعم خالد لـزاكور',
+      detail: { fromZone: 'centre', fromPin: null, toZone: 'zakur', toPin: { lat: 32.887, lng: 45.0765 } },
+    });
+    expect(await code(h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 33.3, lng: 44.4 } }))).toBe('outside_zone');
+    expect(await code(h.svc.moveKitchen(HAIDER, { merchantOrgId: h.home.id, pin: { lat: 32.887, lng: 45.0765 } }))).toBe('org_not_found');
+    expect((await h.orgs.merchantSettings(h.khalid.id)).location?.zoneKey).toBe('zakur');
+  });
+
+  it('«حرّك مكان المطعم»: the new pin and its audit row are written in one transaction', async () => {
+    const h = await setup();
+    const seen: { settings?: unknown; audit?: unknown } = {};
+    const setMerchantSettings = h.orgs.setMerchantSettings.bind(h.orgs);
+    vi.spyOn(h.orgs, 'setMerchantSettings').mockImplementation(async (id, patch) => {
+      seen.settings = h.uow.current();
+      return setMerchantSettings(id, patch);
+    });
+    const record = h.audits.record.bind(h.audits);
+    vi.spyOn(h.audits, 'record').mockImplementation(async (row, tx) => {
+      seen.audit = tx;
+      return record(row, tx);
+    });
+    await h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 32.887, lng: 45.0765 } });
+    expect(seen.settings).toBeDefined();
+    expect(seen.audit).toBe(seen.settings);
+  });
+
+  it('a kitchen move does not hide who set the pickup spot last', async () => {
+    const h = await setup();
+    await h.svc.set(HAIDER, { merchantOrgId: h.khalid.id, note: 'الشباك اليسار', photoIds: [] });
+    h.clock.advance(60_000);
+    const view = await h.svc.moveKitchen(HAIDER, { merchantOrgId: h.khalid.id, pin: { lat: 32.905, lng: 45.06 } });
+    expect(view.consoleEdit).toMatchObject({ byName: 'حيدر' });
   });
 });

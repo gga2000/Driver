@@ -1,15 +1,17 @@
-import { Inject, Logger, Module, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Inject, Logger, Module, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
 import { BullMqQueueFactory, InMemoryQueue, type Queue } from '../../shared/queue.js';
+import { TIMER_STORE, TimerSweeper, type TimerStore } from '../../shared/timers/index.js';
 import { EventsModule, EventsService } from '../events/index.js';
+import { AuditLogService, ControlsModule } from '../controls/index.js';
 import { IdentityModule, IdentityService } from '../identity/index.js';
 import { BLOB_STORE, PlacesModule, type BlobStore } from '../places/index.js';
 import { EventsServiceAdapter, TRIP_EVENTS } from './events.adapter.js';
 import { HANDOVER_PHOTOS, type HandoverPhotos } from './handover-photos.js';
 import { TRIP_ORDER_LOOKUP } from './trip-order.lookup.js';
 import { InMemoryTripsRepository, PrismaTripsRepository, TRIPS_REPOSITORY, type TripsRepository } from './trips.repository.js';
-import { TRIPS_CHILD_NAMES, TRIPS_DRIVER_CARDS, TRIPS_ROLE_CHECKER, TripsRpc } from './trips.rpc.js';
+import { TRIPS_AUDIT, TRIPS_CHILD_NAMES, TRIPS_DRIVER_CARDS, TRIPS_ROLE_CHECKER, TripsRpc } from './trips.rpc.js';
 import { TRIPS_QUEUE, TripsService, type TripTimerJob } from './trips.service.js';
 
 /** BullMQ when REDIS_URL is set; otherwise an in-process queue the module polls once a second. */
@@ -22,7 +24,7 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
  * `trips.timers` queue; the repository doubles as the events module's `TripOrderLookup`.
  */
 @Module({
-  imports: [EventsModule, IdentityModule, PlacesModule],
+  imports: [ControlsModule, EventsModule, IdentityModule, PlacesModule],
   providers: [
     {
       // Maps program f11: delivery photos are uploads in the places module's blob store.
@@ -50,6 +52,8 @@ function timersQueue<T>(name: string, factory: BullMqQueueFactory, clock: Clock)
     { provide: TRIPS_CHILD_NAMES, useExisting: IdentityService },
     // s1: the Console's night-ride code alerts name the driver (masked number), read and logged in identity.
     { provide: TRIPS_DRIVER_CARDS, useExisting: IdentityService },
+    // A dispatcher taking a job off its driver («شيل الطلب منه») lands in the Console audit log.
+    { provide: TRIPS_AUDIT, useExisting: AuditLogService },
     TripsService,
     TripsRpc,
   ],
@@ -64,9 +68,14 @@ export class TripsModule implements OnModuleInit, OnModuleDestroy {
     @Inject(TRIPS_QUEUE) private readonly queue: Queue<TripTimerJob>,
     @Inject(TRIPS_REPOSITORY) private readonly repo: TripsRepository,
     @Inject(CLOCK) private readonly clock: Clock,
+    private readonly trips: TripsService,
+    @Inject(TIMER_STORE) private readonly timerStore: TimerStore,
+    @Optional() @Inject(TimerSweeper) private readonly sweeper: TimerSweeper | null,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // FLW-22: trip timers survive a lost Redis job (the sweeper fires their durable copy).
+    this.trips.bindDurableTimers(this.timerStore, this.sweeper ?? null);
     const q = this.queue;
     if (q instanceof InMemoryQueue) {
       this.poller = setInterval(() => {

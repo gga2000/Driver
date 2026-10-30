@@ -7,6 +7,11 @@ work on it later. I don't want to work on them now."
 to prepare for launch, work through it from the top. When an item is done or Ali changes his mind,
 update this file in the same commit.
 
+**Started 2026-10-07 (Ali's D-22, in the approved launch plan):** the items a food-only launch needs
+are now open and tracked in `docs/launch/can-deliver-plan.md` (gate G0); launch day is food plus taxi
+and tuktuk (Ali, 2026-10-07: "taxis open from day 1"), which says where every item
+below goes. Items it marks "after launch" stay parked.
+
 Each item says what it is in plain words and where the details are written. "Blocks launch" means
 we can't open to the public without it.
 
@@ -18,7 +23,7 @@ we can't open to the public without it.
 |---|---|---|---|
 | The real WhatsApp support number | Later (2026-10-06) | Yes: customers, restaurants and drivers all see a placeholder today | `apps/customer/README.md` (`EXPO_PUBLIC_SUPPORT_WHATSAPP`), `apps/merchant/src/lib/env.ts`, `apps/partner/README.md` |
 | Who is on duty for SOS, and who it escalates to if nobody answers | Later (2026-10-06). Today every live dispatcher gets every SOS | Yes: an SOS must always reach a person | `docs/api/safety.md` |
-| Phone calls between customers and drivers | **No outside "masked call" company: we carry the calls ourselves** (2026-10-06). Before building: confirm with Ali how (in-app calling over the internet, or our own phone line). The SOS call to Ali also needs this | Probably: calls run on a test bridge today | `apps/api/src/shared/call-bridge.ts`, `docs/api/safety.md` "Not done yet" |
+| Phone calls between customers and drivers | **No outside "masked call" company: we carry the calls ourselves** (2026-10-06). **Ali, 2026-10-07: chat first**: chat and voice notes at launch, in-app internet calls after launch. The SOS call to Ali also needs this | Probably: calls run on a test bridge today | `apps/api/src/shared/call-bridge.ts`, `docs/api/safety.md` "Not done yet" |
 | Parents' WhatsApp messages on school runs (خطوط) | **A proper WhatsApp setup, later** (2026-10-06): the parent gets a WhatsApp message when the child gets on and when the child arrives, with the car (driver, car, plate) and the trip details (route, times, where). Wording must not assume boy or girl (child records have no gender). Ali will set the details later | Yes for خطوط | See section 4 |
 | The brand symbol (direction A, B or C) | Not chosen | Yes: the app stores need an icon and a splash screen | `docs/specs/2026-10-03-brand.md`, `docs/specs/2026-10-05-customer-joy.md` §10 |
 | Real Aziziyah price tables | Not set | Yes | `docs/specs/2026-10-03-launch-playbook.md` §7 |
@@ -27,6 +32,7 @@ we can't open to the public without it.
 | SMS fallback limits (how many SMS per order, monthly cap) | Not set | No | maps spec §5.9 |
 | Money rules not yet approved: stamp cards, rolling points expiry, invite-gift amounts | Not approved | No | customer-joy spec §5.7, §6 |
 | Merchant staff invite: add an "accept" step? | Not decided | No | `docs/research/2026-10-04-backend-review.md` #6 |
+| A restaurant runs out of a dish and the customer doesn't answer within 60 seconds: send the rest of the order, or cancel it? | Not answered (recommended: send the rest, refund the missing dish) | No | section 8 |
 
 ## 2. Accounts and setup
 
@@ -39,8 +45,8 @@ we can't open to the public without it.
 | Supabase Pro in Frankfurt (database) | Yes | `docs/deploy/supabase.md`, `docs/deploy/runbook.md` |
 | Fly.io for the server | Yes | `docs/deploy/hosting.md` |
 | Cloudflare Pages for the web apps; own street map on Cloudflare R2 | Yes | `docs/deploy/web.md`, maps spec §5.2 |
-| An SMS provider for sign-in codes (today codes only go to the log) | Yes | `docs/deploy/runbook.md` |
-| WhatsApp Business verification and message templates approved (sign-in code, order updates, parents' messages) | Yes | `docs/whatsapp-templates.md` |
+| SMS for sign-in codes: OTPIQ (Ali's pick, 2026-10-09). Sign up, top up, live key into production secrets. Ask OTPIQ for the sender id **Driver** early: until it is approved only sign-in codes go out, and other texts (notification SMS, the gift recipient's SMS) fail | Yes | `docs/api/otpiq.md` |
+| WhatsApp Business verification and message templates approved (sign-in code, order updates, parents' messages). Ali found Meta's sign-up hard (2026-10-09); every WhatsApp service, Interakt included, still needs it. Recommended: open with SMS only, then add WhatsApp through Bulk SMS Iraq (Erbil, a Meta partner that does the sign-up for you, about 39 دينار a code) once the company certificate is out. Ali hasn't decided | Yes for parents' messages; no for sign-in (SMS covers it) | `docs/whatsapp-templates.md`, section 8 |
 | Push notifications working on 5 test phones | Yes | launch playbook §7 |
 | A cheap Android phone as our reference test phone | Probably | maps spec §11 |
 | Road routing server (OSRM), until then times are straight-line estimates | No | `docs/deploy/hosting.md` |
@@ -54,11 +60,17 @@ we can't open to the public without it.
 | Phones show a simple zone sketch, not a real street map (the web version has the real map) | Yes | maps spec §2 |
 | The driver app's location with the app closed: built 2026-10-07 (Android foreground service + background task), **not yet tried on a real phone**; Google Play needs the background-location declaration (disclosure screen + short video) | Yes | `apps/partner/README.md` "Known gaps" |
 | Live updates on phones tested on web only, not on a device | Probably | `docs/api/live.md` |
+| Push notifications on Android phones: each app needs its Firebase project file (`google-services.json`, `android.googleServicesFile`) and the server `FCM_*` settings; until then the test APKs get no pushes | Yes | `docs/deploy/mobile.md` "Test APKs from GitHub" |
 | The food screens (/food street, the four door pages, the night look) checked on the web only: on a real phone, check the photo sizes and crops, the hero's settle-in, scrolling smoothness and that dish photos from the server load and stay cached (Ali 2026-10-08: "have in the to do later") | Probably | `apps/customer/src/features/food-landing/`, `apps/customer/src/features/doors/` |
 | Selfie check and face match accept any photo; menu import from a photo is a stub | Probably | `docs/api/partner-merchant-wave2.md` |
 | Receipt printer (Bluetooth) and the restaurant's camera for evidence photos | Probably | `apps/merchant/README.md` |
 | School-run (خطوط) daily runs aren't created automatically from a subscription | Probably | `docs/api/partner-merchant-wave2.md` |
 | AI first-line support from the support spec isn't built | Probably (it's on the launch checklist) | `docs/specs/2026-10-02-notifications-and-support.md` |
+| Courier app (Driver Partner) on a real phone: everything from the 2026-10-09 check-up (one money card at the door, readiness line, night panels, one keypad, back button, ص/م times) was checked on the web only. Needs a test build (`docs/deploy/mobile.md`) and a courier trying a full shift (Ali 2026-10-09: "add to the to do later file") | Yes | `apps/partner/README.md` |
+| The gold evening map on the courier and customer phones: works on the web; phones wait for the Expo account (§2) | Probably | `docs/specs/2026-10-09-map-golden-hour-design.md` |
+| The courier's «اتصال · قريباً» button stays until calls are built (§1 "Phone calls"; Ali 2026-10-09 said keep it) | No | `apps/partner/app/job.tsx` |
+| The shift guarantee (G-91) is built but switched off (`MoneyRules.guarantee.enabled = false`); Ali decides whether to pay it, the amount for 9–11 h shifts, couriers only, and a minimum online time | No | `docs/api/shift-guarantee.md` |
+| Food carts (عربانات): on phones the owner's «فتحت هنا» can't read the phone's location yet, because the Merchant app has no location module. He sets the spot by moving the map (the web version uses the browser's location). Add `expo-location` to the Merchant app with the next development build. Carts are open (Ali, 2026-10-12), so owners on phones need this soon | Yes, carts are open | `docs/api/food-carts.md`, `apps/merchant/src/features/cart/position.ts` |
 | Launch content: 50+ landmarks and meeting points with photos, canned support replies, a full dress rehearsal, kill switches tested | Yes | launch playbook §7 |
 
 ## 4. Parents' WhatsApp messages (خطوط), notes for when we build it
@@ -104,4 +116,96 @@ These come from Ali's boards (joy audit, map plan). Full lists are in the specs.
 - A blocked or expired driver goes offline only at his next check-in (up to 30 seconds).
 - No automatic flag for couriers who send change to the wallet far more often than others.
 - Two kinds of pending request are lost if the server restarts (`docs/persistence.md`).
+- Field ops re-check the draft Baghdad-road meeting point «مفرق المدائن» (33.0985, 44.5802 in `apps/api/src/modules/routes/intercity.config.ts`): it is about 8 km off the fast road, which runs through الوحدة and الزعفرانية (found while drawing the N13 road map, 2026-10-11).
 - Older review notes that may be out of date: `docs/research/2026-10-04-apps-review.md` #13, #18, #23, #26, #32.
+
+## 7. Platform (servers, tests, alerts): dated work and parked items
+
+Added 2026-10-09 when Ali closed the platform thread. Unlike sections 1–6, the dated rows are already
+agreed and only wait for their day; the platform work restarts from here.
+
+| When | What | Who | Details |
+|---|---|---|---|
+| Before 2 Nov | Upgrade Supabase to Pro (Ali said yes on 2026-10-08) | Ali | `docs/deploy/supabase.md` |
+| Done 9 Oct | Test sign-in code `STAGING_TEST_OTP` set by Ali in GitHub (staging); test numbers 0770 000 0100–0199 sign in on the customer website | Ali | `docs/api/staging-test-numbers.md` |
+| 9 Nov | The big load test on the test server (bigger test server approved), results in `docs/launch/load-YYYY-MM-DD.md` | platform | `docs/launch/load-test.md` |
+| Before 20 Nov | Try each Game day button once on a quiet day | platform | `.github/workflows/game-day.yml` |
+| 26 Nov, 14:00–18:00 | Game day on the test server; failed rows re-run by 2 Dec | Ali + platform | `docs/launch/game-day.md` |
+| When the real server is set up | Error reports (`SENTRY_DSN` on the real API) and uptime monitors with email alerts (Better Stack, free) | platform | `docs/deploy/hosting.md` "Logs and errors" |
+| When the real server is set up | The map on the real Supabase project: secret `SUPABASE_SECRET_KEY` in GitHub → Environments → Production, run Actions → Map tiles → `production`, then set the map URLs in the real app builds | Ali (key) + platform | `docs/deploy/map.md` |
+| Week before launch | Phone-call alerts (Better Stack Responder, about $29 a month): the alert phone number goes only into Better Stack's own settings, never into this repo | Ali | — |
+| Each test-server run | Approve it when GitHub asks ("Review deployments") | Ali | — |
+
+Parked (start when convenient, no date):
+
+- Two database clean-ups wait behind the other teams' database changes: the old-data clean-up (#38) and
+  the events index. Each takes the next free migration slot when picked up (`docs/launch/migrations.md`).
+- Game day row 11 (the nightly money close on a web machine) has no on-demand start yet; until it does,
+  that row is run by hand around the scheduled close time.
+
+## 8. Sign-in and messages (lane D): built, waiting to merge
+
+Added 2026-10-09 when Ali closed the sign-in and messages thread ("add this postponed work to the to do
+later file"). Each branch below is finished and passed every check on the day it was pushed. None is on
+`main` yet: each has a database change, so they merge in stamp order. To pick one up: merge `main` into
+the branch, re-stamp its migration to the next free slot if its slot is taken (`docs/launch/migrations.md`),
+run the checks, get the reviewer's `reviewed:<sha>` label and, for sign-in, Ali's own OK.
+
+| What it does for people | Branch | Blocks launch | Notes |
+|---|---|---|---|
+| A gift order's recipient gets one SMS when the courier is near (cash gifts say how much to pay) | `claude/lane-d-gift-sms`, PR #131 | No | migration slot 410000 |
+| Limits against abuse (too many orders or cancels from one person or phone) | `claude/lane-d-abuse-limits` | Probably | slot 670000 (re-stamped from 420000); main merged in, PR open |
+| A household member must accept before joining a shared wallet (SEC-06) | `claude/lane-d-household` | Yes: no one may be added to a wallet without saying yes | slot 430000 |
+| Opening in waves: new customers wait in a queue until ops opens more places | `claude/lane-d-waves` | Probably | slot 440000; the store reviewer's account must skip the queue |
+| Delete my account from inside the app (both stores require it) | `claude/lane-d-account-deletion` | Yes | slot 450000; carries the list of every table it clears ; partners and merchants already ask from their apps and an admin closes them from the Console (`docs/api/account-close.md`), so its `work_role` blocker sends them there |
+| A test kitchen and test numbers for Apple and Google's reviewers | `claude/lane-d-store-review` | Yes for the store review | slot 460000; drop its copy of the staging test numbers (#133 already put them on `main`); it must never erase demo data |
+
+Still to build:
+
+- When the shared-car boarding change (trips, slot 490000) is on `main`: a push to a friend when the driver
+  confirms they got in, «السايق أكد إنك صعدت».
+- A test restaurant owner on the test server: make one test number (e.g. 0770 000 0150) the owner of a
+  seeded restaurant, so the restaurant website can be tried with a test number too (today a test number
+  signs in there but owns no restaurant). Not built; offered 9 Oct.
+- The WhatsApp sign-in template is called `driver_otp` in one place and `otp_login` in another: settle on
+  one name before submitting templates to Meta.
+- OTPIQ, after Ali signs up: ask for the sender name **Driver** (row in section 2).
+
+## 9. Senior audit leftovers: built, parked until launch prep
+
+Added 2026-10-13 when Ali closed the senior audit thread ("add those to the to do later"). Everything else
+from the audit is on `main`. Ali's plain-language steps for items 2–4 are kept in the project's private
+audit notes (`audit/system/r5/ali-steps.md`, outside this repo); every secret goes only into GitHub or
+Fly, never into a chat.
+
+| What it does | Where | Blocks launch | How to pick it up |
+|---|---|---|---|
+| Admin and finance type a 6-digit authenticator-app code after the SMS code on the Console; backup codes; an admin can reset someone else's; other admins are told about every new setup (Ali chose "Yes, before launch", 13 Oct) | PR #330, branch `claude/project-thread-u6yai6-staff-totp`, migration slot 620000 | Yes (Ali's choice) | Lands after the migrations at 600000 and 610000. Merge `main` in, run the checks, get a fresh `reviewed:<sha>` label, merge. Then: Staging setup creates `STAFF_TOTP_KEY` for staging; production needs it set on Fly before the deploy (the API refuses to boot without it). Every admin and finance person sets up their app the same day it goes live. Details: `docs/api/staff-totp.md` on the branch |
+| Ali's setup: protect `main` on GitHub (ruleset: no deletion, pull request, checks `ci` `e2e-postgres` `review-gate`, no force push) and the two Vercel deploy hooks (`VERCEL_DEPLOY_HOOK_CUSTOMER`, `VERCEL_DEPLOY_HOOK_MERCHANT` in the GitHub `production` environment) | Ali | Yes | Needed before the release-safety change below can merge |
+| Safer releases: only a commit with green checks ships, websites deploy after the API, backup has its own environment, money files need review | PR #225, branch `claude/project-thread-u6yai6-release-safety` | Yes | After Ali's two setup steps: merge `main` in (it has conflicts), re-run checks, fresh label, merge |
+| Nightly database backup | `backup` environment in GitHub | Yes | Needs a storage bucket (Cloudflare R2 or similar) and its secrets in the `backup` environment; then run the first backup and test a restore |
+| Run Staging setup once more, then Deploy staging | Ali | No (test server only) | Gives the test server its link addresses and the authenticator key |
+
+## 10. Postponed by Ali on 2026-10-07 (still gating launch)
+
+Ali, 2026-10-07: "add it to to do later file". These stay visible because each one still moves the
+launch date if it slips (launch plan §9.1); the dates are in `docs/launch/can-deliver-plan.md`.
+
+**Ali's own tasks**
+
+| What | Why it gates | Latest safe date |
+|---|---|---|
+| Hire a lawyer (terms, privacy, wallet, permits; plan L1–L8, D-3) | Store listing needs the privacy policy and terms | The store forms by D-24 (Fri 13 Nov) |
+| Company registration → D-U-N-S number | The Play organisation account needs both; WhatsApp Business verification needs the company papers | Certificate Wed 21 Oct, D-U-N-S Wed 4 Nov |
+| Google Play accounts: a personal backup (no app in it, D-21) and the organisation account (owns the app ids, D-25) | The closed test runs on the organisation account | Organisation account verified Mon 9 Nov |
+| The 7 test phones (plan 6.2) | Phone tests of push, location and the apps | First phone session Mon 26 Oct |
+| GitHub branch protection on `main` (D-17) | Every gate's checks are enforced by it | Before the build cut, Fri 13 Nov |
+
+**The money questions M-1 … M-15** (launch plan §5.1, decision card §5.0). Each money rule stays
+**switched off** until Ali answers it; the code is built behind its switch. The ones that gate the
+closed test or launch: M-1 dispute outcomes, M-2 free cancel when we fail, M-3 unpaid cancel fees,
+M-4 cash-order caps, M-5 invite rewards (paying today without approval), M-6 wallet balance on
+deletion, M-7 closed-loop wallet, M-8 household wallet hidden, M-10 courier lost the food, M-14 no
+courier on his own order (all by Mon 2 Nov). After launch: M-12, M-13 (D+14). Before seats open:
+M-9, M-11. **M-15 decided by Ali on 2026-10-07: yes**: when the driver cancels, the rider gets 500
+دينار in the wallet, taken from the driver.

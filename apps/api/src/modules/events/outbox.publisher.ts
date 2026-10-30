@@ -33,10 +33,11 @@ export interface OutboxPublisherOptions {
 /**
  * Moves committed outbox rows to subscribers (plan Step 3, architecture §2).
  *
- * Queue mode (REDIS_URL set): a BullMQ worker on the `outbox` queue drains on every `tick` job; a
- * 500-ms interval and every commit that wrote events enqueue `tick` with a fixed jobId, so at most
- * one waits however many API instances poke. If Redis is down the pokes fail quietly, rows stay
- * `pending` (the Console sees them climb) and the next tick after Redis returns drains them.
+ * Queue mode (REDIS_URL set): a BullMQ worker on the `outbox` queue drains on every `tick` job, which
+ * every commit that wrote events enqueues with a fixed jobId, so at most one waits however many API
+ * instances poke. On the machines that run jobs a 500-ms interval also drains straight from Postgres
+ * (the lease makes concurrent drains safe), so a Redis outage or a full Redis delays nothing the
+ * outbox owns; a failed poke only means the interval picks the rows up instead.
  *
  * Sync mode (no Redis: tests, the dev server, the simulator): the commit that wrote events drains
  * before `UnitOfWork.run` returns, and `start()` keeps a 500-ms interval for backoff retries.
@@ -55,6 +56,8 @@ export class OutboxPublisher {
   private rerun = false;
   private timer: NodeJS.Timeout | undefined;
   private started = false;
+  /** When a drain here last delivered rows (the worker self-check reads it). */
+  lastProgressAt = Date.now();
 
   constructor(
     private readonly repo: EventsRepository,
@@ -80,33 +83,39 @@ export class OutboxPublisher {
       try {
         await this.queue.add('tick', {}, { jobId: OUTBOX_TICK_JOB_ID, transient: true });
       } catch (err) {
-        this.logger.warn(`outbox poke not queued (rows stay pending): ${(err as Error).message}`);
+        this.logger.warn(`outbox poke not queued (the 500-ms drain picks the rows up): ${(err as Error).message}`);
       }
       return;
     }
+    await this.drainQuietly();
+  }
+
+  /**
+   * Registers the worker (queue mode) and the 500-ms drain. `interval: false` for tests driving ticks
+   * by hand, and for `web` processes (DRIVER_ROLE), whose commits only poke.
+   */
+  start(opts: { interval?: boolean } = {}): void {
+    if (this.started) return;
+    this.started = true;
+    if (this.queue) this.queue.process(() => this.drainQuietly());
+    if (opts.interval === false) return;
+    this.timer = setInterval(() => void this.drainQuietly(), this.tickMs);
+    this.timer.unref();
+  }
+
+  /** How late the most overdue pending row is (0 when none is due). Throws when the database does not answer. */
+  async oldestOverdueMs(): Promise<number> {
+    const now = this.clock.now();
+    const due = await this.repo.oldestDueAt(now);
+    return due ? Math.max(0, now.getTime() - due.getTime()) : 0;
+  }
+
+  private async drainQuietly(): Promise<void> {
     try {
       await this.drainUntilIdle();
     } catch (err) {
       this.logger.error(`outbox drain failed: ${(err as Error).message}`, (err as Error).stack);
     }
-  }
-
-  /** Registers the worker (queue mode) and the 500-ms tick. `interval: false` for tests driving ticks by hand. */
-  start(opts: { interval?: boolean } = {}): void {
-    if (this.started) return;
-    this.started = true;
-    if (this.queue) {
-      this.queue.process(async () => {
-        try {
-          await this.drainUntilIdle();
-        } catch (err) {
-          this.logger.error(`outbox drain failed: ${(err as Error).message}`, (err as Error).stack);
-        }
-      });
-    }
-    if (opts.interval === false) return;
-    this.timer = setInterval(() => void this.poke(), this.tickMs);
-    this.timer.unref();
   }
 
   stop(): void {
@@ -127,6 +136,17 @@ export class OutboxPublisher {
   }
 
   /**
+   * For tests and the simulator: waits out a drain already running (the interval's, or a commit's
+   * poke, which `drainUntilIdle` would return 0 for at once), then drains until nothing is due, so
+   * every row due when it was called has been delivered when it resolves. Never call it from inside a
+   * subscriber: it would wait on the drain running that subscriber.
+   */
+  async drainAll(): Promise<number> {
+    while (this.draining) await this.draining.catch(() => 0);
+    return this.drainUntilIdle();
+  }
+
+  /**
    * Drains until nothing is due. Re-entrant calls (a subscriber's own commit poking while this
    * drain runs) return at once and the running loop picks their rows up; awaiting the running
    * drain from inside it would deadlock.
@@ -142,6 +162,7 @@ export class OutboxPublisher {
         this.rerun = false;
         const r = await this.drainOnce();
         total += r.claimed;
+        if (r.claimed > 0) this.lastProgressAt = Date.now();
         if (r.claimed === 0 && !this.rerun) break;
       }
       return total;

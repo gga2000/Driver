@@ -1,4 +1,4 @@
-import { DriverError, TERMINAL_ORDER_STATES, type CashStanding, type LedgerEvent, type OrderState } from '@driver/contracts';
+import { CASH_STEP_IQD, DriverError, TERMINAL_ORDER_STATES, type CashStanding, type LedgerEvent, type OrderState } from '@driver/contracts';
 import type { OrdersRepository, OrderRecord } from './orders.repository.js';
 import type { OrdersCashRiskPort } from './orders.service.js';
 import type { OrderEventLog } from './orders.staff.js';
@@ -14,6 +14,8 @@ export const CASH_LIMITS = Symbol('CASH_LIMITS');
 
 const FINISHED: readonly OrderState[] = ['delivered', 'completed', 'closed'];
 const NOT_OPEN: readonly OrderState[] = ['delivered', 'completed', 'disputed'];
+/** Past the hand-over: the cash (and any owed fees with it) is already on the ledger. */
+const COLLECTED: readonly OrderState[] = ['delivered', 'completed', 'closed', 'disputed'];
 
 /**
  * W3 cash limits (SEC-10 / M-4, THIN-01 / M-3), wrapped around the ledger's new-customer cash rule
@@ -28,7 +30,7 @@ const NOT_OPEN: readonly OrderState[] = ['delivered', 'completed', 'disputed'];
 export class CashLimits implements OrdersCashRiskPort {
   constructor(
     private readonly base: OrdersCashRiskPort,
-    private readonly repo: Pick<OrdersRepository, 'forPerson'>,
+    private readonly repo: Pick<OrdersRepository, 'forPerson' | 'openPlacedBy' | 'countPlacedBy'>,
     private readonly ledger: CashLimitsLedgerPort,
     private readonly eventLog: OrderEventLog,
     private readonly rules: OrderOutcomeRules,
@@ -40,16 +42,33 @@ export class CashLimits implements OrdersCashRiskPort {
     return this.base.newCustomerCash(customerId, orderTotalIqd);
   }
 
+  /**
+   * M-3 «ينضاف لطلبك الجاي» (`CASH_DEBT_COLLECT`): what he owes, in whole 250s, less what his orders
+   * not yet at his door already carry (each fee is asked for once). The cash he hands over settles
+   * it on the ledger the moment the courier takes it, so a delivered order no longer counts here.
+   */
+  async debtToCollect(customerId: string): Promise<number> {
+    if (!this.rules.cashDebt.collectOnNext) return 0;
+    const { owedIqd } = await this.debt(customerId);
+    if (owedIqd <= 0) return 0;
+    const carried = (await this.repo.openPlacedBy(customerId))
+      .filter((o) => o.paymentMethod === 'cash' && !COLLECTED.includes(o.state))
+      .reduce((s, o) => s + (o.debtCollectIqd ?? 0), 0);
+    const left = Math.max(0, owedIqd - carried);
+    // Whole 250s, like every cash amount; the odd rest stays owed.
+    return Math.floor(left / CASH_STEP_IQD) * CASH_STEP_IQD;
+  }
+
   async standing(customerId: string): Promise<CashStanding> {
-    const mine = (await this.repo.forPerson(customerId)).filter((o) => o.ordererId === customerId);
+    // FOOD-04: his open orders and a count, never his whole history (this runs on every cash quote and place).
     // Open = not yet at his door: delivered (closing in 2 h) and complaints under review do not count.
-    const openCashOrders = mine.filter((o) => o.paymentMethod === 'cash' && !TERMINAL_ORDER_STATES.includes(o.state) && !NOT_OPEN.includes(o.state)).length;
-    const completed = mine.filter((o) => FINISHED.includes(o.state)).length;
+    const [open, completed] = await Promise.all([this.repo.openPlacedBy(customerId), this.repo.countPlacedBy(customerId, { states: FINISHED })]);
+    const openCashOrders = open.filter((o) => o.paymentMethod === 'cash' && !NOT_OPEN.includes(o.state)).length;
     const oc = this.rules.openCash;
     const openCashLimit = oc.enabled ? (completed < oc.newAccountBelowCompleted ? oc.newAccountMax : oc.regularMax) : null;
     const { owedIqd, unpaidFees } = await this.debt(customerId);
     let blockedBy: CashStanding['blockedBy'] = null;
-    if (oc.prepayAfterNoAnswer && (await this.lastWasNoAnswer(mine))) blockedBy = 'prepay_required';
+    if (oc.prepayAfterNoAnswer && (await this.lastWasNoAnswer((await this.repo.forPerson(customerId)).filter((o) => o.ordererId === customerId)))) blockedBy = 'prepay_required';
     else if (this.rules.cashDebt.block && (unpaidFees >= this.rules.cashDebt.maxUnpaidFees || owedIqd > this.rules.cashDebt.maxOwedIqd)) blockedBy = 'cash_debt_blocked';
     else if (openCashLimit !== null && openCashOrders >= openCashLimit) blockedBy = 'open_cash_orders_cap';
     return { owedIqd, unpaidFees, openCashOrders, openCashLimit, cashAllowed: blockedBy === null, blockedBy };

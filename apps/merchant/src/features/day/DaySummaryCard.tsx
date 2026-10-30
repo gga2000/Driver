@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import type { MerchantDaySummary } from '@driver/contracts';
-import { Button, Text, useTheme } from '@driver/ui';
+import { Button, Icon, Text, useTheme } from '@driver/ui';
 import { useCounterToast } from '@/lib/toast';
 import { MIcon } from '@/components/MIcon';
 import { useDates } from '@/lib/dates';
@@ -16,6 +16,48 @@ export interface DaySummaryCardProps {
   todayKey: string;
   wide: boolean;
   onDismiss: () => void;
+  /** Inside a sheet (opened from the day line): no frame of its own. */
+  bare?: boolean;
+}
+
+/**
+ * Day-one d01: the day's card folded to one line while orders wait — «البارحة: 35 طلب ›» — so it
+ * never sits on top of a ringing order. A tap opens the full card.
+ */
+export function DayLine({ summary, todayKey, wide, onOpen }: { summary: MerchantDaySummary; todayKey: string; wide: boolean; onOpen: () => void }) {
+  const theme = useTheme();
+  const t = useT();
+  const dates = useDates();
+  const titleKey = dayTitleKey(summary, todayKey);
+  const title = titleKey ? t(titleKey) : dates.dayMonth(new Date(`${summary.localDate}T12:00:00+03:00`));
+  const line = t('merchant.day.line', { title, orders: t('merchant.day.orders', { count: summary.orders }) });
+  return (
+    <Pressable
+      testID="day-line"
+      accessibilityRole="button"
+      accessibilityLabel={t('merchant.day.line_a11y', { title, orders: t('merchant.day.orders', { count: summary.orders }) })}
+      onPress={onOpen}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.space[2],
+        minHeight: 44,
+        marginHorizontal: wide ? theme.space[5] : 0,
+        marginTop: wide ? theme.space[3] : 0,
+        paddingHorizontal: theme.space[4],
+        borderRadius: theme.radius.lg,
+        backgroundColor: theme.colors.surfaceSunken,
+        opacity: pressed ? 0.85 : 1,
+        alignSelf: wide ? 'flex-start' : 'stretch',
+      })}
+    >
+      <MIcon name="chart" size={18} color="textMuted" strokeWidth={2} />
+      <Text variant="label" weight={600} color="textMuted" tabular style={{ flexShrink: 1 }}>
+        {line}
+      </Text>
+      <Icon name="chevron-forward" size={18} color="textMuted" strokeWidth={2} />
+    </Pressable>
+  );
 }
 
 const TONE = { text: 'text', danger: 'dangerText', success: 'successText', muted: 'textMuted' } as const;
@@ -25,7 +67,7 @@ const TONE = { text: 'text', danger: 'dangerText', success: 'successText', muted
  * day in one card: "اليوم: 42 طلب · فاتك 0 · وقتك مضبوط 91% · الصافي 512,000 دينار", one advice
  * line from Insights, "شارك على واتساب" (an image on the web, the share sheet on a phone) and "تمام".
  */
-export function DaySummaryCard({ summary, todayKey, wide, onDismiss }: DaySummaryCardProps) {
+export function DaySummaryCard({ summary, todayKey, wide, onDismiss, bare = false }: DaySummaryCardProps) {
   const theme = useTheme();
   const t = useT();
   const locale = useLocale();
@@ -34,9 +76,10 @@ export function DaySummaryCard({ summary, todayKey, wide, onDismiss }: DaySummar
   const [sharing, setSharing] = useState(false);
   const facts = dayFacts(summary);
   const advice = adviceLine(summary.advice);
-  const title = t(dayTitleKey(summary, todayKey));
   const dayAt = new Date(`${summary.localDate}T12:00:00+03:00`);
   const dayName = `${dates.dow(dayAt.getUTCDay())} ${dates.dayMonth(dayAt)}`;
+  const titleKey = dayTitleKey(summary, todayKey);
+  const title = titleKey ? t(titleKey) : dayName;
   const valueOf = (f: DayFact) => ('amountIqd' in f.value ? iqd(f.value.amountIqd, { locale }) : t(f.value.key, f.value.params));
 
   const share = async () => {
@@ -78,20 +121,24 @@ export function DaySummaryCard({ summary, todayKey, wide, onDismiss }: DaySummar
     <View
       testID="day-summary"
       accessible={false}
-      style={{
-        marginHorizontal: wide ? theme.space[5] : theme.space[4],
-        marginTop: theme.space[4],
-        backgroundColor: theme.colors.surface,
-        borderRadius: theme.radius['2xl'],
-        borderWidth: 1,
-        borderColor: theme.colors.borderStrong,
-        padding: wide ? theme.space[5] : theme.space[4],
-        gap: theme.space[4],
-        shadowColor: theme.colors.shadow,
-        shadowOpacity: 0.08,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 6 },
-      }}
+      style={
+        bare
+          ? { gap: theme.space[4] }
+          : {
+              marginHorizontal: wide ? theme.space[5] : theme.space[4],
+              marginTop: theme.space[4],
+              backgroundColor: theme.colors.surface,
+              borderRadius: theme.radius['2xl'],
+              borderWidth: 1,
+              borderColor: theme.colors.borderStrong,
+              padding: wide ? theme.space[5] : theme.space[4],
+              gap: theme.space[4],
+              shadowColor: theme.colors.shadow,
+              shadowOpacity: 0.08,
+              shadowRadius: 18,
+              shadowOffset: { width: 0, height: 6 },
+            }
+      }
     >
       <View style={{ flexDirection: wide ? 'row' : 'column', gap: theme.space[4], alignItems: wide ? 'center' : 'stretch' }}>
         <View style={{ flex: wide ? 1.1 : undefined, gap: 2 }}>
@@ -101,9 +148,11 @@ export function DaySummaryCard({ summary, todayKey, wide, onDismiss }: DaySummar
           <Text variant="display" accessibilityRole="header">
             {title}
           </Text>
-          <Text variant="footnote" color="textMuted" tabular>
-            {dayName}
-          </Text>
+          {titleKey ? (
+            <Text variant="footnote" color="textMuted" tabular>
+              {dayName}
+            </Text>
+          ) : null}
         </View>
         <View style={{ flex: wide ? 3 : undefined, flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[3] }}>
           {small.map((f) => (
@@ -121,7 +170,7 @@ export function DaySummaryCard({ summary, todayKey, wide, onDismiss }: DaySummar
               <Text variant="caption" color="textMuted" weight={600}>
                 {t(hero.label)}
               </Text>
-              <Text variant="numeralMd" tabular numberOfLines={1} style={{ letterSpacing: -0.5 }}>
+              <Text variant="numeralMd" tabular style={{ letterSpacing: -0.5 }}>
                 {valueOf(hero)}
               </Text>
             </View>

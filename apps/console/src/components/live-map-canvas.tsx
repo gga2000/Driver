@@ -1,6 +1,6 @@
 'use client';
 
-import maplibregl, { type GeoJSONSource, type Map as MlMap, type MapGeoJSONFeature, type StyleSpecification } from 'maplibre-gl';
+import maplibregl, { type GeoJSONSource, type Map as MlMap, type MapGeoJSONFeature } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AZIZIYAH_ZONES, LANDMARK_FEED_RULES, type DemandLevel, type LandmarkCategory } from '@driver/contracts';
 import { t } from '@driver/i18n';
@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   AZIZIYAH_BOUNDS,
   AZIZIYAH_MAX_BOUNDS,
-  buildMapStyle,
   buildPlacedZonesGeoJSON,
   buildZonesGeoJSON,
   GARAGES,
@@ -23,6 +22,8 @@ import {
   SOURCE,
 } from '@driver/map';
 import { useTRPC } from '@/lib/trpc';
+import { GOLDEN_FIRST_LABEL } from '@driver/map/golden';
+import { openConsoleMapStyle, watchGoldenMap } from '@/lib/map-runtime';
 import { MARKER_SHAPES } from '@/lib/marker-shapes';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { TRIP_DRAG_TYPE, type LiveGeoJSON, type OrderTag } from '@/lib/live-map';
@@ -164,6 +165,8 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
   const layoutRef = useRef<() => void>(() => undefined);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** Bumped when our Golden hour map fails to open: the map reopens on the original one. */
+  const [reopen, setReopen] = useState(0);
   const [hover, setHover] = useState<(MapHoverTarget & { x: number; y: number }) | null>(null);
 
   // ── map (rebuilt when the theme changes) ──
@@ -171,10 +174,12 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
     const el = container.current;
     if (!el) return;
     let map: MlMap;
+    const look = { theme, zoneShading: 'sequential' } as const;
+    const { style, golden } = openConsoleMapStyle(look);
     try {
       map = new maplibregl.Map({
         container: el,
-        style: buildMapStyle({ theme, zoneShading: 'sequential' }) as StyleSpecification,
+        style,
         ...(lastCamera ? { center: lastCamera.center, zoom: lastCamera.zoom } : { bounds: AZIZIYAH_BOUNDS, fitBoundsOptions: { padding: 32 } }),
         maxBounds: AZIZIYAH_MAX_BOUNDS,
         attributionControl: { compact: true },
@@ -185,7 +190,13 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
       setFailed(true);
       return;
     }
-    mapRef.current = map;
+    const stopWatch = golden
+      ? watchGoldenMap(map, look, () => {
+          // The old map is loading the original style now: nothing may draw on it until the reopen.
+          mapRef.current = null;
+          setReopen((n) => n + 1);
+        })
+      : () => undefined;
     map.touchZoomRotate.disableRotation();
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
 
@@ -311,7 +322,10 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
     });
     // Live data may flow once the style is parsed, not on `load` (that waits for every basemap tile,
     // which never comes while OSM is slow or unreachable).
+    // The screen draws on this map only once its style is in (`mapRef` stays empty until then), so a
+    // map being replaced — a theme change or the fallback to the original map — is never drawn on.
     const markReady = () => {
+      mapRef.current = map;
       // HTML markers replace the style's circle drivers.
       for (const id of [LAYER.drivers, LAYER.driverHalo]) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
       setReady(true);
@@ -335,11 +349,12 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
       }
       for (const l of labels.values()) l.marker.remove();
       labels.clear();
+      stopWatch();
       map.remove();
       mapRef.current = null;
       setReady(false);
     };
-  }, [theme]);
+  }, [theme, reopen]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -421,7 +436,10 @@ export default function LiveMapCanvas(props: LiveMapCanvasProps) {
         map.getLayer(LAYER.zoneLine) ? LAYER.zoneLine : undefined,
       );
       // A bold outline, so a busy zone reads apart from the tier wash under it.
-      map.addLayer({ id: HEAT_OUTLINE, type: 'line', source: HEAT_SOURCE, paint: { 'line-color': accent, 'line-width': ['match', ['get', 'level'], 'hot', 3, 1.5], 'line-opacity': 0.95 } });
+      map.addLayer(
+        { id: HEAT_OUTLINE, type: 'line', source: HEAT_SOURCE, paint: { 'line-color': accent, 'line-width': ['match', ['get', 'level'], 'hot', 3, 1.5], 'line-opacity': 0.95 } },
+        map.getLayer(GOLDEN_FIRST_LABEL) ? GOLDEN_FIRST_LABEL : undefined,
+      );
     }
   }, [ready, heat, zonesQuery.data, theme]);
 
