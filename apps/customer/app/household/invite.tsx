@@ -8,7 +8,10 @@ import { apiErrorMessage } from '@/lib/api';
 import { useLocale, useT } from '@/lib/i18n';
 import { isValidIraqiPhone, toWesternDigits } from '@/lib/phone';
 
-/** Payer: add a family member by phone, as an orderer (with an optional limit) or a member. */
+/**
+ * Payer: invite a family member by phone, as an orderer (with an optional limit) or a member. SEC-06:
+ * it is an invite — they join only by saying yes in their app.
+ */
 export default function InviteMember() {
   const theme = useTheme();
   const t = useT();
@@ -26,7 +29,7 @@ export default function InviteMember() {
     if (!household.data) return;
     try {
       await invite.mutateAsync({ householdId: household.data.id, phone, role, spendingLimitIqd: role === 'orderer' ? limitIqd : null });
-      toast.show({ message: t('household.invited'), tone: 'success' });
+      toast.show({ message: t('household.invite_sent'), tone: 'success' });
       router.back();
     } catch (err) {
       toast.show({ message: apiErrorMessage(err, t('error.network'), locale), tone: 'danger' });
@@ -52,6 +55,9 @@ export default function InviteMember() {
           {role === 'orderer' ? t('household.role_orderer_hint') : t('household.role_member_hint')}
         </Text>
       </View>
+      <Text variant="footnote" color="textMuted" testID="invite-consent-hint">
+        {t('household.invite_consent_hint')}
+      </Text>
       {role === 'orderer' ? (
         <TextField testID="invite-limit" label={t('household.limit_label')} value={limit} onChangeText={setLimit} placeholder="25,000" keyboardType="number-pad" hint={t('household.limit_hint')} />
       ) : null}

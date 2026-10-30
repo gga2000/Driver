@@ -7,15 +7,20 @@ import {
   type Actor,
   type ApprovalIdInput,
   type ApprovalOrderContext,
+  type CancelHouseholdInviteInput,
   type CreateHouseholdInput,
+  type HouseholdInviteView,
   type HouseholdIdInput,
   type HouseholdsPort,
   type HouseholdTableOrder,
   type HouseholdView,
   type InviteMemberInput,
   type MonthKey,
+  type MyHouseholdInvite,
   type OrderState,
   type PayerApprovalView,
+  type RemoveHouseholdMemberInput,
+  type RespondHouseholdInviteInput,
   type SetBudgetInput,
   type SetLimitInput,
 } from '@driver/contracts';
@@ -23,10 +28,15 @@ import type { z } from 'zod';
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import { OrgsService, type Org, type PayerApprovalRequest } from './orgs.service.js';
 
-/** What households need from identity: people by phone and their (logged) member cards. */
+/**
+ * What households need from identity: people by phone, their (logged) member cards, and for invites
+ * (SEC-06) only the hint of the number the payer typed and the payer's first name.
+ */
 export interface HouseholdPeople {
   ensurePersonByPhone(rawPhone: string, actorId: string, via: string): Promise<string>;
   memberCards(personIds: readonly string[], accessorId: string): Promise<Record<string, { name: string | null; phoneMasked: string }>>;
+  invitePhoneHints(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string>>;
+  firstNamesFor(personIds: readonly string[], accessorId: string, purpose: string): Promise<Record<string, string | null>>;
 }
 export const HOUSEHOLD_PEOPLE = Symbol('HOUSEHOLD_PEOPLE');
 
@@ -108,11 +118,52 @@ export class HouseholdsRpc implements HouseholdsPort {
     return this.view(home, actor.personId);
   }
 
+  /**
+   * SEC-06: an invite, never a member. The answer is the same whether the number has an account, is
+   * already in, or said no lately: the payer learns nothing about the person until they accept.
+   */
   async inviteMember(actor: Actor, input: z.infer<typeof InviteMemberInput>): Promise<HouseholdView> {
     const home = await this.asPayer(actor, input.householdId);
     const personId = await this.people.ensurePersonByPhone(input.phone, actor.personId, 'household_invite');
     if (personId === actor.personId) throw new DriverError('invalid_input');
-    const after = await this.orgs.addMember(home.id, personId, { role: input.role, spendingLimitIqd: input.spendingLimitIqd, actorId: actor.personId });
+    await this.orgs.inviteToHousehold({ orgId: home.id, personId, role: input.role === 'member' ? 'member' : 'orderer', spendingLimitIqd: input.role === 'member' ? null : input.spendingLimitIqd, actorId: actor.personId });
+    return this.view(await this.orgs.get(home.id), actor.personId);
+  }
+
+  async myInvites(actor: Actor): Promise<MyHouseholdInvite[]> {
+    const invites = await this.orgs.openInvitesFor(actor.personId);
+    if (invites.length === 0) return [];
+    const homes = await Promise.all(invites.map((i) => this.orgs.find(i.orgId)));
+    // The payer chose to invite them: their first name is what the invite card says (read logged).
+    const names = await this.people.firstNamesFor([...new Set(invites.map((i) => i.invitedById))], actor.personId, 'household_invite');
+    return invites.flatMap((i, n) => {
+      const home = homes[n];
+      if (!home || home.type !== 'household') return [];
+      return [{ id: i.id, householdName: home.name, invitedByName: names[i.invitedById] ?? null, role: i.role, spendingLimitIqd: i.spendingLimitIqd, invitedAt: i.invitedAt }];
+    });
+  }
+
+  async respondInvite(actor: Actor, input: RespondHouseholdInviteInput): Promise<HouseholdView | null> {
+    const inv = await this.orgs.respondToHouseholdInvite(input.inviteId, actor.personId, input.accept);
+    return input.accept ? this.view(await this.orgs.get(inv.orgId), actor.personId) : null;
+  }
+
+  async cancelInvite(actor: Actor, input: CancelHouseholdInviteInput): Promise<HouseholdView> {
+    const home = await this.asPayer(actor, input.householdId);
+    await this.orgs.cancelHouseholdInvite(home.id, input.inviteId, actor.personId);
+    return this.view(await this.orgs.get(home.id), actor.personId);
+  }
+
+  async leave(actor: Actor, input: HouseholdIdInput): Promise<null> {
+    const home = await this.asMember(actor, input.householdId);
+    await this.orgs.leaveHousehold(home.id, actor.personId, { by: 'self' });
+    return null;
+  }
+
+  async removeMember(actor: Actor, input: RemoveHouseholdMemberInput): Promise<HouseholdView> {
+    const home = await this.asPayer(actor, input.householdId);
+    if (input.personId === actor.personId) throw new DriverError('invalid_input');
+    const after = await this.orgs.leaveHousehold(home.id, input.personId, { by: 'payer', actorId: actor.personId });
     return this.view(after, actor.personId);
   }
 
@@ -239,6 +290,18 @@ export class HouseholdsRpc implements HouseholdsPort {
     }));
   }
 
+  /** SEC-06: open invites as the payer sees them: the hint of the number they typed, nothing more. */
+  private async inviteViews(home: Org, viewerId: string): Promise<HouseholdInviteView[]> {
+    const invites = await this.orgs.openInvitesOf(home.id);
+    if (invites.length === 0) return [];
+    const hints = await this.people.invitePhoneHints(
+      invites.map((i) => i.personId),
+      viewerId,
+      'household_invite',
+    );
+    return invites.map((i) => ({ id: i.id, phoneHint: hints[i.personId] ?? '', role: i.role, spendingLimitIqd: i.spendingLimitIqd, invitedAt: i.invitedAt }));
+  }
+
   private async view(home: Org, viewerId: string): Promise<HouseholdView> {
     const me = home.members.find((m) => m.personId === viewerId);
     if (!me) throw new DriverError('not_household_member');
@@ -264,6 +327,7 @@ export class HouseholdsRpc implements HouseholdsPort {
       .sort((a, b) => rank[a.role] - rank[b.role] || Number(b.isMe) - Number(a.isMe));
     const pending = (await this.orgs.pendingApprovals(home.id)).filter((a) => payer || a.requestedBy === viewerId);
     return {
+      invites: payer ? await this.inviteViews(home, viewerId) : [],
       id: home.id,
       name: home.name,
       cityId: home.cityId,

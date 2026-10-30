@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DriverError } from '@driver/contracts';
+import { DriverError, HOUSEHOLD_INVITE_RULES } from '@driver/contracts';
 import { harness as identityHarness } from '../identity/test-harness.js';
 import { HouseholdsRpc, type HouseholdMonthOrder } from './households.rpc.js';
 import { OrgsService } from './orgs.service.js';
@@ -14,6 +14,16 @@ async function setup() {
   await id.service.updateProfile(ali, { name: 'علي' });
   await id.service.updateProfile(minar, { name: 'منار' });
   return { id, orgs, rpc, ali, minar, stranger };
+}
+
+type Setup = Awaited<ReturnType<typeof setup>>;
+
+/** SEC-06: the payer invites, the person says yes (what joining takes now). */
+async function join(rpc: Setup['rpc'], payer: Setup['ali'], who: Setup['ali'], input: { householdId: string; phone: string; role: 'orderer' | 'member'; spendingLimitIqd: number | null }) {
+  await rpc.inviteMember(payer, input);
+  const inv = (await rpc.myInvites(who)).find((i) => i.role === input.role);
+  if (!inv) throw new Error('no invite');
+  return rpc.respondInvite(who, { inviteId: inv.id, accept: true });
 }
 
 const code = async (p: Promise<unknown>) => {
@@ -42,27 +52,134 @@ describe('households (domain §12)', () => {
     expect((await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' })).id).toBe(a.id);
   });
 
-  it('invite by phone (an existing account or a new pseudonymous person), then set a limit — payer only', async () => {
+  it('invite by phone, then the person joins only by saying yes; then set a limit — payer only (SEC-06)', async () => {
     const { rpc, ali, minar, id } = await setup();
     const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
     const after = await rpc.inviteMember(ali, { householdId: home.id, phone: '0771 234 5679', role: 'orderer', spendingLimitIqd: 25_000 });
-    expect(after.members.map((m) => [m.name, m.role, m.spendingLimitIqd])).toEqual([
+    // Typing a number adds nobody and shows no name: only the hint of the number typed.
+    expect(after.members.map((m) => m.name)).toEqual(['علي']);
+    expect(after.invites).toEqual([{ id: expect.any(String), phoneHint: '0771 ••• 5679', role: 'orderer', spendingLimitIqd: 25_000, invitedAt: expect.any(Date) }]);
+    expect(JSON.stringify(after)).not.toContain('منار');
+    expect(await rpc.mine(minar)).toBeNull();
+    // Minar sees who invites her, and joins with what the invite offered.
+    const [inv] = await rpc.myInvites(minar);
+    expect(inv).toMatchObject({ householdName: 'بيت علي', invitedByName: 'علي', role: 'orderer', spendingLimitIqd: 25_000 });
+    const joined = await rpc.respondInvite(minar, { inviteId: inv!.id, accept: true });
+    expect(joined?.members.map((m) => [m.name, m.role, m.spendingLimitIqd])).toEqual([
       ['علي', 'payer', null],
       ['منار', 'orderer', 25_000],
     ]);
-    // A number that never signed in becomes a person (vault only), named later by its owner.
+    expect(joined?.invites).toEqual([]);
+    expect((await rpc.mine(ali))?.invites).toEqual([]);
+    expect(await rpc.myInvites(minar)).toEqual([]);
+    expect(await code(rpc.respondInvite(minar, { inviteId: inv!.id, accept: true }))).toBe('household_invite_gone');
+    // A number that never signed in becomes a person (vault only) with an invite waiting for them.
     const withKid = await rpc.inviteMember(ali, { householdId: home.id, phone: '07701112233', role: 'member', spendingLimitIqd: null });
-    const kid = withKid.members.find((m) => m.phoneMasked === '+96477*****33')!;
-    expect(kid).toMatchObject({ name: null, role: 'member' });
-    expect(await id.service.personIdByPhone('07701112233')).toBe(kid.personId);
+    expect(withKid.members).toHaveLength(2);
+    expect(withKid.invites.map((i) => [i.phoneHint, i.role])).toEqual([['0770 ••• 2233', 'member']]);
+    const kidId = (await id.service.personIdByPhone('07701112233'))!;
+    expect((await rpc.myInvites({ personId: kidId, sessionId: 's' })).map((i) => i.householdName)).toEqual(['بيت علي']);
     expect(await code(rpc.inviteMember(ali, { householdId: home.id, phone: '07712345678', role: 'orderer', spendingLimitIqd: null }))).toBe('invalid_input');
     // Members see the household; only the payer changes it.
     expect((await rpc.mine(minar))?.myRole).toBe('orderer');
+    expect((await rpc.mine(minar))?.invites).toEqual([]);
     expect(await code(rpc.setLimit(minar, { householdId: home.id, personId: minar.personId, spendingLimitIqd: 1_000_000 }))).toBe('household_payer_only');
     expect(await code(rpc.inviteMember(minar, { householdId: home.id, phone: '07712345670', role: 'orderer', spendingLimitIqd: null }))).toBe('household_payer_only');
     expect(await code(rpc.setLimit(ali, { householdId: home.id, personId: ali.personId, spendingLimitIqd: 5_000 }))).toBe('invalid_input');
     const limited = await rpc.setLimit(ali, { householdId: home.id, personId: minar.personId, spendingLimitIqd: 30_000 });
     expect(limited.members.find((m) => m.personId === minar.personId)?.spendingLimitIqd).toBe(30_000);
+  });
+
+  describe('SEC-06: consent, limits, leaving', () => {
+    const DAY = 86_400_000;
+
+    it('a «لا» is final for a while: the same household does not ask again, and the payer is not told', async () => {
+      const { rpc, ali, minar, id } = await setup();
+      const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
+      await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: null });
+      const [inv] = await rpc.myInvites(minar);
+      expect(await rpc.respondInvite(minar, { inviteId: inv!.id, accept: false })).toBeNull();
+      expect(await rpc.mine(minar)).toBeNull();
+      // Asking again answers like any invite, but nothing reaches her.
+      expect((await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: null })).invites).toEqual([]);
+      expect(await rpc.myInvites(minar)).toEqual([]);
+      id.clock.advance(HOUSEHOLD_INVITE_RULES.declinedQuietDays * DAY);
+      await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: null });
+      expect(await rpc.myInvites(minar)).toHaveLength(1);
+    });
+
+    it('the payer takes an invite back; an invite expires unanswered; nobody answers someone else\'s', async () => {
+      const { rpc, ali, minar, stranger, id } = await setup();
+      const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
+      const sent = await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'member', spendingLimitIqd: null });
+      const [inv] = await rpc.myInvites(minar);
+      expect(await code(rpc.respondInvite(stranger, { inviteId: inv!.id, accept: true }))).toBe('household_invite_gone');
+      expect(await code(rpc.cancelInvite(minar, { householdId: home.id, inviteId: inv!.id }))).toBe('not_household_member');
+      expect((await rpc.cancelInvite(ali, { householdId: home.id, inviteId: sent.invites[0]!.id })).invites).toEqual([]);
+      expect(await code(rpc.respondInvite(minar, { inviteId: inv!.id, accept: true }))).toBe('household_invite_gone');
+      // A new invite, left unanswered past its days.
+      await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'member', spendingLimitIqd: null });
+      const [again] = await rpc.myInvites(minar);
+      id.clock.advance(HOUSEHOLD_INVITE_RULES.inviteDays * DAY);
+      expect(await rpc.myInvites(minar)).toEqual([]);
+      expect((await rpc.mine(ali))?.invites).toEqual([]);
+      expect(await code(rpc.respondInvite(minar, { inviteId: again!.id, accept: true }))).toBe('household_invite_gone');
+    });
+
+    it('someone already in a household says yes elsewhere: refused, and the invite stays open', async () => {
+      const { rpc, ali, minar, stranger } = await setup();
+      await rpc.create(stranger, { name: 'بيت ثاني', cityId: 'aziziyah' });
+      const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
+      await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345670', role: 'member', spendingLimitIqd: null });
+      const [inv] = await rpc.myInvites(stranger);
+      expect(await code(rpc.respondInvite(stranger, { inviteId: inv!.id, accept: true }))).toBe('household_exists');
+      expect(await rpc.myInvites(stranger)).toHaveLength(1);
+      expect(minar).toBeTruthy();
+    });
+
+    it('at most so many people with open invites, and so many invites a day', async () => {
+      const { rpc, ali, id } = await setup();
+      const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
+      const phone = (n: number) => `0780000${String(n).padStart(4, '0')}`;
+      for (let n = 1; n < HOUSEHOLD_INVITE_RULES.maxMembers; n += 1) await rpc.inviteMember(ali, { householdId: home.id, phone: phone(n), role: 'member', spendingLimitIqd: null });
+      expect(await code(rpc.inviteMember(ali, { householdId: home.id, phone: phone(99), role: 'member', spendingLimitIqd: null }))).toBe('household_full');
+      // Re-sending an open invite is not a new person.
+      expect(await code(rpc.inviteMember(ali, { householdId: home.id, phone: phone(1), role: 'orderer', spendingLimitIqd: 5_000 }))).toBe('ok');
+      // Taking invites back frees places, but not the day's count.
+      const open = (await rpc.mine(ali))!.invites;
+      for (const i of open.slice(0, 3)) await rpc.cancelInvite(ali, { householdId: home.id, inviteId: i.id });
+      expect(await code(rpc.inviteMember(ali, { householdId: home.id, phone: phone(50), role: 'member', spendingLimitIqd: null }))).toBe('ok');
+      expect(await code(rpc.inviteMember(ali, { householdId: home.id, phone: phone(51), role: 'member', spendingLimitIqd: null }))).toBe('rate_limited');
+      id.clock.advance(DAY);
+      expect(await code(rpc.inviteMember(ali, { householdId: home.id, phone: phone(51), role: 'member', spendingLimitIqd: null }))).toBe('ok');
+    });
+
+    it('a member leaves; the payer takes someone out; the only payer cannot leave', async () => {
+      const { rpc, ali, minar, stranger } = await setup();
+      const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
+      await join(rpc, ali, minar, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: null });
+      await join(rpc, ali, stranger, { householdId: home.id, phone: '07712345670', role: 'member', spendingLimitIqd: null });
+      expect(await code(rpc.leave(ali, { householdId: home.id }))).toBe('household_last_payer');
+      expect(await code(rpc.removeMember(minar, { householdId: home.id, personId: stranger.personId }))).toBe('household_payer_only');
+      expect(await code(rpc.removeMember(ali, { householdId: home.id, personId: ali.personId }))).toBe('invalid_input');
+      expect(await rpc.leave(minar, { householdId: home.id })).toBeNull();
+      expect(await rpc.mine(minar)).toBeNull();
+      const after = await rpc.removeMember(ali, { householdId: home.id, personId: stranger.personId });
+      expect(after.members.map((m) => m.personId)).toEqual([ali.personId]);
+      expect(await rpc.mine(stranger)).toBeNull();
+      expect(await code(rpc.leave(stranger, { householdId: home.id }))).toBe('not_household_member');
+      // Out of the household, they can be asked again and come back by saying yes.
+      await join(rpc, ali, minar, { householdId: home.id, phone: '07712345679', role: 'member', spendingLimitIqd: null });
+      expect((await rpc.mine(minar))?.myRole).toBe('member');
+    });
+
+    it('the payer\'s look at an open invite reads only the number\'s hint, logged', async () => {
+      const { rpc, ali, minar, id } = await setup();
+      const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
+      await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'member', spendingLimitIqd: null });
+      const logs = await id.repo.vaultAccessLogs(minar.personId);
+      expect(logs.filter((l) => l.accessorId === ali.personId).map((l) => [l.purpose, l.fieldsRead])).toEqual([['household_invite', ['phone_e164']]]);
+    });
   });
 
   it('strangers see nothing and can act on nothing', async () => {
@@ -78,7 +195,7 @@ describe('households (domain §12)', () => {
   it('approval flow: over-limit request → payer approves once; the requester sees his own, cannot resolve', async () => {
     const { rpc, orgs, ali, minar, stranger, id } = await setup();
     const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
-    await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
+    await join(rpc, ali, minar, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
     expect(await orgs.withinLimit(home.id, minar.personId, 32_000)).toBe(false);
     const req = await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_1', requestedBy: minar.personId, amountIqd: 32_000 });
 
@@ -109,7 +226,7 @@ describe('households (domain §12)', () => {
   it('w5: an approval carries what was ordered, from where and for where; a failing read leaves it out', async () => {
     const { rpc, orgs, ali, minar } = await setup();
     const home = await rpc.create(ali, { name: 'بيت علي', cityId: 'aziziyah' });
-    await rpc.inviteMember(ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
+    await join(rpc, ali, minar, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
     await orgs.requestPayerApproval({ orgId: home.id, orderId: 'ord_1', requestedBy: minar.personId, amountIqd: 32_000 });
     expect((await rpc.mine(ali))?.pendingApprovals[0]?.context).toBeNull();
     const ctx = { merchantName: 'مطعم خالد', itemsSummary: '2× تكة، لبن', itemCount: 3, placeLabel: 'شارع 30' };
@@ -136,10 +253,10 @@ describe('households (domain §12)', () => {
       const s = await setup();
       s.id.clock.set(at);
       const home = await s.rpc.create(s.ali, { name: 'بيت علي', cityId: 'aziziyah' });
-      await s.rpc.inviteMember(s.ali, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
+      await join(s.rpc, s.ali, s.minar, { householdId: home.id, phone: '07712345679', role: 'orderer', spendingLimitIqd: 25_000 });
       const kid = (await s.id.login('07712345671')).actor;
       await s.id.service.updateProfile(kid, { name: 'حسين' });
-      await s.rpc.inviteMember(s.ali, { householdId: home.id, phone: '07712345671', role: 'orderer', spendingLimitIqd: 10_000 });
+      await join(s.rpc, s.ali, kid, { householdId: home.id, phone: '07712345671', role: 'orderer', spendingLimitIqd: 10_000 });
       return { ...s, home, kid };
     }
 

@@ -114,6 +114,10 @@ describe('customer account API (e2e)', () => {
 
     const home = await ali.client.household.create.mutate({ name: 'بيت علي' });
     await ali.client.household.inviteMember.mutate({ householdId: home.id, phone: '07713330005', spendingLimitIqd: 25_000 });
+    // SEC-06: Minar joins by saying yes to the invite.
+    const [invite] = await minar.client.household.myInvites.query();
+    expect(invite).toMatchObject({ householdName: 'بيت علي', role: 'orderer', spendingLimitIqd: 25_000 });
+    await minar.client.household.respondInvite.mutate({ inviteId: invite!.id, accept: true });
     const req = await app.get(OrgsService).requestPayerApproval({ orgId: home.id, orderId: 'ord_e2e', requestedBy: minar.personId, amountIqd: 31_000 });
     expect((await ali.client.household.mine.query())?.pendingApprovals.map((a) => a.id)).toEqual([req.id]);
     expect(await errCode(minar.client.household.approve.mutate({ requestId: req.id }))).toBe('household_payer_only');
