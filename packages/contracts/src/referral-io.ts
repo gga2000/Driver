@@ -71,6 +71,13 @@ export type InviteView = z.infer<typeof InviteView>;
 export const InvitePreviewInput = z.object({ code: z.string().min(1).max(16) });
 export type InvitePreviewInput = z.input<typeof InvitePreviewInput>;
 
+/**
+ * FLOW-33: invite previews from one caller (a person, or an address for guests). `perCaller` a minute is
+ * enough for a town behind one carrier address opening invite links; `missesPerCaller` wrong codes an
+ * hour is what stops walking codes for inviters' first names (a real link is never a miss).
+ */
+export const INVITE_PREVIEW_RATE = { windowMs: 60_000, perCaller: 120, missWindowMs: 60 * 60_000, missesPerCaller: 30 } as const;
+
 /** `referral.preview` (public): what the landing page says before the friend signs in. */
 export const InvitePreview = z.object({
   valid: z.boolean(),
@@ -94,7 +101,8 @@ export interface ReferralsPort {
   mine(actor: Actor): Promise<InviteView>;
   /** The rule alone (public, no code is made): lets a screen hide the reward while it is switched off. */
   rule(): Promise<InviteRule>;
-  preview(input: InvitePreviewInput): Promise<InvitePreview>;
+  /** `who`: the caller (person when signed in, else the address) for the preview's rate limit (FLOW-33). */
+  preview(input: InvitePreviewInput, who?: { personId: string | null; ip: string | null }): Promise<InvitePreview>;
   /**
    * The friend accepts: once per person, never his own code, and only before his first order
    * (`invite_invalid`, `invite_own`, `invite_already_claimed`, `invite_not_new`).

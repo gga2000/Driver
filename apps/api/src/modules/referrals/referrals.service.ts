@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DriverError,
   INVITE_CODE_ALPHABET,
   INVITE_CODE_LENGTH,
+  INVITE_PREVIEW_RATE,
   invitePath,
   normalizeInviteCode,
   type Actor,
@@ -17,6 +18,7 @@ import {
   type ReferralsPort,
 } from '@driver/contracts';
 import { CLOCK, type Clock } from '../../shared/clock.js';
+import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { blockReason, marksOf, type FingerprintParts } from './fingerprint.js';
 import { REFERRALS_REPOSITORY, type ReferralRecord, type ReferralsRepository } from './referrals.repository.js';
 
@@ -94,7 +96,13 @@ export class ReferralsService implements ReferralsPort {
     @Inject(REFERRAL_RANDOM) private readonly random: RandomInt,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(REFERRAL_FINGERPRINT) private readonly fingerprint: ReferralFingerprintPort,
-  ) {}
+    @Optional() @Inject(WINDOW_COUNTER) counter?: WindowCounter,
+  ) {
+    this.previews = counter ?? new InMemoryWindowCounter(clock);
+  }
+
+  /** FLOW-33: preview calls per caller (shared across machines when Redis is set). */
+  private readonly previews: WindowCounter;
 
   bindOrders(port: ReferralOrdersPort): void {
     this.orders = port;
@@ -136,10 +144,21 @@ export class ReferralsService implements ReferralsPort {
     return Promise.resolve(this.inviteRule);
   }
 
-  async preview(input: InvitePreviewInput): Promise<InvitePreview> {
+  async preview(input: InvitePreviewInput, who?: { personId: string | null; ip: string | null }): Promise<InvitePreview> {
+    const caller = who?.personId ? `p:${who.personId}` : who?.ip ? `ip:${who.ip}` : null;
+    const rate = INVITE_PREVIEW_RATE;
+    if (caller) {
+      const misses = await this.previews.count(`invite:miss:${caller}`, rate.missWindowMs);
+      if (misses >= rate.missesPerCaller) throw new DriverError('rate_limited', { retryAfterSec: Math.ceil(rate.missWindowMs / 1000) });
+      const hit = await this.previews.hit(`invite:preview:${caller}`, rate.windowMs, rate.perCaller);
+      if (!hit.allowed) throw new DriverError('rate_limited', { retryAfterSec: hit.retryAfterSec });
+    }
     const code = normalizeInviteCode(input.code);
     const owner = code ? await this.repo.ownerOf(code) : null;
-    if (!owner) return { valid: false, inviterFirstName: null, rule: this.inviteRule };
+    if (!owner) {
+      if (caller) await this.previews.hit(`invite:miss:${caller}`, rate.missWindowMs, rate.missesPerCaller);
+      return { valid: false, inviterFirstName: null, rule: this.inviteRule };
+    }
     // The inviter sent his own link: his first name on it is his choice (read as himself, not logged).
     const name = (await this.names.firstNamesFor([owner], owner, 'invite_preview'))[owner] ?? null;
     return { valid: true, inviterFirstName: name, rule: this.inviteRule };
