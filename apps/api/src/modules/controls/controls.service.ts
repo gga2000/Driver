@@ -789,6 +789,22 @@ export class ControlsService implements ControlsPort {
     });
   }
 
+  /**
+   * «صفّر تطبيق المصادقة» (docs/api/staff-totp.md): another staff member's authenticator is cleared and
+   * he is signed out everywhere; he sets the app up again at his next sign-in. The admin confirms with
+   * his own fresh code first (never in a transaction); the audit row commits with the reset.
+   */
+  async resetStaffTotp(actor: Actor, input: { personId: string; code: string }): Promise<{ reset: boolean; ended: number }> {
+    if (input.personId === actor.personId) throw new DriverError('forbidden');
+    await this.identity.confirmOwnStaffTotp(actor, input.code);
+    const name = (await this.names.of([input.personId], actor.personId))[input.personId] ?? input.personId;
+    return this.uow.run(async (tx) => {
+      const out = await this.identity.resetStaffTotp(actor, input.personId);
+      await this.audits.record({ cityId: null, actorId: actor.personId, action: 'staff.totp_reset', subjectKind: 'person', subjectId: input.personId, summaryAr: `صفّر تطبيق المصادقة مال ${name}`, detail: { hadApp: out.reset, ended: out.ended } }, tx);
+      return out;
+    });
+  }
+
   // ───────────────────────── quiet days and the season ─────────────────────────
 
   private async liveQuiet(): Promise<QuietRecord[]> {

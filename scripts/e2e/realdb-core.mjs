@@ -31,7 +31,10 @@
 //   E2E_API_LOG   the API's stdout (JSON lines), default ./api.log
 //   DATABASE_URL  the API's database (subscriber_deliveries / outbox reads)
 //   E2E_ADMIN_PHONE  the seeded admin (`SEED_ADMIN_PHONE` at seed time), default 07700000099
+//   E2E_ADMIN_TOTP_SECRET  only on a reused database: the admin's authenticator key from an earlier run
+//                    (a fresh database, as in CI, sets the authenticator up and needs nothing)
 //   FLOWS=signin,sos  run some flows only (the ratchet then only judges those)
+import { createHmac } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -139,15 +142,69 @@ async function signIn(f, phone, name) {
   return { personId: out.personId, api, token: out.tokens.accessToken };
 }
 
+/** RFC 6238 code of a base32 secret for one 30-second step (HMAC-SHA1, 6 digits), as an authenticator app computes it. */
+function totpCode(secret, step) {
+  const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let value = 0;
+  const bytes = [];
+  for (const ch of secret.replace(/[\s=]/g, '').toUpperCase()) {
+    value = (value << 5) | B32.indexOf(ch);
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(step));
+  const mac = createHmac('sha1', Buffer.from(bytes)).update(counter).digest();
+  const o = mac[mac.length - 1] & 15;
+  const bin = ((mac[o] & 127) << 24) | (mac[o + 1] << 16) | (mac[o + 2] << 8) | mac[o + 3];
+  return String(bin % 1_000_000).padStart(6, '0');
+}
+const totpStep = () => Math.floor(Date.now() / 30_000);
+
+/**
+ * Admin and finance owe the authenticator step after the SMS code (docs/api/staff-totp.md): the admin
+ * sets the app up (the secret the API returns, codes computed here like a phone app) and confirms with
+ * the current code. On a reused database he is already set up: E2E_ADMIN_TOTP_SECRET gives the key and
+ * he types the current code, or the next one when this step was already used (a code works once).
+ */
+async function passAuthenticator(f, api) {
+  const errCode = (err) => (err instanceof TRPCClientError ? (err.data?.code ?? err.shape?.code) : String(err));
+  let secret = process.env.E2E_ADMIN_TOTP_SECRET?.trim() || null;
+  try {
+    secret = (await api.identity.authenticator.enrol.mutate()).secret;
+    const done = await f.call('identity.authenticator.confirm', () => api.identity.authenticator.confirm.mutate({ code: totpCode(secret, totpStep()) }));
+    return f.check(done?.recoveryCodes?.length === 8, 'the admin set up the authenticator and got 8 recovery codes');
+  } catch (err) {
+    if (errCode(err) !== 'totp_already_set') return f.check(false, 'identity.authenticator.enrol', `${errCode(err)} ${err.message}`);
+  }
+  if (!f.check(secret, 'the admin already has an authenticator: set E2E_ADMIN_TOTP_SECRET, or run on a freshly seeded database')) return false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await api.identity.authenticator.verify.mutate({ code: totpCode(secret, totpStep()) });
+      return true;
+    } catch (err) {
+      if (errCode(err) !== 'totp_invalid' || attempt > 0) return f.check(false, 'identity.authenticator.verify', `${errCode(err)} ${err.message}`);
+      // This step's code was used by an earlier sign-in: wait for the next step.
+      await sleep(30_000 - (Date.now() % 30_000) + 200);
+    }
+  }
+  return false;
+}
+
 /**
  * The seeded admin (grants roles, dispatches). Signed in once per run (one number has an hourly OTP
- * limit); each flow gets its own client on its own prefix with his token.
+ * limit), authenticator step included; each flow gets its own client on its own prefix with his token.
  */
 let adminSession = null;
 async function admin(f) {
   if (!adminSession) {
     const a = await signIn(f, ADMIN_PHONE);
     if (!a) return null;
+    if (!(await passAuthenticator(f, a.api))) return null;
     f.subjects.delete(a.personId); // shared across flows: not a subject of any one of them
     adminSession = { personId: a.personId, token: a.token };
   }

@@ -160,6 +160,11 @@ export const ERROR_TABLE = {
   otp_resend_too_soon: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   rate_limited: { retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
   otp_not_found: { retryHint: 'never', status: 'BAD_REQUEST' },
+  // Staff sign-in's authenticator step (docs/api/staff-totp.md)
+  totp_required: { retryHint: 'never', status: 'FORBIDDEN' },
+  totp_invalid: { retryHint: 'now', status: 'BAD_REQUEST' },
+  totp_locked: { i18n: 'error.too_many_attempts', retryHint: 'later', status: 'TOO_MANY_REQUESTS' },
+  totp_already_set: { retryHint: 'never', status: 'CONFLICT' },
   session_expired: { retryHint: 'never', status: 'UNAUTHORIZED' },
   token_invalid: { retryHint: 'never', status: 'UNAUTHORIZED' },
   refresh_reused: { retryHint: 'never', status: 'UNAUTHORIZED' },

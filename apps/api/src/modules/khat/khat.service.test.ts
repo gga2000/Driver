@@ -544,7 +544,7 @@ describe('khat sweep alert: page and close', () => {
     const view = { alertId: 'ksw_1', tripId: 't1', cityId: 'aziziyah', driver: { personId: 'd1', displayName: null, phoneMasked: null }, childrenTotal: 2, lastDropAt: null, lastDropZone: null, runEndedAt: at, raisedAt: at, confirmedAt: null, confirmedLateMin: null, closedAt: at, closedById: 'p_x', closeReason: 'driver_called_empty', closeNote: null };
     const khat = { closeSweepAlert: async () => view } as unknown as Partial<KhatService>;
     const caller = (sub: string, roles: string[]) =>
-      appRouter.createCaller({ auth: claims(sub), authError: null, identity: { hasRole: async (_p: string, kind: string) => roles.includes(kind) }, khat } as unknown as AppContext);
+      appRouter.createCaller({ auth: claims(sub), authError: null, identity: { hasRole: async (_p: string, kind: string) => roles.includes(kind), secondStepPending: async () => false }, khat } as unknown as AppContext);
     const input = { alertId: 'ksw_1', reason: 'driver_called_empty' as const };
     await expect(caller('p_drv', ['khat_driver']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(caller('p_cust', ['customer']).khat.closeSweepAlert(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });

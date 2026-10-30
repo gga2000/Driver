@@ -139,7 +139,7 @@ describe('prisma schema — identity vault (domain §13)', () => {
 
   it('only vault tables live in the vault schema', () => {
     const inVault = models.filter((m) => /@@schema\("identity_vault"\)/.test(m.body)).map((m) => m.name).sort();
-    expect(inVault).toEqual(['ChildIdentity', 'ParticipantIdentity', 'PersonIdentity', 'VaultAccessLog']);
+    expect(inVault).toEqual(['ChildIdentity', 'ParticipantIdentity', 'PersonIdentity', 'StaffTotp', 'VaultAccessLog']);
   });
 
   it('ride c9: the name a booker gave a rider lives in vault.participant_identities, keyed by participant', () => {

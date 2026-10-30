@@ -139,6 +139,7 @@ fly secrets set --config deploy/fly/api.toml --stage \
   UPLOADS_SECRET="$(openssl rand -hex 32)" \
   SHARE_LINK_SECRET="$(openssl rand -hex 32)" \
   SAFETY_LINK_SECRET="$(openssl rand -hex 32)" \
+  STAFF_TOTP_KEY="$(openssl rand -hex 32)" \
   CONSOLE_BASE_URL='https://<the Console address the company owns>' \
   SAFETY_LINK_BASE_URL='https://<the customer web address the company owns>/sos/' \
   SHARE_LINK_BASE_URL='https://<the customer web address the company owns>' \
@@ -204,6 +205,7 @@ stops boot: `health.ready` shows it, and `health.live` fails after 30 s without 
 | `UPLOADS_SECRET` | **yes** | signs `/files` and `/uploads` links; defaults to `JWT_SECRET` — set it so a JWT rotation does not break photo links |
 | `SHARE_LINK_SECRET` | **yes** | 64 hex chars; signs trip-share links. Production refuses to boot without it (at least 32 characters, different from `JWT_SECRET` and `SAFETY_LINK_SECRET`) |
 | `SAFETY_LINK_SECRET` | **yes** | 64 hex chars; signs SOS links. Same rule: required in production, its own value |
+| `STAFF_TOTP_KEY` | **yes** | 64 hex chars; encrypts the admin and finance authenticator secrets ([staff-totp.md](../api/staff-totp.md)). Production and staging refuse to boot without it or with a value another secret uses. `STAFF_TOTP_DEMO` must never be set on a deployed server (the boot refuses it) |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_FORCE_PATH_STYLE` | no | Supabase Storage, [supabase.md](supabase.md) step 5 |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | **yes** | Supabase Storage S3 key |
 | `MAX_INFLIGHT_REQUESTS` | no | `50` (toml): calls one machine serves at once; past it «busy, try again» (503 `server_busy`, `Retry-After: 1`), which the apps retry by themselves. Live streams and health are not counted. `off` turns it off |

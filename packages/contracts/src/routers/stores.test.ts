@@ -107,7 +107,8 @@ function caller(roles: readonly RoleKind[] | null) {
   const ctx = {
     auth: roles ? { sub: 'p_1', sid: 's1', iss: 'driver-api', iat: 0, exp: 0 } : null,
     authError: null,
-    identity: { hasRole: async (_: string, kind: RoleKind) => (roles ?? []).includes(kind) },
+    // A staff session past the authenticator step (admin and finance routes fail closed without it).
+    identity: { hasRole: async (_: string, kind: RoleKind) => (roles ?? []).includes(kind), secondStepPending: async () => false },
     stores,
   } as unknown as AppContext;
   return { call: t.createCallerFactory(appRouter)(ctx), stores };

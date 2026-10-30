@@ -16,7 +16,16 @@ async function harness(start = '2026-10-04T09:00:00Z') {
   const ev = createInMemoryEvents({ clock });
   const repo = new InMemoryControlsRepository();
   const ended: Array<{ personId: string; reason: string }> = [];
+  const totp: string[] = [];
   const identity = {
+    confirmOwnStaffTotp: async (actor: Actor, code: string) => {
+      if (code !== '246810') throw Object.assign(new Error('totp_invalid'), { code: 'totp_invalid' });
+      totp.push(`confirm:${actor.personId}`);
+    },
+    resetStaffTotp: async (_actor: Actor, personId: string) => {
+      totp.push(`reset:${personId}`);
+      return { reset: true, ended: 1 };
+    },
     firstNamesFor: async (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, id === 'p_ali' ? 'علي' : id === 'p_zainab' ? 'زينب' : null])),
     endAllSessions: async (_actor: Actor, personId: string, reason: string) => {
       ended.push({ personId, reason });
@@ -32,7 +41,7 @@ async function harness(start = '2026-10-04T09:00:00Z') {
   const counts = new Map<string, number>();
   svc.bindActiveOrders(async () => counts);
   svc.registerCorridors([{ id: 'aziziyah_kut', name_ar: 'العزيزية ⇄ الكوت' }]);
-  return { clock, ev, repo, svc, kitchen, counts, ended, config };
+  return { clock, ev, repo, svc, kitchen, counts, ended, totp, config };
 }
 
 const gate = (over: Partial<Parameters<ControlsService['assertOrderAllowed']>[0]> = {}) => ({
@@ -267,6 +276,17 @@ describe('staff: end every session', () => {
     expect(h.ended).toEqual([{ personId: 'p_zainab', reason: 'admin' }]);
     const rows = await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'person', limit: 5 });
     expect(rows.map((r) => [r.action, r.subjectId, r.summary_ar])).toEqual([['staff.end_sessions', 'p_zainab', 'طلّع زينب من كل الأجهزة (2)']]);
+  });
+
+  it('resets another staff member\'s authenticator after the admin\'s own code, with the audit row', async () => {
+    const h = await harness();
+    await expect(h.svc.resetStaffTotp(ALI, { personId: 'p_zainab', code: '111111' })).rejects.toMatchObject({ code: 'totp_invalid' });
+    expect(h.totp).toEqual([]);
+    expect(await h.svc.resetStaffTotp(ALI, { personId: 'p_zainab', code: '246810' })).toEqual({ reset: true, ended: 1 });
+    expect(h.totp).toEqual(['confirm:p_ali', 'reset:p_zainab']);
+    const rows = await h.svc.audit({ cityId: 'aziziyah', subjectKind: 'person', limit: 5 });
+    expect(rows.map((r) => [r.action, r.subjectId, r.summary_ar])).toEqual([['staff.totp_reset', 'p_zainab', 'صفّر تطبيق المصادقة مال زينب']]);
+    await expect(h.svc.resetStaffTotp(ALI, { personId: ALI.personId, code: '246810' })).rejects.toMatchObject({ code: 'forbidden' });
   });
 
   it('an admin cannot cut himself off from here', async () => {

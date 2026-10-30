@@ -20,7 +20,7 @@ function caller(roles: readonly RoleKind[]) {
   const ctx = {
     auth: { sub: 'p1', sid: 's1', iss: 'driver-api', iat: 0, exp: 0 },
     authError: null,
-    identity: { hasRole: async (_: string, kind: RoleKind) => roles.includes(kind) },
+    identity: { hasRole: async (_: string, kind: RoleKind) => roles.includes(kind), secondStepPending: async () => false },
     orders,
   } as unknown as AppContext;
   return { call: t.createCallerFactory(appRouter)(ctx), calls };

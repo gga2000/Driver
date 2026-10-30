@@ -127,6 +127,8 @@ model Person {
   guardedChildren  ChildIdentity[]   @relation("ChildGuardian")
   /// Ride ideas c9/s3: the names bookers gave this person on rides they booked for them (vault).
   riderNames       ParticipantIdentity[] @relation("ParticipantIdentitySubject")
+  /// Staff sign-in's second step (admin and finance): the authenticator app enrolment (vault).
+  staffTotp        StaffTotp?
   tripOrderChanges TripOrder[]
 
   @@index([trustTier])
@@ -311,6 +313,8 @@ model Session {
   expiresAt                DateTime  @map("expires_at")
   rotatedAt                DateTime? @map("rotated_at")
   revokedAt                DateTime? @map("revoked_at")
+  /// When this session passed the authenticator step (admin and finance sign-in); null = not yet.
+  secondStepAt             DateTime? @map("second_step_at")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
@@ -440,6 +444,29 @@ model ParticipantIdentity {
 
   @@index([personId])
   @@map("participant_identities")
+  @@schema("identity_vault")
+}
+
+/// Staff sign-in's second step (docs/api/staff-totp.md): the authenticator app secret of a person
+/// holding admin or finance, AES-256-GCM encrypted with STAFF_TOTP_KEY (bound to the person id), the
+/// last 30-second step used (a code is never accepted twice), wrong tries in a row and the lock, and
+/// the salted hashes of the unused recovery codes. Read only through identity, every read logged.
+model StaffTotp {
+  id             String    @id @default(cuid())
+  personId       String    @unique @map("person_id")
+  secretEnc      String    @map("secret_enc")
+  /// Set once the first code confirmed the enrolment; null = started, not confirmed.
+  confirmedAt    DateTime? @map("confirmed_at")
+  lastStep       Int?      @map("last_step")
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until")
+  recoveryHashes String[]  @default([]) @map("recovery_hashes")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  person Person @relation(fields: [personId], references: [id])
+
+  @@map("staff_totp")
   @@schema("identity_vault")
 }
 

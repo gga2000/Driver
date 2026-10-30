@@ -1,11 +1,14 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { SecondStep } from '@driver/contracts';
 import { t } from '@driver/i18n';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useId, useState, type FormEvent } from 'react';
+import { useMyRoles } from '@/lib/me';
 import { errorText } from '@/lib/network';
-import { setSession } from '@/lib/session';
+import { clearSession, getSession, setSession } from '@/lib/session';
 import { useTRPC } from '@/lib/trpc';
 import { BrandMark } from './shell/brand';
 import { Button, Field, IconAlert, IconBack, IconCheckCircle, Input } from './ui';
@@ -13,9 +16,14 @@ import { Button, Field, IconAlert, IconBack, IconCheckCircle, Input } from './ui
 /** The fake SMS provider's last code is shown in development (the API refuses it in production). */
 const SHOW_DEV_OTP = process.env.NODE_ENV !== 'production' || process.env['NEXT_PUBLIC_DEV_OTP'] === '1';
 
+// Admin and finance only (docs/api/staff-totp.md): loaded when the server asks for the second step.
+const SecondStepForm = dynamic(() => import('./second-step').then((m) => m.SecondStepForm), { ssr: false });
+
 /**
  * Sign-in, centred on the cream page with the Driver mark (K-19): phone, then the 6-digit code. In
  * development a dashed strip under the code box shows the fake SMS's last code with "عبّيه".
+ * Admin and finance then pass the authenticator step (set it up the first time); a signed-in session
+ * that still owes it lands here too (the shell sends it back).
  */
 export function LoginForm() {
   const trpc = useTRPC();
@@ -25,13 +33,18 @@ export function LoginForm() {
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
+  const [secondStep, setSecondStep] = useState<SecondStep | null>(null);
+  const queryClient = useQueryClient();
+  const owed = useMyRoles().secondStep;
+  const pendingStep = secondStep ?? owed;
 
   const request = useMutation(trpc.identity.requestOtp.mutationOptions({ onSuccess: () => setStep('code') }));
   const verify = useMutation(
     trpc.identity.verifyOtp.mutationOptions({
       onSuccess: (res) => {
         setSession(res.tokens);
-        router.replace('/');
+        if (res.secondStep) setSecondStep(res.secondStep);
+        else router.replace('/');
       },
     }),
   );
@@ -44,6 +57,22 @@ export function LoginForm() {
   const onVerify = (e: FormEvent) => {
     e.preventDefault();
     verify.mutate({ phone: phone.trim(), code });
+  };
+  const stepDone = () => {
+    void queryClient.invalidateQueries();
+    router.replace('/');
+  };
+  const logout = useMutation(trpc.identity.logout.mutationOptions());
+  const startOver = () => {
+    const refreshToken = getSession()?.refreshToken;
+    logout.mutate(refreshToken ? { refreshToken } : {}, {
+      onSettled: () => {
+        clearSession();
+        queryClient.clear();
+      },
+    });
+    setSecondStep(null);
+    back();
   };
   const back = () => {
     setStep('phone');
@@ -64,7 +93,9 @@ export function LoginForm() {
         </div>
 
         <section aria-labelledby="login-title" className="rounded-xl border border-line bg-surface p-7 shadow-pop">
-          {step === 'phone' ? (
+          {pendingStep ? (
+            <SecondStepForm step={pendingStep} onDone={stepDone} onBack={startOver} />
+          ) : step === 'phone' ? (
             <>
               <h1 id="login-title" className="text-xl font-bold">
                 {t('console.login_title')}
@@ -162,13 +193,13 @@ export function LoginForm() {
             </>
           )}
 
-          {verify.isSuccess && (
+          {verify.isSuccess && !pendingStep && (
             <p className="mt-4 flex items-center gap-2 text-sm text-ok" role="status">
               <IconCheckCircle size={16} />
               {t('console.login_done')}
             </p>
           )}
-          {error && (
+          {error && !pendingStep && (
             <p className="mt-4 flex items-start gap-2 text-sm text-bad" role="alert">
               <IconAlert size={16} className="mt-0.5 shrink-0" />
               {errorText(error)}

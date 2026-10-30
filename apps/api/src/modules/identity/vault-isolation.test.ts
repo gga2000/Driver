@@ -15,7 +15,7 @@ const ALLOWED = new Set([
   'modules/identity/identity.integration.test.ts',
   'modules/identity/vault-isolation.test.ts',
 ]);
-const PATTERN = /\b(personIdentity|vaultAccessLog|childIdentity|person_identities|vault_access_logs|child_identities)\b/;
+const PATTERN = /\b(personIdentity|vaultAccessLog|childIdentity|staffTotp|person_identities|vault_access_logs|child_identities|staff_totp)\b/;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

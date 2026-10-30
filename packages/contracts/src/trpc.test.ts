@@ -112,9 +112,20 @@ describe('role gate reads roles once per request (CON-21)', () => {
         reads += 1;
         return roles;
       },
+      secondStepPending: async () => false,
     };
     return { identity, reads: () => reads };
   };
+
+  it('fails closed: an identity port that cannot tell whether the authenticator step passed keeps admin and finance shut', async () => {
+    const identity = { activeRoles: async () => ['admin', 'dispatcher'] };
+    const caller = t.createCallerFactory(gated)({ auth: { sub: 'p1', sid: 's1' }, authError: null, identity } as unknown as AppContext);
+    // Open to dispatcher too: still allowed on that role.
+    await expect(caller.a()).resolves.toBe('a');
+    const refused = await failure(caller.b());
+    expect(getHTTPStatusCodeFromError(refused)).toBe(403);
+    expect((refused.cause as { code?: string } | undefined)?.code).toBe('totp_required');
+  });
 
   it('a batch of calls in one request costs one roles read, and a missing role is still refused', async () => {
     const id = make(['admin']);

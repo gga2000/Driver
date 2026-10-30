@@ -5,6 +5,8 @@ export { SubscriberRegistry } from './subscriber.registry.js';
 export type { SubscribeOptions } from './subscriber.registry.js';
 export { OutboxPublisher, OUTBOX_QUEUE } from './outbox.publisher.js';
 export { InMemoryEventsRepository } from './memory.repository.js';
+// The staff authenticator's break-glass script writes its events straight to the outbox (no Nest app).
+export { PrismaEventsRepository, newId } from './events.repository.js';
 export { createInMemoryEvents } from './in-memory.js';
 export { SKEW_POLICY, assessSkew, isLateReplay } from './timestamps.js';
 export type {
