@@ -61,6 +61,7 @@ import { InMemoryWindowCounter, WINDOW_COUNTER, type WindowCounter } from '../..
 import { PricingService } from '../pricing/index.js';
 import { EtaService, StraightLineRouter } from '../routing/index.js';
 import type { CatalogItemRecord, StorefrontRecord, UnmetSearchRecord } from './catalog.repository.js';
+import { hoursIgnored } from '../config/index.js';
 import { CatalogService } from './catalog.service.js';
 import { photoLink, STOREFRONT_PHOTOS, type PhotoLink, type PhotoLinks } from './photos.js';
 import { activeWindow, basePrepMin, type HomeBooked, localTwelveHour, etaRange, foldArabic, menuItemView, menuSections, minutesUntilLocal, nextOpeningIn, oneTap, openState, pinOf, popularItems, prepRange, STOREFRONT_RULES } from './storefront.js';
@@ -771,7 +772,11 @@ export class CatalogRpc implements CustomerCatalogPort {
 
   private async card(k: Kitchen, dropoff: DeliveryPoint | null, now: Date, rides: RideMemo = new Map()): Promise<RestaurantCard> {
     const { s, items } = k;
-    const { location, pauseWindows: pauses, busy: merchantBusy, closed, reopensAt, holiday } = k.profile;
+    const { location, busy: merchantBusy, closed, reopensAt, holiday } = k.profile;
+    // The test version keeps every kitchen open at any hour (Ali, 2026-10-31): no hours, no pause windows.
+    const anyHour = hoursIgnored();
+    const pauses = anyHour ? [] : k.profile.pauseWindows;
+    const hours = anyHour ? [] : s.hours;
     const busy = this.catalog.isBusy(s.orgId) || merchantBusy === true;
     const prep = prepRange(basePrepMin(s.prepMin, items), busy);
     const eta = etaRange(prep, location && dropoff ? await this.rideMinutes(location, dropoff, rides) : null);
@@ -784,7 +789,7 @@ export class CatalogRpc implements CustomerCatalogPort {
         ? { open: false, closedReason: 'paused' as const, opensAt: null }
         : closed
           ? { open: false, closedReason: 'paused' as const, opensAt: reopensAt ? localTwelveHour(reopensAt, this.merchants.timeZone) : null }
-        : openState(now, s.hours, pauses, this.merchants.timeZone);
+        : openState(now, hours, pauses, this.merchants.timeZone);
     return {
       id: s.orgId,
       cityId: s.cityId,
@@ -805,7 +810,7 @@ export class CatalogRpc implements CustomerCatalogPort {
       open: state.open,
       closedReason: state.closedReason,
       opensAt: state.opensAt,
-      opensInMin: holiday || stoppedNote || state.open ? null : closed ? (reopensAt ? Math.max(1, Math.ceil((reopensAt.getTime() - now.getTime()) / 60_000)) : null) : this.opensInMin(now, s.hours, pauses, state.closedReason),
+      opensInMin: holiday || stoppedNote || state.open ? null : closed ? (reopensAt ? Math.max(1, Math.ceil((reopensAt.getTime() - now.getTime()) / 60_000)) : null) : this.opensInMin(now, hours, pauses, state.closedReason),
       ...(stoppedNote ? { stoppedNote } : {}),
       busy,
       ...(k.profile.featured ? { featured: true } : {}),
