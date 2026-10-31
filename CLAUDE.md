@@ -1,6 +1,10 @@
 # Driver (درايفر) — guide for Claude Code
 
 ## Status (read this first)
+**Customer home redesign (Ali, 2026-11-01): build only from `docs/specs/2026-11-01-home-redesign.md`**
+(approved light + dark pictures, colours, states, build steps). Customer app only. Backup of the app
+before it: git tag `backup-before-home-redesign-2026-11-01`.
+
 As of commit `b702d90` on `main`: Phase 1 (launch blockers), Phase 2 (system polish) and Phase 3
 (signature moments — "الخردة علينا" cash hand-off, driver money moments, الرجعة garage mode, merchant/
 Console moments, the honest-delay promise) of `docs/research/ui-ux-audit/README.md` are built and
