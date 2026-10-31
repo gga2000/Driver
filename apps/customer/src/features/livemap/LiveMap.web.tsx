@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ExpressionSpecification, FilterSpecification, GeoJSONSource, Map as MlMap, StyleSpecification } from 'maplibre-gl';
 import { useTheme } from '@driver/ui';
@@ -9,6 +9,7 @@ import { ensureMaplibreCss } from '@/features/track/map/maplibre-css';
 import { GOLDEN_MAP } from '@/features/track/map/credit';
 import { framePoints, type LiveOrder, type LivePin } from './logic';
 import { CourierDisc, HomePin, LiveBubble, LiveDot, OrderKitchen } from './Markers';
+import { MapDials, TILTED_FROM, TILT_3D } from './MapDials';
 
 type Golden = typeof import('@driver/map/golden');
 type Pt = [number, number];
@@ -76,6 +77,8 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
   const facing = useRef(new Map<string, number>());
   const houseFilters = useRef(new Map<string, FilterSpecification | undefined>());
   const turned = useRef(false);
+  const [bearing, setBearing] = useState(0);
+  const [pitch, setPitch] = useState(0);
   const live = useRef({ pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, still, reduce: theme.reduceMotion });
   live.current = { pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, still, reduce: theme.reduceMotion };
   const failRef = useRef(onFail);
@@ -307,6 +310,11 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
           setTimeout(turnOnce, 600);
         });
         m.on('render', placeMarks);
+        // The compass and «3D» button follow the camera, however it moved (a drag, a flight, the buttons).
+        m.on('move', () => {
+          setBearing(Math.round(m.getBearing()));
+          setPitch(Math.round(m.getPitch()));
+        });
         m.on('idle', faceStreets);
       })
       .catch(() => failRef.current());
@@ -350,10 +358,13 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
     else marks.current.delete(key);
   };
   const dim = Boolean(order);
+  const turnNorth = () => mapRef.current?.easeTo({ bearing: 0, duration: theme.reduceMotion ? 0 : 500 });
+  const tiltToggle = () => mapRef.current?.easeTo({ pitch: pitch > TILTED_FROM ? 0 : TILT_3D, duration: theme.reduceMotion ? 0 : 600 });
 
   return (
     <View pointerEvents={still ? 'none' : 'auto'} style={[StyleSheet.absoluteFill, { direction: 'ltr', overflow: 'hidden', backgroundColor: theme.colors.bg }]} testID={still ? 'live-map-still' : 'live-map'}>
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
+      {still ? null : <MapDials bearing={bearing} pitch={pitch} onNorth={turnNorth} onTilt={tiltToggle} top={topInset + 12} />}
       {pins
         .filter((p) => p.id !== selectedId)
         .map((p) => {

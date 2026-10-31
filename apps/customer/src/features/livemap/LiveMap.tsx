@@ -7,6 +7,7 @@ import { useT } from '@/lib/i18n';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from '@/features/track/map/native-maplibre';
 import { framePoints, type LiveOrder, type LivePin } from './logic';
 import { CourierDisc, HomePin, LiveBubble, LiveDot, OrderKitchen } from './Markers';
+import { MapDials, TILTED_FROM, TILT_3D } from './MapDials';
 
 type Pt = [number, number];
 
@@ -98,6 +99,19 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
 
   const live = useRef({ pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, size, facing, still, reduce: theme.reduceMotion });
   live.current = { pins, bubbles, home, selectedId, order, topInset, bottomInset, lite, size, facing, still, reduce: theme.reduceMotion };
+
+  const [bearing, setBearing] = useState(0);
+  const [pitch, setPitch] = useState(0);
+  /** The compass and «3D» button read the camera when it settles. */
+  const readCamera = () => {
+    void map.current?.getBearing().then((b) => setBearing(Math.round(b)));
+    void map.current?.getPitch().then((p) => setPitch(Math.round(p)));
+  };
+  /** Turns or tilts about the point in the middle of the screen. */
+  const turnTo = (to: { bearing?: number; pitch?: number }, ms: number) =>
+    void map.current?.getViewState().then((v) => camera.current?.easeTo({ center: v.center as Pt, zoom: v.zoom, ...to, duration: theme.reduceMotion ? 0 : ms, easing: 'ease' }));
+  const turnNorth = () => turnTo({ bearing: 0 }, 500);
+  const tiltToggle = () => turnTo({ pitch: pitch > TILTED_FROM ? 0 : TILT_3D }, 600);
 
   const faceStreets = () => {
     if (lite || !roadLayers.length) return;
@@ -221,7 +235,10 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
         onDidFinishLoadingMap={() => setReady(true)}
         onDidFailLoadingMap={onFail}
         onDidFinishRenderingMapFully={faceStreets}
-        onRegionDidChange={faceStreets}
+        onRegionDidChange={() => {
+          faceStreets();
+          readCamera();
+        }}
       >
         <ml.Camera ref={camera} maxZoom={20} initialViewState={{ center: home, zoom: 15 }} />
         <ml.Images images={images} />
@@ -279,6 +296,7 @@ export function LiveMap({ pins, bubbles, home, homeLabel, selectedId, onSelect, 
           </ml.Marker>
         ) : null}
       </ml.Map>
+      {still ? null : <MapDials bearing={bearing} pitch={pitch} onNorth={turnNorth} onTilt={tiltToggle} top={topInset + 12} />}
     </View>
   );
 }
