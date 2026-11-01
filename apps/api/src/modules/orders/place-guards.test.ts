@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DriverError } from '@driver/contracts';
 import { ordersHarness } from './test-harness.js';
 
@@ -43,6 +43,33 @@ describe('orders.place — opening hours (apps review 2026-10-04 #10)', () => {
     await withStorefront(h);
     expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: new Date('2026-10-03T10:00:00Z') })))).toBe('ok'); // 13:00 sharp
     expect(await code(h.orders.place('c1', h.foodInput({ scheduledFor: new Date('2026-10-03T09:45:00Z') })))).toBe('merchant_closed'); // 12:45
+  });
+
+  describe('the test version (DEPLOY_ENVIRONMENT=staging): open at any hour (Ali, 2026-10-31)', () => {
+    afterEach(() => vi.unstubAllEnvs());
+    const staging = () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('DEPLOY_ENVIRONMENT', 'staging');
+    };
+
+    it('takes an order outside the opening hours and inside a pause window', async () => {
+      staging();
+      const h = ordersHarness(); // Saturday 12:00, an hour before opening
+      await withStorefront(h);
+      h.merchants.merchants.get('rest_1')!.pauseWindows = [{ dow: 6, start: '11:45', end: '13:15', reason: 'صلاة' }];
+      expect(await code(h.orders.place('c1', h.foodInput()))).toBe('ok');
+    });
+
+    it('a shop closed by hand stays closed, and STAGING_KEEP_HOURS=1 brings the hours back', async () => {
+      staging();
+      const h = ordersHarness();
+      await withStorefront(h);
+      h.merchants.merchants.get('rest_1')!.closed = true;
+      expect(await code(h.orders.place('c1', h.foodInput()))).toBe('merchant_paused');
+      h.merchants.merchants.get('rest_1')!.closed = false;
+      vi.stubEnv('STAGING_KEEP_HOURS', '1');
+      expect(await code(h.orders.place('c1', h.foodInput()))).toBe('merchant_closed');
+    });
   });
 
   it('pause windows, early close and busy mode are still respected inside the hours', async () => {

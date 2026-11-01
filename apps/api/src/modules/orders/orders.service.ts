@@ -104,6 +104,7 @@ import { PARTICIPANT_RESOLVER, allocatePoints, assertLineTags, orderPoints, plat
 import type { OrdersRidersPort, ResolvedRider } from './riders.js';
 import { publicLabel, recipientIds, rememberRecipients, withRecipientLabels } from './recipients.js';
 import { STOREFRONT_HOME, type StorefrontHome } from '../catalog/index.js';
+import { hoursIgnored } from '../config/index.js';
 import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 /** A household member as placement reads them (role and limits). */
@@ -992,8 +993,10 @@ export class OrdersService implements OnModuleInit {
         // أكل بيت: a home kitchen's reserved dish books up to a week ahead at its own times (`homeOrderProblem`).
         if (input.scheduledFor && !storefront?.home && foodScheduleProblem(input.scheduledFor, now)) throw new DriverError('order_schedule_invalid');
         const at = input.scheduledFor ?? now;
-        if (storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
-        if (activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
+        // The test version takes orders at any hour, as its cards say (Ali, 2026-10-31; `hoursIgnored`).
+        const anyHour = hoursIgnored();
+        if (!anyHour && storefront && storefront.hours.length > 0 && !activePauseWindow(at, storefront.hours, DEFAULT_TIMEZONE)) throw new DriverError('merchant_closed');
+        if (!anyHour && activePauseWindow(at, profile.pauseWindows, DEFAULT_TIMEZONE)) throw new DriverError('merchant_paused');
         // Closed by hand from the Merchant app (early close) or a holiday today, or its tablet offline
         // for 5 minutes (h5, Ali 2026-10-08): refused like a pause window. A pre-order for a later day
         // still goes in; one for later today does not while the shop is closed (FOOD-03).

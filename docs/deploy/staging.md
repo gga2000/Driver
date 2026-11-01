@@ -112,6 +112,12 @@ setup also marks the API host as staging (`DEPLOY_ENVIRONMENT=staging` on Fly): 
 to work on any other host. To change the code, edit the secret and run both again; to turn the test
 numbers off, delete the secret and remove it on Fly (`flyctl secrets unset STAGING_TEST_OTP`).
 
+**Every restaurant is open at any hour on staging** (Ali, 2026-10-31): on a `DEPLOY_ENVIRONMENT=staging`
+host the API ignores opening hours and pause windows such as the Friday-prayer pause, on the cards and when
+placing an order. A shop closed by hand, on holiday, with its tablet offline or stopped by a kill switch
+stays closed. To test the hours themselves, set `STAGING_KEEP_HOURS=1` on the staging API. Production and
+local runs always keep the hours.
+
 ## Rules
 
 - **No real people.** Staging holds generated data only: no copy of production, no real phone numbers.
