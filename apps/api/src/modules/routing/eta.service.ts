@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ROUTE_VEHICLE_FACTOR, type EtaBasis, type LatLng, type VehicleClass } from '@driver/contracts';
 import { ETA_CORRECTION, NO_ETA_CORRECTION, type EtaCorrection } from './eta-correction.port.js';
 import { ROUTER, type RouteResult, type Router } from './routing.port.js';
+import type { StreetShapes } from './street-shapes.js';
 
 export interface EtaMinutes {
   /** Whole minutes, at least one. */
@@ -14,6 +15,9 @@ export interface BaseEtaMinutes extends EtaMinutes {
   /** Unrounded minutes (vehicle factor applied): what a finished leg's actual time is compared with. */
   exactMinutes: number;
 }
+
+/** The street shapes route lines follow (RoutingModule provides TOWN_SHAPES; none: lines as the router gives them). */
+export const STREET_SHAPES = Symbol('STREET_SHAPES');
 
 const exactMinutes = (durationS: number, vehicle: VehicleClass): number => (durationS * ROUTE_VEHICLE_FACTOR[vehicle]) / 60;
 const wholeMinutes = (exact: number): number => Math.max(1, Math.round(exact));
@@ -28,8 +32,11 @@ const wholeMinutes = (exact: number): number => Math.max(1, Math.round(exact));
 export class EtaService {
   private readonly correction: EtaCorrection;
 
-  constructor(@Inject(ROUTER) private readonly router: Router, @Optional() @Inject(ETA_CORRECTION) correction?: EtaCorrection) {
+  private readonly shapes: StreetShapes | null;
+
+  constructor(@Inject(ROUTER) private readonly router: Router, @Optional() @Inject(ETA_CORRECTION) correction?: EtaCorrection, @Optional() @Inject(STREET_SHAPES) shapes?: StreetShapes) {
     this.correction = correction ?? NO_ETA_CORRECTION;
+    this.shapes = shapes ?? null;
   }
 
   /**
@@ -61,9 +68,14 @@ export class EtaService {
     return this.correction.factor({ from, to, vehicle, basis });
   }
 
-  /** The road through `points` (two or more): its shape for the map, its length and duration (uncorrected). */
-  path(points: readonly LatLng[]): Promise<RouteResult> {
-    return this.router.route(points);
+  /**
+   * The road through `points` (two or more): its shape for the map, its length and duration (uncorrected).
+   * Without a road shape from OSRM the line follows our map's streets (Ali 2026-11-01); the length and
+   * duration stay the router's either way.
+   */
+  async path(points: readonly LatLng[]): Promise<RouteResult> {
+    const r = await this.router.route(points);
+    return this.shapes ? this.shapes.along(r, points) : r;
   }
 
   /** Minutes from each source to one destination (one `table` call): storefront cards, many kitchens to one door. */

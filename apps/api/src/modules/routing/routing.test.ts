@@ -7,7 +7,6 @@ import { ResilientRouter, ROUTING_RULES } from './resilient.router.js';
 import { routerFromEnv } from './routing.module.js';
 import { RoutingUnavailable, type RouteResult, type Router, type TableResult } from './routing.port.js';
 import { StraightLineRouter } from './straight-line.router.js';
-import { StreetShapeRouter } from './street-shape.router.js';
 
 const A: LatLng = { lat: 32.905, lng: 45.06 };
 /** About `m` metres north of A. */
@@ -117,7 +116,7 @@ describe('EtaService', () => {
   });
   it('OSRM_URL switches road routing on', () => {
     const clock = new FakeClock('2026-10-05T10:00:00Z');
-    expect(routerFromEnv(clock, {})).toBeInstanceOf(StreetShapeRouter);
+    expect(routerFromEnv(clock, {})).toBeInstanceOf(StraightLineRouter);
     expect(routerFromEnv(clock, { OSRM_URL: 'http://driver-osrm.internal:5000' })).toBeInstanceOf(ResilientRouter);
   });
 });
