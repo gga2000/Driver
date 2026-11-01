@@ -85,8 +85,11 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
     // Place names fight the risen roofs; street names stay.
     return { ...s, layers: s.layers.map((l) => (l.id === 'golden-places' ? { ...l, layout: { ...l.layout, visibility: 'none' } } : l)) } as typeof s;
   }, [light]);
-  const images = useMemo(() => nativeGoldenImages(golden, light), [light]);
-  const layers = useMemo(() => golden.goldenTrackingLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit }), [light]);
+  const images = useMemo(() => ({ ...nativeGoldenImages(golden, light), [golden.TRACKING_ARROW]: golden.patternPngDataUri(golden.trackingArrowImage(light)) }), [light]);
+  // The route on the ground (Ali 2026-11-01, look B): along the street under the houses, small arrows the
+  // way he drives, a faint trace through the houses in front of it.
+  const track = useMemo(() => golden.goldenTrackingGroundLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit }), [light]);
+  const layers = useMemo(() => [...track.under.map((l) => ({ l, beforeId: golden.TRACKING_UNDER_HOUSES })), ...track.over.map((l) => ({ l, beforeId: golden.GOLDEN_FIRST_LABEL }))], [track]);
   const roadLayers = useMemo(() => style.layers.filter((l) => 'source-layer' in l && l['source-layer'] === 'roads').map((l) => l.id), [style]);
 
   useEffect(() => {
@@ -214,7 +217,7 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
   const ring = theme.colors.accent;
   const name = view.courier?.firstName ?? '';
   const courierSpot = riding ? (courier?.pos ?? null) : moment === 'arrived' && pickedUp ? home : null;
-  const layerProps = (l: (typeof layers)[number]) => ({ ...l, beforeId: golden.GOLDEN_FIRST_LABEL }) as unknown as LayerProps;
+  const layerProps = ({ l, beforeId }: (typeof layers)[number]) => ({ ...l, beforeId }) as unknown as LayerProps;
 
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden', backgroundColor: theme.colors.bg }]} onLayout={onLayout} accessibilityLabel={t('track.map_label')} testID="track-map">
@@ -254,20 +257,20 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
         <StreetLifeLayers roads={roads} light={light} still={theme.reduceMotion} beforeId={golden.GOLDEN_FIRST_LABEL} />
         <ml.GeoJSONSource id={SRC.route} data={route} lineMetrics>
           {layers
-            .filter((l) => 'source' in l && l.source === SRC.route)
-            .map((l) =>
-              l.id === 'track-ahead' ? (
-                <GlintLayer key={l.id} layer={layerProps(l)} light={light} pulse={fixKey} rest={theme.reduceMotion || !riding} />
+            .filter(({ l }) => 'source' in l && l.source === SRC.route)
+            .map((x) =>
+              x.l.id === 'track-ahead' ? (
+                <GlintLayer key={x.l.id} layer={layerProps(x)} light={light} pulse={fixKey} rest={theme.reduceMotion || !riding} />
               ) : (
-                <ml.Layer key={l.id} {...layerProps(l)} />
+                <ml.Layer key={x.l.id} {...layerProps(x)} />
               ),
             )}
         </ml.GeoJSONSource>
         <ml.GeoJSONSource id={SRC.glow} data={glow}>
-          {layers.filter((l) => 'source' in l && l.source === SRC.glow).map((l) => <ml.Layer key={l.id} {...layerProps(l)} />)}
+          {layers.filter(({ l }) => 'source' in l && l.source === SRC.glow).map((x) => <ml.Layer key={x.l.id} {...layerProps(x)} />)}
         </ml.GeoJSONSource>
         <ml.GeoJSONSource id={SRC.lit} data={lit as GeoJSON.FeatureCollection}>
-          {layers.filter((l) => 'source' in l && l.source === SRC.lit).map((l) => <ml.Layer key={l.id} {...layerProps(l)} />)}
+          {layers.filter(({ l }) => 'source' in l && l.source === SRC.lit).map((x) => <ml.Layer key={x.l.id} {...layerProps(x)} />)}
         </ml.GeoJSONSource>
         <ml.GeoJSONSource id={SRC.slow} data={slowShape?.line ?? EMPTY}>
           {slowLayers.map((l) => (

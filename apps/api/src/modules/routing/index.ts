@@ -3,6 +3,7 @@ export { EtaService, type EtaMinutes, type BaseEtaMinutes } from './eta.service.
 export { ETA_CORRECTION, NO_ETA_CORRECTION, type EtaCorrection, type EtaLegQuery } from './eta-correction.port.js';
 export { ROUTER, RoutingUnavailable, type Router, type RouteResult, type TableResult } from './routing.port.js';
 export { StraightLineRouter } from './straight-line.router.js';
+export { StreetShapeRouter, townStreets } from './street-shape.router.js';
 export { OsrmRouter, OSRM_DEFAULT_TIMEOUT_MS, type OsrmFetch } from './osrm.router.js';
 export { ResilientRouter, ROUTING_RULES } from './resilient.router.js';
 export { ClosureAwareRouter } from './closure-aware.router.js';

@@ -7,13 +7,19 @@ import { OSRM_DEFAULT_TIMEOUT_MS, OsrmRouter } from './osrm.router.js';
 import { ResilientRouter } from './resilient.router.js';
 import { ROUTER, type Router } from './routing.port.js';
 import { StraightLineRouter } from './straight-line.router.js';
+import { StreetShapeRouter } from './street-shape.router.js';
 
-/** Routers from the environment: `OSRM_URL` (e.g. http://driver-osrm.internal:5000) turns on road routing. */
+/**
+ * Routers from the environment: `OSRM_URL` (e.g. http://driver-osrm.internal:5000) turns on road routing.
+ * Without it (or while it is down) times are the straight-line estimate, and the route line still follows
+ * our map's streets (StreetShapeRouter, Ali 2026-11-01).
+ */
 export function routerFromEnv(clock: Clock, env: NodeJS.ProcessEnv = process.env): Router {
   const url = env['OSRM_URL'];
-  if (!url) return new StraightLineRouter();
+  const estimate = new StreetShapeRouter(new StraightLineRouter());
+  if (!url) return estimate;
   const timeout = Number(env['OSRM_TIMEOUT_MS'] ?? OSRM_DEFAULT_TIMEOUT_MS);
-  return new ResilientRouter(new OsrmRouter(url, Number.isFinite(timeout) && timeout > 0 ? timeout : OSRM_DEFAULT_TIMEOUT_MS), new StraightLineRouter(), clock);
+  return new ResilientRouter(new OsrmRouter(url, Number.isFinite(timeout) && timeout > 0 ? timeout : OSRM_DEFAULT_TIMEOUT_MS), estimate, clock);
 }
 
 /** Road routing and the one ETA service (maps program SP4b); every route goes around today's closed streets (N20). */
