@@ -13,6 +13,9 @@ import { amountParam } from '@/lib/money';
 import { unregisterPush } from '@/features/notify/usePush';
 import { placeIcon } from '@/features/places/place-icon';
 import { useSimpleMode } from '@/features/simple/pref';
+import type { Appearance } from '@/features/appearance/logic';
+import { useAppearance } from '@/features/appearance/pref';
+import { NEW_HOME } from '@/lib/env';
 import { useApiClient } from '@/lib/api';
 import { useInviteRule } from '@/features/invite/queries';
 import { useLocale, useT } from '@/lib/i18n';
@@ -51,6 +54,7 @@ function Account() {
   const wallet = useWalletBalance().data;
   const [signingOut, setSigningOut] = useState(false);
   const simple = useSimpleMode();
+  const look = useAppearance();
   const name = me.data?.name ?? prof.name ?? null;
 
   const signOut = async () => {
@@ -266,6 +270,26 @@ function Account() {
           }
         />
       </Card>
+
+      {/* Light / dark (home redesign step 2): only once the new home is on; until then the app keeps one look. */}
+      {NEW_HOME ? (
+        <View testID="account-appearance" style={{ gap: theme.space[3] }}>
+          <SectionHeader title={t('account.appearance')} />
+          <SegmentedControl<Appearance>
+            accessibilityLabel={t('account.appearance')}
+            value={look.choice}
+            onChange={(v) => void look.set(v)}
+            options={[
+              { value: 'auto', label: t('account.appearance_auto') },
+              { value: 'light', label: t('account.appearance_light') },
+              { value: 'dark', label: t('account.appearance_dark') },
+            ]}
+          />
+          <Text variant="footnote" color="textMuted">
+            {t('account.appearance_hint')}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={{ gap: theme.space[3] }}>
         <SectionHeader title={t('account.language')} />
