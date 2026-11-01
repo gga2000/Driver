@@ -454,7 +454,10 @@ function labelLayers(p: GoldenPalette): LayerSpecification[] {
       id: 'golden-signposts', type: 'symbol', ...src, 'source-layer': 'places', minzoom: 15,
       filter: ['in', ['get', 'icon'], ['literal', [...FOOD_SIGNS]]] as never,
       layout: {
-        'icon-image': ['concat', 'golden-sign-', ['get', 'icon']] as never, 'icon-anchor': 'bottom', 'icon-allow-overlap': true,
+        'icon-image': ['concat', 'golden-sign-', ['get', 'icon']] as never, 'icon-anchor': 'bottom',
+        // Shops that stand side by side take turns: the busiest pin first, the others appear as you come closer
+        // (Ali, 2026-11-01: pins piled up on the main road).
+        'icon-allow-overlap': false, 'icon-padding': 1, 'symbol-sort-key': ['get', 'rank'] as never,
         'icon-size': fade(15, 0.35, 17, 0.48), 'symbol-z-order': 'source',
         'text-field': ['step', ['zoom'], '', 16, ['get', 'name']] as never,
         'text-font': [...GOLDEN_FONTS.medium], 'text-size': fade(15, 12, 17, 13.5), 'text-max-width': 8, 'text-optional': true,
