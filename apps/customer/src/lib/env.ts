@@ -17,3 +17,10 @@ export const SUPPORT_WHATSAPP: string = process.env.EXPO_PUBLIC_SUPPORT_WHATSAPP
  */
 export const MAP_TILES_URL: string | undefined = process.env.EXPO_PUBLIC_MAP_TILES_URL || undefined;
 export const MAP_GLYPHS_URL: string | undefined = process.env.EXPO_PUBLIC_MAP_GLYPHS_URL || undefined;
+
+/**
+ * The new home (docs/specs/2026-11-01-home-redesign.md §10): built behind this switch until Ali says
+ * yes to the whole of it. `EXPO_PUBLIC_NEW_HOME=1` at build time turns on the sage / emerald night
+ * colours and the حسابي light/dark choice; off (the default), the app looks exactly as before.
+ */
+export const NEW_HOME: boolean = process.env.EXPO_PUBLIC_NEW_HOME === '1';

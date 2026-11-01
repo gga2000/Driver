@@ -1,12 +1,14 @@
 import { Stack, usePathname, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { loadDataSaverPref } from '@/lib/data-saver-pref';
 import { simpleMode } from '@/features/simple/pref';
 import { Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme } from '@driver/ui';
+import { CrashBoundary, PhotoImageProvider, ThemeProvider, ToastProvider, createTheme, useTheme } from '@driver/ui';
+import { appearance } from '@/features/appearance/pref';
+import { useAppThemeName } from '@/features/appearance/useAppTheme';
 import { DevCrashProbe, disarmDevCrash } from '@/components/DevCrashProbe';
 import { Wordmark } from '@/components/Wordmark';
 import { useAccountSync } from '@/features/account/sync';
@@ -49,9 +51,6 @@ const boundaryReporter: Pick<typeof crashReporter, 'capture'> = {
   },
 };
 
-/** Static colours for navigator chrome, which sits outside the React theme context. */
-const chrome = createTheme('istikan');
-
 /** The splash waits this long at most for the fonts (joy J-D2: no face swap on the first screen). */
 const FONT_HOLD_MAX_MS = 2500;
 
@@ -67,6 +66,9 @@ export default function RootLayout() {
   // CORE-05: the server turned this build away; one «حدّث التطبيق» page replaces every screen.
   const updateRequired = useUpdateRequired();
   const { locale } = useProfile();
+  // istikan today; sage / emerald night once the new home is on (phone setting + the حسابي choice).
+  const themeName = useAppThemeName();
+  const chrome = useMemo(() => createTheme(themeName), [themeName]);
   // Fonts load behind the splash; a slow device stops waiting after FONT_HOLD_MAX_MS and swaps in place.
   const [fontWaitOver, setFontWaitOver] = useState(false);
   useEffect(() => {
@@ -81,6 +83,8 @@ export default function RootLayout() {
     void loadDataSaverPref();
     // «الوضع البسيط» (ride idea v2): known before home draws, so it never flashes the full home first.
     void simpleMode.load();
+    // Light / dark (home redesign step 2): known before the first screen draws.
+    void appearance.load();
   }, []);
 
   useEffect(() => {
@@ -88,13 +92,13 @@ export default function RootLayout() {
     document.documentElement.lang = locale === 'en' ? 'en' : 'ar';
     document.documentElement.dir = locale === 'en' ? 'ltr' : 'rtl';
     document.body.style.backgroundColor = chrome.colors.bg;
-  }, [locale]);
+  }, [locale, chrome.colors.bg]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider
-          theme="istikan"
+          theme={themeName}
           fonts={fontsLoaded ? 'brand' : 'system'}
           haptics={haptics}
           // Native direction comes from I18nManager (needs a restart to flip); the web flips live.
@@ -105,7 +109,7 @@ export default function RootLayout() {
             <PhotoImageProvider component={CachedPhoto}>
             <ToastProvider bottomOffset={96}>
               <ApiProvider>
-                <StatusBar style="dark" />
+                <StatusBar style={chrome.scheme === 'dark' ? 'light' : 'dark'} />
                 <DevCrashProbe />
                 {/* Launch status banner from the Console (system.banner), above every screen. */}
                 <SystemBanner />
@@ -160,6 +164,7 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
   // CORE-08: a push tapped while the app was closed opens its screen once the guard has nothing to redirect.
   usePushLaunch(ready && status === 'signedIn' && !resolveGuard({ status, setupPending: prof.setupPending, segments, pathname, welcomed: prof.welcomed, returnTo: prof.returnTo }));
 
+  const chrome = useTheme();
   return (
     <View style={{ flex: 1, backgroundColor: chrome.colors.bg }}>
       <Stack
@@ -244,6 +249,7 @@ function RootNavigator({ fontsPending }: { fontsPending: boolean }) {
 
 /** Shown while the session and profile load from storage (a few ms; avoids a flash of the wrong stack). */
 function Splash() {
+  const chrome = useTheme();
   return (
     <View
       style={{
