@@ -46,12 +46,18 @@ function walk(dir, refs, skip = SKIP_DIRS) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!skip.has(entry.name)) walk(p, refs, skip);
+      if (!skip.has(entry.name) && !skipsPath(skip, p)) walk(p, refs, skip);
     } else if (SOURCE.test(entry.name) && !entry.name.includes('.test.') && !SERVER_ONLY.has(entry.name)) {
       keyRefs(fs.readFileSync(p, 'utf8'), refs);
     }
   }
   return refs;
+}
+
+/** A skip entry with a slash names a folder by its path end (`ui/src/home`), not just its name. */
+function skipsPath(skip, p) {
+  for (const s of skip) if (s.includes('/') && p.endsWith(path.join(...s.split('/')))) return true;
+  return false;
 }
 
 const namespaceOf = (key) => key.split(/[.:]/)[0];
@@ -90,11 +96,17 @@ function writeCustomerLocales({ repoRoot, outDir }) {
   return writeLocales({ repoRoot, outDir, roots: ROOTS, always: DROP, unnamed: false });
 }
 
+/**
+ * `@driver/ui/home` (the customer home's pieces) is a subpath only the customer app imports: its `home.*`
+ * keys must not make the partner and merchant apps keep the whole customer `home` namespace.
+ */
+const CUSTOMER_HOME = 'ui/src/home';
+
 /** The partner app's tables: no Console, WhatsApp or SMS texts, and none of the customer-only screens. */
 const PARTNER_ROOTS = ['apps/partner/app', 'apps/partner/src', ...SHARED_ROOTS];
 const PARTNER_DROP = new Set(['console', 'wa', 'sms', 'push']);
 /** The contracts' `routers/` run on the server only (the apps import its schemas, never the routers), so the texts they name are not the phone's. */
-const PHONE_SKIP_DIRS = new Set([...SKIP_DIRS, 'routers']);
+const PHONE_SKIP_DIRS = new Set([...SKIP_DIRS, 'routers', CUSTOMER_HOME]);
 function writePartnerLocales({ repoRoot, outDir }) {
   return writeLocales({ repoRoot, outDir, roots: PARTNER_ROOTS, always: PARTNER_DROP, unnamed: true, skip: PHONE_SKIP_DIRS });
 }
@@ -108,7 +120,7 @@ const MERCHANT_ROOTS = ['apps/merchant/app', 'apps/merchant/src', ...SHARED_ROOT
 /** As the partner app, plus the partner app's own screens (only the `partner.*` keys merchant code names stay). */
 const MERCHANT_DROP = new Set([...PARTNER_DROP, 'partner']);
 function writeMerchantLocales({ repoRoot, outDir }) {
-  return writeLocales({ repoRoot, outDir, roots: MERCHANT_ROOTS, always: MERCHANT_DROP, unnamed: true });
+  return writeLocales({ repoRoot, outDir, roots: MERCHANT_ROOTS, always: MERCHANT_DROP, unnamed: true, skip: new Set([...SKIP_DIRS, CUSTOMER_HOME]) });
 }
 
 module.exports = { keyRefs, pickMessages, dropFor, writeCustomerLocales, writePartnerLocales, writeMerchantLocales };
