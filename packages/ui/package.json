@@ -19,6 +19,10 @@
     "./lost-item": {
       "types": "./src/lost-item.tsx",
       "default": "./src/lost-item.tsx"
+    },
+    "./home": {
+      "types": "./src/home/index.ts",
+      "default": "./src/home/index.ts"
     }
   },
   "sideEffects": false,

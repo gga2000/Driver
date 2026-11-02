@@ -63,6 +63,7 @@ import {
 import { SketchbookDishes, SketchbookPage, SketchbookScenes } from './Sketchbook';
 import { StickersPage } from './Stickers';
 import { HomeLookSection } from './HomeLook';
+import { HomePiecesSection } from './HomePieces';
 
 /* ───────────────────────── layout helpers ───────────────────────── */
 
@@ -1176,6 +1177,7 @@ function Page() {
         <ThemeSwitch />
         <Hero />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: width >= 980 ? -theme.space[3] : 0 }}>
+          {isCustomerTheme(theme.name) ? <HomePiecesSection /> : null}
           {isCustomerTheme(theme.name) ? <HomeLookSection name={theme.name} /> : null}
           <ButtonsSection />
           <ChoiceSection />

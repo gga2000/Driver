@@ -267,6 +267,25 @@ describe('home redesign colours (sage and emerald night)', () => {
     expect(contrastRatio(homeLook.sage.panel.muted, homeLook.sage.panel.fill)).toBeGreaterThanOrEqual(7.2);
   });
 
+  it('round 3 (2026-11-02): panel numbers and money, and board tiles, all read at AA in both themes', () => {
+    for (const name of customerThemes) {
+      const p = homeLook[name].panel;
+      const b = homeLook[name].board;
+      const th = themes[name];
+      for (const bg of [p.fill, p.raised]) {
+        expect(contrastRatio(p.fact, bg), `${name} fact on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(p.cash, bg), `${name} cash on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(p.on, bg), `${name} on on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(p.muted, bg), `${name} muted on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      }
+      for (const fg of [b.fact, th.text, th.textMuted]) expect(contrastRatio(fg, b.tile), `${name} ${fg} on tile`).toBeGreaterThanOrEqual(4.5);
+      // The food tile: dark ink on the orange.
+      expect(contrastRatio(ON_ORANGE, ORANGE)).toBeGreaterThanOrEqual(4.5);
+      // An outlined (taken) seat is still visible on its tile.
+      expect(contrastRatio(b.edge, b.tile), `${name} seat outline`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it('live marks read where they are drawn: orange on the forest, emerald on the night page (3:1)', () => {
     expect(contrastRatio(homeLook.sage.live, homeLook.sage.panel.fill)).toBeGreaterThanOrEqual(3);
     expect(contrastRatio(homeLook.emeraldNight.live, night.bg)).toBeGreaterThanOrEqual(3);
