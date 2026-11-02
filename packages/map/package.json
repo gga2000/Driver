@@ -63,6 +63,10 @@
     "./pieces/closed-streets": {
       "types": "./dist/golden/closed-streets.d.ts",
       "default": "./dist/golden/closed-streets.js"
+    },
+    "./pieces/street-route": {
+      "types": "./dist/golden/street-route.d.ts",
+      "default": "./dist/golden/street-route.js"
     }
   },
   "scripts": {

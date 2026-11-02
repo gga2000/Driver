@@ -38,6 +38,9 @@ importers:
       '@driver/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@driver/map':
+        specifier: workspace:*
+        version: link:../../packages/map
       '@nestjs/common':
         specifier: 11.2.7
         version: 11.2.7(reflect-metadata@0.2.2)(rxjs@7.8.2)

@@ -203,7 +203,15 @@ export function TrackMap3D({ view, fix, stale, topInset, bottomInset, onFail }: 
           const before = m.getLayer(golden.GOLDEN_FIRST_LABEL) ? golden.GOLDEN_FIRST_LABEL : undefined;
           // Street life under the route and pins (spec "Street life"; only from LIFE_MINZOOM).
           for (const layer of golden.goldenLifeLayers({ source: SRC.life })) m.addLayer(layer as never, before);
-          for (const layer of golden.goldenTrackingLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit })) m.addLayer(layer as never, before);
+          // The route on the ground (Ali 2026-11-01, look B): along the street under the houses, small arrows
+          // the way he drives, a faint trace through the houses in front of it.
+          const track = golden.goldenTrackingGroundLayers({ service: 'food', light, routeSource: SRC.route, glowSource: SRC.glow, litSource: SRC.lit });
+          const arrow = golden.trackingArrowImage(light);
+          if (m.hasImage(golden.TRACKING_ARROW)) m.updateImage(golden.TRACKING_ARROW, arrow);
+          else m.addImage(golden.TRACKING_ARROW, arrow);
+          const underHouses = m.getLayer(golden.TRACKING_UNDER_HOUSES) ? golden.TRACKING_UNDER_HOUSES : before;
+          for (const layer of track.under) m.addLayer(layer as never, underHouses);
+          for (const layer of track.over) m.addLayer(layer as never, before);
           // The slow stretch over the road ahead, still under the street names.
           for (const layer of pieces.slowStretchLayers({ source: SRC.slow, light, id: 'track-slow' })) m.addLayer(layer as never, before);
           // N20: the closed streets he goes around, striped with a barrier at each end, under the street names too.

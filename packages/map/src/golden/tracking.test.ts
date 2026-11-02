@@ -1,7 +1,8 @@
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { describe, expect, it } from 'vitest';
 import {
-  bearingBetween, buildGoldenStyle, glintGradient, GOLDEN_FIRST_LABEL, goldenTrackingLayers, trackingCamera,
+  bearingBetween, buildGoldenStyle, glintGradient, GOLDEN_FIRST_LABEL, goldenTrackingGroundLayers, goldenTrackingLayers, trackingArrowImage, trackingCamera,
+  TRACKING_ARROW, TRACKING_UNDER_HOUSES,
   TRACKING_RISE_ZOOM, type TrackingMoment,
 } from './index.js';
 
@@ -20,6 +21,32 @@ describe('the order map', () => {
     const at = style.layers.findIndex((l) => l.id === GOLDEN_FIRST_LABEL);
     style.layers.splice(at, 0, ...goldenTrackingLayers({ service: 'food', light: 'golden', routeSource: 'r', glowSource: 'g', litSource: 'b' }));
     expect(validateStyleMin(style)).toEqual([]);
+  });
+  it('lays the route on the street under the houses, with a faint trace through them over the houses (look B)', () => {
+    const style = buildGoldenStyle({ pmtilesUrl: 'pmtiles://x.test/w.pmtiles', glyphs: 'https://x.test/{fontstack}/{range}.pbf', light: 'golden', riseAt: TRACKING_RISE_ZOOM });
+    style.sources.r = { ...empty, lineMetrics: true };
+    style.sources.g = empty;
+    style.sources.b = empty;
+    const { under, over } = goldenTrackingGroundLayers({ service: 'food', light: 'golden', routeSource: 'r', glowSource: 'g', litSource: 'b' });
+    style.layers.splice(style.layers.findIndex((l) => l.id === TRACKING_UNDER_HOUSES), 0, ...under);
+    style.layers.splice(style.layers.findIndex((l) => l.id === GOLDEN_FIRST_LABEL), 0, ...over);
+    expect(validateStyleMin(style)).toEqual([]);
+    const at = (id: string) => style.layers.findIndex((l) => l.id === id);
+    expect(at('track-ahead')).toBeLessThan(at('golden-houses-3d'));
+    expect(at('track-through')).toBeGreaterThan(at('golden-houses-3d'));
+    expect(at('track-lit')).toBeGreaterThan(at('golden-houses-3d'));
+    expect(under.find((l) => l.type === 'symbol')?.layout).toMatchObject({ 'icon-image': TRACKING_ARROW, 'symbol-placement': 'line' });
+  });
+  it('keeps the default order map layers as they were (the new look is opt-in)', () => {
+    const ids = goldenTrackingLayers({ service: 'food', light: 'golden', routeSource: 'r', glowSource: 'g', litSource: 'b' }).map((l) => l.id);
+    expect(ids).toEqual(['track-glow', 'track-done', 'track-casing', 'track-plan', 'track-ahead', 'track-lit']);
+  });
+  it('draws the direction arrow as a dark chevron on clear pixels', () => {
+    const img = trackingArrowImage('day');
+    expect(img.data).toHaveLength(img.width * img.height * 4);
+    const alpha = (x: number, y: number) => img.data[(y * img.width + x) * 4 + 3]!;
+    expect(alpha(16, 12)).toBeGreaterThan(200);
+    expect(alpha(1, 1)).toBe(0);
   });
   it('tilts every moment into 3D and heads the camera the way the food travels', () => {
     const pts = { from: KITCHEN, to: DOOR, vehicle: COURIER };
