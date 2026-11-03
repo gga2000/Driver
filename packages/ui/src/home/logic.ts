@@ -1,0 +1,83 @@
+import { cityParts } from '@driver/i18n';
+
+/**
+ * The new customer home's rules (docs/specs/2026-11-01-home-redesign.md §12): which panel sits under the
+ * map card, the order steps, the river's fill, the live tag's age and the seat squares. Pure, so the
+ * app and the gallery agree and tests pin them.
+ */
+
+export type Meal = 'lunch' | 'dinner';
+export type PanelMode = 'order' | 'offers' | 'calm';
+export type OrderStage = 'placed' | 'preparing' | 'on_way' | 'arrived';
+export type TrackerStep = 'done' | 'now' | 'next';
+
+const STAGES: readonly OrderStage[] = ['placed', 'preparing', 'on_way', 'arrived'];
+
+/** Lunch 12:00–14:59, dinner 19:00–22:59 on the city clock (Ali, 2026-11-02); otherwise no meal. */
+export function mealWindow(now: Date | number): Meal | null {
+  const h = cityParts(now).hour;
+  if (h >= 12 && h < 15) return 'lunch';
+  if (h >= 19 && h < 23) return 'dinner';
+  return null;
+}
+
+/** "2026-11-05:lunch": the meal the customer saw offers for, stored so scrolling past them calms the panel for that meal only. */
+export function mealKey(now: Date | number): string | null {
+  const meal = mealWindow(now);
+  if (!meal) return null;
+  const p = cityParts(now);
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}:${meal}`;
+}
+
+export interface PanelModeInput {
+  /** An order or a ride is running. */
+  running: boolean;
+  now: Date | number;
+  /** Merchant-funded offers open now (no money rule here: they already exist). */
+  offers: number;
+  /** The `mealKey` whose offers the customer already saw and scrolled past, if any. */
+  seenMeal: string | null;
+}
+
+/** Order while anything runs; offers at a meal time when some exist and weren't seen yet; calm otherwise. */
+export function panelMode({ running, now, offers, seenMeal }: PanelModeInput): PanelMode {
+  if (running) return 'order';
+  const key = mealKey(now);
+  if (key && offers > 0 && seenMeal !== key) return 'offers';
+  return 'calm';
+}
+
+/** The four steps طلبت · دا يتحضّر · بالطريق · وصل; at «وصل» every step is done. */
+export function trackerSteps(stage: OrderStage): TrackerStep[] {
+  if (stage === 'arrived') return STAGES.map(() => 'done');
+  const at = STAGES.indexOf(stage);
+  return STAGES.map((_, i) => (i < at ? 'done' : i === at ? 'now' : 'next'));
+}
+
+/** How much of the river is orange: a quarter per step, full on arrival, none with no order. */
+export function riverFill(stage: OrderStage | null): number {
+  if (!stage) return 0;
+  return (STAGES.indexOf(stage) + 1) / STAGES.length;
+}
+
+export interface LiveAge {
+  unit: 'now' | 'sec' | 'min';
+  n: number;
+  /** Over 2 minutes old: the tag stops saying «مباشر». */
+  stale?: boolean;
+}
+
+/** The live tag's age: «هسة» under 5 s, seconds under a minute, then whole minutes. */
+export function liveAge(seconds: number): LiveAge {
+  const s = Math.max(0, Math.floor(seconds));
+  const stale = s > 120 ? { stale: true } : {};
+  if (s < 5) return { unit: 'now', n: 0, ...stale };
+  if (s < 60) return { unit: 'sec', n: s, ...stale };
+  return { unit: 'min', n: Math.floor(s / 60), ...stale };
+}
+
+/** One square per seat, true = free (drawn filled), clamped to the car. */
+export function seatSquares(total: number, free: number): boolean[] {
+  const f = Math.max(0, Math.min(total, free));
+  return Array.from({ length: Math.max(0, total) }, (_, i) => i < f);
+}

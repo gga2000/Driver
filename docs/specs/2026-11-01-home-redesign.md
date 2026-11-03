@@ -1,6 +1,7 @@
 # Customer home redesign — design guide
 
-Status: **approved look, not built yet.** Ali picked both screens on 2026-11-01. This guide is the
+Status: **approved look, being built.** Ali picked both screens on 2026-11-01 and changed the layout on
+2026-11-02 (§12 wins wherever it differs from §1–§11). This guide is the
 only source for the build: any session (this Mac or Claude Code on the web) builds from it, not from
 memory or from Stitch. Change it when a decision changes.
 
@@ -43,6 +44,10 @@ The two pictures are two **states** of one home, each drawn in one **theme**. Th
 | Search | right under the map card | critique, 2026-10-27 |
 
 ## 3. One layout, top to bottom
+
+> **Changed on 2026-11-02, see §12:** the services are now always their own section «شنو تحتاج؟» (the
+> live board), the map card always has a panel under it (order / offers / calm), and the intercity row
+> is gone (Baghdad/Kut open at launch, they live in the board's «محافظات» tile).
 
 Everything below exists in both themes. "Idle" = no order; "Order" = an order (or ride) is running.
 
@@ -218,3 +223,62 @@ Checks on every step: `pnpm typecheck && pnpm lint && pnpm test`; copy only in t
 `en.json` parity; behaviour tests (which card shows in which state, amounts in دينار, points maths);
 accessibility (contrast, 44 px, Arabic screen-reader labels); speed on a cheap Android (map smooth,
 fallback works).
+
+## 12. Round 3 decisions (Ali, 2026-11-02) — these win over §1–§11
+
+Reviewed on boards in this thread (files in `/mnt/project-files/home-redesign-v2/round3/`, mocks
+`v3.html` same-design light/dark, `v4.html` live board, `v5.html` the four panel states). Ali: "ok build".
+
+### 12.1 One design, two colour sets
+Light and dark are **the exact same layout, sizes and pieces**; only the colours change. No piece may exist
+in one theme only (the dark picture's glowing dot by the wordmark is dropped; the only glow at night is the
+order card's accent). Each component takes its colours from `homeLook[theme]` and nothing else.
+
+### 12.2 The home, top to bottom (with or without an order)
+1. Header: wordmark + points pill (**points only**, e.g. «120 نقطة»; hidden at 0).
+2. Address «نوصلك: البيت ⌄».
+3. Headline. Order: short («أكلك بالطريق»). Idle: the daypart line; Thursday evening «ليلة الخميس».
+4. **Map card:** a real map crop (light: day style tinted sage; dark: night style), a live tag that says
+   how old the update is («تحديث قبل 20 ثانية»), the route label «مطعم خالد ← البيت» during an order.
+   The route line follows the streets and lies on the ground (look B, PR #380, Ali 2026-11-03): driven
+   part grey, the road ahead orange with a dark edge and small arrows; step 4 uses `TrackMap3D`'s line.
+5. **Panel under the map** (forest in light, deep emerald in dark) in one of three modes:
+   - **order** (anything running): stage title, rolling minutes, 4 steps with checks (done = filled
+     check, now = orange, next = outlined), the cash row «جهّز 12,500 دينار» + «الخردة علينا، تنحط
+     بمحفظتك», the courier (photo or initial, name) and a «راسله» button. A ride uses the same panel.
+   - **offers**: «عروض اليوم بالعزيزية» + the meal window («عروض الغدا · لحد الساعة 3»), dish cards with an
+     «عرض» badge, the new price and the old price struck through. Offers are merchant-funded deals that
+     already exist: **no money rule changes**.
+   - **calm**: «أسرع أكل يوصلك هسة», one dish, big minutes, one tap to add.
+   - Rule (`panelMode`): order if anything runs; else offers during lunch 12:00–15:00 and dinner
+     19:00–23:00 **when at least one offer exists** and the customer hasn't already seen and scrolled past
+     that meal's offers; else calm.
+6. Search «دور على مطعم أو أكلة».
+7. **«شنو تحتاج؟» — the live board, always shown** (concept D «لوحة حيّة», real pictures, no icons, flat
+   tiles, no glow):
+   - **أكل** (tall, orange): food picture, the open count «22 مطعم فاتح». Unchanged service.
+   - **تكسي وتكتك** (one tile, one screen): taxi + tuktuk pictures, live dot, «أقرب سيارة» + «3 دقايق».
+     The label is a working name until Ali confirms it.
+   - **محافظات** (Baghdad/Kut, open at launch): the GMC picture, the next two real departures
+     («بغداد 4:30 العصر», «الكوت 7:00 الصبح») with seat squares (filled = free seat).
+   - **طرود** («لأي باب بالعزيزية») and **عربانات** («3 فاتحة هسة»): kept for now; Ali decides the last
+     tiles later.
+8. Dish, «طلبك المعتاد» (first for regulars, quiet during an order), «مفتوح هسة», chips, restaurant cards,
+   as in §3 items 8–10.
+9. River line in the end margin, thicker; it fills orange as the order moves forward.
+
+### 12.3 Round 1 picks (Ali: "yes to all", 2026-11-02)
+Cash + courier + chat on the order card; one glow at night; food is orange in dark; short headline during an
+order and only the order card is forest; the intercity tile shows real departures; the usual order first for
+regulars; «+» asks before a second order; points pill shows points only; the live tag shows the update's age;
+thicker river; river fills as the order advances; map lit by the real time of day (later, map owner);
+rolling minutes, gliding courier, one haptic per step (plays once, honours Reduce Motion); «ليلة الخميس» +
+«للعائلة» chip; one local photo look (later, pictures thread).
+
+Round 2 (16–26) is not decided yet; nothing from it is built. Pick 24 (order for parents' house) is a money
+rule and waits for Ali.
+
+### 12.4 What step 3 builds (in `@driver/ui/home`, kept out of partner and merchant bundles)
+`panelMode` + `mealWindow` (logic, tests first), `HomeMapCard`, `OrderPanel`, `OffersPanel`, `CalmPanel`,
+`LiveBoard`, `PointsPill`, `RiverLine`; all in the gallery in both themes. The dish, «طلبك المعتاد»,
+restaurant card and chips follow in step 3b.

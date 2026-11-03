@@ -1039,7 +1039,7 @@ export const liveStages: Record<ThemeName, LiveStagePalette> = {
 /**
  * The redesigned home's own named colours (spec 2026-11-01 §3, §4, §6): the order panel and its four
  * steps, the Tigris river line, the map card's two styles and the service symbols' outline. Only the
- * two redesign themes have them; nothing reads them yet (step 3 builds the pieces).
+ * two redesign themes have them; the pieces in `@driver/ui/home` read them (step 3, round 3 of 2026-11-02).
  */
 export interface HomeLook {
   /** The order panel on the map card: forest in sage, the raised surface in emerald night. */
@@ -1059,7 +1059,25 @@ export interface HomeLook {
     upcoming: string;
     /** Done steps, the active step and the big minutes (AA on `fill`). */
     accent: string;
+    /** Big live numbers on the panel (open count, seats free): light emerald, AA on `fill` and `raised`. */
+    fact: string;
+    /** Money on the panel (cash to hand over, offer prices): warm orange, AA on `fill` and `raised`. */
+    cash: string;
+    /** The panel's hairline edge (night only; the forest needs none on the sage page). */
+    edge: string | null;
   };
+  /** The live board «شنو تحتاج؟» (spec §12.2): flat tiles inside a page card, no glow. */
+  board: {
+    tile: string;
+    /** Tile edges and the outline of a taken seat. */
+    edge: string;
+    /** Big live numbers and free seats on a tile (AA on `tile`). */
+    fact: string;
+    /** The small live dot beside «أقرب سيارة» (always next to words, so decorative). */
+    dot: string;
+  };
+  /** The edge of the map card and of page cards on the home. */
+  edge: string;
   /** The Tigris line down the page and in the map card. */
   river: { line: string; inner: string; /** CSS glow around it (emerald night only). */ glow: string | null };
   /** The map card's style (a real map drawn in these colours, spec §6). */
@@ -1078,7 +1096,9 @@ export interface HomeLook {
 
 export const homeLook: Record<CustomerThemeName, HomeLook> = {
   sage: {
-    panel: { fill: '#1F3A2B', raised: '#274836', line: '#2F523E', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F' },
+    panel: { fill: '#1F3A2B', raised: '#274836', line: '#2F523E', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F', fact: '#9FF5C4', cash: '#FFB27A', edge: null },
+    board: { tile: '#E4EAE1', edge: '#8FA192', fact: '#1F3A2B', dot: '#FF7A1F' },
+    edge: '#8FA192',
     river: { line: '#9DB08A', inner: '#AAC096', glow: null },
     map: { land: '#EAE5D9', blocks: '#DED6C5', palms: ['#99A878', '#758655'], streets: '#FFFFFF', river: '#9DB08A' },
     live: '#FF7A1F',
@@ -1088,7 +1108,10 @@ export const homeLook: Record<CustomerThemeName, HomeLook> = {
     accentGlow: null,
   },
   emeraldNight: {
-    panel: { fill: '#0F1D16', raised: '#15261D', line: '#1F372A', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F' },
+    // Same design as sage, night colours (Ali, 2026-11-02): the panel is one step above the cards.
+    panel: { fill: '#15261D', raised: '#1E3528', line: '#2C4636', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F', fact: '#6CFFAE', cash: '#FFB27A', edge: '#2C4636' },
+    board: { tile: '#15261D', edge: '#3E5A49', fact: '#6CFFAE', dot: '#00E575' },
+    edge: '#3E5A49',
     river: { line: '#00E575', inner: '#6CFFAE', glow: '0 0 14px rgba(0, 229, 117, 0.45)' },
     // Palms at night are not in the picture: two dim greens between the blocks and the streets.
     map: { land: '#0A160F', blocks: '#12241A', palms: ['#1A3324', '#22402C'], streets: '#1F3527', river: '#00E575' },
