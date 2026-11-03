@@ -240,6 +240,8 @@ order card's accent). Each component takes its colours from `homeLook[theme]` an
 3. Headline. Order: short («أكلك بالطريق»). Idle: the daypart line; Thursday evening «ليلة الخميس».
 4. **Map card:** a real map crop (light: day style tinted sage; dark: night style), a live tag that says
    how old the update is («تحديث قبل 20 ثانية»), the route label «مطعم خالد ← البيت» during an order.
+   The route line follows the streets and lies on the ground (look B, PR #380, Ali 2026-11-03): driven
+   part grey, the road ahead orange with a dark edge and small arrows; step 4 uses `TrackMap3D`'s line.
 5. **Panel under the map** (forest in light, deep emerald in dark) in one of three modes:
    - **order** (anything running): stage title, rolling minutes, 4 steps with checks (done = filled
      check, now = orange, next = outlined), the cash row «جهّز 12,500 دينار» + «الخردة علينا، تنحط
