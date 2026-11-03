@@ -27,6 +27,19 @@ const DEPARTURES = [
   { id: 'kut', city: 'الكوت', time: '7:00', part: 'الصبح', seats: 7, free: 5 },
 ];
 
+// The route along the crop's real streets: down the side street, east on the main road, then down the avenue.
+const REST = [203, 48] as const;
+const RIDER = [213, 112] as const;
+const HOME = [200, 160] as const;
+const DRIVEN = `M${REST[0]} ${REST[1]} L193 68 L177 104 L${RIDER[0]} ${RIDER[1]}`;
+const AHEAD = `M${RIDER[0]} ${RIDER[1]} L246 124 L232 137 L${HOME[0]} ${HOME[1]}`;
+/** Small arrows the way the courier drives: [x, y, angle in degrees]. */
+const ARROWS: readonly (readonly [number, number, number])[] = [
+  [230, 118, 20],
+  [237, 133, 137],
+  [216, 148, 137],
+];
+
 /** A map crop from the project's renders, tinted to the card style; the app draws the real map here. */
 function MapStill({ order }: { order: boolean }) {
   const theme = useTheme();
@@ -39,15 +52,20 @@ function MapStill({ order }: { order: boolean }) {
       <Svg width="100%" height="100%" viewBox="0 0 356 200" preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', top: 0, left: 0 }}>
         {order ? (
           <>
-            <Path d="M70 58 L132 92 L196 120 L262 150" stroke="#1A231C" strokeWidth={8} fill="none" strokeLinecap="round" opacity={0.25} />
-            <Path d="M70 58 L132 92 L196 120 L262 150" stroke="#FF7A1F" strokeWidth={4.5} strokeDasharray="9 6" fill="none" strokeLinecap="round" />
-            <Circle cx={70} cy={58} r={13} fill={pin} stroke={ring} strokeWidth={3} />
-            <Circle cx={262} cy={150} r={13} fill="#1A231C" stroke="#F2FFF6" strokeWidth={3} />
-            <Path d="M257 152 L262 146 L267 152 V157 H257Z" fill="#F2FFF6" />
-            <Circle cx={160} cy={103} r={18} fill="#FF7A1F" stroke="#1A231C" strokeWidth={3} />
-            <Circle cx={155} cy={107} r={3.5} fill="none" stroke="#160D05" strokeWidth={2} />
-            <Circle cx={166} cy={107} r={3.5} fill="none" stroke="#160D05" strokeWidth={2} />
-            <Path d="M155 107 L160 99 H165 L166 107" stroke="#160D05" strokeWidth={2} fill="none" />
+            {/* Look B from the route-lines work (#380): the line follows the streets, on the ground. */}
+            <Path d={DRIVEN} stroke={night ? '#5E7468' : '#8A968C'} strokeWidth={4} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
+            <Path d={AHEAD} stroke={night ? '#09110D' : '#1A231C'} strokeWidth={8} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.9} />
+            <Path d={AHEAD} stroke="#FF7A1F" strokeWidth={5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            {ARROWS.map(([x, y, a]) => (
+              <Path key={`${x}-${y}`} d="M-1.4 -1.7 L1.2 0 L-1.4 1.7" stroke="#160D05" strokeWidth={1.2} fill="none" strokeLinecap="round" strokeLinejoin="round" transform={`translate(${x} ${y}) rotate(${a})`} />
+            ))}
+            <Circle cx={REST[0]} cy={REST[1]} r={11} fill={pin} stroke={ring} strokeWidth={3} />
+            <Circle cx={HOME[0]} cy={HOME[1]} r={11} fill="#1A231C" stroke="#F2FFF6" strokeWidth={3} />
+            <Path d={`M${HOME[0] - 4.5} ${HOME[1] + 1.5} L${HOME[0]} ${HOME[1] - 4} L${HOME[0] + 4.5} ${HOME[1] + 1.5} V${HOME[1] + 5.5} H${HOME[0] - 4.5}Z`} fill="#F2FFF6" />
+            <Circle cx={RIDER[0]} cy={RIDER[1]} r={15} fill="#FF7A1F" stroke="#1A231C" strokeWidth={3} />
+            <Circle cx={RIDER[0] - 4.5} cy={RIDER[1] + 3} r={3} fill="none" stroke="#160D05" strokeWidth={1.8} />
+            <Circle cx={RIDER[0] + 4.5} cy={RIDER[1] + 3} r={3} fill="none" stroke="#160D05" strokeWidth={1.8} />
+            <Path d={`M${RIDER[0] - 4.5} ${RIDER[1] + 3} L${RIDER[0]} ${RIDER[1] - 3.5} H${RIDER[0] + 4} L${RIDER[0] + 4.5} ${RIDER[1] + 3}`} stroke="#160D05" strokeWidth={1.8} fill="none" />
           </>
         ) : (
           <>
