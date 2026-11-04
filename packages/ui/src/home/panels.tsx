@@ -8,7 +8,7 @@ import { formatAmount, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import { useTheme } from '../theme/ThemeProvider';
 import type { HomeCardDish } from './cards';
-import { panelMinutes, STAGES, stageRuns, stepName, stepsA11y, trackerSteps, type Meal, type OrderStage } from './logic';
+import { panelMinutes, STAGES, stageRuns, stepName, stepsA11y, trackerSteps, type Meal, type OrderStage, type TrackerStep } from './logic';
 import { HomePress, Picture, type DishPicture } from './media';
 import { GUARD_MS, homeSize, iqd, mins } from './format';
 import { countWord, useHomeLook } from './look';
@@ -32,22 +32,14 @@ function BigMinutes({ n, size = 'numeralMd', rough, testID }: { n: number; size?
   );
 }
 
-function PanelShell({ children, testID, tight }: { children: ReactNode; testID?: string; tight?: boolean }) {
+/** The forest panel. `band` sits edge to edge above the padded body (the late band), so nothing relies on negative margins. */
+function PanelShell({ children, band, testID, tight }: { children: ReactNode; band?: ReactNode; testID?: string; tight?: boolean }) {
   const theme = useTheme();
   const look = useHomeLook();
   return (
-    <View
-      testID={testID}
-      style={{
-        backgroundColor: look.panel.fill,
-        padding: theme.space[4],
-        paddingVertical: tight ? theme.space[3] : theme.space[4],
-        gap: tight ? theme.space[2] : theme.space[3],
-        borderTopWidth: look.panel.edge ? 1 : 0,
-        borderTopColor: look.panel.edge ?? undefined,
-      }}
-    >
-      {children}
+    <View testID={testID} style={{ backgroundColor: look.panel.fill, borderTopWidth: look.panel.edge ? 1 : 0, borderTopColor: look.panel.edge ?? undefined }}>
+      {band}
+      <View style={{ padding: theme.space[4], paddingVertical: tight ? theme.space[3] : theme.space[4], gap: tight ? theme.space[2] : theme.space[3] }}>{children}</View>
     </View>
   );
 }
@@ -116,64 +108,37 @@ function PersonFace({ name, photo }: { name: string; photo?: string }) {
   );
 }
 
-/**
- * The panel under the map while an order or ride runs (spec §12.2): stage, rolling minutes, the four steps
- * (done = cream, now = orange, next = outlined), the cash to hand over with the no-change promise, and the
- * courier with «راسله». One focal point per state: the minutes, or the late band, or the next step after a
- * cancellation. One haptic per new step (plays once; silent under Reduce Motion).
- */
-export function OrderPanel({ from, title, stage, minutes, notice, actions, offline, cash, person, onMessage, testID }: OrderPanelProps) {
+/** What a screen reader hears for the panel's head. */
+function headLabel(title: string, newTime: string | undefined, left: number | undefined, offline: boolean): string {
+  if (newTime !== undefined) return t('home.panel.late_a11y', { title, time: newTime });
+  if (left === undefined) return title;
+  if (left === 0) return t('home.panel.arriving_a11y', { title });
+  return t(offline ? 'home.panel.order_rough_a11y' : 'home.panel.order_a11y', { title, minutes: mins(left) });
+}
+
+/** The late-promise band: its own amber, a clock, one line («تأخرنا عليك · نعتذر»). */
+function LateBand({ title, testID }: { title: string; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
-  const steps = trackerSteps(stage);
-  const late = notice?.tone === 'late' ? notice : null;
-  const newTime = late?.time;
-  // One clock only: a late order's new time replaces the minutes.
-  const left = stageRuns(stage) && newTime === undefined && minutes !== undefined ? panelMinutes(minutes) : undefined;
-  const seen = useRef(stage);
-  const { reduceMotion, haptic } = theme;
-  useEffect(() => {
-    if (seen.current === stage) return;
-    seen.current = stage;
-    if (!reduceMotion) haptic(stage === 'arrived' ? 'success' : stage === 'cancelled' ? 'warning' : 'light');
-    // A new step is news for a screen reader too (a live region only works on Android).
-    AccessibilityInfo.announceForAccessibility(title);
-  }, [stage, reduceMotion, haptic, title]);
-  const headA11y =
-    newTime !== undefined
-      ? t('home.panel.late_a11y', { title, time: newTime })
-      : left !== undefined
-        ? left === 0
-          ? t('home.panel.arriving_a11y', { title })
-          : t(offline ? 'home.panel.order_rough_a11y' : 'home.panel.order_a11y', { title, minutes: mins(left) })
-        : title;
   return (
-    <PanelShell testID={testID}>
-      {late ? (
-        <View
-          testID={testID ? `${testID}-late` : undefined}
-          accessibilityLiveRegion="polite"
-          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: homeSize.band, paddingHorizontal: theme.space[3], marginHorizontal: -theme.space[4], marginTop: -theme.space[4], backgroundColor: look.late.fill }}
-        >
-          <Icon name="clock" size={18} color={look.late.on} />
-          <Text variant="label" weight={600} color={look.late.on} compact numberOfLines={1} style={{ flex: 1 }}>
-            {late.title}
-          </Text>
-        </View>
-      ) : null}
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: homeSize.band, paddingHorizontal: theme.space[4], backgroundColor: look.late.fill }}>
+      <Icon name="clock" size={homeSize.icon} color={look.late.on} />
+      <Text variant="label" weight={600} color={look.late.on} compact numberOfLines={1} style={{ flex: 1 }}>
+        {title}
+      </Text>
+    </View>
+  );
+}
 
-      <View accessible accessibilityLabel={headA11y} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
+/** Where it comes from, the stage, and the one clock: the minutes, «يوصل هسة», or (late) the new time on its own row. */
+function PanelHead({ from, title, newTime, left, offline, testID }: { from: string; title: string; newTime?: string; left?: number; offline: boolean; testID?: string }) {
+  const theme = useTheme();
+  const look = useHomeLook();
+  return (
+    <View accessible accessibilityLabel={headLabel(title, newTime, left, offline)} style={{ gap: theme.space[1] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
         <Heading over={from} title={title} />
-        {newTime !== undefined ? (
-          <View style={{ alignItems: 'flex-end' }} testID={testID ? `${testID}-new-time` : undefined}>
-            <Text variant="footnote" color={look.panel.muted} compact>
-              {t('home.panel.new_time')}
-            </Text>
-            <Text variant="numeralSm" face="display" color={look.panel.accent} tabular numberOfLines={1}>
-              {newTime}
-            </Text>
-          </View>
-        ) : left === 0 ? (
+        {newTime !== undefined ? null : left === 0 ? (
           <Text variant="bodyStrong" face="display" color={look.panel.accent} compact testID={testID ? `${testID}-arriving` : undefined}>
             {t('home.panel.arriving')}
           </Text>
@@ -181,101 +146,137 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
           <BigMinutes n={left} rough={offline} testID={testID ? `${testID}-minutes` : undefined} />
         ) : null}
       </View>
-
-      {offline ? (
-        <View testID={testID ? `${testID}-offline` : undefined} accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
-          <Icon name="wifi-off" size={16} color={look.panel.muted} />
-          <Text variant="label" color={look.panel.onSoft} style={{ flex: 1 }}>
-            {t('home.panel.reconnecting')}
+      {newTime !== undefined ? (
+        // Late: the new time gets its own row, so the stage title never wraps beside it.
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }} testID={testID ? `${testID}-new-time` : undefined}>
+          <Text variant="label" color={look.panel.muted} compact>
+            {t('home.panel.new_time')}
+          </Text>
+          <Text variant="numeralSm" face="display" color={look.panel.accent} tabular numberOfLines={1}>
+            {newTime}
           </Text>
         </View>
       ) : null}
+    </View>
+  );
+}
 
-      {notice && (notice.tone === 'ended' || notice.text) ? (
-        <Text testID={testID ? `${testID}-notice` : undefined} variant="label" color={look.panel.onSoft} accessibilityLiveRegion="polite">
-          {notice.tone === 'ended' ? notice.title : null}
-          {notice.tone === 'ended' && notice.text ? '\n' : null}
-          {notice.text}
+/** The four steps as one screen-reader stop («خطوة 2 من 4: دا يتحضّر»); now = orange (muted offline), done = cream with a check, next = outlined. */
+function StepTrack({ steps, offline, testID }: { steps: readonly TrackerStep[]; offline: boolean; testID?: string }) {
+  const theme = useTheme();
+  const look = useHomeLook();
+  return (
+    <View accessible accessibilityLabel={stepsA11y(steps)} testID={testID ? `${testID}-steps` : undefined} style={{ gap: theme.space[2] }}>
+      <View style={{ flexDirection: 'row', gap: theme.space[1] }}>
+        {steps.map((s, i) => (
+          <View
+            key={i}
+            testID={testID ? `${testID}-bar-${s}` : undefined}
+            style={{
+              flex: 1,
+              height: homeSize.bar,
+              borderRadius: homeSize.bar / 2,
+              backgroundColor: s === 'now' ? (offline ? look.panel.muted : look.panel.accent) : s === 'done' ? look.panel.onSoft : 'transparent',
+              borderWidth: s === 'next' ? homeSize.outline : 0,
+              borderColor: look.panel.upcoming,
+            }}
+          />
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row' }}>
+        {steps.map((s, i) => (
+          <View key={i} style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: theme.space[1] }}>
+            {s === 'done' ? <Icon name="check" size={homeSize.iconSm} color={look.panel.onSoft} strokeWidth={2.75} /> : null}
+            <Text variant="footnote" weight={s === 'now' ? 700 : 400} color={s === 'next' ? look.panel.muted : look.panel.on} compact numberOfLines={1}>
+              {stepName(STAGES[i]!)}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** «جهّز 19,250 دينار» with «الخردة علينا، تنحط بمحفظتك». */
+function CashRow({ cash, testID }: { cash: number; testID?: string }) {
+  const theme = useTheme();
+  const look = useHomeLook();
+  return (
+    <View testID={testID} style={{ backgroundColor: look.panel.raised, borderRadius: theme.radius.xl, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 2 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: theme.space[2] }}>
+        <Text variant="title" face="display" color={look.panel.on} tabular>
+          {t('home.panel.cash_line', { price: iqd(cash) })}
         </Text>
-      ) : null}
+        <Icon name="cash" size={homeSize.icon} color={look.panel.onSoft} />
+      </View>
+      <Text variant="footnote" color={look.panel.muted}>
+        {t('home.panel.cash_note')}
+      </Text>
+    </View>
+  );
+}
 
-      {steps.length > 0 ? (
-        // One stop for a screen reader: «خطوة 2 من 4: دا يتحضّر»; the bars and labels are its picture.
-        <View accessible accessibilityLabel={stepsA11y(steps)} testID={testID ? `${testID}-steps` : undefined} style={{ gap: theme.space[2] }}>
-          <View style={{ flexDirection: 'row', gap: theme.space[1] }}>
-            {steps.map((s, i) => (
-              <View
-                key={i}
-                testID={testID ? `${testID}-bar-${s}` : undefined}
-                style={{
-                  flex: 1,
-                  height: homeSize.bar,
-                  borderRadius: homeSize.bar / 2,
-                  // Only the step happening now is orange (muted when offline: it may be old); done steps are quiet cream.
-                  backgroundColor: s === 'now' ? (offline ? look.panel.muted : look.panel.accent) : s === 'done' ? look.panel.onSoft : 'transparent',
-                  borderWidth: s === 'next' ? 1.5 : 0,
-                  borderColor: look.panel.upcoming,
-                }}
-              />
-            ))}
-          </View>
-          <View style={{ flexDirection: 'row' }}>
-            {steps.map((s, i) => {
-              const label = stepName(STAGES[i]!);
-              return (
-                <View
-                  key={i}
-                  style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 3 }}
-                >
-                  {s === 'done' ? <Icon name="check" size={13} color={look.panel.onSoft} strokeWidth={2.75} /> : null}
-                  <Text variant="footnote" weight={s === 'now' ? 700 : 400} color={s === 'next' ? look.panel.muted : look.panel.on} compact numberOfLines={1}>
-                    {label}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
-
-      {cash !== undefined && cash > 0 && stage !== 'cancelled' ? (
-        <View testID={testID ? `${testID}-cash` : undefined} style={{ backgroundColor: look.panel.raised, borderRadius: theme.radius.xl, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 2 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: theme.space[2] }}>
-            <Text variant="title" face="display" color={look.panel.on} tabular>
-              {t('home.panel.cash_line', { amount: iqd(cash) })}
-            </Text>
-            <Icon name="cash" size={20} color={look.panel.onSoft} />
-          </View>
-          <Text variant="footnote" color={look.panel.muted}>
-            {t('home.panel.cash_note')}
+/** The courier or driver with «راسله». */
+function PersonRow({ person, offline, onMessage, testID }: { person: NonNullable<OrderPanelProps['person']>; offline: boolean; onMessage?: () => void; testID?: string }) {
+  const theme = useTheme();
+  const look = useHomeLook();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flex: 1, minWidth: 0 }}>
+        <PersonFace name={person.name} photo={person.photo} />
+        <Text variant="bodyStrong" face="display" color={look.panel.on} numberOfLines={1} style={{ flexShrink: 1 }}>
+          {t(person.kind === 'courier' ? 'home.panel.courier' : 'home.panel.driver', { name: person.name })}
+        </Text>
+      </View>
+      {onMessage ? (
+        <HomePress
+          onPress={onMessage}
+          accessibilityLabel={t(offline ? 'home.panel.message_later_a11y' : 'home.panel.message_a11y', { name: person.name })}
+          testID={testID ? `${testID}-message` : undefined}
+          style={{ minHeight: theme.hitTarget, flexDirection: 'row', alignItems: 'center', gap: theme.space[1], paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: look.panel.raised }}
+        >
+          <Icon name="chat" size={homeSize.icon} color={look.panel.on} />
+          <Text variant="label" weight={600} color={look.panel.on} compact>
+            {t('home.panel.message')}
           </Text>
-        </View>
+        </HomePress>
       ) : null}
+    </View>
+  );
+}
 
-      {person && stage !== 'cancelled' ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.space[3] }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], flex: 1, minWidth: 0 }}>
-            <PersonFace name={person.name} photo={person.photo} />
-            <Text variant="bodyStrong" face="display" color={look.panel.on} numberOfLines={1} style={{ flexShrink: 1 }}>
-              {t(person.kind === 'courier' ? 'home.panel.courier' : 'home.panel.driver', { name: person.name })}
-            </Text>
-          </View>
-          {onMessage ? (
-            <HomePress
-              onPress={onMessage}
-              accessibilityLabel={t(offline ? 'home.panel.message_later_a11y' : 'home.panel.message_a11y', { name: person.name })}
-              testID={testID ? `${testID}-message` : undefined}
-              style={{ minHeight: theme.hitTarget, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: look.panel.raised }}
-            >
-              <Icon name="chat" size={18} color={look.panel.on} />
-              <Text variant="label" weight={600} color={look.panel.on} compact>
-                {t('home.panel.message')}
-              </Text>
-            </HomePress>
-          ) : null}
-        </View>
-      ) : null}
-
+/**
+ * The panel under the map while an order or ride runs (spec §12.2): stage, rolling minutes, the four steps,
+ * the cash to hand over with «الخردة علينا», and the courier with «راسله». One focal point per state: the
+ * minutes, or the late band, or the next step after a cancellation. A new step plays one haptic (silent
+ * under Reduce Motion) and is announced once to screen readers, with its notice when there is one.
+ */
+export function OrderPanel({ from, title, stage, minutes, notice, actions, offline = false, cash, person, onMessage, testID }: OrderPanelProps) {
+  const theme = useTheme();
+  const steps = trackerSteps(stage);
+  const late = notice?.tone === 'late' ? notice : null;
+  const newTime = late?.time;
+  // One clock only: a late order's new time replaces the minutes.
+  const left = stageRuns(stage) && newTime === undefined && minutes !== undefined ? panelMinutes(minutes) : undefined;
+  const ended = stage === 'cancelled';
+  const seen = useRef(stage);
+  const { reduceMotion, haptic } = theme;
+  const spoken = notice ? `${title}. ${notice.title}` : title;
+  useEffect(() => {
+    if (seen.current === stage) return;
+    seen.current = stage;
+    if (!reduceMotion) haptic(stage === 'arrived' ? 'success' : ended ? 'warning' : 'light');
+    // One announcement per new step, the notice included: no live regions, so nothing is read twice.
+    AccessibilityInfo.announceForAccessibility(spoken);
+  }, [stage, ended, reduceMotion, haptic, spoken]);
+  return (
+    <PanelShell testID={testID} band={late ? <LateBand title={late.title} testID={testID ? `${testID}-late` : undefined} /> : null}>
+      <PanelHead from={from} title={title} newTime={newTime} left={left} offline={offline} testID={testID} />
+      {offline ? <OfflineLine testID={testID ? `${testID}-offline` : undefined} /> : null}
+      {notice && (notice.tone === 'ended' || notice.text) ? <NoticeText notice={notice} testID={testID ? `${testID}-notice` : undefined} /> : null}
+      {steps.length > 0 ? <StepTrack steps={steps} offline={offline} testID={testID} /> : null}
+      {cash !== undefined && cash > 0 && !ended ? <CashRow cash={cash} testID={testID ? `${testID}-cash` : undefined} /> : null}
+      {person && !ended ? <PersonRow person={person} offline={offline} onMessage={onMessage} testID={testID} /> : null}
       {actions ? (
         <View style={{ gap: theme.space[2] }}>
           <PanelButton label={actions.primary.label} onPress={actions.primary.onPress} tone="accent" testID={testID ? `${testID}-primary` : undefined} />
@@ -283,6 +284,30 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
         </View>
       ) : null}
     </PanelShell>
+  );
+}
+
+function OfflineLine({ testID }: { testID?: string }) {
+  const theme = useTheme();
+  const look = useHomeLook();
+  return (
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
+      <Icon name="wifi-off" size={homeSize.iconSm} color={look.panel.muted} />
+      <Text variant="label" color={look.panel.onSoft} style={{ flex: 1 }}>
+        {t('home.panel.reconnecting')}
+      </Text>
+    </View>
+  );
+}
+
+function NoticeText({ notice, testID }: { notice: OrderNotice; testID?: string }) {
+  const look = useHomeLook();
+  return (
+    <Text testID={testID} variant="label" color={look.panel.onSoft}>
+      {notice.tone === 'ended' ? notice.title : null}
+      {notice.tone === 'ended' && notice.text ? '\n' : null}
+      {notice.text}
+    </Text>
   );
 }
 
@@ -386,7 +411,7 @@ export function CalmPanel(props: CalmPanelProps) {
         testID={testID ? `${testID}-dish` : undefined}
         style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: homeSize.button, padding: theme.space[1], paddingEnd: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: look.panel.raised }}
       >
-        <Picture picture={dish.picture} name={dish.name} seed={dish.id} width={40} height={40} radius={20} />
+        <Picture picture={dish.picture} name={dish.name} seed={dish.id} width={homeSize.face} height={homeSize.face} radius={homeSize.face / 2} />
         <Text variant="label" color={look.panel.on} numberOfLines={1} style={{ flex: 1 }}>
           {t('home.panel.dish_line', { dish: dish.name, restaurant: dish.restaurant })}
         </Text>

@@ -5,7 +5,7 @@ import { Text } from '../components/Text';
 import { formatAmount, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import { useTheme } from '../theme/ThemeProvider';
-import { GUARD_MS, homeSize, iqd, mins, sep } from './format';
+import { GUARD_MS, homeSize, iqd, mins, sep, SLOT, splitSlot } from './format';
 import { useHomeLook } from './look';
 import { HomePress, Picture, type DishPicture } from './media';
 
@@ -21,8 +21,6 @@ export interface HomeCardDish {
   picture?: DishPicture;
 }
 
-/** Where the price sits inside «restaurant · price · minutes», so it can wear its own colour. */
-const MARK = '⁣';
 
 /**
  * The surface every home section sits on (audit round 2): the card colour and one soft shadow, never an
@@ -69,15 +67,12 @@ function CardButton({ label, a11y, onPress, filled, compact, testID }: { label: 
 /** «restaurant · price · minutes» with the price in its own colour. */
 function DishMeta({ dish, withMinutes }: { dish: HomeCardDish; withMinutes: boolean }) {
   const look = useHomeLook();
-  const line = withMinutes ? t('home.dish_meta', { restaurant: dish.restaurant, price: MARK, minutes: mins(dish.minutes) }) : t('home.dish_meta_short', { restaurant: dish.restaurant, price: MARK });
-  const at = line.indexOf(MARK);
-  // A translation without the price slot still shows the price, after the line.
-  const before = at < 0 ? `${line} ${sep()} ` : line.slice(0, at);
-  const after = at < 0 ? '' : line.slice(at + MARK.length);
+  const line = withMinutes ? t('home.dish_meta', { restaurant: dish.restaurant, price: SLOT, minutes: mins(dish.minutes) }) : t('home.dish_meta_short', { restaurant: dish.restaurant, price: SLOT });
+  const [before, after] = splitSlot(line);
   return (
     <Text variant="label" color="textMuted" numberOfLines={withMinutes ? 2 : 1}>
       {before}
-      <Text variant="label" weight={700} face="display" color={look.price}>
+      <Text variant="label" weight={600} face="display" color={look.price}>
         {iqd(dish.price)}
       </Text>
       {after}
@@ -212,7 +207,7 @@ const PairDish = memo(function PairDish({ dish: d, onAdd, onPress, testID }: { d
         </View>
       </HomePress>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingStart: theme.space[3], paddingEnd: theme.space[2], paddingBottom: theme.space[2] }}>
-        <Text variant="label" weight={700} face="display" color={look.price} tabular compact>
+        <Text variant="label" weight={600} face="display" color={look.price} tabular compact>
           {iqd(d.price)}
         </Text>
         <HomePress
@@ -256,7 +251,7 @@ export const RestaurantCard = memo(function RestaurantCard({ id, name, rating, m
   return (
     <HomePress accessibilityLabel={rating > 0 ? t('home.rest_a11y', { name, rating: stars, minutes: mins(minutes), fee: feeText }) : t('home.rest_new_a11y', { name, minutes: mins(minutes), fee: feeText })} onPress={onPress ? open : undefined} testID={testID} style={{ width }}>
       <HomeCard style={{ overflow: 'hidden', flex: 1 }}>
-        <Picture picture={picture} name={name} seed={name} width="100%" height={homeSize.restPhoto} radius={0} testID={testID} />
+        <Picture picture={picture} name={name} seed={id} width="100%" height={homeSize.restPhoto} radius={0} testID={testID} />
         <View style={{ padding: theme.space[3], paddingTop: theme.space[2], gap: 2 }}>
           <Text variant="bodyStrong" face="display" numberOfLines={2}>
             {name}

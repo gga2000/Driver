@@ -10913,10 +10913,11 @@
   "home.step_of": "خطوة {n} من {total}: {step}",
   "home.board.food_closed": "المطاعم مسدودة هسة",
   "home.order_headline": "أكلك بالطريق",
-  "home.panel.cash_line": "جهّز {amount}",
+  "home.panel.cash_line": "جهّز {price}",
   "home.panel.offer_was_a11y": "عرض: {dish}، بدل {was}",
   "home.panel.arriving": "يوصل هسة",
   "home.panel.arriving_a11y": "{title}، يوصل هسة",
   "home.panel.reconnecting": "نحاول نتصل…",
-  "home.chip_hint": "اضغط مرة ثانية حتى تلغيه"
+  "home.chip_hint": "اضغط مرة ثانية حتى تلغيه",
+  "home.board.car_here": "وحدة يمّك هسة"
 }

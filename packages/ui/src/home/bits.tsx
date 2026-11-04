@@ -1,6 +1,7 @@
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Text } from '../components/Text';
+import { formatAmount, ltr } from '../format';
 import { useTheme } from '../theme/ThemeProvider';
 import { homeSize } from './format';
 import { useHomeLook } from './look';
@@ -10,7 +11,7 @@ import { HomePress } from './media';
 export function PointsPill({ points, onPress, testID }: { points: number; onPress?: () => void; testID?: string }) {
   const theme = useTheme();
   if (points <= 0) return null;
-  const label = t('unit.points', { n: points });
+  const label = t('unit.points', { n: ltr(formatAmount(points)) });
   // Audit round 3: a flat, quiet chip that never outweighs the wordmark; the tap area stays 44.
   const body = (
     <View style={{ height: homeSize.chip, justifyContent: 'center', paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceSunken }}>

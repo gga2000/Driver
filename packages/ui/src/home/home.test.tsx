@@ -126,7 +126,7 @@ describe('the live board «شنو تحتاج؟»', () => {
 
 describe('points pill and river', () => {
   it('points only, hidden at 0', () => {
-    expect(renderUI(<PointsPill points={120} testID="pp" />, { theme: 'sage' }).getByText('120 نقطة')).toBeTruthy();
+    expect(renderUI(<PointsPill points={120} testID="pp" />, { theme: 'sage' }).getByText((_, el) => clean(el?.textContent) === '120 نقطة' && el?.children.length === 0)).toBeTruthy();
     expect(renderUI(<PointsPill points={0} testID="pp0" />, { theme: 'sage' }).queryByTestId('pp0')).toBeNull();
   });
   it('the river fills only during an order', () => {
@@ -239,6 +239,7 @@ describe('round 2: states', () => {
 describe('round 3: live honesty and large text', () => {
   it('the live tag counts on by itself: every second at first, then every 30 seconds, and turns stale', () => {
     vi.useFakeTimers();
+    const announce = vi.spyOn(RN.AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
     const start = Date.UTC(2026, 10, 4, 9, 0);
     vi.setSystemTime(start);
     try {
@@ -248,8 +249,12 @@ describe('round 3: live honesty and large text', () => {
       for (let i = 0; i < 20; i++) act(() => vi.advanceTimersByTime(1_000));
       expect(read()).not.toBe(first);
       for (let i = 0; i < 8; i++) act(() => vi.advanceTimersByTime(30_000));
-      expect(r.getByTestId('m-live').getAttribute('aria-live')).toBe('polite');
+      // Going stale is said once, not again each minute the age ticks on.
+      expect(announce).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 4; i++) act(() => vi.advanceTimersByTime(30_000));
+      expect(announce).toHaveBeenCalledTimes(1);
     } finally {
+      announce.mockRestore();
       vi.useRealTimers();
     }
   });
@@ -340,5 +345,34 @@ describe('round 5: edges', () => {
     const r = renderUI(<HomeMapCard map={<span data-testid="pin" />} town="العزيزية" frozen testID="m" />, { theme: 'sage' });
     expect(r.queryByTestId('pin')).toBeNull();
     expect(r.queryByTestId('m-live')).toBeNull();
+  });
+});
+
+describe('round 6: edges', () => {
+  it('ride minutes are whole; at 0 the tile says a car is right there', () => {
+    const r = renderUI(<LiveBoard town="العزيزية" open={5} rideMinutes={3.6} departures={departures} carts={1} pictures={pictures} testID="b" />, { theme: 'sage' });
+    expect(r.getByTestId('b-ride-minutes').textContent).toBe('4');
+    r.unmount();
+    const here = renderUI(<LiveBoard town="العزيزية" open={5} rideMinutes={0} departures={departures} carts={1} pictures={pictures} testID="b" />, { theme: 'sage' });
+    expect(here.queryByTestId('b-ride-minutes')).toBeNull();
+    expect(here.getByTestId('b-ride-here')).toBeTruthy();
+  });
+  it('a cancellation is spoken once, with its notice', () => {
+    const spy = vi.spyOn(RN.AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    try {
+      const r = renderUI(<OrderPanel from="مطعم خالد" title="دا يتحضّر" minutes={20} stage="preparing" testID="op" />, { theme: 'sage' });
+      r.rerender(<OrderPanel from="مطعم خالد" title="انلغى الطلب" stage="cancelled" notice={{ tone: 'ended', title: 'المطعم سدّ' }} testID="op" />);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith('انلغى الطلب. المطعم سدّ');
+      expect(r.container.querySelector('[aria-live="polite"]')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it('the river is dimmed at night and empty with no order', () => {
+    const night = renderUI(<RiverLine fill={0.5} testID="rv" />, { theme: 'emeraldNight' });
+    expect(parseFloat(getComputedStyle(night.getByTestId('rv')).opacity)).toBeLessThan(1);
+    const none = renderUI(<RiverLine fill={0} testID="rv0" />, { theme: 'sage' });
+    expect(none.queryByTestId('rv0-fill')).toBeNull();
   });
 });

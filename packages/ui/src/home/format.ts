@@ -38,9 +38,26 @@ export const homeSize = {
   chip: 32,
   band: 40,
   bar: 6,
+  /** Outlines on the next step and on round buttons. */
+  outline: 1.5,
+  /** Icons beside words. */
+  icon: 18,
+  iconSm: 14,
   /** The home's main buttons («ضيفه للسلة», «اطلبه» in the panel): taller than the 44 minimum. */
   button: 48,
 } as const;
 
 /** One tap, one order: a second tap within this window is ignored. */
 export const GUARD_MS = 1200;
+
+/** An invisible mark that stands in a translation for a piece drawn in its own colour (the price). */
+export const SLOT = '\u2063';
+
+/**
+ * Split a translated line around `SLOT`: «مطعم خالد · {price} · 30 دقيقة» → before and after the price.
+ * A translation that lost the slot still shows the price, after the line and a separator.
+ */
+export function splitSlot(line: string): [string, string] {
+  const at = line.indexOf(SLOT);
+  return at < 0 ? [`${line} ${sep()} `, ''] : [line.slice(0, at), line.slice(at + SLOT.length)];
+}

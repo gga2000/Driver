@@ -1,5 +1,5 @@
-import { memo, useEffect, useState, type ReactNode } from 'react';
-import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, View, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Text } from '../components/Text';
 import { useTheme } from '../theme/ThemeProvider';
@@ -160,13 +160,18 @@ export const LiveTag = memo(function LiveTag({
   const ageSec = useAgeSec(updatedAt, now);
   const age = ageSec === undefined ? null : liveAge(ageSec);
   const label = liveLabel(ageSec, !!offline, town);
+  // Going stale or offline is news: say it once when it happens, not again every minute the age ticks.
+  const worry = !!offline || !!age?.stale;
+  const said = useRef(worry);
+  useEffect(() => {
+    if (worry && !said.current) AccessibilityInfo.announceForAccessibility(label);
+    said.current = worry;
+  }, [worry, label]);
   return (
     <View
       testID={testID}
       accessible
       accessibilityLabel={label}
-      // Going stale or offline is news: announce it, quietly.
-      accessibilityLiveRegion={offline || age?.stale ? 'polite' : 'none'}
       style={{
         position: 'absolute',
         top: theme.space[3],

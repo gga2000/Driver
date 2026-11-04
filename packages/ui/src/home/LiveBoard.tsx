@@ -6,6 +6,7 @@ import { LocalPhoto } from '../components/PhotoImage';
 import { Text } from '../components/Text';
 import { useTheme } from '../theme/ThemeProvider';
 import { homeSize } from './format';
+import { panelMinutes } from './logic';
 import { countWord, useHomeLook } from './look';
 import { HomePress } from './media';
 
@@ -61,7 +62,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
   const shown = departures.slice(0, 2);
   const art = useWindowDimensions().fontScale <= BIG_TEXT;
   // Offline, the nearest car is unknown rather than «ماكو»: the old minutes would be a guess.
-  const rideMinutes = offline ? null : liveRide;
+  const rideMinutes = offline || liveRide === null ? null : panelMinutes(liveRide);
   const rideFact = offline ? t('home.board.unknown') : rideMinutes === null ? t('home.board.no_car') : t('home.board.nearest');
   return (
     <View testID={testID} style={[{ gap }, style]}>
@@ -97,7 +98,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
         <View style={{ flex: 1, gap }}>
           {/* Taxi + tuktuk: one tile, one screen. Minutes in the flow, pictures at the bottom corner like every tile. */}
           <Tile
-            label={t('home.board.tile_a11y', { name: t('home.board.ride'), fact: rideMinutes === null ? rideFact : t('live_map.minutes', { n: rideMinutes }) })}
+            label={t('home.board.tile_a11y', { name: t('home.board.ride'), fact: rideMinutes === null ? rideFact : rideMinutes === 0 ? t('home.board.car_here') : t('live_map.minutes', { n: rideMinutes }) })}
             onPress={press('ride')}
             style={{ minHeight: (homeSize.boardTop - gap) / 2 }}
             testID={testID ? `${testID}-ride` : undefined}
@@ -111,7 +112,11 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
                 {rideFact}
               </Text>
             </View>
-            {rideMinutes === null ? null : (
+            {rideMinutes === 0 ? (
+              <Text variant="bodyStrong" face="display" color={look.board.fact} testID={testID ? `${testID}-ride-here` : undefined}>
+                {t('home.board.car_here')}
+              </Text>
+            ) : rideMinutes === null ? null : (
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[1] }}>
                 <Text variant="numeralSm" face="display" color={look.board.fact} testID={testID ? `${testID}-ride-minutes` : undefined}>
                   {String(rideMinutes)}

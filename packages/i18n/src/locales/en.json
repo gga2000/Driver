@@ -10913,10 +10913,11 @@
   "home.step_of": "Step {n} of {total}: {step}",
   "home.board.food_closed": "Restaurants are closed now",
   "home.order_headline": "Your food is on the way",
-  "home.panel.cash_line": "Have {amount} ready",
+  "home.panel.cash_line": "Have {price} ready",
   "home.panel.offer_was_a11y": "Offer: {dish}, was {was}",
   "home.panel.arriving": "Arriving now",
   "home.panel.arriving_a11y": "{title}, arriving now",
   "home.panel.reconnecting": "Trying to reconnect…",
-  "home.chip_hint": "Tap again to clear"
+  "home.chip_hint": "Tap again to clear",
+  "home.board.car_here": "One is right by you"
 }

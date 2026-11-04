@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveAge, liveLabel, mealKey, mealWindow, panelMinutes, panelMode, stepsA11y, trackerSteps, riverFill } from './logic';
+import { SLOT, splitSlot } from './format';
 
 /** A Baghdad wall-clock time on Thursday 2026-11-05 (UTC+3). */
 const at = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 5, h - 3, m));
@@ -91,5 +92,14 @@ describe('round 5: labels', () => {
   });
   it('panel minutes are whole and never negative', () => {
     expect([panelMinutes(-3), panelMinutes(4.6), panelMinutes(12)]).toEqual([0, 5, 12]);
+  });
+});
+
+describe('round 6: the price slot', () => {
+  it('splits a line around the slot, and keeps the price when a translation lost it', () => {
+    expect(splitSlot(`مطعم خالد · ${SLOT} · 30 دقيقة`)).toEqual(['مطعم خالد · ', ' · 30 دقيقة']);
+    const [before, after] = splitSlot('مطعم خالد');
+    expect(before.startsWith('مطعم خالد ')).toBe(true);
+    expect(after).toBe('');
   });
 });

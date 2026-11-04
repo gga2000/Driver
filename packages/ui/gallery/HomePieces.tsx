@@ -108,7 +108,7 @@ function IdleLabels() {
           style={{ position: 'absolute', left: x * k + 9, top: y * k - top - 11, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, height: 22, borderRadius: 11, backgroundColor: look.card.fill, boxShadow: look.card.shadow ?? undefined }}
         >
           <Text variant="footnote" weight={600} compact>{name}</Text>
-          <Text variant="footnote" color="textMuted" tabular compact>{t('live_map.min', { n })}</Text>
+          <Text variant="footnote" color="textMuted" tabular compact>{t('live_map.minutes', { n })}</Text>
         </View>
       ))}
     </>
@@ -171,7 +171,7 @@ export function HomePiecesSection() {
           </HomeMapCard>
         </Piece>
         <Piece id="hp-usual" title="الخريطة + طلبك المعتاد (زبون دايمي)" note="اللوحة نفسها تصير طلبه المعتاد: الأكل ينعرض مرة وحدة">
-          <HomeMapCard map={<MapStill order={false} />} town={TOWN} mapHeight={homeSize.mapIdle}>
+          <HomeMapCard map={<MapStill order={false} />} town={TOWN} updatedAt={NOW - 20_000} now={NOW} mapHeight={homeSize.mapIdle}>
             <CalmPanel usual={USUAL} onReorder={() => {}} />
           </HomeMapCard>
         </Piece>
@@ -295,7 +295,7 @@ function HomeScreenPreview({ order }: { order: boolean }) {
         <View style={{ gap: theme.space[3] }}>
           <Text variant="heading" face="display">{order ? t('home.order_headline') : 'شنو غدانا اليوم؟'}</Text>
           <View>
-            {order ? <RiverLine fill={riverFill('on_way')} style={{ position: 'absolute', top: 20, bottom: 20, end: -10 }} /> : null}
+            {order ? <RiverLine fill={riverFill('on_way')} style={{ position: 'absolute', top: 0, bottom: 0, end: -9 }} /> : null}
             {order ? (
               <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 8000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }}>
                 <OrderPanel {...ORDER} title="طلع من المطعم" stage="on_way" />
@@ -314,7 +314,7 @@ function HomeScreenPreview({ order }: { order: boolean }) {
         {order ? (
           <View style={{ gap: theme.space[3] }}>
             <Text variant="title" face="display">للغدا اليوم</Text>
-            <CompactDish dish={{ id: 'qeema', name: 'تمن وقيمة', restaurant: 'مطعم الحجي', minutes: 20, price: 4500, picture: { source: src(qeema) } }} onAdd={() => {}} />
+            <CompactDish dish={{ id: 'bamia', name: 'تمن ومرق بامية', restaurant: 'مطعم خالد', minutes: 15, price: 4000, picture: { source: src(bamia) } }} onAdd={() => {}} />
           </View>
         ) : (
           <View style={{ gap: theme.space[3] }}>
