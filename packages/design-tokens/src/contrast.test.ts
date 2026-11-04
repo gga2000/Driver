@@ -291,4 +291,21 @@ describe('home redesign colours (sage and emerald night)', () => {
     expect(contrastRatio(homeLook.emeraldNight.live, night.bg)).toBeGreaterThanOrEqual(3);
     expect(contrastRatio(homeLook.emeraldNight.live, night.surface)).toBeGreaterThanOrEqual(3);
   });
+
+  it('audit round 2 (2026-11-04): cards stand off the page by fill, and every word and price on them reads', () => {
+    for (const name of customerThemes) {
+      const look = homeLook[name];
+      const th = themes[name];
+      expect(look.card.fill, name).not.toBe(th.bg);
+      expect(look.board.tile, `${name}: tiles are cards`).toBe(look.card.fill);
+      for (const fg of [th.text, th.textMuted, th.accentText, look.price]) {
+        expect(contrastRatio(fg, look.card.fill), `${name} ${fg} on card`).toBeGreaterThanOrEqual(4.5);
+      }
+      // Never neon green for prices (it stays for live things).
+      expect(look.price, name).not.toBe(look.live);
+    }
+    // Sage cards lift by a shadow; night cards are a step lighter than the page.
+    expect(homeLook.sage.card.shadow).toBeTruthy();
+    expect(contrastRatio(homeLook.emeraldNight.card.fill, night.bg)).toBeGreaterThan(1.05);
+  });
 });

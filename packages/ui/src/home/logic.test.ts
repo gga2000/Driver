@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { liveAge, mealKey, mealWindow, panelMode, seatSquares, trackerSteps, riverFill } from './logic';
+import { liveAge, mealKey, mealWindow, panelMode, trackerSteps, riverFill } from './logic';
 
 /** A Baghdad wall-clock time on Thursday 2026-11-05 (UTC+3). */
 const at = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 5, h - 3, m));
@@ -77,12 +77,3 @@ describe('the live tag says how old the update is', () => {
   });
 });
 
-describe('seat squares on a departure row', () => {
-  it('filled squares are free seats, the rest outlined', () => {
-    expect(seatSquares(7, 3)).toEqual([true, true, true, false, false, false, false]);
-  });
-  it('never more free seats than seats, never below zero', () => {
-    expect(seatSquares(4, 9)).toEqual([true, true, true, true]);
-    expect(seatSquares(4, -1)).toEqual([false, false, false, false]);
-  });
-});

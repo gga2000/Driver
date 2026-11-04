@@ -8,10 +8,16 @@ import { cityParts } from '@driver/i18n';
 
 export type Meal = 'lunch' | 'dinner';
 export type PanelMode = 'order' | 'offers' | 'calm';
-export type OrderStage = 'placed' | 'preparing' | 'on_way' | 'arrived';
+/** `cancelled` ends the card early: no steps, no minutes, just the panel's notice. */
+export type OrderStage = 'placed' | 'preparing' | 'on_way' | 'arrived' | 'cancelled';
 export type TrackerStep = 'done' | 'now' | 'next';
 
 const STAGES: readonly OrderStage[] = ['placed', 'preparing', 'on_way', 'arrived'];
+
+/** The order still runs (it has steps and minutes). */
+export function stageRuns(stage: OrderStage): boolean {
+  return stage !== 'arrived' && stage !== 'cancelled';
+}
 
 /** Lunch 12:00–14:59, dinner 19:00–22:59 on the city clock (Ali, 2026-11-02); otherwise no meal. */
 export function mealWindow(now: Date | number): Meal | null {
@@ -50,14 +56,16 @@ export function panelMode({ running, now, offers, seenMeal }: PanelModeInput): P
 /** The four steps طلبت · دا يتحضّر · بالطريق · وصل; at «وصل» every step is done. */
 export function trackerSteps(stage: OrderStage): TrackerStep[] {
   if (stage === 'arrived') return STAGES.map(() => 'done');
-  const at = STAGES.indexOf(stage);
+  if (stage === 'cancelled') return [];
+  // An unknown stage from an older server reads as the first step, never as "nothing done".
+  const at = Math.max(0, STAGES.indexOf(stage));
   return STAGES.map((_, i) => (i < at ? 'done' : i === at ? 'now' : 'next'));
 }
 
 /** How much of the river is orange: a quarter per step, full on arrival, none with no order. */
 export function riverFill(stage: OrderStage | null): number {
-  if (!stage) return 0;
-  return (STAGES.indexOf(stage) + 1) / STAGES.length;
+  if (!stage || stage === 'cancelled') return 0;
+  return (Math.max(0, STAGES.indexOf(stage)) + 1) / STAGES.length;
 }
 
 export interface LiveAge {
@@ -74,10 +82,4 @@ export function liveAge(seconds: number): LiveAge {
   if (s < 5) return { unit: 'now', n: 0, ...stale };
   if (s < 60) return { unit: 'sec', n: s, ...stale };
   return { unit: 'min', n: Math.floor(s / 60), ...stale };
-}
-
-/** One square per seat, true = free (drawn filled), clamped to the car. */
-export function seatSquares(total: number, free: number): boolean[] {
-  const f = Math.max(0, Math.min(total, free));
-  return Array.from({ length: Math.max(0, total) }, (_, i) => i < f);
 }

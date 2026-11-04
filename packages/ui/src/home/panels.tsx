@@ -1,24 +1,20 @@
 import { useEffect, useRef } from 'react';
-import { Pressable, ScrollView, View, type ImageSourcePropType } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { t } from '@driver/i18n';
 import { Avatar } from '../components/Avatar';
-import { Button } from '../components/Button';
-import { LocalPhoto, PhotoImage } from '../components/PhotoImage';
 import { RollingDigits } from '../components/RollingDigits';
 import { Text } from '../components/Text';
 import { formatAmount, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import { useTheme } from '../theme/ThemeProvider';
-import { trackerSteps, type OrderStage } from './logic';
+import { stageRuns, trackerSteps, type OrderStage } from './logic';
+import { HomePress, Picture, type DishPicture } from './media';
 import { countWord, useHomeLook } from './look';
 
-/** A dish picture: a bundled one (gallery, demo) or a network photo. */
-export type DishPicture = { source: ImageSourcePropType } | { uri: string };
+export type { DishPicture } from './media';
 
-export function DishPhoto({ picture, size, radius }: { picture: DishPicture; size: { width: number | `${number}%`; height: number }; radius: number }) {
-  const style = { ...size, borderRadius: radius };
-  return 'uri' in picture ? <PhotoImage uri={picture.uri} style={style} /> : <LocalPhoto source={picture.source} style={style} />;
-}
+const iqd = (n: number) => t('unit.iqd', { amount: ltr(formatAmount(n)) });
+const mins = (n: number) => t('live_map.minutes', { n });
 
 /** Big minutes in orange with the word beside them: «12 دقيقة», «5 دقايق». */
 function BigMinutes({ n, size = 'numeralMd', testID }: { n: number; size?: 'numeralMd' | 'numeralSm'; testID?: string }) {
@@ -27,7 +23,7 @@ function BigMinutes({ n, size = 'numeralMd', testID }: { n: number; size?: 'nume
     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
       <RollingDigits value={String(n)} variant={size} face="display" color={look.panel.accent} testID={testID} />
       <Text variant="label" weight={600} color={look.panel.muted} compact>
-        {countWord(n, 'home.word.minute', 'home.word.minute_pl')}
+        {countWord(n, 'home.unit.minute')}
       </Text>
     </View>
   );
@@ -53,16 +49,18 @@ function PanelShell({ children, testID, tight }: { children: React.ReactNode; te
   );
 }
 
-function Heading({ over, title, live }: { over: string; title: string; live?: boolean }) {
+function Heading({ over, title, live }: { over?: string; title: string; live?: boolean }) {
   const look = useHomeLook();
   return (
     <View style={{ flex: 1, minWidth: 0 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: look.live }} /> : null}
-        <Text variant="footnote" color={look.panel.muted} numberOfLines={1}>
-          {over}
-        </Text>
-      </View>
+      {over ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: look.live }} /> : null}
+          <Text variant="footnote" color={look.panel.muted} numberOfLines={1}>
+            {over}
+          </Text>
+        </View>
+      ) : null}
       <Text variant="title" face="display" color={look.panel.on} numberOfLines={2}>
         {title}
       </Text>
@@ -78,8 +76,13 @@ export interface OrderPanelProps {
   /** The stage line («الدليفري طلع من المطعم»), from the app's order copy. */
   title: string;
   stage: OrderStage;
-  /** Minutes left; hidden once it has arrived. */
-  minutes: number;
+  /** Minutes left; hidden once it has arrived or was cancelled. */
+  minutes?: number;
+  /**
+   * One honest line under the heading, from the app's order copy: the late-promise apology with the new
+   * time, or why it was cancelled and what comes back.
+   */
+  notice?: { tone: 'late' | 'ended'; text: string };
   /** Cash to hand over at the door, in dinars; leave out when paid from the wallet. */
   cash?: number;
   /** The courier or driver. */
@@ -95,10 +98,11 @@ const STEP_KEYS = ['home.step.placed', 'home.step.preparing', 'home.step.on_way'
  * (done = check, now = orange, next = outlined), the cash to hand over with the no-change promise, and the
  * courier with «راسله». One haptic per new step (plays once; silent under Reduce Motion).
  */
-export function OrderPanel({ from, title, stage, minutes, cash, person, onMessage, testID }: OrderPanelProps) {
+export function OrderPanel({ from, title, stage, minutes, notice, cash, person, onMessage, testID }: OrderPanelProps) {
   const theme = useTheme();
   const look = useHomeLook();
   const steps = trackerSteps(stage);
+  const runs = stageRuns(stage) && minutes !== undefined;
   const seen = useRef(stage);
   useEffect(() => {
     if (seen.current === stage) return;
@@ -107,11 +111,18 @@ export function OrderPanel({ from, title, stage, minutes, cash, person, onMessag
   }, [stage, theme]);
   return (
     <PanelShell testID={testID}>
-      <View accessible accessibilityLabel={t('home.panel.order_a11y', { title, minutes })} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
+      <View accessible accessibilityLabel={runs ? t('home.panel.order_a11y', { title, minutes: mins(minutes!) }) : title} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
         <Heading over={from} title={title} />
-        {stage === 'arrived' ? null : <BigMinutes n={minutes} testID={testID ? `${testID}-minutes` : undefined} />}
+        {runs ? <BigMinutes n={minutes!} testID={testID ? `${testID}-minutes` : undefined} /> : null}
       </View>
 
+      {notice ? (
+        <Text testID={testID ? `${testID}-notice` : undefined} variant="label" weight={600} color={notice.tone === 'late' ? look.panel.cash : look.panel.onSoft} accessibilityLiveRegion="polite">
+          {notice.text}
+        </Text>
+      ) : null}
+
+      {steps.length > 0 ? (
       <View style={{ gap: theme.space[2] }}>
         <View style={{ flexDirection: 'row', gap: 4 }}>
           {steps.map((s, i) => (
@@ -149,6 +160,7 @@ export function OrderPanel({ from, title, stage, minutes, cash, person, onMessag
           })}
         </View>
       </View>
+      ) : null}
 
       {cash !== undefined && cash > 0 ? (
         <View testID={testID ? `${testID}-cash` : undefined} style={{ backgroundColor: look.panel.raised, borderRadius: theme.radius.xl, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 2 }}>
@@ -157,7 +169,7 @@ export function OrderPanel({ from, title, stage, minutes, cash, person, onMessag
               {t('home.panel.cash_title')}
             </Text>
             <Text variant="title" face="display" color={look.panel.cash} tabular>
-              {t('unit.iqd', { amount: ltr(formatAmount(cash)) })}
+              {iqd(cash)}
             </Text>
           </View>
           <Text variant="footnote" color={look.panel.muted}>
@@ -175,7 +187,17 @@ export function OrderPanel({ from, title, stage, minutes, cash, person, onMessag
             </Text>
           </View>
           {onMessage ? (
-            <Button label={t('home.panel.message')} icon="chat" size="md" onPress={onMessage} accessibilityLabel={t('home.panel.message_a11y', { name: person.name })} testID={testID ? `${testID}-message` : undefined} />
+            <HomePress
+              onPress={onMessage}
+              accessibilityLabel={t('home.panel.message_a11y', { name: person.name })}
+              testID={testID ? `${testID}-message` : undefined}
+              style={{ minHeight: theme.hitTarget, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: theme.space[4], borderRadius: theme.radius.pill, backgroundColor: look.panel.raised }}
+            >
+              <Icon name="chat" size={18} color={look.panel.on} />
+              <Text variant="label" weight={700} color={look.panel.on} compact>
+                {t('home.panel.message')}
+              </Text>
+            </HomePress>
           ) : null}
         </View>
       ) : null}
@@ -195,13 +217,11 @@ export interface HomeDish {
   price: number;
   /** The price before the offer (offers only). */
   was?: number;
-  picture: DishPicture;
+  /** Missing or broken → the dish's drawing. */
+  picture?: DishPicture;
 }
 
 export interface CalmPanelProps {
-  town: string;
-  /** Restaurants open now. */
-  open: number;
   /** The fastest dish to the door right now. */
   dish: HomeDish;
   onDish?: (id: string) => void;
@@ -209,28 +229,28 @@ export interface CalmPanelProps {
 }
 
 /** Most of the day (spec §12.2): one line, the fastest dish and its minutes. Calm and compact. */
-export function CalmPanel({ town, open, dish, onDish, testID }: CalmPanelProps) {
+export function CalmPanel({ dish, onDish, testID }: CalmPanelProps) {
   const theme = useTheme();
   const look = useHomeLook();
   return (
     <PanelShell testID={testID} tight>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
-        <Heading live over={t('home.panel.town_line', { town, open: t('live_map.open_now', { n: open }) })} title={t('home.panel.fastest')} />
+        {/* The open count lives on the أكل tile (audit round 2: each fact once). */}
+        <Heading title={t('home.panel.fastest')} />
         <BigMinutes n={dish.minutes} size="numeralSm" />
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t('home.panel.dish_a11y', { name: dish.name, restaurant: dish.restaurant, price: t('unit.iqd', { amount: formatAmount(dish.price) }), minutes: dish.minutes })}
+      <HomePress
+        accessibilityLabel={t('home.panel.dish_a11y', { name: dish.name, restaurant: dish.restaurant, price: iqd(dish.price), minutes: mins(dish.minutes) })}
         onPress={onDish ? () => onDish(dish.id) : undefined}
         testID={testID ? `${testID}-dish` : undefined}
         style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 48, padding: 4, paddingEnd: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: look.panel.raised }}
       >
-        <DishPhoto picture={dish.picture} size={{ width: 40, height: 40 }} radius={20} />
+        <Picture picture={dish.picture} name={dish.name} seed={dish.id} width={40} height={40} radius={20} />
         <Text variant="label" color={look.panel.on} numberOfLines={1} style={{ flex: 1 }}>
-          {`${dish.name} · ${dish.restaurant}`}
+          {t('home.panel.dish_line', { dish: dish.name, restaurant: dish.restaurant })}
         </Text>
         <Icon name="chevron-forward" size={18} color={look.panel.muted} />
-      </Pressable>
+      </HomePress>
     </PanelShell>
   );
 }
@@ -251,6 +271,8 @@ export interface OffersPanelProps {
 export function OffersPanel({ town, meal, until, dishes, onDish, testID }: OffersPanelProps) {
   const theme = useTheme();
   const look = useHomeLook();
+  // No offers left: the app falls back to the calm panel (`panelMode`); never «0 عرض».
+  if (dishes.length === 0) return null;
   return (
     <PanelShell testID={testID}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
@@ -260,22 +282,21 @@ export function OffersPanel({ town, meal, until, dishes, onDish, testID }: Offer
             {String(dishes.length)}
           </Text>
           <Text variant="label" weight={600} color={look.panel.muted} compact>
-            {countWord(dishes.length, 'home.word.offer', 'home.word.offer_pl')}
+            {countWord(dishes.length, 'home.unit.offer')}
           </Text>
         </View>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[2] }} style={{ marginHorizontal: -theme.space[4] }}>
         <View style={{ width: theme.space[2] }} />
         {dishes.map((d) => (
-          <Pressable
+          <HomePress
             key={d.id}
-            accessibilityRole="button"
-            accessibilityLabel={`${t('home.panel.offer_badge')}: ${t('home.panel.dish_a11y', { name: d.name, restaurant: d.restaurant, price: t('unit.iqd', { amount: formatAmount(d.price) }), minutes: d.minutes })}`}
+            accessibilityLabel={t('home.panel.offer_a11y', { dish: t('home.panel.dish_a11y', { name: d.name, restaurant: d.restaurant, price: iqd(d.price), minutes: mins(d.minutes) }) })}
             onPress={onDish ? () => onDish(d.id) : undefined}
             testID={testID ? `${testID}-dish-${d.id}` : undefined}
             style={{ width: 148, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.raised }}
           >
-            <DishPhoto picture={d.picture} size={{ width: '100%', height: 84 }} radius={0} />
+            <Picture picture={d.picture} name={d.name} seed={d.id} width="100%" height={84} radius={0} />
             <View style={{ position: 'absolute', top: theme.space[2], start: theme.space[2], backgroundColor: look.panel.accent, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[2] }}>
               <Text variant="footnote" weight={700} color="onAccent" compact>
                 {t('home.panel.offer_badge')}
@@ -290,7 +311,7 @@ export function OffersPanel({ town, meal, until, dishes, onDish, testID }: Offer
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
                 <Text variant="label" weight={700} color={look.panel.cash} tabular>
-                  {t('unit.iqd', { amount: ltr(formatAmount(d.price)) })}
+                  {iqd(d.price)}
                 </Text>
                 {d.was ? (
                   <Text variant="footnote" color={look.panel.muted} tabular accessibilityLabel={t('home.panel.was', { price: formatAmount(d.was) })} style={{ textDecorationLine: 'line-through' }}>
@@ -299,7 +320,7 @@ export function OffersPanel({ town, meal, until, dishes, onDish, testID }: Offer
                 ) : null}
               </View>
             </View>
-          </Pressable>
+          </HomePress>
         ))}
         <View style={{ width: theme.space[2] }} />
       </ScrollView>

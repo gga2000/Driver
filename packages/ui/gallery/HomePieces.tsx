@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Image, ScrollView, View, type ImageSourcePropType } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { Text, useTheme } from '../src';
-import { BigDishCard, CalmPanel, CompactDish, HomeChips, HomeMapCard, RestaurantCard, UsualCard, LiveBoard, OffersPanel, OrderPanel, PointsPill, RiverLine, riverFill, type HomeDish, type OrderStage } from '../src/home';
+import { Icon, TabBar, Text, useTheme } from '../src';
+import { BigDishCard, CalmPanel, HomeMapCardSkeleton, LiveBoardSkeleton, RestaurantRowSkeleton, CompactDish, HomeChips, HomeMapCard, RestaurantCard, UsualCard, LiveBoard, OffersPanel, OrderPanel, PointsPill, RiverLine, riverFill, useHomeLook, type HomeDish, type OrderStage } from '../src/home';
 import mapDay from './assets/map-day.jpg';
 import mapNight from './assets/map-night.jpg';
 // The app's own cut-out pictures (apps/customer/assets/home), so the gallery shows the real ones.
@@ -17,6 +17,7 @@ import qeema from '../../../apps/customer/assets/home/dishes/qeema.webp';
 
 const src = (s: number | string): ImageSourcePropType => (typeof s === 'string' ? { uri: s } : s);
 const PICTURES = { food: src(foodPic), taxi: src(taxiPic), tuktuk: src(tuktukPic), intercity: src(intercityPic) };
+const NOW = Date.UTC(2026, 10, 4, 9, 0);
 const TOWN = 'العزيزية';
 const DISHES: HomeDish[] = [
   { id: 'bamia', name: 'تمن ومرق بامية', restaurant: 'مطعم خالد', minutes: 15, price: 4000, was: 5000, picture: { source: src(bamia) } },
@@ -112,7 +113,7 @@ const CHIPS = [
 ];
 
 const ORDER = { from: 'مطعم خالد', title: 'الدليفري طلع من المطعم', minutes: 12, cash: 19250, person: { name: 'حيدر', kind: 'courier' as const }, onMessage: () => {} };
-const STAGE_TITLES: Record<OrderStage, string> = { placed: 'طلبك عند المطعم', preparing: 'دا يتحضّر', on_way: 'الدليفري طلع من المطعم', arrived: 'وصل طلبك، بالعافية' };
+const STAGE_TITLES: Record<OrderStage, string> = { placed: 'طلبك عند المطعم', preparing: 'دا يتحضّر', on_way: 'الدليفري طلع من المطعم', arrived: 'وصل طلبك، بالعافية', cancelled: 'انلغى الطلب من طرفنا' };
 
 /** Step 3 of the home redesign: every piece in every state, in the theme the gallery wears. */
 export function HomePiecesSection() {
@@ -122,7 +123,7 @@ export function HomePiecesSection() {
       <Text variant="heading">قطع الواجهة الجديدة (الخطوة 3)</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[4], alignItems: 'flex-start' }}>
         <Piece id="hp-order" title="الخريطة + طلب بالطريق">
-          <HomeMapCard map={<MapStill order />} town={TOWN} ageSec={8} route={{ from: 'مطعم خالد', to: 'البيت' }}>
+          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - (8) * 1000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }}>
             <OrderPanel {...ORDER} stage="on_way" />
           </HomeMapCard>
         </Piece>
@@ -133,28 +134,44 @@ export function HomePiecesSection() {
         </Piece>
         <Piece id="hp-calm" title="الخريطة + هادي (باقي اليوم)">
           <HomeMapCard map={<MapStill order={false} />} town={TOWN}>
-            <CalmPanel town={TOWN} open={22} dish={DISHES[0]!} />
+            <CalmPanel dish={DISHES[0]!} />
           </HomeMapCard>
         </Piece>
         <Piece id="hp-board" title="شنو تحتاج؟">
-          <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, padding: 10, borderWidth: 1, borderColor: theme.colors.border }}>
-            <LiveBoard town={TOWN} open={22} rideMinutes={3} departures={DEPARTURES} carts={3} pictures={PICTURES} />
-          </View>
+          <LiveBoard town={TOWN} open={22} rideMinutes={3} departures={DEPARTURES} carts={3} pictures={PICTURES} />
         </Piece>
         <Piece id="hp-board-quiet" title="شنو تحتاج؟ بالليل المتأخر" note="ماكو سيارة قريبة، ماكو رحلات باقية، العربانات مسدودة">
-          <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.radius.xl, padding: 10, borderWidth: 1, borderColor: theme.colors.border }}>
-            <LiveBoard town={TOWN} open={4} rideMinutes={null} departures={[]} carts={0} pictures={PICTURES} />
-          </View>
+          <LiveBoard town={TOWN} open={4} rideMinutes={null} departures={[]} carts={0} pictures={PICTURES} />
         </Piece>
         {(['placed', 'preparing', 'arrived'] as const).map((stage) => (
           <Piece key={stage} id={`hp-stage-${stage}`} title={`مرحلة: ${STAGE_TITLES[stage]}`}>
-            <HomeMapCard map={<MapStill order />} town={TOWN} ageSec={stage === 'placed' ? 2 : 40} route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
+            <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - (stage === 'placed' ? 2 : 40) * 1000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
               <OrderPanel {...ORDER} stage={stage} title={STAGE_TITLES[stage]} cash={stage === 'arrived' ? undefined : ORDER.cash} />
             </HomeMapCard>
           </Piece>
         ))}
+        <Piece id="hp-late" title="متأخر: اعتذار ووقت جديد" note="الجملة تجي من وعد التأخير بالتطبيق">
+          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 6000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
+            <OrderPanel {...ORDER} stage="on_way" minutes={9} notice={{ tone: 'late', text: 'تأخرنا عليك، نعتذر. الوقت الجديد 1:40، وإذا تأخرنا بعد ترجعلك أجرة التوصيل' }} />
+          </HomeMapCard>
+        </Piece>
+        <Piece id="hp-cancelled" title="انلغى الطلب">
+          <HomeMapCard map={<MapStill order={false} />} town={TOWN} mapHeight={120}>
+            <OrderPanel from="مطعم خالد" title={STAGE_TITLES.cancelled} stage="cancelled" notice={{ tone: 'ended', text: 'نعتذر منك. أي مبلغ دفعته يرجعلك' }} />
+          </HomeMapCard>
+        </Piece>
+        <Piece id="hp-offline" title="ماكو انترنت">
+          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 240_000} now={NOW} offline route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
+            <OrderPanel {...ORDER} stage="on_way" />
+          </HomeMapCard>
+        </Piece>
+        <Piece id="hp-loading" title="دا يتحمّل">
+          <HomeMapCardSkeleton mapHeight={120} />
+          <LiveBoardSkeleton />
+          <RestaurantRowSkeleton />
+        </Piece>
         <Piece id="hp-ride" title="تكسي شغّال + التحديث قديم">
-          <HomeMapCard map={<MapStill order />} town={TOWN} ageSec={260} route={{ from: 'السوق', to: 'البيت' }} mapHeight={120}>
+          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - (260) * 1000} now={NOW} route={{ from: 'السوق', to: 'البيت' }} mapHeight={120}>
             <OrderPanel from="تكسي · 4 ركاب" title="السايق جاي عليك" stage="on_way" minutes={4} person={{ name: 'عباس', kind: 'driver' }} onMessage={() => {}} />
           </HomeMapCard>
         </Piece>
@@ -195,6 +212,102 @@ export function HomePiecesSection() {
           </View>
         </Piece>
       </View>
+    </View>
+  );
+}
+
+const TABS = [
+  { name: 'index', label: 'الرئيسية', icon: 'home' as const },
+  { name: 'orders', label: 'طلباتي', icon: 'receipt' as const },
+  { name: 'wallet', label: 'المحفظة', icon: 'wallet' as const },
+  { name: 'account', label: 'حسابي', icon: 'user' as const },
+];
+
+/** The whole home put together from the pieces (§12.2 order), for the audit — not the app's screen yet. */
+function HomeScreenPreview({ order }: { order: boolean }) {
+  const theme = useTheme();
+  const look = useHomeLook();
+  const section = theme.space[6];
+  return (
+    <View style={{ width: 390, backgroundColor: theme.colors.bg, overflow: 'hidden' }}>
+      <View style={{ paddingHorizontal: theme.space[4], paddingTop: theme.space[4], gap: section }}>
+        {/* Header: wordmark, where it goes, points; search right under it (audit round 2). */}
+        <View style={{ gap: theme.space[3] }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+            <Text variant="heading" face="display">درايفر</Text>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: theme.hitTarget }}>
+              <Text variant="label" color="textMuted" compact>نوصلك:</Text>
+              <Text variant="label" weight={700} compact numberOfLines={1}>البيت</Text>
+              <Icon name="chevron-down" size={16} color="textMuted" />
+            </View>
+            <PointsPill points={120} />
+          </View>
+          <View style={{ minHeight: 48, borderRadius: theme.radius.pill, backgroundColor: look.card.fill, boxShadow: look.card.shadow ?? undefined, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: theme.space[4] }}>
+            <Icon name="search" size={20} color="textMuted" />
+            <Text variant="body" color="textMuted">دور على مطعم أو أكلة</Text>
+          </View>
+        </View>
+        <View style={{ gap: theme.space[3] }}>
+          {order ? null : <Text variant="heading" face="display">شنو غدانا اليوم؟</Text>}
+          <View>
+            {order ? <RiverLine fill={riverFill('on_way')} style={{ position: 'absolute', top: 16, bottom: 16, end: -10 }} /> : null}
+            {order ? (
+              <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 8000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }}>
+                <OrderPanel {...ORDER} title="طلع من المطعم" stage="on_way" />
+              </HomeMapCard>
+            ) : (
+              <HomeMapCard map={<MapStill order={false} />} town={TOWN}>
+                <CalmPanel dish={DISHES[0]!} />
+              </HomeMapCard>
+            )}
+          </View>
+          {order ? null : <UsualCard restaurant="مطعم الحجي" items="تمن وقيمة · لبن" price={4500} picture={{ source: src(qeema) }} friday={false} onReorder={() => {}} />}
+        </View>
+        <View style={{ gap: theme.space[3] }}>
+          <Text variant="title" face="display">شنو تحتاج؟</Text>
+          <LiveBoard town={TOWN} open={22} rideMinutes={3} departures={DEPARTURES} carts={3} pictures={PICTURES} />
+        </View>
+        {order ? (
+          <View style={{ gap: theme.space[3] }}>
+            <Text variant="title" face="display">للغدا اليوم</Text>
+            <CompactDish dish={{ id: 'qeema', name: 'تمن وقيمة', restaurant: 'مطعم الحجي', minutes: 20, price: 4500, picture: { source: src(qeema) } }} onAdd={() => {}} />
+          </View>
+        ) : (
+          <BigDishCard dish={{ id: 'biryani', name: 'برياني دجاج للعائلة', restaurant: 'مطعم المسافر', minutes: 30, price: 12000, picture: { source: src(biryani) } }} tag="للغدا" onAdd={() => {}} />
+        )}
+        <View style={{ gap: theme.space[3] }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text variant="title" face="display">مفتوح هسة</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: theme.hitTarget }}>
+              <Text variant="label" weight={600} color="accentText" compact>كل المحلات</Text>
+              <Icon name="chevron-forward" size={16} color="accentText" />
+            </View>
+          </View>
+          <HomeChips chips={CHIPS} selected={null} onSelect={() => {}} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -theme.space[4] }} contentContainerStyle={{ gap: theme.space[3], paddingHorizontal: theme.space[4], paddingVertical: 6 }}>
+            <RestaurantCard name="مطعم خالد" rating={4.7} minutes={25} fee={1500} picture={{ source: src(liver) }} />
+            <RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} />
+          </ScrollView>
+        </View>
+      </View>
+      <View style={{ marginTop: theme.space[5] }}>
+        <TabBar
+          tabs={TABS}
+          state={{ index: 0, routes: TABS.map((t) => ({ key: t.name, name: t.name })) }}
+          navigation={{ emit: () => ({ defaultPrevented: false }), navigate: () => {} }}
+        />
+      </View>
+    </View>
+  );
+}
+
+/** Both whole screens side by side for the audit. */
+export function HomeScreensSection() {
+  const theme = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', gap: theme.space[4], alignItems: 'flex-start', marginBottom: theme.space[8] }}>
+      <View testID="hp-screen-idle"><HomeScreenPreview order={false} /></View>
+      <View testID="hp-screen-order"><HomeScreenPreview order /></View>
     </View>
   );
 }

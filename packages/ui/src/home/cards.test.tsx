@@ -1,5 +1,7 @@
 import { fireEvent } from '@testing-library/react';
+import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { PhotoImageProvider } from '../components/PhotoImage';
 import type { ThemeName } from '@driver/design-tokens';
 import { renderUI } from '../test/render';
 import { BigDishCard, CompactDish, HomeChips, RestaurantCard, UsualCard, type HomeCardDish } from './cards';
@@ -8,7 +10,8 @@ const pic = { uri: 'https://x.test/p.webp' };
 const dish: HomeCardDish = { id: 'd1', name: 'برياني دجاج للعائلة', restaurant: 'مطعم المسافر', minutes: 30, price: 12000, picture: pic };
 const THEMES: ThemeName[] = ['sage', 'emeraldNight'];
 /** Text that runs across nested spans (the price wears its own colour). */
-const whole = (text: string) => (_: string, el: Element | null) => el?.textContent === text && ![...(el?.children ?? [])].some((c) => c.textContent === text);
+const clean = (s: string | null | undefined) => (s ?? '').replace(/[\u200e\u200f\u2066-\u2069]/g, '');
+const whole = (text: string) => (_: string, el: Element | null) => clean(el?.textContent) === text && ![...(el?.children ?? [])].some((c) => clean(c.textContent) === text);
 
 describe('big dish card', () => {
   it('shows the daypart tag, the name, «restaurant · price · minutes» and «ضيفه للسلة»', () => {
@@ -55,12 +58,14 @@ describe('«طلبك المعتاد»', () => {
     const friday = renderUI(<UsualCard {...props} friday onReorder={() => {}} />, { theme: 'sage' });
     expect(friday.getByText('مثل كل جمعة')).toBeTruthy();
   });
-  it('puts the restaurant and items on one line, the price on the next, and «اطلب نفس الطلب» reorders', () => {
+  it('puts the restaurant and items on one line, the price under them, and «اطلبه» orders once', () => {
     const onReorder = vi.fn();
     const r = renderUI(<UsualCard {...props} friday={false} onReorder={onReorder} testID="u" />, { theme: 'emeraldNight' });
     expect(r.getByText('مطعم الحجي · تمن وقيمة · لبن')).toBeTruthy();
-    expect(r.getByText('4,500 دينار')).toBeTruthy();
-    fireEvent.click(r.getByText('اطلب نفس الطلب'));
+    expect(r.getByText(whole('4,500 دينار'))).toBeTruthy();
+    fireEvent.click(r.getByText('اطلبه'));
+    // One tap, one order: a quick second tap is ignored.
+    fireEvent.click(r.getByText('اطلبه'));
     expect(onReorder).toHaveBeenCalledTimes(1);
   });
 });
@@ -71,8 +76,8 @@ describe('restaurant card', () => {
     expect(r.getByText('مطعم خالد للمشويات والكص العراقي')).toBeTruthy();
     expect(r.getByText('4.7')).toBeTruthy();
     expect(r.getByText('25 دقيقة')).toBeTruthy();
-    expect(r.getByText('توصيل 1,500 دينار')).toBeTruthy();
-    expect(r.getByLabelText('مطعم خالد للمشويات والكص العراقي، تقييمه 4.7 من 5، يوصلك خلال 25 دقيقة، توصيل 1,500 دينار')).toBeTruthy();
+    expect(r.getByText(whole('توصيل 1,500 دينار'))).toBeTruthy();
+    expect(clean(r.getByTestId('rc').getAttribute('aria-label'))).toBe('مطعم خالد للمشويات والكص العراقي، تقييمه 4.7 من 5، يوصلك خلال 25 دقيقة، توصيل 1,500 دينار');
   });
   it('says free delivery when the fee is 0, and draws a picture when the photo is missing', () => {
     const r = renderUI(<RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} testID="rc" />, { theme: 'emeraldNight' });
@@ -103,5 +108,26 @@ describe('home chips', () => {
     fireEvent.click(r.getByText('مشاوي'));
     expect(onSelect).toHaveBeenCalledWith(null);
     expect(parseFloat(getComputedStyle(r.getByTestId('ch-grill')).minHeight)).toBeGreaterThanOrEqual(44);
+  });
+});
+
+describe('round 2: honest edges', () => {
+  it('a photo that fails to load turns into the dish drawing, never an empty box', () => {
+    const Broken = ({ onError }: { onError?: () => void }) => {
+      useEffect(() => onError?.(), [onError]);
+      return null;
+    };
+    const r = renderUI(
+      <PhotoImageProvider component={Broken}>
+        <BigDishCard dish={{ ...dish, picture: { uri: 'https://x.test/missing.webp' } }} tag="للعشا" onAdd={() => {}} testID="bd" />
+      </PhotoImageProvider>,
+      { theme: 'sage' },
+    );
+    expect(r.getByTestId('bd-fallback')).toBeTruthy();
+  });
+  it('a restaurant with no ratings yet says «جديد», not 0.0', () => {
+    const r = renderUI(<RestaurantCard name="مطعم جديد" rating={0} minutes={20} fee={1000} testID="rc" />, { theme: 'sage' });
+    expect(r.getByText('جديد')).toBeTruthy();
+    expect(r.queryByText('0.0')).toBeNull();
   });
 });

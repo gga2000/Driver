@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
-import { Image, Pressable, View, type ImageSourcePropType, type StyleProp, type ViewStyle } from 'react-native';
+import { Image, View, type ImageSourcePropType, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Art } from '../art/Art';
 import { Text } from '../components/Text';
 import { useTheme } from '../theme/ThemeProvider';
-import { seatSquares } from './logic';
 import { countWord, useHomeLook } from './look';
+import { HomePress } from './media';
 
 export type BoardService = 'food' | 'ride' | 'gov' | 'parcel' | 'carts';
 
@@ -56,7 +56,7 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
           service="food"
           label={t('home.board.tile_a11y', { name: t('home.board.food'), fact: t('live_map.open_now', { n: open }) })}
           onPress={press('food')}
-          style={{ width: 108, backgroundColor: theme.colors.accent, borderColor: theme.colors.accent, justifyContent: 'flex-start' }}
+          style={{ width: 108, backgroundColor: theme.colors.accent, boxShadow: undefined, justifyContent: 'flex-start' }}
           testID={testID ? `${testID}-food` : undefined}
         >
           <Text variant="title" face="display" color="onAccent" compact>
@@ -66,7 +66,7 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
             {String(open)}
           </Text>
           <Text variant="label" weight={700} color="onAccent" compact numberOfLines={2}>
-            {countWord(open, 'home.word.open', 'home.word.open_pl')}
+            {countWord(open, 'home.unit.open')}
           </Text>
           <Image source={pictures.food} accessible={false} resizeMode="contain" style={{ position: 'absolute', bottom: -14, end: -14, width: 118, height: 100, transform: [{ rotate: '-8deg' }] }} />
         </Tile>
@@ -77,7 +77,7 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
             service="ride"
             label={t('home.board.tile_a11y', { name: t('home.board.ride'), fact: rideMinutes === null ? t('home.board.no_car') : t('live_map.minutes', { n: rideMinutes }) })}
             onPress={press('ride')}
-            style={{ height: 104 }}
+            style={{ minHeight: 104 }}
             testID={testID ? `${testID}-ride` : undefined}
           >
             <Text variant="bodyStrong" face="display" compact>
@@ -95,7 +95,7 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
                   {String(rideMinutes)}
                 </Text>
                 <Text variant="footnote" color="textMuted" compact>
-                  {countWord(rideMinutes, 'home.word.minute', 'home.word.minute_pl')}
+                  {countWord(rideMinutes, 'home.unit.minute')}
                 </Text>
               </View>
             )}
@@ -104,7 +104,12 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
           </Tile>
 
           {/* محافظات: the next real departures with their seats. */}
-          <Tile service="gov" label={t('home.board.gov')} onPress={press('gov')} testID={testID ? `${testID}-gov` : undefined}>
+          <Tile
+            service="gov"
+            label={shown.length === 0 ? t('home.board.tile_a11y', { name: t('home.board.gov'), fact: t('home.board.no_trips') }) : t('home.board.gov_a11y', { departures: shown.map(departureA11y).join('، ') })}
+            onPress={press('gov')}
+            testID={testID ? `${testID}-gov` : undefined}
+          >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text variant="bodyStrong" face="display" compact>
                 {t('home.board.gov')}
@@ -116,7 +121,7 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
                 {t('home.board.no_trips')}
               </Text>
             ) : (
-              shown.map((d, i) => <DepartureRow key={d.id} d={d} first={i === 0} />)
+              shown.map((d, i) => <DepartureRow key={d.id} d={d} first={i === 0} testID={testID ? `${testID}-dep-${d.id}` : undefined} />)
             )}
           </Tile>
         </View>
@@ -145,73 +150,70 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
   );
 }
 
+/** A board tile: the card colour and its soft shadow (no outline), the whole tile one button. */
 function Tile({ children, label, onPress, style, testID }: { service: BoardService; children: ReactNode; label: string; onPress?: () => void; style?: StyleProp<ViewStyle>; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
   return (
-    <Pressable
-      accessibilityRole="button"
+    <HomePress
       accessibilityLabel={label}
       onPress={onPress}
       testID={testID}
-      style={({ pressed }) => [
+      style={[
         {
           minHeight: 88,
           borderRadius: theme.radius.xl,
-          borderWidth: 1,
-          borderColor: look.board.edge,
           backgroundColor: look.board.tile,
+          boxShadow: look.card.shadow ?? undefined,
           paddingHorizontal: theme.space[3],
           paddingVertical: theme.space[2],
           overflow: 'hidden',
-          opacity: pressed ? 0.85 : 1,
         },
         style,
       ]}
     >
       {children}
-    </Pressable>
+    </HomePress>
   );
 }
 
-function DepartureRow({ d, first }: { d: Departure; first: boolean }) {
+const departureA11y = (d: Departure) => t('home.board.departure_a11y', { city: d.city, time: t('home.board.departure_time', { time: d.time, part: d.part }), seats: t('intercity.seats_left', { n: d.free }) });
+
+/** Two seats or fewer: the count turns orange (forest-on-sage reads «few left» by weight instead). */
+const FEW_SEATS = 2;
+
+function DepartureRow({ d, first, testID }: { d: Departure; first: boolean; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
-  const squares = seatSquares(d.seats, d.free);
+  const few = d.free <= FEW_SEATS;
   return (
     <View
-      accessible
-      accessibilityLabel={t('home.board.departure_a11y', { city: d.city, time: `${d.time} ${d.part}`, seats: t('intercity.seats_left', { n: d.free }) })}
+      testID={testID}
       style={{
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: theme.space[2],
         paddingVertical: 6,
         borderTopWidth: first ? 0 : 1,
-        borderStyle: 'dashed',
-        borderTopColor: look.board.edge,
+        borderTopColor: theme.colors.border,
       }}
     >
-      <Text variant="label" numberOfLines={1}>
-        {d.city}
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-        <Text variant="label" face="display" color={look.board.fact} tabular>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, flexShrink: 1 }}>
+        <Text variant="label" weight={600} numberOfLines={1}>
+          {d.city}
+        </Text>
+        <Text variant="label" face="display" weight={700} color={look.board.fact} tabular>
           {d.time}
         </Text>
         <Text variant="footnote" color="textMuted" compact>
           {d.part}
         </Text>
-        <View testID={`seats-${d.id}`} style={{ flexDirection: 'row', gap: 3, marginStart: theme.space[1], direction: 'ltr' }}>
-          {squares.map((free, i) => (
-            <View
-              key={i}
-              testID={free ? 'seat-free' : 'seat-taken'}
-              style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: free ? look.board.fact : 'transparent', borderWidth: free ? 0 : 1, borderColor: look.board.edge }}
-            />
-          ))}
-        </View>
       </View>
+      {/* Seats in words, not dots (audit round 2): «باقي 3 مقاعد». */}
+      <Text testID={testID ? `${testID}-seats` : undefined} variant="footnote" weight={few ? 700 : 500} color={few ? 'accentText' : 'textMuted'} compact numberOfLines={1}>
+        {t('intercity.seats_left', { n: d.free })}
+      </Text>
     </View>
   );
 }
@@ -219,7 +221,7 @@ function DepartureRow({ d, first }: { d: Departure; first: boolean }) {
 function SmallTile({ service, name, fact, live, art, onPress, testID }: { service: BoardService; name: string; fact: string; live?: boolean; art: ReactNode; onPress?: () => void; testID?: string }) {
   const look = useHomeLook();
   return (
-    <Tile service={service} label={t('home.board.tile_a11y', { name, fact })} onPress={onPress} style={{ flex: 1, height: 96 }} testID={testID}>
+    <Tile service={service} label={t('home.board.tile_a11y', { name, fact })} onPress={onPress} style={{ flex: 1, minHeight: 96 }} testID={testID}>
       <Text variant="bodyStrong" face="display" compact>
         {name}
       </Text>

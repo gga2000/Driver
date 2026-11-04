@@ -1,5 +1,5 @@
 import { customerThemes, homeLook, type CustomerThemeName, type HomeLook } from '@driver/design-tokens';
-import { t, type MessageKey } from '@driver/i18n';
+import { tp } from '@driver/i18n';
 import { useTheme } from '../theme/ThemeProvider';
 
 /** The new home's colours for the theme in use: sage or emerald night (other themes borrow by scheme). */
@@ -9,8 +9,7 @@ export function useHomeLook(): HomeLook {
   return homeLook[name];
 }
 
-/** Arabic counts 3–10 take the plural noun («5 دقايق», «4 مطاعم فاتحة»); 1, 2 and 11+ the singular. */
-export function countWord(n: number, one: MessageKey, plural: MessageKey): string {
-  const r = Math.abs(Math.trunc(n)) % 100;
-  return t(r >= 3 && r <= 10 ? plural : one);
+/** The word beside a big counted number («5» + «دقايق», «22» + «مطعم فاتح»), from the i18n plural families. */
+export function countWord(n: number, base: 'home.unit.minute' | 'home.unit.open' | 'home.unit.offer'): string {
+  return tp(base, n);
 }

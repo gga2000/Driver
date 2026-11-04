@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Text } from '../components/Text';
@@ -9,8 +9,15 @@ import { useHomeLook } from './look';
 export interface HomeMapCardProps {
   /** The map itself (a real map from the app, or its still picture when the map can't draw). */
   map: ReactNode;
-  /** Seconds since the last live update; leave out with no order (the tag then names the town). */
-  ageSec?: number;
+  /**
+   * When the last live update came (ms since epoch); leave out with no order (the tag then names the town).
+   * The tag ticks by itself, so the map above it never redraws for the clock.
+   */
+  updatedAt?: number;
+  /** A fixed clock (gallery, tests); leave out in the app. */
+  now?: number;
+  /** No connection: the tag says so, with how old the picture is. */
+  offline?: boolean;
   /** The town on the idle tag («مباشر · العزيزية»). */
   town: string;
   /** «مطعم خالد» → «البيت» during an order. */
@@ -27,23 +34,21 @@ export interface HomeMapCardProps {
  * in both themes. The map is a slot; the card draws the live tag (with how old the update is), the route
  * label and the panel joined underneath.
  */
-export function HomeMapCard({ map, ageSec, town, route, children, mapHeight = 200, style, testID }: HomeMapCardProps) {
+export const HomeMapCard = memo(function HomeMapCard({ map, updatedAt, now, offline, town, route, children, mapHeight = 200, style, testID }: HomeMapCardProps) {
   const theme = useTheme();
   const look = useHomeLook();
   const routeText = route ? t('home.route', route) : null;
   return (
     <View
       testID={testID}
-      style={[{ borderRadius: theme.radius['2xl'], overflow: 'hidden', borderWidth: 1, borderColor: look.edge, backgroundColor: look.panel.fill }, style]}
+      style={[{ borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.fill, boxShadow: look.card.shadow ?? undefined }, style]}
     >
-      <View
-        accessible
-        accessibilityRole="image"
-        accessibilityLabel={routeText ? t('home.map_order_a11y', { route: routeText }) : t('home.map_town_a11y', { town })}
-        style={{ height: mapHeight, backgroundColor: look.map.land, overflow: 'hidden' }}
-      >
-        {map}
-        <LiveTag ageSec={ageSec} town={town} />
+      <View style={{ height: mapHeight, backgroundColor: look.map.land, overflow: 'hidden' }}>
+        {/* The map names itself; its pins stay reachable, and the tag and route are read on their own. */}
+        <View accessibilityRole="image" accessibilityLabel={routeText ? t('home.map_order_a11y', { route: routeText }) : t('home.map_town_a11y', { town })} style={{ flex: 1 }}>
+          {map}
+        </View>
+        <LiveTag updatedAt={updatedAt} now={now} offline={offline} town={town} testID={testID ? `${testID}-live` : undefined} />
         {routeText ? (
           <View
             testID={testID ? `${testID}-route` : undefined}
@@ -53,10 +58,10 @@ export function HomeMapCard({ map, ageSec, town, route, children, mapHeight = 20
               end: theme.space[3],
               paddingHorizontal: theme.space[3],
               paddingVertical: 2,
+              maxWidth: '70%',
               borderRadius: theme.radius.pill,
-              backgroundColor: theme.colors.surface,
-              borderWidth: 1,
-              borderColor: look.edge,
+              backgroundColor: look.card.fill,
+              boxShadow: look.card.shadow ?? undefined,
             }}
           >
             <Text variant="footnote" compact numberOfLines={1}>
@@ -68,15 +73,31 @@ export function HomeMapCard({ map, ageSec, town, route, children, mapHeight = 20
       {children}
     </View>
   );
+});
+
+/** Seconds since `updatedAt`, ticking once a second for the first minute, then every 30 s. */
+function useAgeSec(updatedAt: number | undefined, fixedNow: number | undefined): number | undefined {
+  const [clock, setClock] = useState(() => fixedNow ?? Date.now());
+  const age = updatedAt === undefined ? undefined : Math.max(0, Math.floor(((fixedNow ?? clock) - updatedAt) / 1000));
+  useEffect(() => {
+    if (updatedAt === undefined || fixedNow !== undefined) return;
+    const id = setTimeout(() => setClock(Date.now()), (age ?? 0) < 60 ? 1000 : 30_000);
+    return () => clearTimeout(id);
+  }, [updatedAt, fixedNow, age]);
+  return age;
 }
 
 /** «مباشر · قبل 8 ثواني» during an order, «مباشر · العزيزية» without; past 2 minutes it says when the last update was. */
-export function LiveTag({ ageSec, town }: { ageSec?: number; town: string }) {
+export const LiveTag = memo(function LiveTag({ updatedAt, now, offline, town, testID }: { updatedAt?: number; now?: number; offline?: boolean; town: string; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
+  const ageSec = useAgeSec(updatedAt, now);
   const age = ageSec === undefined ? null : liveAge(ageSec);
-  const label =
-    age === null
+  const label = offline
+    ? age && age.unit === 'min'
+      ? t('home.live_offline', { n: age.n })
+      : t('home.live_offline_now')
+    : age === null
       ? t('home.live_town', { town })
       : age.stale
         ? t('home.live_stale', { n: age.n })
@@ -85,7 +106,11 @@ export function LiveTag({ ageSec, town }: { ageSec?: number; town: string }) {
           : t(age.unit === 'sec' ? 'home.live_sec' : 'home.live_min', { n: age.n });
   return (
     <View
-      testID="home-live-tag"
+      testID={testID ?? 'home-live-tag'}
+      accessible
+      accessibilityLabel={label}
+      // Going stale or offline is news: announce it, quietly.
+      accessibilityLiveRegion={offline || age?.stale ? 'polite' : 'none'}
       style={{
         position: 'absolute',
         top: theme.space[3],
@@ -101,10 +126,10 @@ export function LiveTag({ ageSec, town }: { ageSec?: number; town: string }) {
         borderColor: look.panel.edge ?? undefined,
       }}
     >
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: age?.stale ? look.panel.upcoming : look.live }} />
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: offline || age?.stale ? look.panel.upcoming : look.live }} />
       <Text variant="footnote" color={look.panel.on} compact numberOfLines={1}>
         {label}
       </Text>
     </View>
   );
-}
+});
