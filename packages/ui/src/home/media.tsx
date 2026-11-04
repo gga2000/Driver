@@ -59,6 +59,8 @@ export interface HomePressProps {
   disabled?: boolean;
   accessibilityRole?: 'button' | 'radio' | 'link';
   accessibilityLabel?: string;
+  /** What a tap does, when the label alone doesn't say it. */
+  accessibilityHint?: string;
   checked?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -69,10 +71,22 @@ export interface HomePressProps {
  * The home's one pressable: the app's press scale (still under Reduce Motion), the theme's haptics and a
  * double-tap guard, so every card and button on the home feels the same under the finger.
  */
-export function HomePress({ onPress, haptic = 'secondary', guardMs = 0, disabled, accessibilityRole = 'button', accessibilityLabel, checked, style, testID, children }: HomePressProps) {
+export function HomePress({ onPress, haptic = 'secondary', guardMs = 0, disabled, accessibilityRole = 'button', accessibilityLabel, accessibilityHint, checked, style, testID, children }: HomePressProps) {
   const theme = useTheme();
   const press = usePressScale();
   const last = useRef(0);
+  // The latest props in a ref, so the tap handler stays the same function across renders.
+  const latest = useRef({ onPress, haptic, guardMs, theme });
+  latest.current = { onPress, haptic, guardMs, theme };
+  const handle = useCallback(() => {
+    const { onPress: go, haptic: h, guardMs: guard, theme: th } = latest.current;
+    const now = Date.now();
+    if (guard && now - last.current < guard) return;
+    last.current = now;
+    const kind = h === 'secondary' ? th.secondaryButtonHaptic : h;
+    if (kind) th.haptic(kind);
+    go?.();
+  }, []);
   // Nothing to do on a tap: a plain, readable group, never a «dimmed button».
   if (!onPress) {
     return (
@@ -86,19 +100,13 @@ export function HomePress({ onPress, haptic = 'secondary', guardMs = 0, disabled
     <AnimatedPressable
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
       aria-checked={accessibilityRole === 'radio' ? !!checked : undefined}
       aria-disabled={off || undefined}
       disabled={off}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
-      onPress={() => {
-        const now = Date.now();
-        if (guardMs && now - last.current < guardMs) return;
-        last.current = now;
-        const kind = haptic === 'secondary' ? theme.secondaryButtonHaptic : haptic;
-        if (kind) theme.haptic(kind);
-        onPress();
-      }}
+      onPress={handle}
       testID={testID}
       style={[style, press.style]}
     >

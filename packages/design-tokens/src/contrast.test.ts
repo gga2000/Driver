@@ -306,4 +306,13 @@ describe('home redesign colours (sage and emerald night)', () => {
     expect(homeLook.sage.card.shadow).toBeTruthy();
     expect(contrastRatio(homeLook.emeraldNight.card.fill, night.bg)).toBeGreaterThan(1.05);
   });
+
+  it('audit round 4 (2026-11-04): the late band reads, and small live marks reach 3:1 on their tiles', () => {
+    for (const name of customerThemes) {
+      const look = homeLook[name];
+      expect(contrastRatio(look.late.on, look.late.fill), `${name} late band`).toBeGreaterThanOrEqual(7);
+      expect(look.late.fill, `${name}: late is not the action orange`).not.toBe(ORANGE);
+      expect(contrastRatio(look.board.dot, look.board.tile), `${name} live dot on tile`).toBeGreaterThanOrEqual(3);
+    }
+  });
 });

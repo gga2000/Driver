@@ -3,6 +3,7 @@ import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Text } from '../components/Text';
 import { useTheme } from '../theme/ThemeProvider';
+import { homeSize } from './format';
 import { liveAge } from './logic';
 import { useHomeLook } from './look';
 
@@ -36,21 +37,23 @@ export interface HomeMapCardProps {
  * in both themes. The map is a slot; the card draws the live tag (with how old the update is), the route
  * label and the panel joined underneath.
  */
-export function HomeMapCard({ map, updatedAt, now, offline, frozen, town, route, children, mapHeight = 200, style, testID }: HomeMapCardProps) {
+export function HomeMapCard({ map, updatedAt, now, offline, frozen, town, route, children, mapHeight, style, testID }: HomeMapCardProps) {
   const theme = useTheme();
   const look = useHomeLook();
   const routeText = route ? t('home.route', route) : null;
+  // The same heights as the loading shape: taller during an order, shorter when quiet.
+  const height = mapHeight ?? (route ? homeSize.mapOrder : homeSize.mapIdle);
   return (
     <View
       testID={testID}
-      style={[{ borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.fill, boxShadow: look.card.shadow ?? undefined }, style]}
+      style={[{ borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.fill, boxShadow: look.card.shadow ?? undefined, borderWidth: look.card.edge ? 1 : 0, borderColor: look.card.edge ?? undefined }, style]}
     >
-      <View style={{ height: mapHeight, backgroundColor: look.map.land, overflow: 'hidden' }}>
+      <View style={{ height, backgroundColor: look.map.land, overflow: 'hidden' }}>
         {/*
           The map's name is read first, from its own empty element: wrapping the map in an image role would
           hide its pins from screen readers on the web. The tag and the route are read on their own.
         */}
-        <View accessible accessibilityRole="image" accessibilityLabel={routeText ? t('home.map_order_a11y', { route: routeText }) : t('home.map_town_a11y', { town })} testID={testID ? `${testID}-map-name` : undefined} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
+        <View accessible accessibilityRole="image" accessibilityLabel={routeText ? t('home.map_order_a11y', { route: routeText }) : t('home.map_town_a11y', { town })} testID={testID ? `${testID}-map-name` : undefined} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }} />
         <View style={{ flex: 1, opacity: frozen ? 0.45 : 1 }}>{map}</View>
         {frozen ? null : <LiveTag updatedAt={updatedAt} now={now} offline={offline} town={town} testID={testID ? `${testID}-live` : undefined} />}
         {routeText ? (
@@ -110,7 +113,7 @@ export const LiveTag = memo(function LiveTag({ updatedAt, now, offline, town, te
           : t(age.unit === 'sec' ? 'home.live_sec' : 'home.live_min', { n: age.n });
   return (
     <View
-      testID={testID ?? 'home-live-tag'}
+      testID={testID}
       accessible
       accessibilityLabel={label}
       // Going stale or offline is news: announce it, quietly.
@@ -130,7 +133,7 @@ export const LiveTag = memo(function LiveTag({ updatedAt, now, offline, town, te
         borderColor: look.panel.edge ?? undefined,
       }}
     >
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: offline || age?.stale ? look.panel.upcoming : look.live }} />
+      <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: offline || age?.stale ? look.panel.upcoming : look.live }} />
       <Text variant="footnote" color={look.panel.on} compact numberOfLines={1}>
         {label}
       </Text>

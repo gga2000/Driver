@@ -43,13 +43,14 @@ describe('order panel', () => {
     expect(r.getAllByTestId('op-bar-done')).toHaveLength(2);
     expect(r.getAllByTestId('op-bar-now')).toHaveLength(1);
     expect(r.getAllByTestId('op-bar-next')).toHaveLength(1);
-    expect(r.getByLabelText('طلبت: خلص')).toBeTruthy();
+    // The steps are one stop for a screen reader.
+    expect(r.getByLabelText('خطوة 3 من 4: بالطريق')).toBeTruthy();
     expect(r.getByLabelText('الدليفري طلع من المطعم، يوصل خلال 12 دقيقة')).toBeTruthy();
   });
   it('shows the cash in dinars with the no-change promise, and no cash row when paid from the wallet', () => {
     const r = renderUI(<OrderPanel {...props} testID="op" />, { theme: 'sage' });
-    expect(r.getByText(/19,250.*دينار/)).toBeTruthy();
-    expect(r.getByText('ما يحتاج خردة: الباقي يرجعلك رصيد بمحفظتك')).toBeTruthy();
+    expect(clean(r.getByTestId('op-cash').textContent)).toContain('جهّز 19,250 دينار');
+    expect(r.getByText('الخردة علينا، تنحط بمحفظتك')).toBeTruthy();
     const paid = renderUI(<OrderPanel {...props} cash={undefined} testID="paid" />, { theme: 'sage' });
     expect(paid.queryByTestId('paid-cash')).toBeNull();
   });
@@ -185,9 +186,9 @@ describe('round 2: states', () => {
     expect(r.getByTestId('op-offline').textContent).toContain('نحاول نرجع نتصل');
     expect(r.getByLabelText(/يوصل تقريباً خلال/)).toBeTruthy();
   });
-  it('only the step happening now is orange, and it is read as «هسة»', () => {
+  it('only the step happening now is orange, and the steps read «خطوة 2 من 4»', () => {
     const r = renderUI(<OrderPanel {...base} stage="preparing" testID="op" />, { theme: 'sage' });
-    expect(r.getByLabelText('دا يتحضّر: هسة')).toBeTruthy();
+    expect(r.getByLabelText('خطوة 2 من 4: دا يتحضّر')).toBeTruthy();
     const done = getComputedStyle(r.getByTestId('op-bar-done')).backgroundColor;
     const now = getComputedStyle(r.getByTestId('op-bar-now')).backgroundColor;
     expect(done).not.toBe(now);
@@ -270,5 +271,34 @@ describe('round 3: live honesty and large text', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('round 4: edges', () => {
+  it('no restaurant open: the food tile says so, never «0 مطعم فاتح»', () => {
+    const r = renderUI(<LiveBoard town="العزيزية" open={0} rideMinutes={3} departures={departures} carts={3} pictures={pictures} testID="b" />, { theme: 'sage' });
+    expect(r.getByTestId('b-food-closed').textContent).toBe('المطاعم مسدودة هسة');
+    expect(r.queryByText('0')).toBeNull();
+  });
+  it('a full departure reads «كاملة», not «باقي 0»', () => {
+    const r = renderUI(<LiveBoard town="العزيزية" open={5} rideMinutes={3} departures={[{ ...departures[0]!, free: 0 }]} carts={3} pictures={pictures} testID="b" />, { theme: 'sage' });
+    expect(r.getByTestId(`b-dep-${departures[0]!.id}-seats`).textContent).toBe('كاملة');
+  });
+  it('a late notice without a new time keeps the minutes and still shows the band', () => {
+    const r = renderUI(<OrderPanel from="مطعم خالد" title="طلع من المطعم" minutes={9} stage="on_way" notice={{ tone: 'late', title: 'تأخرنا عليك · نعتذر' }} testID="op" />, { theme: 'emeraldNight' });
+    expect(r.getByTestId('op-late')).toBeTruthy();
+    expect(r.getByTestId('op-minutes')).toBeTruthy();
+    expect(r.queryByTestId('op-new-time')).toBeNull();
+  });
+  it('the map card and its loading shape are the same height in each mode', () => {
+    const quiet = renderUI(<HomeMapCard map={null} town="العزيزية" testID="m" />, { theme: 'sage' });
+    const shape = renderUI(<HomeMapCardSkeleton testID="s" />, { theme: 'sage' });
+    const h = (el: HTMLElement) => getComputedStyle(el.firstElementChild as HTMLElement).height;
+    expect(h(quiet.getByTestId('m'))).toBe(h(shape.getByTestId('s').firstElementChild as HTMLElement));
+  });
+  it('other themes borrow the home colours by light or dark', () => {
+    const light = renderUI(<CalmPanel dish={dish('a')} testID="c" />, { theme: 'light' });
+    const dark = renderUI(<CalmPanel dish={dish('a')} testID="c2" />, { theme: 'dark' });
+    expect(getComputedStyle(light.getByTestId('c')).backgroundColor).not.toBe(getComputedStyle(dark.getByTestId('c2')).backgroundColor);
   });
 });

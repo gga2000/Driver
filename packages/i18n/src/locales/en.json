@@ -10833,10 +10833,9 @@
   "home.step.preparing": "Cooking",
   "home.step.on_way": "On the way",
   "home.step.arrived": "Arrived",
-  "home.step_a11y": "{step}: done",
   "home.panel.order_a11y": "{title}, arriving in {minutes}",
-  "home.panel.cash_title": "Pay cash at the door",
-  "home.panel.cash_note": "No change needed: the rest goes to your wallet",
+  "home.panel.cash_title": "Have ready",
+  "home.panel.cash_note": "Change is on us, it goes to your wallet",
   "home.panel.courier": "{name}, your courier",
   "home.panel.driver": "{name}, your driver",
   "home.panel.message": "Message",
@@ -10909,9 +10908,11 @@
   "home.panel.order_rough_a11y": "{title}, arrives in about {minutes}",
   "home.panel.new_time": "New time",
   "home.panel.offline_line": "No internet right now · trying to reconnect…",
-  "home.step_now_a11y": "{step}: now",
   "home.panel.message_later_a11y": "Message {name}, sent as soon as you're back online",
   "home.panel.late_title": "We're late · sorry",
   "home.panel.cancel_browse": "See restaurants nearby",
-  "home.panel.cancel_help": "Talk to us"
+  "home.panel.cancel_help": "Talk to us",
+  "home.step_of": "Step {n} of {total}: {step}",
+  "home.board.food_closed": "Restaurants are closed now",
+  "home.order_headline": "Your food is on the way"
 }

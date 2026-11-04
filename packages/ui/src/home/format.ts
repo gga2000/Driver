@@ -1,7 +1,10 @@
 import { t } from '@driver/i18n';
 import { formatAmount, ltr } from '../format';
 
-/** «12,000 دينار»: the digits kept left-to-right inside the Arabic line. */
+/**
+ * «12,000 دينار»: the digits kept left-to-right inside the Arabic line. Not `formatIqd`: the word comes from
+ * the locale (`unit.iqd`), so the English build says «IQD».
+ */
 export const iqd = (n: number) => t('unit.iqd', { amount: ltr(formatAmount(n)) });
 /** «12 دقيقة», «5 دقايق». */
 export const mins = (n: number) => t('live_map.minutes', { n });
@@ -26,6 +29,11 @@ export const homeSize = {
   boardBottom: 96,
   foodTile: 108,
   river: 4,
+  /** A person's face on the panel, and the small dish photo in a row. */
+  face: 40,
+  thumb: 64,
+  /** A live dot beside words. */
+  dot: 8,
   /** The home's main buttons («ضيفه للسلة», «اطلبه» in the panel): taller than the 44 minimum. */
   button: 48,
 } as const;

@@ -13,9 +13,6 @@ import { HomePress, Picture, type DishPicture } from './media';
 import { GUARD_MS, homeSize, iqd, mins } from './format';
 import { countWord, useHomeLook } from './look';
 
-export type { DishPicture } from './media';
-
-
 /** Big minutes in orange with the word beside them: «12 دقيقة», «5 دقايق». */
 function BigMinutes({ n, size = 'numeralMd', rough, testID }: { n: number; size?: 'numeralMd' | 'numeralSm'; /** Offline: an estimate, in cream, with «تقريباً». */ rough?: boolean; testID?: string }) {
   const theme = useTheme();
@@ -61,7 +58,7 @@ function Heading({ over, title, live }: { over?: string; title: string; live?: b
     <View style={{ flex: 1, minWidth: 0 }}>
       {over ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: look.live }} /> : null}
+          {live ? <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.live }} /> : null}
           <Text variant="footnote" color={look.panel.muted} numberOfLines={1}>
             {over}
           </Text>
@@ -90,7 +87,7 @@ export interface OrderPanelProps {
    *   and the late-promise rule on one quiet line;
    * - `ended`: why it was cancelled and exactly what happens to the money.
    */
-  notice?: { tone: 'late' | 'ended'; title: string; text?: string; /** The new arrival time («1:40»), late only. */ time?: string };
+  notice?: OrderNotice;
   /** What to do next after a cancellation: one main button and one quiet one. */
   actions?: { primary: { label: string; onPress: () => void }; secondary?: { label: string; onPress: () => void } };
   /** No connection: the minutes turn into an estimate and the panel says it is trying again. */
@@ -103,14 +100,17 @@ export interface OrderPanelProps {
   testID?: string;
 }
 
+/** Late: the band title, the new time with its part of day («1:40 الظهر») and the late-promise rule. Ended: why, and what happens to the money. */
+export type OrderNotice = { tone: 'late'; title: string; time?: string; text?: string } | { tone: 'ended'; title: string; text?: string };
+
 const STEP_KEYS = ['home.step.placed', 'home.step.preparing', 'home.step.on_way', 'home.step.arrived'] as const;
 
 /** The courier's approved photo, or a calm forest circle with the initial (never an error-red identity colour). */
 function PersonFace({ name, photo }: { name: string; photo?: string }) {
   const look = useHomeLook();
-  if (photo) return <Avatar name={name} uri={photo} size={40} />;
+  if (photo) return <Avatar name={name} uri={photo} size={homeSize.face} />;
   return (
-    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: look.panel.raised, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: homeSize.face, height: homeSize.face, borderRadius: homeSize.face / 2, backgroundColor: look.panel.raised, alignItems: 'center', justifyContent: 'center' }}>
       <Text variant="bodyStrong" face="display" color={look.panel.on} compact>
         {name.trim().charAt(0)}
       </Text>
@@ -128,47 +128,52 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
   const theme = useTheme();
   const look = useHomeLook();
   const steps = trackerSteps(stage);
-  const late = notice?.tone === 'late';
-  const runs = stageRuns(stage) && minutes !== undefined && !(late && notice?.time);
+  const late = notice?.tone === 'late' ? notice : null;
+  const newTime = late?.time;
+  // One clock only: a late order's new time replaces the minutes.
+  const left = stageRuns(stage) && newTime === undefined ? minutes : undefined;
   const seen = useRef(stage);
+  const { reduceMotion, haptic } = theme;
   useEffect(() => {
     if (seen.current === stage) return;
     seen.current = stage;
-    if (!theme.reduceMotion) theme.haptic(stage === 'arrived' ? 'success' : stage === 'cancelled' ? 'warning' : 'light');
-  }, [stage, theme]);
-  const headA11y = late && notice?.time
-    ? t('home.panel.late_a11y', { title, time: notice.time })
-    : runs
-      ? t(offline ? 'home.panel.order_rough_a11y' : 'home.panel.order_a11y', { title, minutes: mins(minutes!) })
-      : title;
+    if (!reduceMotion) haptic(stage === 'arrived' ? 'success' : stage === 'cancelled' ? 'warning' : 'light');
+  }, [stage, reduceMotion, haptic]);
+  const headA11y =
+    newTime !== undefined
+      ? t('home.panel.late_a11y', { title, time: newTime })
+      : left !== undefined
+        ? t(offline ? 'home.panel.order_rough_a11y' : 'home.panel.order_a11y', { title, minutes: mins(left) })
+        : title;
+  const nowIndex = steps.indexOf('now');
   return (
     <PanelShell testID={testID}>
-      {late && notice ? (
+      {late ? (
         <View
           testID={testID ? `${testID}-late` : undefined}
           accessibilityLiveRegion="polite"
-          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 40, paddingHorizontal: theme.space[3], marginHorizontal: -theme.space[4], marginTop: -theme.space[4], backgroundColor: look.panel.accent }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 40, paddingHorizontal: theme.space[3], marginHorizontal: -theme.space[4], marginTop: -theme.space[4], backgroundColor: look.late.fill }}
         >
-          <Icon name="clock" size={18} color="onAccent" />
-          <Text variant="label" weight={600} color="onAccent" compact numberOfLines={1} style={{ flex: 1 }}>
-            {notice.title}
+          <Icon name="clock" size={18} color={look.late.on} />
+          <Text variant="label" weight={600} color={look.late.on} compact numberOfLines={1} style={{ flex: 1 }}>
+            {late.title}
           </Text>
         </View>
       ) : null}
 
       <View accessible accessibilityLabel={headA11y} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
         <Heading over={from} title={title} />
-        {late && notice?.time ? (
+        {newTime !== undefined ? (
           <View style={{ alignItems: 'flex-end' }} testID={testID ? `${testID}-new-time` : undefined}>
             <Text variant="numeralMd" face="display" color={look.panel.accent} tabular>
-              {ltr(notice.time)}
+              {newTime}
             </Text>
             <Text variant="footnote" color={look.panel.muted} compact>
               {t('home.panel.new_time')}
             </Text>
           </View>
-        ) : runs ? (
-          <BigMinutes n={minutes!} rough={offline} testID={testID ? `${testID}-minutes` : undefined} />
+        ) : left !== undefined ? (
+          <BigMinutes n={left} rough={offline} testID={testID ? `${testID}-minutes` : undefined} />
         ) : null}
       </View>
 
@@ -190,7 +195,8 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
       ) : null}
 
       {steps.length > 0 ? (
-        <View style={{ gap: theme.space[2], opacity: offline ? 0.6 : 1 }}>
+        // One stop for a screen reader: «خطوة 2 من 4: دا يتحضّر»; the bars and labels are its picture.
+        <View accessible accessibilityLabel={t('home.step_of', { n: nowIndex + 1 || steps.length, total: steps.length, step: t(STEP_KEYS[Math.max(0, nowIndex === -1 ? steps.length - 1 : nowIndex)]!) })} testID={testID ? `${testID}-steps` : undefined} style={{ gap: theme.space[2] }}>
           <View style={{ flexDirection: 'row', gap: theme.space[1] }}>
             {steps.map((s, i) => (
               <View
@@ -201,7 +207,7 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
                   height: 6,
                   borderRadius: 3,
                   // Only the step happening now is orange; done steps are quiet cream.
-                  backgroundColor: s === 'now' ? look.panel.accent : s === 'done' ? look.panel.upcoming : 'transparent',
+                  backgroundColor: s === 'now' ? look.panel.accent : s === 'done' ? look.panel.onSoft : 'transparent',
                   borderWidth: s === 'next' ? 1.5 : 0,
                   borderColor: look.panel.upcoming,
                 }}
@@ -214,12 +220,10 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
               return (
                 <View
                   key={i}
-                  accessible
-                  accessibilityLabel={s === 'done' ? t('home.step_a11y', { step: label }) : s === 'now' ? t('home.step_now_a11y', { step: label }) : label}
                   style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 3 }}
                 >
-                  {s === 'done' ? <Icon name="check" size={13} color={look.panel.muted} strokeWidth={2.5} /> : null}
-                  <Text variant="footnote" weight={s === 'now' ? 700 : 400} color={s === 'now' ? look.panel.on : look.panel.muted} compact numberOfLines={1}>
+                  {s === 'done' ? <Icon name="check" size={13} color={look.panel.onSoft} strokeWidth={2.75} /> : null}
+                  <Text variant="footnote" weight={s === 'now' ? 700 : 400} color={s === 'next' ? look.panel.muted : look.panel.on} compact numberOfLines={1}>
                     {label}
                   </Text>
                 </View>
@@ -232,12 +236,10 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
       {cash !== undefined && cash > 0 && stage !== 'cancelled' ? (
         <View testID={testID ? `${testID}-cash` : undefined} style={{ backgroundColor: look.panel.raised, borderRadius: theme.radius.xl, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 2 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: theme.space[2] }}>
-            <Text variant="label" color={look.panel.onSoft}>
-              {t('home.panel.cash_title')}
-            </Text>
             <Text variant="title" face="display" color={look.panel.on} tabular>
-              {iqd(cash)}
+              {t('home.panel.cash_title')} {iqd(cash)}
             </Text>
+            <Icon name="cash" size={20} color={look.panel.onSoft} />
           </View>
           <Text variant="footnote" color={look.panel.muted}>
             {t('home.panel.cash_note')}
@@ -308,6 +310,8 @@ export interface HomeDish extends HomeCardDish {
 
 /** The regular's usual order, shown in the calm panel in place of the fastest dish (audit round 3). */
 export interface UsualOrder {
+  /** Stable id of the usual order (for the reorder callback). */
+  id: string;
   restaurant: string;
   /** The items, already joined in words («تمن وقيمة ولبن»). */
   items: string;
@@ -316,26 +320,24 @@ export interface UsualOrder {
   picture?: DishPicture;
   /** Friday wording («مثل كل جمعة»). */
   friday: boolean;
-  onReorder: () => void;
 }
 
-export interface CalmPanelProps {
-  /** The fastest dish to the door right now (shown when there is no usual order). */
-  dish: HomeDish;
-  onDish?: (id: string) => void;
-  /** A regular's usual order: the panel *becomes* it, with «اطلبه» (food is offered once, not twice). */
-  usual?: UsualOrder;
-  testID?: string;
-}
+/**
+ * Either the fastest dish (anyone), or a regular's usual order: the panel *becomes* it, with «اطلبه»
+ * (food is offered once, not twice).
+ */
+export type CalmPanelProps = ({ dish: HomeDish; onDish?: (id: string) => void; usual?: undefined } | { usual: UsualOrder; onReorder: (id: string) => void; dish?: undefined }) & { testID?: string };
 
 /**
  * Most of the day (spec §12.2): the panel's one job. For a regular, the usual order with one orange
  * «اطلبه» (one tap, one order); for everyone else, the fastest dish and its minutes. Calm and compact.
  */
-export function CalmPanel({ dish, onDish, usual, testID }: CalmPanelProps) {
+export function CalmPanel(props: CalmPanelProps) {
   const theme = useTheme();
   const look = useHomeLook();
-  if (usual) {
+  const { testID } = props;
+  if (props.usual) {
+    const { usual, onReorder } = props;
     const title = t(usual.friday ? 'home.usual_friday' : 'home.usual_title');
     const line = t('home.usual_line', { restaurant: usual.restaurant, items: usual.items });
     return (
@@ -354,10 +356,11 @@ export function CalmPanel({ dish, onDish, usual, testID }: CalmPanelProps) {
             </Text>
           </View>
         </View>
-        <PanelButton label={t('home.usual_go')} a11y={t('home.usual_go_a11y', { restaurant: usual.restaurant })} onPress={usual.onReorder} filled testID={testID ? `${testID}-reorder` : undefined} />
+        <PanelButton label={t('home.usual_go')} a11y={t('home.usual_go_a11y', { restaurant: usual.restaurant })} onPress={() => onReorder(usual.id)} filled testID={testID ? `${testID}-reorder` : undefined} />
       </PanelShell>
     );
   }
+  const { dish, onDish } = props;
   return (
     <PanelShell testID={testID} tight>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[3] }}>
@@ -432,7 +435,7 @@ export function OffersPanel({ town, meal, until, dishes, onDish, testID }: Offer
                 {d.name}
               </Text>
               <Text variant="footnote" color={look.panel.muted} numberOfLines={1}>
-                {t('home.panel.dish_meta', { restaurant: d.restaurant, minutes: t('live_map.min', { n: d.minutes }) })}
+                {t('home.panel.dish_meta', { restaurant: d.restaurant, minutes: mins(d.minutes) })}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
                 <Text variant="label" weight={700} color={look.panel.cash} tabular>

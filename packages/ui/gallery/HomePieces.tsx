@@ -44,7 +44,7 @@ const ARROWS: readonly (readonly [number, number, number])[] = [
 ];
 
 /** A map crop from the project's renders, tinted to the card style; the app draws the real map here. */
-function MapStill({ order }: { order: boolean }) {
+function MapStill({ order, ended }: { order: boolean; /** Cancelled: only the restaurant, no courier or route. */ ended?: boolean }) {
   const theme = useTheme();
   const night = theme.scheme === 'dark';
   const pin = night ? '#00E575' : '#1F3A2B';
@@ -53,7 +53,9 @@ function MapStill({ order }: { order: boolean }) {
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
       <Image source={src(night ? mapNight : mapDay)} resizeMode="cover" style={{ width: '100%', height: '100%' }} />
       <Svg width="100%" height="100%" viewBox="0 0 356 200" preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', top: 0, left: 0 }}>
-        {order ? (
+        {ended ? (
+          <Circle cx={REST[0]} cy={REST[1]} r={11} fill={pin} stroke={ring} strokeWidth={3} />
+        ) : order ? (
           <>
             {/* Look B from the route-lines work (#380): the line follows the streets, on the ground. */}
             <Path d={DRIVEN} stroke={night ? '#5E7468' : '#8A968C'} strokeWidth={4} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
@@ -81,7 +83,7 @@ function MapStill({ order }: { order: boolean }) {
           </>
         )}
       </Svg>
-      {order ? null : <IdleLabels />}
+      {order || ended ? null : <IdleLabels />}
     </View>
   );
 }
@@ -138,7 +140,7 @@ const CHIPS = [
   { id: 'sweets', label: 'حلويات' },
 ];
 
-const USUAL: UsualOrder = { restaurant: 'مطعم الحجي', items: 'تمن وقيمة ولبن', price: 4500, picture: { source: src(qeema) }, friday: false, onReorder: () => {} };
+const USUAL: UsualOrder = { id: 'usual-hajji', restaurant: 'مطعم الحجي', items: 'تمن وقيمة ولبن', price: 4500, picture: { source: src(qeema) }, friday: false };
 const PAIR: HomeDish[] = [
   { id: 'biryani', name: 'برياني دجاج للعائلة', restaurant: 'مطعم المسافر', minutes: 30, price: 12000, picture: { source: src(biryani) } },
   { id: 'bamia', name: 'تمن ومرق بامية', restaurant: 'مطعم خالد', minutes: 15, price: 4000, picture: { source: src(bamia) } },
@@ -170,7 +172,7 @@ export function HomePiecesSection() {
         </Piece>
         <Piece id="hp-usual" title="الخريطة + طلبك المعتاد (زبون دايمي)" note="اللوحة نفسها تصير طلبه المعتاد: الأكل ينعرض مرة وحدة">
           <HomeMapCard map={<MapStill order={false} />} town={TOWN} mapHeight={homeSize.mapIdle}>
-            <CalmPanel dish={DISHES[0]!} usual={USUAL} />
+            <CalmPanel usual={USUAL} onReorder={() => {}} />
           </HomeMapCard>
         </Piece>
         <Piece id="hp-board" title="شنو تحتاج؟">
@@ -188,11 +190,11 @@ export function HomePiecesSection() {
         ))}
         <Piece id="hp-late" title="متأخر: اعتذار ووقت جديد" note="الجملة تجي من وعد التأخير بالتطبيق">
           <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 6000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
-            <OrderPanel {...ORDER} title="طلع من المطعم" stage="on_way" minutes={9} notice={{ tone: 'late', title: t('home.panel.late_title'), time: '1:40', text: 'إذا تأخرنا بعد 1:40 ترجعلك أجرة التوصيل' }} />
+            <OrderPanel {...ORDER} title="طلع من المطعم" stage="on_way" minutes={9} notice={{ tone: 'late', title: t('home.panel.late_title'), time: '1:40 الظهر', text: 'إذا تأخرنا بعد 1:40 ترجعلك أجرة التوصيل' }} />
           </HomeMapCard>
         </Piece>
         <Piece id="hp-cancelled" title="انلغى الطلب">
-          <HomeMapCard map={<MapStill order />} frozen town={TOWN} mapHeight={120}>
+          <HomeMapCard map={<MapStill order ended />} frozen town={TOWN} mapHeight={120}>
             <OrderPanel
               from="مطعم خالد"
               title={STAGE_TITLES.cancelled}
@@ -231,7 +233,7 @@ export function HomePiecesSection() {
         </Piece>
         <Piece id="hp-pair" title="أكلتين لهالوقت (بدون طلب)">
           <DishPair dishes={PAIR} onAdd={() => {}} />
-          <DishPair dishes={[PAIR[0]!, { id: 'kabab', name: 'كباب عروگ مشوي على الفحم ويه خبز تنور', restaurant: 'مشويات الشط', minutes: 25, price: 7500 }]} onAdd={() => {}} />
+          <DishPair dishes={[{ id: 'qeema', name: 'تمن وقيمة', restaurant: 'مطعم الحجي', minutes: 20, price: 4500, picture: { source: src(qeema) } }, { id: 'kabab', name: 'كباب عروگ مشوي على الفحم ويه خبز تنور', restaurant: 'مشويات الشط', minutes: 25, price: 7500 }]} onAdd={() => {}} />
         </Piece>
         <Piece id="hp-open" title="مفتوح هسة: الأصناف والمطاعم" note="ولا صنف مختار بالبداية؛ تحت: «للعائلة» مختار">
           <HomeChips chips={CHIPS} selected={null} onSelect={() => {}} />
@@ -291,7 +293,7 @@ function HomeScreenPreview({ order }: { order: boolean }) {
           </View>
         </View>
         <View style={{ gap: theme.space[3] }}>
-          {order ? null : <Text variant="heading" face="display">شنو غدانا اليوم؟</Text>}
+          <Text variant="heading" face="display">{order ? t('home.order_headline') : 'شنو غدانا اليوم؟'}</Text>
           <View>
             {order ? <RiverLine fill={riverFill('on_way')} style={{ position: 'absolute', top: 20, bottom: 20, end: -10 }} /> : null}
             {order ? (
@@ -299,8 +301,8 @@ function HomeScreenPreview({ order }: { order: boolean }) {
                 <OrderPanel {...ORDER} title="طلع من المطعم" stage="on_way" />
               </HomeMapCard>
             ) : (
-              <HomeMapCard map={<MapStill order={false} />} town={TOWN} mapHeight={homeSize.mapIdle}>
-                <CalmPanel dish={DISHES[0]!} usual={USUAL} />
+              <HomeMapCard map={<MapStill order={false} />} town={TOWN} updatedAt={NOW - 20_000} now={NOW}>
+                <CalmPanel usual={USUAL} onReorder={() => {}} />
               </HomeMapCard>
             )}
           </View>

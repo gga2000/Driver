@@ -52,25 +52,26 @@ describe('compact dish row', () => {
 });
 
 describe('«طلبك المعتاد» in the calm panel', () => {
-  const usual = { restaurant: 'مطعم الحجي', items: 'تمن وقيمة ولبن', price: 4500, picture: pic };
+  const usual = { id: 'u1', restaurant: 'مطعم الحجي', items: 'تمن وقيمة ولبن', price: 4500, picture: pic };
   it('says «طلبك المعتاد» on a normal day and «مثل كل جمعة» on Fridays, in place of the fastest dish', () => {
-    const normal = renderUI(<CalmPanel dish={dish} usual={{ ...usual, friday: false, onReorder: () => {} }} testID="cp" />, { theme: 'sage' });
+    const normal = renderUI(<CalmPanel usual={{ ...usual, friday: false }} onReorder={() => {}} testID="cp" />, { theme: 'sage' });
     expect(normal.getByText('طلبك المعتاد')).toBeTruthy();
     // Food is offered once: no fastest-dish row beside the usual order.
     expect(normal.queryByTestId('cp-dish')).toBeNull();
     normal.unmount();
-    const friday = renderUI(<CalmPanel dish={dish} usual={{ ...usual, friday: true, onReorder: () => {} }} />, { theme: 'sage' });
+    const friday = renderUI(<CalmPanel usual={{ ...usual, friday: true }} onReorder={() => {}} />, { theme: 'sage' });
     expect(friday.getByText('مثل كل جمعة')).toBeTruthy();
   });
   it('puts the restaurant and items on one line, the price under them, and «اطلبه» orders once', () => {
     const onReorder = vi.fn();
-    const r = renderUI(<CalmPanel dish={dish} usual={{ ...usual, friday: false, onReorder }} testID="cp" />, { theme: 'emeraldNight' });
+    const r = renderUI(<CalmPanel usual={{ ...usual, friday: false }} onReorder={onReorder} testID="cp" />, { theme: 'emeraldNight' });
     expect(r.getByText('مطعم الحجي · تمن وقيمة ولبن')).toBeTruthy();
     expect(r.getByText(whole('4,500 دينار'))).toBeTruthy();
     fireEvent.click(r.getByText('اطلبه'));
     // One tap, one order: a quick second tap is ignored.
     fireEvent.click(r.getByText('اطلبه'));
     expect(onReorder).toHaveBeenCalledTimes(1);
+    expect(onReorder).toHaveBeenCalledWith('u1');
     expect(parseFloat(getComputedStyle(r.getByTestId('cp-reorder')).minHeight)).toBeGreaterThanOrEqual(48);
   });
 });

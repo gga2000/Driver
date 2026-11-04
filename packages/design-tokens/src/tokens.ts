@@ -1047,7 +1047,6 @@ export interface HomeLook {
     fill: string;
     /** A box raised inside the panel. */
     raised: string;
-    /** Hairlines and the empty part of the step bar. */
     /** Titles and big minutes' words on the panel. */
     on: string;
     /** Softer copy on the panel. */
@@ -1077,7 +1076,9 @@ export interface HomeLook {
    * Page cards and board tiles (audit round 2, 2026-11-04): told apart from the page by fill and one soft
    * shadow, never by an outline (outlines fade in Iraqi sun and read as a wireframe).
    */
-  card: { fill: string; shadow: string | null };
+  card: { fill: string; shadow: string | null; /** A hairline at night only, where a shadow can't lift a card off the dark page (audit round 4). */ edge: string | null };
+  /** The late-promise band on the order panel (audit round 4): its own warm tone, so late never looks like the normal orange. */
+  late: { fill: string; on: string };
   /** Prices on page cards: forest in sage, the main text at night (neon green stays for live things). */
   price: string;
   /** The Tigris line down the page and in the map card. */
@@ -1099,8 +1100,9 @@ export interface HomeLook {
 export const homeLook: Record<CustomerThemeName, HomeLook> = {
   sage: {
     panel: { fill: '#1F3A2B', raised: '#274836', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F', fact: '#9FF5C4', cash: '#FFB27A', edge: null },
-    board: { tile: '#FCFDFB', fact: '#1F3A2B', dot: '#FF7A1F' },
-    card: { fill: '#FCFDFB', shadow: '0px 1px 3px rgba(16, 40, 28, 0.14), 0px 10px 24px -14px rgba(16, 40, 28, 0.30)' },
+    board: { tile: '#FCFDFB', fact: '#1F3A2B', dot: '#2F7D4E' },
+    card: { fill: '#FCFDFB', shadow: '0px 1px 3px rgba(16, 40, 28, 0.14), 0px 10px 24px -14px rgba(16, 40, 28, 0.30)', edge: null },
+    late: { fill: '#F2C14E', on: '#1A1405' },
     price: '#1F3A2B',
     river: { line: '#9DB08A', inner: '#AAC096', glow: null },
     map: { land: '#EAE5D9', blocks: '#DED6C5', palms: ['#99A878', '#758655'], streets: '#FFFFFF', river: '#9DB08A' },
@@ -1114,7 +1116,8 @@ export const homeLook: Record<CustomerThemeName, HomeLook> = {
     // Same design as sage, night colours (Ali, 2026-11-02): the panel is one step above the cards.
     panel: { fill: '#15261D', raised: '#1E3528', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F', fact: '#6CFFAE', cash: '#FFB27A', edge: '#2C4636' },
     board: { tile: '#122019', fact: '#F2FFF6', dot: '#00E575' },
-    card: { fill: '#122019', shadow: null },
+    card: { fill: '#122019', shadow: null, edge: 'rgba(242, 255, 246, 0.10)' },
+    late: { fill: '#F2C14E', on: '#1A1405' },
     price: '#F2FFF6',
     river: { line: '#00E575', inner: '#6CFFAE', glow: '0 0 14px rgba(0, 229, 117, 0.45)' },
     // Palms at night are not in the picture: two dim greens between the blocks and the streets.

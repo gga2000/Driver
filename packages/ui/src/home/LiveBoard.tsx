@@ -18,7 +18,9 @@ export interface Departure {
   /** The clock digits («4:30») and the part of day («العصر»). */
   time: string;
   part: string;
+  /** All seats in the car (the trip screen draws them); the board says only the free ones. */
   seats: number;
+  /** Seats still free; 0 reads «كاملة». */
   free: number;
 }
 
@@ -64,7 +66,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
       <View style={{ flexDirection: 'row', gap }}>
         {/* Food: tall, orange, the count big. */}
         <Tile
-          label={t('home.board.tile_a11y', { name: t('home.board.food'), fact: t('live_map.open_now', { n: open }) })}
+          label={t('home.board.tile_a11y', { name: t('home.board.food'), fact: open > 0 ? t('live_map.open_now', { n: open }) : t('home.board.food_closed') })}
           onPress={press('food')}
           style={{ width: homeSize.foodTile, minHeight: homeSize.boardTop, backgroundColor: theme.colors.accent, boxShadow: undefined, justifyContent: 'flex-start' }}
           testID={testID ? `${testID}-food` : undefined}
@@ -72,13 +74,22 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
           <Text variant="title" face="display" color="onAccent" compact>
             {t('home.board.food')}
           </Text>
-          <Text variant="numeralSm" face="display" color="onAccent">
-            {String(open)}
-          </Text>
-          <Text variant="label" weight={700} color="onAccent" compact numberOfLines={2}>
-            {countWord(open, 'home.unit.open')}
-          </Text>
-          {art ? <TilePicture source={pictures.food} width={96} height={84} /> : null}
+          {open > 0 ? (
+            <>
+              <Text variant="numeralSm" face="display" color="onAccent">
+                {String(open)}
+              </Text>
+              <Text variant="label" weight={700} color="onAccent" compact numberOfLines={2}>
+                {countWord(open, 'home.unit.open')}
+              </Text>
+            </>
+          ) : (
+            // Never «0 مطعم فاتح».
+            <Text variant="label" weight={700} color="onAccent" numberOfLines={3} testID={testID ? `${testID}-food-closed` : undefined}>
+              {t('home.board.food_closed')}
+            </Text>
+          )}
+          {art ? <TilePicture source={pictures.food} width={104} height={100} /> : null}
         </Tile>
 
         <View style={{ flex: 1, gap }}>
@@ -93,7 +104,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
               {t('home.board.ride')}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              {rideMinutes === null ? null : <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: look.board.dot }} />}
+              {rideMinutes === null ? null : <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.board.dot }} />}
               <Text variant="footnote" color="textMuted" numberOfLines={1}>
                 {rideFact}
               </Text>
@@ -176,6 +187,8 @@ function Tile({ children, label, onPress, style, testID }: { children: ReactNode
           borderRadius: theme.radius.xl,
           backgroundColor: look.board.tile,
           boxShadow: look.card.shadow ?? undefined,
+          borderWidth: look.card.edge ? 1 : 0,
+          borderColor: look.card.edge ?? undefined,
           paddingHorizontal: theme.space[3],
           paddingVertical: theme.space[2],
           overflow: 'hidden',
@@ -188,7 +201,7 @@ function Tile({ children, label, onPress, style, testID }: { children: ReactNode
   );
 }
 
-const departureA11y = (d: Departure) => t('home.board.departure_a11y', { city: d.city, time: t('home.board.departure_time', { time: d.time, part: d.part }), seats: t('intercity.seats_left', { n: d.free }) });
+const departureA11y = (d: Departure) => t('home.board.departure_a11y', { city: d.city, time: t('home.board.departure_time', { time: d.time, part: d.part }), seats: d.free > 0 ? t('intercity.seats_left', { n: d.free }) : t('intercity.full') });
 
 /** Two seats or fewer: the count turns orange (forest-on-sage reads «few left» by weight instead). */
 const FEW_SEATS = 2;
@@ -221,9 +234,9 @@ function DepartureRow({ d, first, testID }: { d: Departure; first: boolean; test
           {d.part}
         </Text>
       </View>
-      {/* Seats in words, not dots (audit round 2): «باقي 3 مقاعد». */}
-      <Text testID={testID ? `${testID}-seats` : undefined} variant="footnote" weight={few ? 700 : 500} color={few ? 'accentText' : 'textMuted'} compact numberOfLines={1}>
-        {t('intercity.seats_left', { n: d.free })}
+      {/* Seats in words, not dots (audit round 2): «باقي 3 مقاعد», and «كاملة» when none is left. */}
+      <Text testID={testID ? `${testID}-seats` : undefined} variant="footnote" weight={few ? 700 : 500} color={few && d.free > 0 ? 'accentText' : 'textMuted'} compact numberOfLines={1}>
+        {d.free > 0 ? t('intercity.seats_left', { n: d.free }) : t('intercity.full')}
       </Text>
     </View>
   );
@@ -237,7 +250,7 @@ function SmallTile({ name, fact, live, art, onPress, testID }: { name: string; f
         {name}
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '70%' }}>
-        {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: look.board.dot }} /> : null}
+        {live ? <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.board.dot }} /> : null}
         <Text variant="footnote" color="textMuted" numberOfLines={2}>
           {fact}
         </Text>

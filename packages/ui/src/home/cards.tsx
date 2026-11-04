@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from 'react';
+import { memo, useCallback, type ReactNode } from 'react';
 import { ScrollView, View, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Text } from '../components/Text';
@@ -32,7 +32,7 @@ export function HomeCard({ children, style, testID }: { children: ReactNode; sty
   const theme = useTheme();
   const look = useHomeLook();
   return (
-    <View testID={testID} style={[{ backgroundColor: look.card.fill, borderRadius: theme.radius.xl, boxShadow: look.card.shadow ?? undefined }, style]}>
+    <View testID={testID} style={[{ backgroundColor: look.card.fill, borderRadius: theme.radius.xl, boxShadow: look.card.shadow ?? undefined, borderWidth: look.card.edge ? 1 : 0, borderColor: look.card.edge ?? undefined }, style]}>
       {children}
     </View>
   );
@@ -110,7 +110,7 @@ export const BigDishCard = memo(function BigDishCard({ dish, tag, onAdd, onPress
             <Text variant="title" face="display" numberOfLines={2} style={{ flex: 1 }}>
               {dish.name}
             </Text>
-            <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[3], marginTop: 3 }}>
+            <View style={{ backgroundColor: theme.colors.surfaceSunken, borderRadius: theme.radius.pill, paddingHorizontal: theme.space[3], marginTop: theme.space[1] }}>
               <Text variant="footnote" weight={600} color="textMuted" compact>
                 {tag}
               </Text>
@@ -139,7 +139,7 @@ export const CompactDish = memo(function CompactDish({ dish, onAdd, onPress, tes
   return (
     <HomeCard testID={testID} style={{ padding: theme.space[2], paddingEnd: theme.space[3], flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
       <HomePress accessibilityLabel={dishA11y(dish)} onPress={onPress} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <Picture picture={dish.picture} name={dish.name} seed={dish.id} width={64} height={64} radius={theme.radius.lg} testID={testID} />
+        <Picture picture={dish.picture} name={dish.name} seed={dish.id} width={homeSize.thumb} height={homeSize.thumb} radius={theme.radius.lg} testID={testID} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text variant="bodyStrong" face="display" numberOfLines={2}>
             {dish.name}
@@ -176,43 +176,53 @@ export interface DishPairProps {
  */
 export function DishPair({ dishes, onAdd, onPress, testID }: DishPairProps) {
   const theme = useTheme();
-  const look = useHomeLook();
   const shown = dishes.slice(0, 2);
   if (shown.length === 0) return null;
   return (
     <View testID={testID} style={{ flexDirection: 'row', gap: theme.space[3] }}>
       {shown.map((d) => (
-        <HomeCard key={d.id} testID={testID ? `${testID}-${d.id}` : undefined} style={{ flex: 1, overflow: 'hidden' }}>
-          <HomePress accessibilityLabel={dishA11y(d)} onPress={onPress ? () => onPress(d.id) : undefined} style={{ flex: 1 }}>
-            <Picture picture={d.picture} name={d.name} seed={d.id} width="100%" height={homeSize.pairPhoto} radius={0} testID={testID ? `${testID}-${d.id}` : undefined} />
-            <View style={{ padding: theme.space[3], paddingBottom: theme.space[2], gap: 2, flex: 1 }}>
-              <Text variant="bodyStrong" face="display" numberOfLines={2}>
-                {d.name}
-              </Text>
-              <Text variant="footnote" color="textMuted" numberOfLines={1}>
-                {t('home.panel.dish_meta', { restaurant: d.restaurant, minutes: mins(d.minutes) })}
-              </Text>
-            </View>
-          </HomePress>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingStart: theme.space[3], paddingEnd: theme.space[2], paddingBottom: theme.space[2] }}>
-            <Text variant="label" weight={700} face="display" color={look.price} tabular compact>
-              {iqd(d.price)}
-            </Text>
-            <HomePress
-              accessibilityLabel={t('home.dish_add_a11y', { dish: d.name })}
-              onPress={() => onAdd(d.id)}
-              guardMs={GUARD_MS}
-              testID={testID ? `${testID}-${d.id}-add` : undefined}
-              style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Icon name="plus" size={22} color="accentText" strokeWidth={2.25} />
-            </HomePress>
-          </View>
-        </HomeCard>
+        <PairDish key={d.id} dish={d} onAdd={onAdd} onPress={onPress} testID={testID ? `${testID}-${d.id}` : undefined} />
       ))}
     </View>
   );
 }
+
+/** One of the two: takes the parent's id callbacks as they are, so `memo` really skips a redraw. */
+const PairDish = memo(function PairDish({ dish: d, onAdd, onPress, testID }: { dish: HomeCardDish; onAdd: (id: string) => void; onPress?: (id: string) => void; testID?: string }) {
+  const theme = useTheme();
+  const look = useHomeLook();
+  const add = useCallback(() => onAdd(d.id), [onAdd, d.id]);
+  const open = useCallback(() => onPress?.(d.id), [onPress, d.id]);
+  return (
+    <HomeCard testID={testID} style={{ flex: 1, overflow: 'hidden' }}>
+      <HomePress accessibilityLabel={dishA11y(d)} onPress={onPress ? open : undefined} style={{ flex: 1 }}>
+        <Picture picture={d.picture} name={d.name} seed={d.id} width="100%" height={homeSize.pairPhoto} radius={0} testID={testID} />
+        <View style={{ padding: theme.space[3], paddingBottom: theme.space[2], gap: 2, flex: 1 }}>
+          <Text variant="bodyStrong" face="display" numberOfLines={2}>
+            {d.name}
+          </Text>
+          <Text variant="footnote" color="textMuted" numberOfLines={1}>
+            {t('home.panel.dish_meta', { restaurant: d.restaurant, minutes: mins(d.minutes) })}
+          </Text>
+        </View>
+      </HomePress>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingStart: theme.space[3], paddingEnd: theme.space[2], paddingBottom: theme.space[2] }}>
+        <Text variant="label" weight={700} face="display" color={look.price} tabular compact>
+          {iqd(d.price)}
+        </Text>
+        <HomePress
+          accessibilityLabel={t('home.dish_add_a11y', { dish: d.name })}
+          onPress={add}
+          guardMs={GUARD_MS}
+          testID={testID ? `${testID}-add` : undefined}
+          style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Icon name="plus" size={22} color="accentText" strokeWidth={2.25} />
+        </HomePress>
+      </View>
+    </HomeCard>
+  );
+});
 
 // ─── Restaurant ──────────────────────────────────────────────────────────────────────────────────
 
