@@ -56,6 +56,49 @@ def runs_inside(coords):
         yield run
 
 
+def clip_segment(a, b, ext):
+    """The part of the segment a→b inside the tile [0, ext]² (Liang–Barsky), or None."""
+    t0, t1 = 0.0, 1.0
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    for p, q in ((-dx, a[0]), (dx, ext - a[0]), (-dy, a[1]), (dy, ext - a[1])):
+        if p == 0:
+            if q < 0:
+                return None
+            continue
+        t = q / p
+        if p < 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+        if t0 > t1:
+            return None
+    return (a[0] + t0 * dx, a[1] + t0 * dy), (a[0] + t1 * dx, a[1] + t1 * dy)
+
+
+def clip_to_tile(line, ext):
+    """The runs of a tile's line inside the tile itself (its buffer cut off at the edge)."""
+    run = []
+    for a, b in zip(line, line[1:]):
+        c = clip_segment(a, b, ext)
+        if c is None:
+            if len(run) > 1:
+                yield run
+            run = []
+            continue
+        s, e = c
+        if run and run[-1] == s:
+            run.append(e)
+        else:
+            if len(run) > 1:
+                yield run
+            run = [s, e]
+        if e != (b[0], b[1]):  # left the tile
+            yield run
+            run = []
+    if len(run) > 1:
+        yield run
+
+
 def from_segments(path):
     for f in json.load(open(path))['features']:
         p, g = f['properties'], f['geometry']
@@ -98,10 +141,12 @@ def from_pmtiles(path):
                     g = f['geometry']
                     lines = [g['coordinates']] if g['type'] == 'LineString' else g['coordinates'] if g['type'] == 'MultiLineString' else []
                     for line in lines:
-                        # Whole, buffer included: the overlap with the next tile is what joins the
-                        # streets across the seam (the router merges points closer than 2 m).
-                        if len(line) > 1:
-                            yield [ll(px, py) for px, py in line]
+                        # Cut at the tile's own edge, with the crossing point worked out on the
+                        # street itself: both tiles then end the street at the same point on the
+                        # seam, and the router joins them (it merges points closer than 2 m).
+                        # Keeping the buffer instead left two overlapping copies that never met.
+                        for run in clip_to_tile(line, ext):
+                            yield [ll(px, py) for px, py in run]
 
 
 def main():
