@@ -10872,5 +10872,13 @@
   "home.board.carts_open_few": "{n} open now",
   "home.board.carts_closed": "Closed now",
   "home.board.tile_a11y": "{name}, {fact}",
-  "home.points_a11y": "You have {points}"
+  "home.points_a11y": "You have {points}",
+  "home.dish_add": "Add to cart",
+  "home.dish_meta": "{restaurant} · {price} · {minutes}",
+  "home.dish_meta_short": "{restaurant} · {price}",
+  "home.dish_card_a11y": "{dish} from {restaurant}, {price}, arrives in {minutes}",
+  "home.usual_title": "Your usual",
+  "home.usual_friday": "Like every Friday",
+  "home.usual_line": "{restaurant} · {items}",
+  "home.rest_a11y": "{name}, rated {rating} of 5, arrives in {minutes}, {fee}"
 }

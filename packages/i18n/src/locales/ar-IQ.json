@@ -10872,5 +10872,13 @@
   "home.board.carts_open_few": "{n} فاتحة هسة",
   "home.board.carts_closed": "مسدودة هسة",
   "home.board.tile_a11y": "{name}، {fact}",
-  "home.points_a11y": "عندك {points}"
+  "home.points_a11y": "عندك {points}",
+  "home.dish_add": "ضيفه للسلة",
+  "home.dish_meta": "{restaurant} · {price} · {minutes}",
+  "home.dish_meta_short": "{restaurant} · {price}",
+  "home.dish_card_a11y": "{dish} من {restaurant}، {price}، يوصلك خلال {minutes}",
+  "home.usual_title": "طلبك المعتاد",
+  "home.usual_friday": "مثل كل جمعة",
+  "home.usual_line": "{restaurant} · {items}",
+  "home.rest_a11y": "{name}، تقييمه {rating} من 5، يوصلك خلال {minutes}، {fee}"
 }

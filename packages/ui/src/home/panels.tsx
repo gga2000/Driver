@@ -15,7 +15,7 @@ import { countWord, useHomeLook } from './look';
 /** A dish picture: a bundled one (gallery, demo) or a network photo. */
 export type DishPicture = { source: ImageSourcePropType } | { uri: string };
 
-function DishPhoto({ picture, size, radius }: { picture: DishPicture; size: { width: number | `${number}%`; height: number }; radius: number }) {
+export function DishPhoto({ picture, size, radius }: { picture: DishPicture; size: { width: number | `${number}%`; height: number }; radius: number }) {
   const style = { ...size, borderRadius: radius };
   return 'uri' in picture ? <PhotoImage uri={picture.uri} style={style} /> : <LocalPhoto source={picture.source} style={style} />;
 }

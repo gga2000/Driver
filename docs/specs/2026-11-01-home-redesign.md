@@ -282,3 +282,10 @@ rule and waits for Ali.
 `panelMode` + `mealWindow` (logic, tests first), `HomeMapCard`, `OrderPanel`, `OffersPanel`, `CalmPanel`,
 `LiveBoard`, `PointsPill`, `RiverLine`; all in the gallery in both themes. The dish, «طلبك المعتاد»,
 restaurant card and chips follow in step 3b.
+
+**Step 3b (2026-11-04)** adds `BigDishCard`, `CompactDish`, `UsualCard`, `RestaurantCard` and `HomeChips`
+(same subpath, both themes, gallery pieces hp-dish / hp-compact / hp-usual / hp-open). The add button reads
+«ضيفه للسلة» (the round-3 pictures; §3 item 8's «أضيفه +» is replaced). A missing photo shows the dish's own
+drawing on the board tile colour. Prices are light emerald at night and forest in light; the restaurant star
+is forest in light (orange fails on the sage card) and orange at night. Chips: none selected at first; a
+second tap clears the choice.
