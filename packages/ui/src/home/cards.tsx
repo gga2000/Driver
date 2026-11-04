@@ -5,6 +5,7 @@ import { Text } from '../components/Text';
 import { formatAmount, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import { useTheme } from '../theme/ThemeProvider';
+import { GUARD_MS, homeSize, iqd, mins, sep } from './format';
 import { useHomeLook } from './look';
 import { HomePress, Picture, type DishPicture } from './media';
 
@@ -20,12 +21,8 @@ export interface HomeCardDish {
   picture?: DishPicture;
 }
 
-export const iqd = (n: number) => t('unit.iqd', { amount: ltr(formatAmount(n)) });
-export const mins = (n: number) => t('live_map.minutes', { n });
 /** Where the price sits inside «restaurant · price · minutes», so it can wear its own colour. */
 const MARK = '⁣';
-/** One tap, one order: a second tap within this window is ignored. */
-const GUARD_MS = 1200;
 
 /**
  * The surface every home section sits on (audit round 2): the card colour and one soft shadow, never an
@@ -52,7 +49,7 @@ function CardButton({ label, a11y, onPress, filled, compact, testID }: { label: 
       guardMs={GUARD_MS}
       testID={testID}
       style={{
-        minHeight: compact ? theme.hitTarget : 48,
+        minHeight: compact ? theme.hitTarget : homeSize.button,
         paddingHorizontal: compact ? theme.space[4] : theme.space[5],
         borderRadius: theme.radius.pill,
         borderWidth: filled ? 0 : 1.5,
@@ -73,7 +70,10 @@ function CardButton({ label, a11y, onPress, filled, compact, testID }: { label: 
 function DishMeta({ dish, withMinutes }: { dish: HomeCardDish; withMinutes: boolean }) {
   const look = useHomeLook();
   const line = withMinutes ? t('home.dish_meta', { restaurant: dish.restaurant, price: MARK, minutes: mins(dish.minutes) }) : t('home.dish_meta_short', { restaurant: dish.restaurant, price: MARK });
-  const [before, after] = line.split(MARK);
+  const at = line.indexOf(MARK);
+  // A translation without the price slot still shows the price, after the line.
+  const before = at < 0 ? `${line} ${sep()} ` : line.slice(0, at);
+  const after = at < 0 ? '' : line.slice(at + MARK.length);
   return (
     <Text variant="label" color="textMuted" numberOfLines={withMinutes ? 2 : 1}>
       {before}
@@ -104,7 +104,7 @@ export const BigDishCard = memo(function BigDishCard({ dish, tag, onAdd, onPress
   return (
     <HomeCard testID={testID} style={{ overflow: 'hidden' }}>
       <HomePress accessibilityLabel={dishA11y(dish)} onPress={onPress}>
-        <Picture picture={dish.picture} name={dish.name} seed={dish.id} width="100%" height={188} radius={0} testID={testID} />
+        <Picture picture={dish.picture} name={dish.name} seed={dish.id} width="100%" height={homeSize.dishPhoto} radius={0} testID={testID} />
         <View style={{ paddingHorizontal: theme.space[4], paddingTop: theme.space[3], gap: theme.space[1] }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
             <Text variant="title" face="display" numberOfLines={2} style={{ flex: 1 }}>
@@ -160,51 +160,59 @@ export const CompactDish = memo(function CompactDish({ dish, onAdd, onPress, tes
   );
 });
 
-// ─── «طلبك المعتاد» ──────────────────────────────────────────────────────────────────────────────
+// ─── Two dishes ──────────────────────────────────────────────────────────────────────────────────
 
-export interface UsualCardProps {
-  restaurant: string;
-  /** The items, already joined («تمن وقيمة · لبن»). */
-  items: string;
-  /** Last time's total in dinars (the server prices the new order). */
-  price: number;
-  picture?: DishPicture;
-  /** Friday wording («مثل كل جمعة»). */
-  friday: boolean;
-  onReorder: () => void;
-  onPress?: () => void;
+export interface DishPairProps {
+  /** Two dishes for this time of day; one shows alone at full width. */
+  dishes: readonly HomeCardDish[];
+  onAdd: (id: string) => void;
+  onPress?: (id: string) => void;
   testID?: string;
 }
 
 /**
- * «طلبك المعتاد» as one slim strip (audit round 2: the regular's main job sits right under the map): photo,
- * the label, restaurant + items, the price, and the orange «اطلبه». One tap orders once.
+ * Audit round 3: the idle home's dishes for this time of day, two side by side (Wolt, Talabat), so the
+ * page offers a choice instead of one more hero photo. Photo, name, price in its colour, a round +.
  */
-export const UsualCard = memo(function UsualCard({ restaurant, items, price, picture, friday, onReorder, onPress, testID }: UsualCardProps) {
+export function DishPair({ dishes, onAdd, onPress, testID }: DishPairProps) {
   const theme = useTheme();
   const look = useHomeLook();
-  const title = t(friday ? 'home.usual_friday' : 'home.usual_title');
-  const line = t('home.usual_line', { restaurant, items });
+  const shown = dishes.slice(0, 2);
+  if (shown.length === 0) return null;
   return (
-    <HomeCard testID={testID} style={{ padding: theme.space[2], paddingEnd: theme.space[3], flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-      <HomePress accessibilityLabel={t('home.usual_a11y', { title, line, price: iqd(price) })} onPress={onPress} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-        <Picture picture={picture} name={items} seed={restaurant} width={56} height={56} radius={theme.radius.lg} testID={testID} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text variant="footnote" weight={600} color="textMuted" compact>
-            {title}
-          </Text>
-          <Text variant="label" weight={700} face="display" numberOfLines={2}>
-            {line}
-          </Text>
-          <Text variant="label" weight={700} face="display" color={look.price} compact>
-            {iqd(price)}
-          </Text>
-        </View>
-      </HomePress>
-      <CardButton label={t('home.usual_go')} a11y={t('home.usual_go_a11y', { restaurant })} onPress={onReorder} filled compact testID={testID ? `${testID}-reorder` : undefined} />
-    </HomeCard>
+    <View testID={testID} style={{ flexDirection: 'row', gap: theme.space[3] }}>
+      {shown.map((d) => (
+        <HomeCard key={d.id} testID={testID ? `${testID}-${d.id}` : undefined} style={{ flex: 1, overflow: 'hidden' }}>
+          <HomePress accessibilityLabel={dishA11y(d)} onPress={onPress ? () => onPress(d.id) : undefined} style={{ flex: 1 }}>
+            <Picture picture={d.picture} name={d.name} seed={d.id} width="100%" height={homeSize.pairPhoto} radius={0} testID={testID ? `${testID}-${d.id}` : undefined} />
+            <View style={{ padding: theme.space[3], paddingBottom: theme.space[2], gap: 2, flex: 1 }}>
+              <Text variant="bodyStrong" face="display" numberOfLines={2}>
+                {d.name}
+              </Text>
+              <Text variant="footnote" color="textMuted" numberOfLines={1}>
+                {t('home.panel.dish_meta', { restaurant: d.restaurant, minutes: mins(d.minutes) })}
+              </Text>
+            </View>
+          </HomePress>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingStart: theme.space[3], paddingEnd: theme.space[2], paddingBottom: theme.space[2] }}>
+            <Text variant="label" weight={700} face="display" color={look.price} tabular compact>
+              {iqd(d.price)}
+            </Text>
+            <HomePress
+              accessibilityLabel={t('home.dish_add_a11y', { dish: d.name })}
+              onPress={() => onAdd(d.id)}
+              guardMs={GUARD_MS}
+              testID={testID ? `${testID}-${d.id}-add` : undefined}
+              style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="plus" size={22} color="accentText" strokeWidth={2.25} />
+            </HomePress>
+          </View>
+        </HomeCard>
+      ))}
+    </View>
   );
-});
+}
 
 // ─── Restaurant ──────────────────────────────────────────────────────────────────────────────────
 
@@ -223,14 +231,14 @@ export interface RestaurantCardProps {
 }
 
 /** A restaurant in «مفتوح هسة» (spec §3 item 10): photo edge to edge, full name up to 2 lines, star + rating · minutes, fee. */
-export const RestaurantCard = memo(function RestaurantCard({ name, rating, minutes, fee, picture, width = 228, onPress, testID }: RestaurantCardProps) {
+export const RestaurantCard = memo(function RestaurantCard({ name, rating, minutes, fee, picture, width = homeSize.restWidth, onPress, testID }: RestaurantCardProps) {
   const theme = useTheme();
   const feeText = fee > 0 ? t('list.fee', { amount: ltr(formatAmount(fee)) }) : t('list.fee_free');
   const stars = rating > 0 ? rating.toFixed(1) : t('home.rating_new');
   return (
     <HomePress accessibilityLabel={rating > 0 ? t('home.rest_a11y', { name, rating: stars, minutes: mins(minutes), fee: feeText }) : t('home.rest_new_a11y', { name, minutes: mins(minutes), fee: feeText })} onPress={onPress} testID={testID} style={{ width }}>
       <HomeCard style={{ overflow: 'hidden', flex: 1 }}>
-        <Picture picture={picture} name={name} seed={name} width="100%" height={128} radius={0} testID={testID} />
+        <Picture picture={picture} name={name} seed={name} width="100%" height={homeSize.restPhoto} radius={0} testID={testID} />
         <View style={{ padding: theme.space[3], paddingTop: theme.space[2], gap: 2 }}>
           <Text variant="bodyStrong" face="display" numberOfLines={2}>
             {name}
@@ -242,7 +250,7 @@ export const RestaurantCard = memo(function RestaurantCard({ name, rating, minut
               {stars}
             </Text>
             <Text variant="footnote" color="textMuted" compact>
-              ·
+              {sep()}
             </Text>
             <Text variant="footnote" color="textMuted" compact numberOfLines={1}>
               {mins(minutes)}
@@ -274,7 +282,11 @@ export interface HomeChipsProps {
   testID?: string;
 }
 
-/** The category chips under «مفتوح هسة»: 44 tall, a sideways row, selected = the theme's selected fill + check. */
+/**
+ * The category chips under «مفتوح هسة»: 44 tall, a sideways row, selected = the theme's selected fill + check.
+ * Not the shared `Chip`: the home's surfaces are told apart by fill and shadow, never an outline, and a
+ * chip here is a radio in a group (tap again to clear), which `Chip` doesn't model.
+ */
 export function HomeChips({ chips, selected, onSelect, accessibilityLabel, testID }: HomeChipsProps) {
   const theme = useTheme();
   const look = useHomeLook();

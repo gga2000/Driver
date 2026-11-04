@@ -1,11 +1,10 @@
-import { memo, useCallback, useRef, useState, type ReactNode } from 'react';
-import { Pressable, View, type ImageSourcePropType, type StyleProp, type ViewStyle } from 'react-native';
-import Animated from 'react-native-reanimated';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { View, type ImageSourcePropType, type StyleProp, type ViewStyle } from 'react-native';
 import Svg from 'react-native-svg';
 import { DishDrawing } from '../art/dishes';
 import { dishLook, motifForDish } from '../art/dish-motif';
 import { LocalPhoto, PhotoImage } from '../components/PhotoImage';
-import { usePressScale } from '../motion/motion';
+import { AnimatedPressable, usePressScale } from '../motion/motion';
 import { useTheme, type HapticKind } from '../theme/ThemeProvider';
 
 /** A dish picture: a bundled one (gallery, demo) or a network photo. */
@@ -27,7 +26,13 @@ export interface PictureProps {
  * A photo, or the designed fallback (spec §8): the dish's own cut-out drawing on the card colour. The
  * fallback also shows when a photo link fails to load, so the customer never sees an empty box.
  */
-export const Picture = memo(function Picture({ picture, name, seed, width, height, radius, testID }: PictureProps) {
+export function Picture(props: PictureProps) {
+  // A new photo gets a fresh try: a link that failed before never sticks to the next dish.
+  const key = props.picture ? ('uri' in props.picture ? props.picture.uri : 'local') : 'none';
+  return <PictureOnce key={key} {...props} />;
+}
+
+function PictureOnce({ picture, name, seed, width, height, radius, testID }: PictureProps) {
   const theme = useTheme();
   const [failed, setFailed] = useState(false);
   const onError = useCallback(() => setFailed(true), []);
@@ -43,9 +48,7 @@ export const Picture = memo(function Picture({ picture, name, seed, width, heigh
       </Svg>
     </View>
   );
-});
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+}
 
 export interface HomePressProps {
   onPress?: () => void;
@@ -70,7 +73,15 @@ export function HomePress({ onPress, haptic = 'secondary', guardMs = 0, disabled
   const theme = useTheme();
   const press = usePressScale();
   const last = useRef(0);
-  const off = disabled || !onPress;
+  // Nothing to do on a tap: a plain, readable group, never a «dimmed button».
+  if (!onPress) {
+    return (
+      <View accessible accessibilityLabel={accessibilityLabel} testID={testID} style={style}>
+        {children}
+      </View>
+    );
+  }
+  const off = !!disabled;
   return (
     <AnimatedPressable
       accessibilityRole={accessibilityRole}
@@ -86,7 +97,7 @@ export function HomePress({ onPress, haptic = 'secondary', guardMs = 0, disabled
         last.current = now;
         const kind = haptic === 'secondary' ? theme.secondaryButtonHaptic : haptic;
         if (kind) theme.haptic(kind);
-        onPress?.();
+        onPress();
       }}
       testID={testID}
       style={[style, press.style]}

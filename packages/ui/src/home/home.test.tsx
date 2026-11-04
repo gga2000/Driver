@@ -1,4 +1,5 @@
-import { fireEvent } from '@testing-library/react';
+import { act, fireEvent } from '@testing-library/react';
+import * as RN from 'react-native';
 import { describe, expect, it, vi } from 'vitest';
 import type { ThemeName } from '@driver/design-tokens';
 import { renderUI } from '../test/render';
@@ -8,6 +9,7 @@ import { CalmPanel, OffersPanel, OrderPanel, type HomeDish } from './panels';
 import { PointsPill, RiverLine } from './bits';
 import { countWord } from './look';
 import { HomeMapCardSkeleton, LiveBoardSkeleton } from './skeletons';
+const clean = (s: string | null | undefined) => (s ?? '').replace(/[\u200e\u200f\u2066-\u2069]/g, '');
 
 const pic = { uri: 'https://x.test/p.webp' };
 const dish = (id: string, extra: Partial<HomeDish> = {}): HomeDish => ({ id, name: 'تمن ومرق بامية', restaurant: 'مطعم خالد', minutes: 15, price: 4000, picture: pic, ...extra });
@@ -144,14 +146,51 @@ describe('one design, two colour sets (Ali, 2026-11-02)', () => {
 
 describe('round 2: states', () => {
   const base = { from: 'مطعم خالد', title: 'طلع من المطعم', minutes: 12 };
-  it('a late order shows the apology line; a cancelled one drops the steps and the minutes', () => {
-    const late = renderUI(<OrderPanel {...base} stage="on_way" notice={{ tone: 'late', text: 'تأخرنا عليك، نعتذر' }} testID="op" />, { theme: 'sage' });
-    expect(late.getByTestId('op-notice').textContent).toBe('تأخرنا عليك، نعتذر');
-    late.unmount();
-    const gone = renderUI(<OrderPanel from="مطعم خالد" title="انلغى الطلب من طرفنا" stage="cancelled" notice={{ tone: 'ended', text: 'أي مبلغ دفعته يرجعلك' }} testID="op" />, { theme: 'emeraldNight' });
+  it('a late order gets its own band and one clock (the new time), not one more orange sentence', () => {
+    const late = renderUI(<OrderPanel {...base} stage="on_way" notice={{ tone: 'late', title: 'تأخرنا عليك · نعتذر', time: '1:40', text: 'إذا تأخرنا بعد ترجعلك أجرة التوصيل' }} testID="op" />, { theme: 'sage' });
+    expect(late.getByTestId('op-late').textContent).toBe('تأخرنا عليك · نعتذر');
+    expect(clean(late.getByTestId('op-new-time').textContent)).toContain('1:40');
+    // One clock only: the minutes give way to the new time.
+    expect(late.queryByTestId('op-minutes')).toBeNull();
+    expect(late.getByTestId('op-notice').textContent).toBe('إذا تأخرنا بعد ترجعلك أجرة التوصيل');
+  });
+  it('a cancelled order says what happened to the money and offers the next step', () => {
+    const browse = vi.fn();
+    const gone = renderUI(
+      <OrderPanel
+        from="مطعم خالد"
+        title="انلغى الطلب"
+        stage="cancelled"
+        cash={19250}
+        person={{ name: 'حيدر', kind: 'courier' }}
+        notice={{ tone: 'ended', title: 'المطعم سدّ', text: 'ما دفعت شي' }}
+        actions={{ primary: { label: 'شوف مطاعم قريبة', onPress: browse }, secondary: { label: 'احجي ويانا', onPress: () => {} } }}
+        testID="op"
+      />,
+      { theme: 'emeraldNight' },
+    );
     expect(gone.queryByTestId('op-minutes')).toBeNull();
     expect(gone.queryAllByTestId(/op-bar-/)).toHaveLength(0);
-    expect(gone.getByText('أي مبلغ دفعته يرجعلك')).toBeTruthy();
+    // Nothing to hand over and nobody coming.
+    expect(gone.queryByTestId('op-cash')).toBeNull();
+    expect(gone.queryByText(/دليفريك/)).toBeNull();
+    expect(gone.getByTestId('op-notice').textContent).toBe('المطعم سدّ\nما دفعت شي');
+    fireEvent.click(gone.getByText('شوف مطاعم قريبة'));
+    expect(browse).toHaveBeenCalledTimes(1);
+    expect(parseFloat(getComputedStyle(gone.getByTestId('op-primary')).minHeight)).toBeGreaterThanOrEqual(48);
+  });
+  it('offline, the minutes become an estimate and the panel says it is reconnecting', () => {
+    const r = renderUI(<OrderPanel {...base} stage="on_way" offline testID="op" />, { theme: 'sage' });
+    expect(r.getByText('تقريباً')).toBeTruthy();
+    expect(r.getByTestId('op-offline').textContent).toContain('نحاول نرجع نتصل');
+    expect(r.getByLabelText(/يوصل تقريباً خلال/)).toBeTruthy();
+  });
+  it('only the step happening now is orange, and it is read as «هسة»', () => {
+    const r = renderUI(<OrderPanel {...base} stage="preparing" testID="op" />, { theme: 'sage' });
+    expect(r.getByLabelText('دا يتحضّر: هسة')).toBeTruthy();
+    const done = getComputedStyle(r.getByTestId('op-bar-done')).backgroundColor;
+    const now = getComputedStyle(r.getByTestId('op-bar-now')).backgroundColor;
+    expect(done).not.toBe(now);
   });
   it('after arrival the panel reads the title alone, without «يوصل خلال»', () => {
     const r = renderUI(<OrderPanel {...base} stage="arrived" title="وصل طلبك" testID="op" />, { theme: 'sage' });
@@ -191,5 +230,45 @@ describe('round 2: states', () => {
     );
     expect(r.getByTestId('sk-map').getAttribute('aria-label')).toBe('لحظة…');
     expect(r.getByTestId('sk-board')).toBeTruthy();
+  });
+});
+
+describe('round 3: live honesty and large text', () => {
+  it('the live tag counts on by itself: every second at first, then every 30 seconds, and turns stale', () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 10, 4, 9, 0);
+    vi.setSystemTime(start);
+    try {
+      const r = renderUI(<HomeMapCard map={null} town="العزيزية" updatedAt={start} testID="m" />, { theme: 'sage' });
+      const read = () => clean(r.getByTestId('m-live').getAttribute('aria-label'));
+      const first = read();
+      for (let i = 0; i < 20; i++) act(() => vi.advanceTimersByTime(1_000));
+      expect(read()).not.toBe(first);
+      for (let i = 0; i < 8; i++) act(() => vi.advanceTimersByTime(30_000));
+      expect(r.getByTestId('m-live').getAttribute('aria-live')).toBe('polite');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('the map is named on its own, so its pins stay reachable, and a cancelled map stands still', () => {
+    const r = renderUI(<HomeMapCard map={<span data-testid="pin" />} town="العزيزية" testID="m" />, { theme: 'sage' });
+    expect(r.getByTestId('m-map-name').contains(r.getByTestId('pin'))).toBe(false);
+    r.unmount();
+    const frozen = renderUI(<HomeMapCard map={null} town="العزيزية" frozen testID="m" />, { theme: 'sage' });
+    expect(frozen.queryByTestId('m-live')).toBeNull();
+  });
+  it('offline, the board stops claiming live numbers', () => {
+    const r = renderUI(<LiveBoard town="العزيزية" open={22} rideMinutes={3} departures={departures} carts={3} pictures={pictures} offline testID="b" />, { theme: 'emeraldNight' });
+    expect(r.queryByTestId('b-ride-minutes')).toBeNull();
+    expect(r.getAllByText('ما نعرف هسة').length).toBeGreaterThanOrEqual(2);
+  });
+  it('at a large text size the board pictures step aside so the words never collide', () => {
+    const spy = vi.spyOn(RN, 'useWindowDimensions').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.6 });
+    try {
+      const big = renderUI(<LiveBoard town="العزيزية" open={22} rideMinutes={3} departures={departures} carts={3} pictures={pictures} testID="b" />, { theme: 'sage' });
+      expect(big.container.querySelectorAll('img').length).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

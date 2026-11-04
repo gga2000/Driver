@@ -10901,5 +10901,17 @@
   "home.live_offline": "Offline · last update {n} min ago",
   "home.live_offline_now": "Offline",
   "home.board.unknown": "Not known right now",
-  "home.rest_new_a11y": "{name}, new, arrives in {minutes}, {fee}"
+  "home.rest_new_a11y": "{name}, new, arrives in {minutes}, {fee}",
+  "home.sep": "·",
+  "home.list_sep": ", ",
+  "home.panel.about": "about",
+  "home.panel.late_a11y": "{title}, we're late, new time {time}",
+  "home.panel.order_rough_a11y": "{title}, arrives in about {minutes}",
+  "home.panel.new_time": "New time",
+  "home.panel.offline_line": "No internet right now · trying to reconnect…",
+  "home.step_now_a11y": "{step}: now",
+  "home.panel.message_later_a11y": "Message {name}, sent as soon as you're back online",
+  "home.panel.late_title": "We're late · sorry",
+  "home.panel.cancel_browse": "See restaurants nearby",
+  "home.panel.cancel_help": "Talk to us"
 }

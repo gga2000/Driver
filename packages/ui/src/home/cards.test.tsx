@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { PhotoImageProvider } from '../components/PhotoImage';
 import type { ThemeName } from '@driver/design-tokens';
 import { renderUI } from '../test/render';
-import { BigDishCard, CompactDish, HomeChips, RestaurantCard, UsualCard, type HomeCardDish } from './cards';
+import { BigDishCard, CompactDish, DishPair, HomeChips, RestaurantCard, type HomeCardDish } from './cards';
+import { CalmPanel } from './panels';
+import { Picture } from './media';
 
 const pic = { uri: 'https://x.test/p.webp' };
 const dish: HomeCardDish = { id: 'd1', name: 'برياني دجاج للعائلة', restaurant: 'مطعم المسافر', minutes: 30, price: 12000, picture: pic };
@@ -49,24 +51,44 @@ describe('compact dish row', () => {
   });
 });
 
-describe('«طلبك المعتاد»', () => {
-  const props = { restaurant: 'مطعم الحجي', items: 'تمن وقيمة · لبن', price: 4500, picture: pic };
-  it('says «طلبك المعتاد» on a normal day and «مثل كل جمعة» on Fridays', () => {
-    const normal = renderUI(<UsualCard {...props} friday={false} onReorder={() => {}} />, { theme: 'sage' });
+describe('«طلبك المعتاد» in the calm panel', () => {
+  const usual = { restaurant: 'مطعم الحجي', items: 'تمن وقيمة ولبن', price: 4500, picture: pic };
+  it('says «طلبك المعتاد» on a normal day and «مثل كل جمعة» on Fridays, in place of the fastest dish', () => {
+    const normal = renderUI(<CalmPanel dish={dish} usual={{ ...usual, friday: false, onReorder: () => {} }} testID="cp" />, { theme: 'sage' });
     expect(normal.getByText('طلبك المعتاد')).toBeTruthy();
+    // Food is offered once: no fastest-dish row beside the usual order.
+    expect(normal.queryByTestId('cp-dish')).toBeNull();
     normal.unmount();
-    const friday = renderUI(<UsualCard {...props} friday onReorder={() => {}} />, { theme: 'sage' });
+    const friday = renderUI(<CalmPanel dish={dish} usual={{ ...usual, friday: true, onReorder: () => {} }} />, { theme: 'sage' });
     expect(friday.getByText('مثل كل جمعة')).toBeTruthy();
   });
   it('puts the restaurant and items on one line, the price under them, and «اطلبه» orders once', () => {
     const onReorder = vi.fn();
-    const r = renderUI(<UsualCard {...props} friday={false} onReorder={onReorder} testID="u" />, { theme: 'emeraldNight' });
-    expect(r.getByText('مطعم الحجي · تمن وقيمة · لبن')).toBeTruthy();
+    const r = renderUI(<CalmPanel dish={dish} usual={{ ...usual, friday: false, onReorder }} testID="cp" />, { theme: 'emeraldNight' });
+    expect(r.getByText('مطعم الحجي · تمن وقيمة ولبن')).toBeTruthy();
     expect(r.getByText(whole('4,500 دينار'))).toBeTruthy();
     fireEvent.click(r.getByText('اطلبه'));
     // One tap, one order: a quick second tap is ignored.
     fireEvent.click(r.getByText('اطلبه'));
     expect(onReorder).toHaveBeenCalledTimes(1);
+    expect(parseFloat(getComputedStyle(r.getByTestId('cp-reorder')).minHeight)).toBeGreaterThanOrEqual(48);
+  });
+});
+
+describe('two dishes side by side', () => {
+  it('shows two dishes with their prices and a 44 px + each; one dish shows alone, none shows nothing', () => {
+    const onAdd = vi.fn();
+    const two = [dish, { ...dish, id: 'd2', name: 'تمن ومرق بامية', price: 4000, picture: undefined }];
+    const r = renderUI(<DishPair dishes={two} onAdd={onAdd} testID="dp" />, { theme: 'sage' });
+    expect(r.getByText(whole('12,000 دينار'))).toBeTruthy();
+    expect(r.getByTestId('dp-d2-fallback')).toBeTruthy();
+    const plus = r.getByLabelText('ضيف تمن ومرق بامية');
+    expect(parseFloat(getComputedStyle(plus).width)).toBeGreaterThanOrEqual(44);
+    fireEvent.click(plus);
+    expect(onAdd).toHaveBeenCalledWith('d2');
+    r.unmount();
+    const none = renderUI(<DishPair dishes={[]} onAdd={onAdd} testID="dp" />, { theme: 'sage' });
+    expect(none.queryByTestId('dp')).toBeNull();
   });
 });
 
@@ -129,5 +151,36 @@ describe('round 2: honest edges', () => {
     const r = renderUI(<RestaurantCard name="مطعم جديد" rating={0} minutes={20} fee={1000} testID="rc" />, { theme: 'sage' });
     expect(r.getByText('جديد')).toBeTruthy();
     expect(r.queryByText('0.0')).toBeNull();
+  });
+});
+
+describe('round 3: honest semantics', () => {
+  it('a photo that failed gets a fresh try when the dish changes', () => {
+    const Broken = ({ onError }: { onError?: () => void }) => {
+      useEffect(() => onError?.(), [onError]);
+      return null;
+    };
+    const Fine = () => <span data-testid="ok-photo" />;
+    const Switch = (props: { uri: string; onError?: () => void }) => (props.uri.includes('missing') ? <Broken onError={props.onError} /> : <Fine />);
+    const r = renderUI(
+      <PhotoImageProvider component={Switch}>
+        <Picture picture={{ uri: 'https://x.test/missing.webp' }} name="برياني" seed="a" width={40} height={40} radius={8} testID="p" />
+      </PhotoImageProvider>,
+      { theme: 'sage' },
+    );
+    expect(r.getByTestId('p-fallback')).toBeTruthy();
+    r.rerender(
+      <PhotoImageProvider component={Switch}>
+        <Picture picture={{ uri: 'https://x.test/good.webp' }} name="برياني" seed="a" width={40} height={40} radius={8} testID="p" />
+      </PhotoImageProvider>,
+    );
+    expect(r.queryByTestId('p-fallback')).toBeNull();
+  });
+  it('a card with nothing to tap is read as one group, never as a dimmed button', () => {
+    const r = renderUI(<RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} testID="rc" />, { theme: 'sage' });
+    const card = r.getByTestId('rc');
+    expect(card.getAttribute('role')).not.toBe('button');
+    expect(card.getAttribute('aria-disabled')).toBeNull();
+    expect(card.getAttribute('aria-label')).toBeTruthy();
   });
 });

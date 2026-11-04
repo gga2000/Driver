@@ -10901,5 +10901,17 @@
   "home.live_offline": "ماكو انترنت · آخر تحديث قبل {n} دقيقة",
   "home.live_offline_now": "ماكو انترنت",
   "home.board.unknown": "ما نعرف هسة",
-  "home.rest_new_a11y": "{name}، جديد، يوصلك خلال {minutes}، {fee}"
+  "home.rest_new_a11y": "{name}، جديد، يوصلك خلال {minutes}، {fee}",
+  "home.sep": "·",
+  "home.list_sep": "، ",
+  "home.panel.about": "تقريباً",
+  "home.panel.late_a11y": "{title}، تأخرنا عليك، الوقت الجديد {time}",
+  "home.panel.order_rough_a11y": "{title}، يوصل تقريباً خلال {minutes}",
+  "home.panel.new_time": "الوقت الجديد",
+  "home.panel.offline_line": "ماكو انترنت هسة · نحاول نرجع نتصل…",
+  "home.step_now_a11y": "{step}: هسة",
+  "home.panel.message_later_a11y": "راسل {name}، توصله أول ما يرجع الانترنت",
+  "home.panel.late_title": "تأخرنا عليك · نعتذر",
+  "home.panel.cancel_browse": "شوف مطاعم قريبة",
+  "home.panel.cancel_help": "احجي ويانا"
 }

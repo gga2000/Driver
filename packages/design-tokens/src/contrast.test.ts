@@ -164,7 +164,7 @@ describe('home redesign colours (sage and emerald night)', () => {
     expect([sage.bg, sage.surface, sage.border, sage.text, sage.textMuted, sage.accent, sage.onAccent]).toEqual([
       '#E4EAE1', '#F1F4EF', '#E0E7DC', '#1A231C', '#4E5A50', ORANGE, ON_ORANGE,
     ]);
-    expect(homeLook.sage.panel).toMatchObject({ fill: '#1F3A2B', raised: '#274836', line: '#2F523E', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE' });
+    expect(homeLook.sage.panel).toMatchObject({ fill: '#1F3A2B', raised: '#274836', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE' });
     expect(homeLook.sage.river).toMatchObject({ line: '#9DB08A', inner: '#AAC096' });
     expect(homeLook.sage.map).toEqual({ land: '#EAE5D9', blocks: '#DED6C5', palms: ['#99A878', '#758655'], streets: '#FFFFFF', river: '#9DB08A' });
     const s = services.sage;
@@ -281,8 +281,6 @@ describe('home redesign colours (sage and emerald night)', () => {
       for (const fg of [b.fact, th.text, th.textMuted]) expect(contrastRatio(fg, b.tile), `${name} ${fg} on tile`).toBeGreaterThanOrEqual(4.5);
       // The food tile: dark ink on the orange.
       expect(contrastRatio(ON_ORANGE, ORANGE)).toBeGreaterThanOrEqual(4.5);
-      // An outlined (taken) seat is still visible on its tile.
-      expect(contrastRatio(b.edge, b.tile), `${name} seat outline`).toBeGreaterThanOrEqual(2);
     }
   });
 

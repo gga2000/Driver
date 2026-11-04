@@ -18,6 +18,8 @@ export interface HomeMapCardProps {
   now?: number;
   /** No connection: the tag says so, with how old the picture is. */
   offline?: boolean;
+  /** The order ended (cancelled): the map stands still, dimmed, with no live tag. */
+  frozen?: boolean;
   /** The town on the idle tag («مباشر · العزيزية»). */
   town: string;
   /** «مطعم خالد» → «البيت» during an order. */
@@ -34,7 +36,7 @@ export interface HomeMapCardProps {
  * in both themes. The map is a slot; the card draws the live tag (with how old the update is), the route
  * label and the panel joined underneath.
  */
-export const HomeMapCard = memo(function HomeMapCard({ map, updatedAt, now, offline, town, route, children, mapHeight = 200, style, testID }: HomeMapCardProps) {
+export function HomeMapCard({ map, updatedAt, now, offline, frozen, town, route, children, mapHeight = 200, style, testID }: HomeMapCardProps) {
   const theme = useTheme();
   const look = useHomeLook();
   const routeText = route ? t('home.route', route) : null;
@@ -44,11 +46,13 @@ export const HomeMapCard = memo(function HomeMapCard({ map, updatedAt, now, offl
       style={[{ borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.fill, boxShadow: look.card.shadow ?? undefined }, style]}
     >
       <View style={{ height: mapHeight, backgroundColor: look.map.land, overflow: 'hidden' }}>
-        {/* The map names itself; its pins stay reachable, and the tag and route are read on their own. */}
-        <View accessibilityRole="image" accessibilityLabel={routeText ? t('home.map_order_a11y', { route: routeText }) : t('home.map_town_a11y', { town })} style={{ flex: 1 }}>
-          {map}
-        </View>
-        <LiveTag updatedAt={updatedAt} now={now} offline={offline} town={town} testID={testID ? `${testID}-live` : undefined} />
+        {/*
+          The map's name is read first, from its own empty element: wrapping the map in an image role would
+          hide its pins from screen readers on the web. The tag and the route are read on their own.
+        */}
+        <View accessible accessibilityRole="image" accessibilityLabel={routeText ? t('home.map_order_a11y', { route: routeText }) : t('home.map_town_a11y', { town })} testID={testID ? `${testID}-map-name` : undefined} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
+        <View style={{ flex: 1, opacity: frozen ? 0.45 : 1 }}>{map}</View>
+        {frozen ? null : <LiveTag updatedAt={updatedAt} now={now} offline={offline} town={town} testID={testID ? `${testID}-live` : undefined} />}
         {routeText ? (
           <View
             testID={testID ? `${testID}-route` : undefined}
@@ -57,7 +61,7 @@ export const HomeMapCard = memo(function HomeMapCard({ map, updatedAt, now, offl
               bottom: theme.space[3],
               end: theme.space[3],
               paddingHorizontal: theme.space[3],
-              paddingVertical: 2,
+              paddingVertical: theme.space[1] / 2,
               maxWidth: '70%',
               borderRadius: theme.radius.pill,
               backgroundColor: look.card.fill,
@@ -73,7 +77,7 @@ export const HomeMapCard = memo(function HomeMapCard({ map, updatedAt, now, offl
       {children}
     </View>
   );
-});
+}
 
 /** Seconds since `updatedAt`, ticking once a second for the first minute, then every 30 s. */
 function useAgeSec(updatedAt: number | undefined, fixedNow: number | undefined): number | undefined {
