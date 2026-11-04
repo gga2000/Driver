@@ -34,6 +34,10 @@ export const homeSize = {
   thumb: 64,
   /** A live dot beside words. */
   dot: 8,
+  /** The flat points chip, the late band and the step bars. */
+  chip: 32,
+  band: 40,
+  bar: 6,
   /** The home's main buttons («ضيفه للسلة», «اطلبه» in the panel): taller than the 44 minimum. */
   button: 48,
 } as const;

@@ -88,7 +88,9 @@ describe('the calm and offers panels', () => {
     expect(r.getByText('عروض الغدا · لحد الساعة 3')).toBeTruthy();
     expect(r.getByText('عروض')).toBeTruthy();
     expect(r.getAllByText('عرض')).toHaveLength(3);
-    expect(r.getByLabelText('بدل 5,000')).toBeTruthy();
+    expect(r.getByLabelText(/^بدل .*5,000.*دينار$/)).toBeTruthy();
+    // The parent's label carries the old price too (a native group hides its children's labels).
+    expect(r.getByLabelText(/^عرض: .*، بدل .*5,000.*دينار$/)).toBeTruthy();
   });
 });
 
@@ -183,7 +185,7 @@ describe('round 2: states', () => {
   it('offline, the minutes become an estimate and the panel says it is reconnecting', () => {
     const r = renderUI(<OrderPanel {...base} stage="on_way" offline testID="op" />, { theme: 'sage' });
     expect(r.getByText('تقريباً')).toBeTruthy();
-    expect(r.getByTestId('op-offline').textContent).toContain('نحاول نرجع نتصل');
+    expect(r.getByTestId('op-offline').textContent).toContain('نحاول نتصل');
     expect(r.getByLabelText(/يوصل تقريباً خلال/)).toBeTruthy();
   });
   it('only the step happening now is orange, and the steps read «خطوة 2 من 4»', () => {
@@ -300,5 +302,43 @@ describe('round 4: edges', () => {
     const light = renderUI(<CalmPanel dish={dish('a')} testID="c" />, { theme: 'light' });
     const dark = renderUI(<CalmPanel dish={dish('a')} testID="c2" />, { theme: 'dark' });
     expect(getComputedStyle(light.getByTestId('c')).backgroundColor).not.toBe(getComputedStyle(dark.getByTestId('c2')).backgroundColor);
+  });
+});
+
+describe('round 5: edges', () => {
+  it('minutes are whole and never below 0; at 0 the panel says «يوصل هسة»', () => {
+    const r = renderUI(<OrderPanel from="مطعم خالد" title="طلع من المطعم" minutes={-3} stage="on_way" testID="op" />, { theme: 'sage' });
+    expect(r.queryByTestId('op-minutes')).toBeNull();
+    expect(r.getByTestId('op-arriving').textContent).toBe('يوصل هسة');
+  });
+  it('a tap goes through again once the guard time has passed', () => {
+    vi.useFakeTimers();
+    try {
+      const onReorder = vi.fn();
+      const r = renderUI(<CalmPanel usual={{ id: 'u', restaurant: 'مطعم الحجي', items: 'تمن وقيمة', price: 4500, friday: false }} onReorder={onReorder} testID="cp" />, { theme: 'sage' });
+      fireEvent.click(r.getByText('اطلبه'));
+      vi.advanceTimersByTime(1300);
+      fireEvent.click(r.getByText('اطلبه'));
+      expect(onReorder).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('a new step is announced to screen readers once', () => {
+    const spy = vi.spyOn(RN.AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    try {
+      const r = renderUI(<OrderPanel from="مطعم خالد" title="دا يتحضّر" minutes={20} stage="preparing" testID="op" />, { theme: 'sage' });
+      expect(spy).not.toHaveBeenCalled();
+      r.rerender(<OrderPanel from="مطعم خالد" title="طلع من المطعم" minutes={12} stage="on_way" testID="op" />);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith('طلع من المطعم');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it('a cancelled card drops the map and the live tag', () => {
+    const r = renderUI(<HomeMapCard map={<span data-testid="pin" />} town="العزيزية" frozen testID="m" />, { theme: 'sage' });
+    expect(r.queryByTestId('pin')).toBeNull();
+    expect(r.queryByTestId('m-live')).toBeNull();
   });
 });

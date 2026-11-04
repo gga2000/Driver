@@ -44,7 +44,7 @@ const ARROWS: readonly (readonly [number, number, number])[] = [
 ];
 
 /** A map crop from the project's renders, tinted to the card style; the app draws the real map here. */
-function MapStill({ order, ended }: { order: boolean; /** Cancelled: only the restaurant, no courier or route. */ ended?: boolean }) {
+function MapStill({ order, ended, stale }: { order: boolean; /** Cancelled: only the restaurant, no courier or route. */ ended?: boolean; /** Offline: the courier is where we last saw him, greyed. */ stale?: boolean }) {
   const theme = useTheme();
   const night = theme.scheme === 'dark';
   const pin = night ? '#00E575' : '#1F3A2B';
@@ -67,7 +67,7 @@ function MapStill({ order, ended }: { order: boolean; /** Cancelled: only the re
             <Circle cx={REST[0]} cy={REST[1]} r={11} fill={pin} stroke={ring} strokeWidth={3} />
             <Circle cx={HOME[0]} cy={HOME[1]} r={11} fill="#1A231C" stroke="#F2FFF6" strokeWidth={3} />
             <Path d={`M${HOME[0] - 4.5} ${HOME[1] + 1.5} L${HOME[0]} ${HOME[1] - 4} L${HOME[0] + 4.5} ${HOME[1] + 1.5} V${HOME[1] + 5.5} H${HOME[0] - 4.5}Z`} fill="#F2FFF6" />
-            <Circle cx={RIDER[0]} cy={RIDER[1]} r={15} fill="#FF7A1F" stroke="#1A231C" strokeWidth={3} />
+            <Circle cx={RIDER[0]} cy={RIDER[1]} r={15} fill={stale ? (night ? '#5E7468' : '#9AA79C') : '#FF7A1F'} stroke="#1A231C" strokeWidth={3} />
             <Circle cx={RIDER[0] - 4.5} cy={RIDER[1] + 3} r={3} fill="none" stroke="#160D05" strokeWidth={1.8} />
             <Circle cx={RIDER[0] + 4.5} cy={RIDER[1] + 3} r={3} fill="none" stroke="#160D05" strokeWidth={1.8} />
             <Path d={`M${RIDER[0] - 4.5} ${RIDER[1] + 3} L${RIDER[0]} ${RIDER[1] - 3.5} H${RIDER[0] + 4} L${RIDER[0] + 4.5} ${RIDER[1] + 3}`} stroke="#160D05" strokeWidth={1.8} fill="none" />
@@ -88,10 +88,10 @@ function MapStill({ order, ended }: { order: boolean; /** Cancelled: only the re
   );
 }
 
-const IDLE_PINS: readonly (readonly [number, number])[] = [[60, 70], [150, 52], [250, 84], [292, 140], [112, 146], [214, 160]];
+const IDLE_PINS: readonly (readonly [number, number])[] = [[60, 70], [96, 100], [250, 96], [292, 140], [112, 150], [214, 160]];
 /** The two open kitchens nearest home, named with their minutes («خالد · 12 د»); the app's map draws these. */
 const IDLE_NAMED = [
-  { at: [150, 52] as const, name: 'خالد', n: 12 },
+  { at: [96, 100] as const, name: 'خالد', n: 12 },
   { at: [214, 160] as const, name: 'أبو حيدر', n: 9 },
 ];
 
@@ -183,18 +183,18 @@ export function HomePiecesSection() {
         </Piece>
         {(['placed', 'preparing', 'arrived'] as const).map((stage) => (
           <Piece key={stage} id={`hp-stage-${stage}`} title={`مرحلة: ${STAGE_TITLES[stage]}`}>
-            <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - (stage === 'placed' ? 2 : 40) * 1000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
+            <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - (stage === 'placed' ? 2 : 40) * 1000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }}>
               <OrderPanel {...ORDER} stage={stage} title={STAGE_TITLES[stage]} cash={stage === 'arrived' ? undefined : ORDER.cash} />
             </HomeMapCard>
           </Piece>
         ))}
         <Piece id="hp-late" title="متأخر: اعتذار ووقت جديد" note="الجملة تجي من وعد التأخير بالتطبيق">
-          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 6000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
+          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 6000} now={NOW} route={{ from: 'مطعم خالد', to: 'البيت' }}>
             <OrderPanel {...ORDER} title="طلع من المطعم" stage="on_way" minutes={9} notice={{ tone: 'late', title: t('home.panel.late_title'), time: '1:40 الظهر', text: 'إذا تأخرنا بعد 1:40 ترجعلك أجرة التوصيل' }} />
           </HomeMapCard>
         </Piece>
         <Piece id="hp-cancelled" title="انلغى الطلب">
-          <HomeMapCard map={<MapStill order ended />} frozen town={TOWN} mapHeight={120}>
+          <HomeMapCard map={<MapStill order ended />} frozen town={TOWN}>
             <OrderPanel
               from="مطعم خالد"
               title={STAGE_TITLES.cancelled}
@@ -205,18 +205,18 @@ export function HomePiecesSection() {
           </HomeMapCard>
         </Piece>
         <Piece id="hp-offline" title="ماكو انترنت">
-          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - 240_000} now={NOW} offline route={{ from: 'مطعم خالد', to: 'البيت' }} mapHeight={120}>
+          <HomeMapCard map={<MapStill order stale />} town={TOWN} updatedAt={NOW - 240_000} now={NOW} offline route={{ from: 'مطعم خالد', to: 'البيت' }}>
             <OrderPanel {...ORDER} title="طلع من المطعم" stage="on_way" offline />
           </HomeMapCard>
         </Piece>
         <Piece id="hp-loading" title="دا يتحمّل">
-          <HomeMapCardSkeleton mapHeight={120} />
+          <HomeMapCardSkeleton />
           <LiveBoardSkeleton />
           <DishPairSkeleton />
           <RestaurantRowSkeleton />
         </Piece>
         <Piece id="hp-ride" title="تكسي شغّال + التحديث قديم">
-          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - (260) * 1000} now={NOW} route={{ from: 'السوق', to: 'البيت' }} mapHeight={120}>
+          <HomeMapCard map={<MapStill order />} town={TOWN} updatedAt={NOW - (260) * 1000} now={NOW} route={{ from: 'السوق', to: 'البيت' }}>
             <OrderPanel from="تكسي · 4 ركاب" title="السايق جاي عليك" stage="on_way" minutes={4} person={{ name: 'عباس', kind: 'driver' }} onMessage={() => {}} />
           </HomeMapCard>
         </Piece>
@@ -239,8 +239,8 @@ export function HomePiecesSection() {
           <HomeChips chips={CHIPS} selected={null} onSelect={() => {}} />
           <HomeChips chips={CHIPS} selected="family" onSelect={() => {}} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[3] }}>
-            <RestaurantCard name="مطعم خالد للمشويات والكص" rating={4.7} minutes={25} fee={1500} picture={{ source: src(liver) }} />
-            <RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} />
+            <RestaurantCard id="r1" name="مطعم خالد للمشويات والكص" rating={4.7} minutes={25} fee={1500} picture={{ source: src(liver) }} />
+            <RestaurantCard id="r2" name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} />
           </ScrollView>
         </Piece>
         <Piece id="hp-bits" title="النقاط والنهر" note="النهر يتعبّى برتقالي ويه الطلب: طلبت · يتحضّر · بالطريق · وصل">
@@ -332,8 +332,8 @@ function HomeScreenPreview({ order }: { order: boolean }) {
           </View>
           <HomeChips chips={CHIPS} selected={null} onSelect={() => {}} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -theme.space[4] }} contentContainerStyle={{ gap: theme.space[3], paddingHorizontal: theme.space[4], paddingVertical: 6 }}>
-            <RestaurantCard name="مطعم خالد" rating={4.7} minutes={25} fee={1500} picture={{ source: src(liver) }} />
-            <RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} />
+            <RestaurantCard id="r3" name="مطعم خالد" rating={4.7} minutes={25} fee={1500} picture={{ source: src(liver) }} />
+            <RestaurantCard id="r4" name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} />
           </ScrollView>
         </View>
       </View>

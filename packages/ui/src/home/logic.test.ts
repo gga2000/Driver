@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { liveAge, mealKey, mealWindow, panelMode, trackerSteps, riverFill } from './logic';
+import { liveAge, liveLabel, mealKey, mealWindow, panelMinutes, panelMode, stepsA11y, trackerSteps, riverFill } from './logic';
 
 /** A Baghdad wall-clock time on Thursday 2026-11-05 (UTC+3). */
 const at = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 5, h - 3, m));
@@ -77,3 +77,19 @@ describe('the live tag says how old the update is', () => {
   });
 });
 
+describe('round 5: labels', () => {
+  it('the live tag: offline first, then the town, stale, now, seconds, minutes', () => {
+    expect(liveLabel(240, true, 'العزيزية')).toContain('ماكو انترنت');
+    expect(liveLabel(undefined, false, 'العزيزية')).toContain('العزيزية');
+    expect(liveLabel(200, false, 'العزيزية')).not.toContain('مباشر');
+    expect(liveLabel(2, false, 'العزيزية')).toBe('مباشر · هسة');
+    expect(liveLabel(8, false, 'العزيزية')).toContain('8');
+  });
+  it('the step row reads «خطوة n من 4», and the last step once it has arrived', () => {
+    expect(stepsA11y(trackerSteps('preparing'))).toBe('خطوة 2 من 4: دا يتحضّر');
+    expect(stepsA11y(trackerSteps('arrived'))).toBe('خطوة 4 من 4: وصل');
+  });
+  it('panel minutes are whole and never negative', () => {
+    expect([panelMinutes(-3), panelMinutes(4.6), panelMinutes(12)]).toEqual([0, 5, 12]);
+  });
+});

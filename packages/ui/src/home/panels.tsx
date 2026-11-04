@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { ScrollView, View } from 'react-native';
+import { AccessibilityInfo, ScrollView, View } from 'react-native';
 import { t } from '@driver/i18n';
 import { Avatar } from '../components/Avatar';
 import { RollingDigits } from '../components/RollingDigits';
@@ -8,7 +8,7 @@ import { formatAmount, ltr } from '../format';
 import { Icon } from '../icons/Icon';
 import { useTheme } from '../theme/ThemeProvider';
 import type { HomeCardDish } from './cards';
-import { stageRuns, trackerSteps, type Meal, type OrderStage } from './logic';
+import { panelMinutes, STAGES, stageRuns, stepName, stepsA11y, trackerSteps, type Meal, type OrderStage } from './logic';
 import { HomePress, Picture, type DishPicture } from './media';
 import { GUARD_MS, homeSize, iqd, mins } from './format';
 import { countWord, useHomeLook } from './look';
@@ -103,8 +103,6 @@ export interface OrderPanelProps {
 /** Late: the band title, the new time with its part of day («1:40 الظهر») and the late-promise rule. Ended: why, and what happens to the money. */
 export type OrderNotice = { tone: 'late'; title: string; time?: string; text?: string } | { tone: 'ended'; title: string; text?: string };
 
-const STEP_KEYS = ['home.step.placed', 'home.step.preparing', 'home.step.on_way', 'home.step.arrived'] as const;
-
 /** The courier's approved photo, or a calm forest circle with the initial (never an error-red identity colour). */
 function PersonFace({ name, photo }: { name: string; photo?: string }) {
   const look = useHomeLook();
@@ -131,28 +129,31 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
   const late = notice?.tone === 'late' ? notice : null;
   const newTime = late?.time;
   // One clock only: a late order's new time replaces the minutes.
-  const left = stageRuns(stage) && newTime === undefined ? minutes : undefined;
+  const left = stageRuns(stage) && newTime === undefined && minutes !== undefined ? panelMinutes(minutes) : undefined;
   const seen = useRef(stage);
   const { reduceMotion, haptic } = theme;
   useEffect(() => {
     if (seen.current === stage) return;
     seen.current = stage;
     if (!reduceMotion) haptic(stage === 'arrived' ? 'success' : stage === 'cancelled' ? 'warning' : 'light');
-  }, [stage, reduceMotion, haptic]);
+    // A new step is news for a screen reader too (a live region only works on Android).
+    AccessibilityInfo.announceForAccessibility(title);
+  }, [stage, reduceMotion, haptic, title]);
   const headA11y =
     newTime !== undefined
       ? t('home.panel.late_a11y', { title, time: newTime })
       : left !== undefined
-        ? t(offline ? 'home.panel.order_rough_a11y' : 'home.panel.order_a11y', { title, minutes: mins(left) })
+        ? left === 0
+          ? t('home.panel.arriving_a11y', { title })
+          : t(offline ? 'home.panel.order_rough_a11y' : 'home.panel.order_a11y', { title, minutes: mins(left) })
         : title;
-  const nowIndex = steps.indexOf('now');
   return (
     <PanelShell testID={testID}>
       {late ? (
         <View
           testID={testID ? `${testID}-late` : undefined}
           accessibilityLiveRegion="polite"
-          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: 40, paddingHorizontal: theme.space[3], marginHorizontal: -theme.space[4], marginTop: -theme.space[4], backgroundColor: look.late.fill }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], minHeight: homeSize.band, paddingHorizontal: theme.space[3], marginHorizontal: -theme.space[4], marginTop: -theme.space[4], backgroundColor: look.late.fill }}
         >
           <Icon name="clock" size={18} color={look.late.on} />
           <Text variant="label" weight={600} color={look.late.on} compact numberOfLines={1} style={{ flex: 1 }}>
@@ -165,13 +166,17 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
         <Heading over={from} title={title} />
         {newTime !== undefined ? (
           <View style={{ alignItems: 'flex-end' }} testID={testID ? `${testID}-new-time` : undefined}>
-            <Text variant="numeralMd" face="display" color={look.panel.accent} tabular>
-              {newTime}
-            </Text>
             <Text variant="footnote" color={look.panel.muted} compact>
               {t('home.panel.new_time')}
             </Text>
+            <Text variant="numeralSm" face="display" color={look.panel.accent} tabular numberOfLines={1}>
+              {newTime}
+            </Text>
           </View>
+        ) : left === 0 ? (
+          <Text variant="bodyStrong" face="display" color={look.panel.accent} compact testID={testID ? `${testID}-arriving` : undefined}>
+            {t('home.panel.arriving')}
+          </Text>
         ) : left !== undefined ? (
           <BigMinutes n={left} rough={offline} testID={testID ? `${testID}-minutes` : undefined} />
         ) : null}
@@ -181,7 +186,7 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
         <View testID={testID ? `${testID}-offline` : undefined} accessibilityLiveRegion="polite" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
           <Icon name="wifi-off" size={16} color={look.panel.muted} />
           <Text variant="label" color={look.panel.onSoft} style={{ flex: 1 }}>
-            {t('home.panel.offline_line')}
+            {t('home.panel.reconnecting')}
           </Text>
         </View>
       ) : null}
@@ -196,7 +201,7 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
 
       {steps.length > 0 ? (
         // One stop for a screen reader: «خطوة 2 من 4: دا يتحضّر»; the bars and labels are its picture.
-        <View accessible accessibilityLabel={t('home.step_of', { n: nowIndex + 1 || steps.length, total: steps.length, step: t(STEP_KEYS[Math.max(0, nowIndex === -1 ? steps.length - 1 : nowIndex)]!) })} testID={testID ? `${testID}-steps` : undefined} style={{ gap: theme.space[2] }}>
+        <View accessible accessibilityLabel={stepsA11y(steps)} testID={testID ? `${testID}-steps` : undefined} style={{ gap: theme.space[2] }}>
           <View style={{ flexDirection: 'row', gap: theme.space[1] }}>
             {steps.map((s, i) => (
               <View
@@ -204,10 +209,10 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
                 testID={testID ? `${testID}-bar-${s}` : undefined}
                 style={{
                   flex: 1,
-                  height: 6,
-                  borderRadius: 3,
-                  // Only the step happening now is orange; done steps are quiet cream.
-                  backgroundColor: s === 'now' ? look.panel.accent : s === 'done' ? look.panel.onSoft : 'transparent',
+                  height: homeSize.bar,
+                  borderRadius: homeSize.bar / 2,
+                  // Only the step happening now is orange (muted when offline: it may be old); done steps are quiet cream.
+                  backgroundColor: s === 'now' ? (offline ? look.panel.muted : look.panel.accent) : s === 'done' ? look.panel.onSoft : 'transparent',
                   borderWidth: s === 'next' ? 1.5 : 0,
                   borderColor: look.panel.upcoming,
                 }}
@@ -216,7 +221,7 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
           </View>
           <View style={{ flexDirection: 'row' }}>
             {steps.map((s, i) => {
-              const label = t(STEP_KEYS[i]!);
+              const label = stepName(STAGES[i]!);
               return (
                 <View
                   key={i}
@@ -237,7 +242,7 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
         <View testID={testID ? `${testID}-cash` : undefined} style={{ backgroundColor: look.panel.raised, borderRadius: theme.radius.xl, paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], gap: 2 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: theme.space[2] }}>
             <Text variant="title" face="display" color={look.panel.on} tabular>
-              {t('home.panel.cash_title')} {iqd(cash)}
+              {t('home.panel.cash_line', { amount: iqd(cash) })}
             </Text>
             <Icon name="cash" size={20} color={look.panel.onSoft} />
           </View>
@@ -273,18 +278,25 @@ export function OrderPanel({ from, title, stage, minutes, notice, actions, offli
 
       {actions ? (
         <View style={{ gap: theme.space[2] }}>
-          <PanelButton label={actions.primary.label} onPress={actions.primary.onPress} filled testID={testID ? `${testID}-primary` : undefined} />
-          {actions.secondary ? <PanelButton label={actions.secondary.label} onPress={actions.secondary.onPress} testID={testID ? `${testID}-secondary` : undefined} /> : null}
+          <PanelButton label={actions.primary.label} onPress={actions.primary.onPress} tone="accent" testID={testID ? `${testID}-primary` : undefined} />
+          {actions.secondary ? <PanelButton label={actions.secondary.label} onPress={actions.secondary.onPress} tone="quiet" testID={testID ? `${testID}-secondary` : undefined} /> : null}
         </View>
       ) : null}
     </PanelShell>
   );
 }
 
-/** A full-width round button on the forest: orange for the one next step, raised forest for the quiet one. */
-function PanelButton({ label, a11y, onPress, filled, testID }: { label: string; a11y?: string; onPress: () => void; filled?: boolean; testID?: string }) {
+/**
+ * A full-width round button on the forest: `accent` (orange) for the one next step on a screen, `light`
+ * (cream with forest text) when the orange already lives elsewhere on the screen (the food tile), and
+ * `quiet` (raised forest) for the second choice.
+ */
+function PanelButton({ label, a11y, onPress, tone, testID }: { label: string; a11y?: string; onPress: () => void; tone: 'accent' | 'light' | 'quiet'; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
+  const filled = tone !== 'quiet';
+  const bg = tone === 'accent' ? look.panel.accent : tone === 'light' ? look.panel.on : look.panel.raised;
+  const fg = tone === 'accent' ? 'onAccent' : tone === 'light' ? look.panel.fill : look.panel.on;
   return (
     <HomePress
       onPress={onPress}
@@ -292,9 +304,9 @@ function PanelButton({ label, a11y, onPress, filled, testID }: { label: string; 
       guardMs={GUARD_MS}
       accessibilityLabel={a11y ?? label}
       testID={testID}
-      style={{ minHeight: homeSize.button, borderRadius: theme.radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[5], backgroundColor: filled ? look.panel.accent : look.panel.raised }}
+      style={{ minHeight: homeSize.button, borderRadius: theme.radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space[5], backgroundColor: bg }}
     >
-      <Text variant="bodyStrong" face="display" color={filled ? 'onAccent' : look.panel.on} compact numberOfLines={1}>
+      <Text variant="bodyStrong" face="display" color={fg} compact numberOfLines={1}>
         {label}
       </Text>
     </HomePress>
@@ -356,7 +368,7 @@ export function CalmPanel(props: CalmPanelProps) {
             </Text>
           </View>
         </View>
-        <PanelButton label={t('home.usual_go')} a11y={t('home.usual_go_a11y', { restaurant: usual.restaurant })} onPress={() => onReorder(usual.id)} filled testID={testID ? `${testID}-reorder` : undefined} />
+        <PanelButton label={t('home.usual_go')} a11y={t('home.usual_go_a11y', { restaurant: usual.restaurant })} onPress={() => onReorder(usual.id)} tone="light" testID={testID ? `${testID}-reorder` : undefined} />
       </PanelShell>
     );
   }
@@ -383,6 +395,11 @@ export function CalmPanel(props: CalmPanelProps) {
     </PanelShell>
   );
 }
+
+const offerA11y = (d: HomeDish) => {
+  const dish = t('home.panel.dish_a11y', { name: d.name, restaurant: d.restaurant, price: iqd(d.price), minutes: mins(d.minutes) });
+  return d.was !== undefined && d.was > d.price ? t('home.panel.offer_was_a11y', { dish, was: iqd(d.was) }) : t('home.panel.offer_a11y', { dish });
+};
 
 // ─── Offers ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -419,7 +436,7 @@ export function OffersPanel({ town, meal, until, dishes, onDish, testID }: Offer
         {dishes.map((d) => (
           <HomePress
             key={d.id}
-            accessibilityLabel={t('home.panel.offer_a11y', { dish: t('home.panel.dish_a11y', { name: d.name, restaurant: d.restaurant, price: iqd(d.price), minutes: mins(d.minutes) }) })}
+            accessibilityLabel={offerA11y(d)}
             onPress={onDish ? () => onDish(d.id) : undefined}
             testID={testID ? `${testID}-dish-${d.id}` : undefined}
             style={{ width: homeSize.offerWidth, borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.raised }}
@@ -442,7 +459,7 @@ export function OffersPanel({ town, meal, until, dishes, onDish, testID }: Offer
                   {iqd(d.price)}
                 </Text>
                 {d.was !== undefined && d.was > d.price ? (
-                  <Text variant="footnote" color={look.panel.muted} tabular accessibilityLabel={t('home.panel.was', { price: formatAmount(d.was) })} style={{ textDecorationLine: 'line-through' }}>
+                  <Text variant="footnote" color={look.panel.muted} tabular accessibilityLabel={t('home.panel.was', { price: iqd(d.was) })} style={{ textDecorationLine: 'line-through' }}>
                     {ltr(formatAmount(d.was))}
                   </Text>
                 ) : null}

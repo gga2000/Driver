@@ -45,6 +45,8 @@ export interface LiveBoardProps {
 
 /** Above this text size the pictures step aside so the words never collide with them. */
 const BIG_TEXT = 1.3;
+/** A service that can't be used right now: its picture steps back, the words stay readable. */
+const UNAVAILABLE = 0.4;
 
 /**
  * «شنو تحتاج؟» — the live board (concept D, Ali 2026-11-02): food as the tall orange tile, taxi and tuktuk
@@ -121,8 +123,8 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
             )}
             {art ? (
               <View style={{ position: 'absolute', bottom: theme.space[1], end: theme.space[1], flexDirection: 'row', alignItems: 'flex-end', pointerEvents: 'none' }}>
-                <LocalPhoto source={pictures.taxi} fit="contain" style={{ width: 72, height: 44 }} />
-                <LocalPhoto source={pictures.tuktuk} fit="contain" style={{ width: 46, height: 46 }} />
+                <LocalPhoto source={pictures.taxi} fit="contain" style={{ width: 72, height: 44, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
+                <LocalPhoto source={pictures.tuktuk} fit="contain" style={{ width: 46, height: 46, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
               </View>
             ) : null}
           </Tile>
@@ -163,6 +165,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
           fact={offline ? t('home.board.unknown') : carts > 0 ? t('home.board.carts_open', { n: carts }) : t('home.board.carts_closed')}
           live={carts > 0 && !offline}
           art={art ? <Art name="cart" size={64} /> : null}
+          muted={offline || carts === 0}
           onPress={press('carts')}
           testID={testID ? `${testID}-carts` : undefined}
         />
@@ -242,20 +245,20 @@ function DepartureRow({ d, first, testID }: { d: Departure; first: boolean; test
   );
 }
 
-function SmallTile({ name, fact, live, art, onPress, testID }: { name: string; fact: string; live?: boolean; art: ReactNode; onPress?: () => void; testID?: string }) {
+function SmallTile({ name, fact, live, art, muted, onPress, testID }: { muted?: boolean; name: string; fact: string; live?: boolean; art: ReactNode; onPress?: () => void; testID?: string }) {
   const look = useHomeLook();
   return (
     <Tile label={t('home.board.tile_a11y', { name, fact })} onPress={onPress} style={{ flex: 1 }} testID={testID}>
       <Text variant="bodyStrong" face="display" compact>
         {name}
       </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '70%' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: art ? '70%' : undefined }}>
         {live ? <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.board.dot }} /> : null}
         <Text variant="footnote" color="textMuted" numberOfLines={2}>
           {fact}
         </Text>
       </View>
-      {art ? <View style={{ position: 'absolute', end: 4, bottom: 4, pointerEvents: 'none' }}>{art}</View> : null}
+      {art ? <View style={{ position: 'absolute', end: 4, bottom: 4, pointerEvents: 'none', opacity: muted ? UNAVAILABLE : 1 }}>{art}</View> : null}
     </Tile>
   );
 }

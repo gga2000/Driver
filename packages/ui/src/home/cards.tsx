@@ -93,17 +93,20 @@ export interface BigDishCardProps {
   dish: HomeCardDish;
   /** The daypart tag («للعشا», `home.band.*`). */
   tag: string;
-  onAdd: () => void;
-  onPress?: () => void;
+  /** Called with the dish id, so a list can pass one stable callback and `memo` skips redraws. */
+  onAdd: (id: string) => void;
+  onPress?: (id: string) => void;
   testID?: string;
 }
 
 /** The idle home's big dish (spec §3 item 8): photo edge to edge, name with the daypart tag, «restaurant · price · minutes», «ضيفه للسلة». */
 export const BigDishCard = memo(function BigDishCard({ dish, tag, onAdd, onPress, testID }: BigDishCardProps) {
   const theme = useTheme();
+  const add = useCallback(() => onAdd(dish.id), [onAdd, dish.id]);
+  const open = useCallback(() => onPress?.(dish.id), [onPress, dish.id]);
   return (
     <HomeCard testID={testID} style={{ overflow: 'hidden' }}>
-      <HomePress accessibilityLabel={dishA11y(dish)} onPress={onPress}>
+      <HomePress accessibilityLabel={dishA11y(dish)} onPress={onPress ? open : undefined}>
         <Picture picture={dish.picture} name={dish.name} seed={dish.id} width="100%" height={homeSize.dishPhoto} radius={0} testID={testID} />
         <View style={{ paddingHorizontal: theme.space[4], paddingTop: theme.space[3], gap: theme.space[1] }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: theme.space[2] }}>
@@ -120,7 +123,7 @@ export const BigDishCard = memo(function BigDishCard({ dish, tag, onAdd, onPress
         </View>
       </HomePress>
       <View style={{ padding: theme.space[4], paddingTop: theme.space[3] }}>
-        <CardButton label={t('home.dish_add')} a11y={t('home.dish_add_a11y', { dish: dish.name })} onPress={onAdd} testID={testID ? `${testID}-add` : undefined} />
+        <CardButton label={t('home.dish_add')} a11y={t('home.dish_add_a11y', { dish: dish.name })} onPress={add} testID={testID ? `${testID}-add` : undefined} />
       </View>
     </HomeCard>
   );
@@ -128,17 +131,19 @@ export const BigDishCard = memo(function BigDishCard({ dish, tag, onAdd, onPress
 
 export interface CompactDishProps {
   dish: HomeCardDish;
-  onAdd: () => void;
-  onPress?: () => void;
+  onAdd: (id: string) => void;
+  onPress?: (id: string) => void;
   testID?: string;
 }
 
 /** The compact dish row during an order (spec §3 item 8): photo, name, «restaurant · price», round +. */
 export const CompactDish = memo(function CompactDish({ dish, onAdd, onPress, testID }: CompactDishProps) {
   const theme = useTheme();
+  const add = useCallback(() => onAdd(dish.id), [onAdd, dish.id]);
+  const open = useCallback(() => onPress?.(dish.id), [onPress, dish.id]);
   return (
     <HomeCard testID={testID} style={{ padding: theme.space[2], paddingEnd: theme.space[3], flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
-      <HomePress accessibilityLabel={dishA11y(dish)} onPress={onPress} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
+      <HomePress accessibilityLabel={dishA11y(dish)} onPress={onPress ? open : undefined} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: theme.space[3] }}>
         <Picture picture={dish.picture} name={dish.name} seed={dish.id} width={homeSize.thumb} height={homeSize.thumb} radius={theme.radius.lg} testID={testID} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text variant="bodyStrong" face="display" numberOfLines={2}>
@@ -149,7 +154,7 @@ export const CompactDish = memo(function CompactDish({ dish, onAdd, onPress, tes
       </HomePress>
       <HomePress
         accessibilityLabel={t('home.dish_add_a11y', { dish: dish.name })}
-        onPress={onAdd}
+        onPress={add}
         guardMs={GUARD_MS}
         testID={testID ? `${testID}-add` : undefined}
         style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, borderWidth: 1.5, borderColor: theme.colors.selectedBorder, alignItems: 'center', justifyContent: 'center' }}
@@ -227,6 +232,7 @@ const PairDish = memo(function PairDish({ dish: d, onAdd, onPress, testID }: { d
 // ─── Restaurant ──────────────────────────────────────────────────────────────────────────────────
 
 export interface RestaurantCardProps {
+  id: string;
   name: string;
   /** 0 = no ratings yet («جديد»). */
   rating: number;
@@ -236,17 +242,19 @@ export interface RestaurantCardProps {
   picture?: DishPicture;
   /** Card width in the row (the row scrolls sideways). */
   width?: number;
-  onPress?: () => void;
+  /** Called with the restaurant id (one stable callback for the whole row). */
+  onPress?: (id: string) => void;
   testID?: string;
 }
 
 /** A restaurant in «مفتوح هسة» (spec §3 item 10): photo edge to edge, full name up to 2 lines, star + rating · minutes, fee. */
-export const RestaurantCard = memo(function RestaurantCard({ name, rating, minutes, fee, picture, width = homeSize.restWidth, onPress, testID }: RestaurantCardProps) {
+export const RestaurantCard = memo(function RestaurantCard({ id, name, rating, minutes, fee, picture, width = homeSize.restWidth, onPress, testID }: RestaurantCardProps) {
+  const open = useCallback(() => onPress?.(id), [onPress, id]);
   const theme = useTheme();
   const feeText = fee > 0 ? t('list.fee', { amount: ltr(formatAmount(fee)) }) : t('list.fee_free');
   const stars = rating > 0 ? rating.toFixed(1) : t('home.rating_new');
   return (
-    <HomePress accessibilityLabel={rating > 0 ? t('home.rest_a11y', { name, rating: stars, minutes: mins(minutes), fee: feeText }) : t('home.rest_new_a11y', { name, minutes: mins(minutes), fee: feeText })} onPress={onPress} testID={testID} style={{ width }}>
+    <HomePress accessibilityLabel={rating > 0 ? t('home.rest_a11y', { name, rating: stars, minutes: mins(minutes), fee: feeText }) : t('home.rest_new_a11y', { name, minutes: mins(minutes), fee: feeText })} onPress={onPress ? open : undefined} testID={testID} style={{ width }}>
       <HomeCard style={{ overflow: 'hidden', flex: 1 }}>
         <Picture picture={picture} name={name} seed={name} width="100%" height={homeSize.restPhoto} radius={0} testID={testID} />
         <View style={{ padding: theme.space[3], paddingTop: theme.space[2], gap: 2 }}>
@@ -308,6 +316,7 @@ export function HomeChips({ chips, selected, onSelect, accessibilityLabel, testI
           <HomePress
             key={c.id}
             accessibilityRole="radio"
+            accessibilityHint={on ? t('home.chip_hint') : undefined}
             checked={on}
             haptic="selection"
             onPress={() => onSelect(on ? null : c.id)}

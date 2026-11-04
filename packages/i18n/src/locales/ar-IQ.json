@@ -10834,7 +10834,6 @@
   "home.step.on_way": "بالطريق",
   "home.step.arrived": "وصل",
   "home.panel.order_a11y": "{title}، يوصل خلال {minutes}",
-  "home.panel.cash_title": "جهّز",
   "home.panel.cash_note": "الخردة علينا، تنحط بمحفظتك",
   "home.panel.courier": "{name}، دليفريك",
   "home.panel.driver": "{name}، سايقك",
@@ -10907,12 +10906,17 @@
   "home.panel.late_a11y": "{title}، تأخرنا عليك، الوقت الجديد {time}",
   "home.panel.order_rough_a11y": "{title}، يوصل تقريباً خلال {minutes}",
   "home.panel.new_time": "الوقت الجديد",
-  "home.panel.offline_line": "ماكو انترنت هسة · نحاول نرجع نتصل…",
   "home.panel.message_later_a11y": "راسل {name}، توصله أول ما يرجع الانترنت",
   "home.panel.late_title": "تأخرنا عليك · نعتذر",
   "home.panel.cancel_browse": "شوف مطاعم قريبة",
   "home.panel.cancel_help": "احجي ويانا",
   "home.step_of": "خطوة {n} من {total}: {step}",
   "home.board.food_closed": "المطاعم مسدودة هسة",
-  "home.order_headline": "أكلك بالطريق"
+  "home.order_headline": "أكلك بالطريق",
+  "home.panel.cash_line": "جهّز {amount}",
+  "home.panel.offer_was_a11y": "عرض: {dish}، بدل {was}",
+  "home.panel.arriving": "يوصل هسة",
+  "home.panel.arriving_a11y": "{title}، يوصل هسة",
+  "home.panel.reconnecting": "نحاول نتصل…",
+  "home.chip_hint": "اضغط مرة ثانية حتى تلغيه"
 }

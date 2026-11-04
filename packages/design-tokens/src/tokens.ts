@@ -1115,8 +1115,8 @@ export const homeLook: Record<CustomerThemeName, HomeLook> = {
   emeraldNight: {
     // Same design as sage, night colours (Ali, 2026-11-02): the panel is one step above the cards.
     panel: { fill: '#15261D', raised: '#1E3528', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F', fact: '#6CFFAE', cash: '#FFB27A', edge: '#2C4636' },
-    board: { tile: '#122019', fact: '#F2FFF6', dot: '#00E575' },
-    card: { fill: '#122019', shadow: null, edge: 'rgba(242, 255, 246, 0.10)' },
+    board: { tile: '#162820', fact: '#F2FFF6', dot: '#00E575' },
+    card: { fill: '#162820', shadow: null, edge: 'rgba(242, 255, 246, 0.10)' },
     late: { fill: '#F2C14E', on: '#1A1405' },
     price: '#F2FFF6',
     river: { line: '#00E575', inner: '#6CFFAE', glow: '0 0 14px rgba(0, 229, 117, 0.45)' },

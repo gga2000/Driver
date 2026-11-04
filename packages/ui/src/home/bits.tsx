@@ -13,7 +13,7 @@ export function PointsPill({ points, onPress, testID }: { points: number; onPres
   const label = t('unit.points', { n: points });
   // Audit round 3: a flat, quiet chip that never outweighs the wordmark; the tap area stays 44.
   const body = (
-    <View style={{ height: 32, justifyContent: 'center', paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceSunken }}>
+    <View style={{ height: homeSize.chip, justifyContent: 'center', paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceSunken }}>
       <Text variant="label" face="display" weight={600} compact numberOfLines={1}>
         {label}
       </Text>

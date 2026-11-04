@@ -1,4 +1,4 @@
-import { cityParts } from '@driver/i18n';
+import { cityParts, t } from '@driver/i18n';
 
 /**
  * The new customer home's rules (docs/specs/2026-11-01-home-redesign.md §12): which panel sits under the
@@ -12,7 +12,11 @@ export type PanelMode = 'order' | 'offers' | 'calm';
 export type OrderStage = 'placed' | 'preparing' | 'on_way' | 'arrived' | 'cancelled';
 export type TrackerStep = 'done' | 'now' | 'next';
 
-const STAGES: readonly OrderStage[] = ['placed', 'preparing', 'on_way', 'arrived'];
+/** The four steps in order; their names are `home.step.<stage>`. */
+export const STAGES = ['placed', 'preparing', 'on_way', 'arrived'] as const satisfies readonly OrderStage[];
+
+/** A step's name: «طلبت», «دا يتحضّر», «بالطريق», «وصل». */
+export const stepName = (s: (typeof STAGES)[number]) => t(`home.step.${s}`);
 
 /** The order still runs (it has steps and minutes). */
 export function stageRuns(stage: OrderStage): boolean {
@@ -58,14 +62,14 @@ export function trackerSteps(stage: OrderStage): TrackerStep[] {
   if (stage === 'arrived') return STAGES.map(() => 'done');
   if (stage === 'cancelled') return [];
   // An unknown stage from an older server reads as the first step, never as "nothing done".
-  const at = Math.max(0, STAGES.indexOf(stage));
+  const at = Math.max(0, (STAGES as readonly OrderStage[]).indexOf(stage));
   return STAGES.map((_, i) => (i < at ? 'done' : i === at ? 'now' : 'next'));
 }
 
 /** How much of the river is orange: a quarter per step, full on arrival, none with no order. */
 export function riverFill(stage: OrderStage | null): number {
   if (!stage || stage === 'cancelled') return 0;
-  return (Math.max(0, STAGES.indexOf(stage)) + 1) / STAGES.length;
+  return (Math.max(0, (STAGES as readonly OrderStage[]).indexOf(stage)) + 1) / STAGES.length;
 }
 
 export interface LiveAge {
@@ -83,3 +87,26 @@ export function liveAge(seconds: number): LiveAge {
   if (s < 60) return { unit: 'sec', n: s, ...stale };
   return { unit: 'min', n: Math.floor(s / 60), ...stale };
 }
+
+/**
+ * What the live tag says: offline first («ماكو انترنت · آخر تحديث قبل 4 دقايق»), then the town with no
+ * order, then stale («آخر تحديث قبل 3 دقايق»), then how fresh («مباشر · قبل 8 ثواني»).
+ */
+export function liveLabel(ageSec: number | undefined, offline: boolean, town: string): string {
+  const age = ageSec === undefined ? null : liveAge(ageSec);
+  if (offline) return age?.unit === 'min' ? t('home.live_offline', { n: age.n }) : t('home.live_offline_now');
+  if (age === null) return t('home.live_town', { town });
+  if (age.stale) return t('home.live_stale', { n: age.n });
+  if (age.unit === 'now') return t('home.live_now');
+  return t(age.unit === 'sec' ? 'home.live_sec' : 'home.live_min', { n: age.n });
+}
+
+/** «خطوة 2 من 4: دا يتحضّر» for the step row; at the end, the last step. */
+export function stepsA11y(steps: readonly TrackerStep[]): string {
+  const now = steps.indexOf('now');
+  const at = now === -1 ? steps.length - 1 : now;
+  return t('home.step_of', { n: at + 1, total: steps.length, step: stepName(STAGES[at]!) });
+}
+
+/** Minutes as the panel shows them: whole, never below 0 (0 reads «يوصل هسة»). */
+export const panelMinutes = (m: number) => Math.max(0, Math.round(m));

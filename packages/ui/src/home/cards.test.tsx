@@ -95,7 +95,7 @@ describe('two dishes side by side', () => {
 
 describe('restaurant card', () => {
   it('shows the full name, the rating, the minutes and the delivery fee', () => {
-    const r = renderUI(<RestaurantCard name="مطعم خالد للمشويات والكص العراقي" rating={4.7} minutes={25} fee={1500} picture={pic} testID="rc" />, { theme: 'sage' });
+    const r = renderUI(<RestaurantCard id="r1" name="مطعم خالد للمشويات والكص العراقي" rating={4.7} minutes={25} fee={1500} picture={pic} testID="rc" />, { theme: 'sage' });
     expect(r.getByText('مطعم خالد للمشويات والكص العراقي')).toBeTruthy();
     expect(r.getByText('4.7')).toBeTruthy();
     expect(r.getByText('25 دقيقة')).toBeTruthy();
@@ -103,7 +103,7 @@ describe('restaurant card', () => {
     expect(clean(r.getByTestId('rc').getAttribute('aria-label'))).toBe('مطعم خالد للمشويات والكص العراقي، تقييمه 4.7 من 5، يوصلك خلال 25 دقيقة، توصيل 1,500 دينار');
   });
   it('says free delivery when the fee is 0, and draws a picture when the photo is missing', () => {
-    const r = renderUI(<RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} testID="rc" />, { theme: 'emeraldNight' });
+    const r = renderUI(<RestaurantCard id="r2" name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} testID="rc" />, { theme: 'emeraldNight' });
     expect(r.getByText('توصيل مجاني')).toBeTruthy();
     expect(r.getByTestId('rc-fallback')).toBeTruthy();
   });
@@ -149,7 +149,7 @@ describe('round 2: honest edges', () => {
     expect(r.getByTestId('bd-fallback')).toBeTruthy();
   });
   it('a restaurant with no ratings yet says «جديد», not 0.0', () => {
-    const r = renderUI(<RestaurantCard name="مطعم جديد" rating={0} minutes={20} fee={1000} testID="rc" />, { theme: 'sage' });
+    const r = renderUI(<RestaurantCard id="r3" name="مطعم جديد" rating={0} minutes={20} fee={1000} testID="rc" />, { theme: 'sage' });
     expect(r.getByText('جديد')).toBeTruthy();
     expect(r.queryByText('0.0')).toBeNull();
   });
@@ -178,7 +178,7 @@ describe('round 3: honest semantics', () => {
     expect(r.queryByTestId('p-fallback')).toBeNull();
   });
   it('a card with nothing to tap is read as one group, never as a dimmed button', () => {
-    const r = renderUI(<RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} testID="rc" />, { theme: 'sage' });
+    const r = renderUI(<RestaurantCard id="r4" name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} testID="rc" />, { theme: 'sage' });
     const card = r.getByTestId('rc');
     expect(card.getAttribute('role')).not.toBe('button');
     expect(card.getAttribute('aria-disabled')).toBeNull();
