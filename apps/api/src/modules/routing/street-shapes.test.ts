@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { LatLng } from '@driver/contracts';
+import { haversineM, type LatLng } from '@driver/contracts';
 import { buildStreetGraph, type LngLat } from '@driver/map/pieces/street-route';
 import { EtaService } from './eta.service.js';
 import { decodePolyline, encodePolyline } from './polyline.js';
@@ -72,5 +72,14 @@ describe('the town streets', () => {
     const s = new StreetShapes(townStreets).shape([at(45.0588, 32.9088), at(45.0628, 32.9058)]);
     expect(s).not.toBeNull();
     expect(decodePolyline(s!).length).toBeGreaterThan(5);
+  });
+
+  it('join streets across the tile edges of the map, so a short ride is not sent round a long loop', () => {
+    // A restaurant by the park to a school 0.7 km away: before the streets were cut cleanly at the
+    // tile edges, the two halves of the road between them never met and the line looped 5.6 km.
+    const line = decodePolyline(new StreetShapes(townStreets).shape([at(45.0791567, 32.9012428), at(45.074018, 32.906146)])!);
+    let metres = 0;
+    for (let i = 1; i < line.length; i++) metres += haversineM(line[i - 1]!, line[i]!);
+    expect(metres).toBeLessThan(2_500);
   });
 });
