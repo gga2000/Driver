@@ -8,3 +8,4 @@ export { LiveBoard, type BoardService, type Departure, type LiveBoardProps } fro
 export { PointsPill, RiverLine } from './bits';
 export { useHomeLook, countWord } from './look';
 export * from './logic';
+export { BigDishCard, CompactDish, HomeChips, RestaurantCard, UsualCard, type BigDishCardProps, type CompactDishProps, type HomeCardDish, type HomeChip, type HomeChipsProps, type RestaurantCardProps, type UsualCardProps } from './cards';

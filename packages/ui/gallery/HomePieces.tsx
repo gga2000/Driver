@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Image, View, type ImageSourcePropType } from 'react-native';
+import { Image, ScrollView, View, type ImageSourcePropType } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Text, useTheme } from '../src';
-import { CalmPanel, HomeMapCard, LiveBoard, OffersPanel, OrderPanel, PointsPill, RiverLine, riverFill, type HomeDish, type OrderStage } from '../src/home';
+import { BigDishCard, CalmPanel, CompactDish, HomeChips, HomeMapCard, RestaurantCard, UsualCard, LiveBoard, OffersPanel, OrderPanel, PointsPill, RiverLine, riverFill, type HomeDish, type OrderStage } from '../src/home';
 import mapDay from './assets/map-day.jpg';
 import mapNight from './assets/map-night.jpg';
 // The app's own cut-out pictures (apps/customer/assets/home), so the gallery shows the real ones.
@@ -13,6 +13,7 @@ import intercityPic from '../../../apps/customer/assets/home/intercity.webp';
 import bamia from '../../../apps/customer/assets/home/dishes/bamia.webp';
 import liver from '../../../apps/customer/assets/home/dishes/liver.webp';
 import biryani from '../../../apps/customer/assets/home/dishes/biryani.webp';
+import qeema from '../../../apps/customer/assets/home/dishes/qeema.webp';
 
 const src = (s: number | string): ImageSourcePropType => (typeof s === 'string' ? { uri: s } : s);
 const PICTURES = { food: src(foodPic), taxi: src(taxiPic), tuktuk: src(tuktukPic), intercity: src(intercityPic) };
@@ -102,6 +103,14 @@ function Piece({ title, note, children, id }: { title: string; note?: string; ch
   );
 }
 
+const CHIPS = [
+  { id: 'grill', label: 'مشاوي' },
+  { id: 'family', label: 'للعائلة' },
+  { id: 'shawarma', label: 'شاورما' },
+  { id: 'falafel', label: 'فلافل' },
+  { id: 'sweets', label: 'حلويات' },
+];
+
 const ORDER = { from: 'مطعم خالد', title: 'الدليفري طلع من المطعم', minutes: 12, cash: 19250, person: { name: 'حيدر', kind: 'courier' as const }, onMessage: () => {} };
 const STAGE_TITLES: Record<OrderStage, string> = { placed: 'طلبك عند المطعم', preparing: 'دا يتحضّر', on_way: 'الدليفري طلع من المطعم', arrived: 'وصل طلبك، بالعافية' };
 
@@ -148,6 +157,29 @@ export function HomePiecesSection() {
           <HomeMapCard map={<MapStill order />} town={TOWN} ageSec={260} route={{ from: 'السوق', to: 'البيت' }} mapHeight={120}>
             <OrderPanel from="تكسي · 4 ركاب" title="السايق جاي عليك" stage="on_way" minutes={4} person={{ name: 'عباس', kind: 'driver' }} onMessage={() => {}} />
           </HomeMapCard>
+        </Piece>
+        <Piece id="hp-dish" title="أكلة اليوم (بدون طلب)">
+          <BigDishCard dish={{ id: 'biryani', name: 'برياني دجاج للعائلة', restaurant: 'مطعم المسافر', minutes: 30, price: 12000, picture: { source: src(biryani) } }} tag="للعشا" onAdd={() => {}} />
+        </Piece>
+        <Piece id="hp-dish-nophoto" title="أكلة بدون صورة + اسم طويل" note="إذا ماكو صورة نرسم الأكلة نفسها">
+          <BigDishCard dish={{ id: 'kabab', name: 'كباب عروگ مشوي على الفحم ويه خبز تنور وبصل', restaurant: 'مشويات الشط', minutes: 25, price: 7500 }} tag="للغدا اليوم" onAdd={() => {}} />
+        </Piece>
+        <Piece id="hp-compact" title="أكلة صغيرة (وقت الطلب)">
+          <Text variant="bodyStrong" face="display">للغدا اليوم</Text>
+          <CompactDish dish={{ id: 'qeema', name: 'تمن وقيمة', restaurant: 'مطعم الحجي', minutes: 20, price: 4500, picture: { source: src(qeema) } }} onAdd={() => {}} />
+          <CompactDish dish={{ id: 'falafel', name: 'لفة فلافل', restaurant: 'فلافل أبو علي', minutes: 10, price: 1000 }} onAdd={() => {}} />
+        </Piece>
+        <Piece id="hp-usual" title="طلبك المعتاد (يوم عادي وجمعة)">
+          <UsualCard restaurant="مطعم الحجي" items="تمن وقيمة · لبن" price={4500} picture={{ source: src(qeema) }} friday={false} onReorder={() => {}} />
+          <UsualCard restaurant="مطعم خالد" items="تمن ومرق بامية ×2 · سلطة" price={9000} picture={{ source: src(bamia) }} friday onReorder={() => {}} />
+        </Piece>
+        <Piece id="hp-open" title="مفتوح هسة: الأصناف والمطاعم" note="ولا صنف مختار بالبداية؛ تحت: «للعائلة» مختار">
+          <HomeChips chips={CHIPS} selected={null} onSelect={() => {}} />
+          <HomeChips chips={CHIPS} selected="family" onSelect={() => {}} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: theme.space[3] }}>
+            <RestaurantCard name="مطعم خالد للمشويات والكص" rating={4.7} minutes={25} fee={1500} picture={{ source: src(liver) }} />
+            <RestaurantCard name="فلافل أبو علي" rating={4.5} minutes={12} fee={0} />
+          </ScrollView>
         </Piece>
         <Piece id="hp-bits" title="النقاط والنهر" note="النهر يتعبّى برتقالي ويه الطلب: طلبت · يتحضّر · بالطريق · وصل">
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
