@@ -315,4 +315,11 @@ describe('home redesign colours (sage and emerald night)', () => {
       expect(contrastRatio(look.board.dot, look.board.tile), `${name} live dot on tile`).toBeGreaterThanOrEqual(3);
     }
   });
+
+  it('audit round 7 (2026-11-04): text on the panel orange is its own pair and reads at AA', () => {
+    for (const name of customerThemes) {
+      const { panel } = homeLook[name];
+      expect(contrastRatio(panel.onAccent, panel.accent), `${name} panel button text`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
 });

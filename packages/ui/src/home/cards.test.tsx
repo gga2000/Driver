@@ -5,7 +5,7 @@ import { PhotoImageProvider } from '../components/PhotoImage';
 import type { ThemeName } from '@driver/design-tokens';
 import { renderUI } from '../test/render';
 import { BigDishCard, CompactDish, DishPair, HomeChips, RestaurantCard, type HomeCardDish } from './cards';
-import { CalmPanel } from './panels';
+import { CalmPanel } from './calmPanels';
 import { Picture } from './media';
 
 const pic = { uri: 'https://x.test/p.webp' };

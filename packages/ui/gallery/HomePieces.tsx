@@ -27,7 +27,7 @@ const DISHES: HomeDish[] = [
 ];
 const DEPARTURES = [
   { id: 'bgd', city: 'بغداد', time: '4:30', part: 'العصر', seats: 7, free: 3 },
-  { id: 'kut', city: 'الكوت', time: '7:00', part: 'الصبح', seats: 7, free: 5 },
+  { id: 'kut', city: 'الكوت', time: '7:00', part: 'الصبح', tomorrow: true, seats: 7, free: 5 },
 ];
 
 // The route along the crop's real streets: down the side street, east on the main road, then down the avenue.
@@ -140,7 +140,7 @@ const CHIPS = [
   { id: 'sweets', label: 'حلويات' },
 ];
 
-const USUAL: UsualOrder = { id: 'usual-hajji', restaurant: 'مطعم الحجي', items: 'تمن وقيمة ولبن', price: 4500, picture: { source: src(qeema) }, friday: false };
+const USUAL: UsualOrder = { id: 'usual-hajji', restaurant: 'مطعم الحجي', items: 'تمن وقيمة ولبن', price: 4500, picture: { source: src(qeema) }, friday: false, minutes: 25 };
 const PAIR: HomeDish[] = [
   { id: 'biryani', name: 'برياني دجاج للعائلة', restaurant: 'مطعم المسافر', minutes: 30, price: 12000, picture: { source: src(biryani) } },
   { id: 'bamia', name: 'تمن ومرق بامية', restaurant: 'مطعم خالد', minutes: 15, price: 4000, picture: { source: src(bamia) } },
@@ -318,7 +318,7 @@ function HomeScreenPreview({ order }: { order: boolean }) {
           </View>
         ) : (
           <View style={{ gap: theme.space[3] }}>
-            <Text variant="title" face="display">للغدا اليوم</Text>
+            <Text variant="title" face="display">من مطابخ العزيزية</Text>
             <DishPair dishes={PAIR} onAdd={() => {}} />
           </View>
         )}

@@ -21,7 +21,6 @@ export interface HomeCardDish {
   picture?: DishPicture;
 }
 
-
 /**
  * The surface every home section sits on (audit round 2): the card colour and one soft shadow, never an
  * outline; one radius for cards (20), round for buttons and chips.
@@ -50,7 +49,7 @@ function CardButton({ label, a11y, onPress, filled, compact, testID }: { label: 
         minHeight: compact ? theme.hitTarget : homeSize.button,
         paddingHorizontal: compact ? theme.space[4] : theme.space[5],
         borderRadius: theme.radius.pill,
-        borderWidth: filled ? 0 : 1.5,
+        borderWidth: filled ? 0 : homeSize.outline,
         borderColor: theme.colors.selectedBorder,
         backgroundColor: filled ? theme.colors.accent : 'transparent',
         alignItems: 'center',
@@ -152,9 +151,9 @@ export const CompactDish = memo(function CompactDish({ dish, onAdd, onPress, tes
         onPress={add}
         guardMs={GUARD_MS}
         testID={testID ? `${testID}-add` : undefined}
-        style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, borderWidth: 1.5, borderColor: theme.colors.selectedBorder, alignItems: 'center', justifyContent: 'center' }}
+        style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, borderWidth: homeSize.outline, borderColor: theme.colors.selectedBorder, alignItems: 'center', justifyContent: 'center' }}
       >
-        <Icon name="plus" size={22} color="accentText" strokeWidth={2.25} />
+        <Icon name="plus" size={homeSize.iconPlus} color="accentText" strokeWidth={2.25} />
       </HomePress>
     </HomeCard>
   );
@@ -197,7 +196,7 @@ const PairDish = memo(function PairDish({ dish: d, onAdd, onPress, testID }: { d
     <HomeCard testID={testID} style={{ flex: 1, overflow: 'hidden' }}>
       <HomePress accessibilityLabel={dishA11y(d)} onPress={onPress ? open : undefined} style={{ flex: 1 }}>
         <Picture picture={d.picture} name={d.name} seed={d.id} width="100%" height={homeSize.pairPhoto} radius={0} testID={testID} />
-        <View style={{ padding: theme.space[3], paddingBottom: theme.space[2], gap: 2, flex: 1 }}>
+        <View style={{ padding: theme.space[3], paddingBottom: theme.space[2], gap: homeSize.gapHair, flex: 1 }}>
           <Text variant="bodyStrong" face="display" numberOfLines={2}>
             {d.name}
           </Text>
@@ -217,7 +216,7 @@ const PairDish = memo(function PairDish({ dish: d, onAdd, onPress, testID }: { d
           testID={testID ? `${testID}-add` : undefined}
           style={{ width: theme.hitTarget, height: theme.hitTarget, borderRadius: theme.hitTarget / 2, backgroundColor: theme.colors.surfaceSunken, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Icon name="plus" size={22} color="accentText" strokeWidth={2.25} />
+          <Icon name="plus" size={homeSize.iconPlus} color="accentText" strokeWidth={2.25} />
         </HomePress>
       </View>
     </HomeCard>
@@ -252,13 +251,13 @@ export const RestaurantCard = memo(function RestaurantCard({ id, name, rating, m
     <HomePress accessibilityLabel={rating > 0 ? t('home.rest_a11y', { name, rating: stars, minutes: mins(minutes), fee: feeText }) : t('home.rest_new_a11y', { name, minutes: mins(minutes), fee: feeText })} onPress={onPress ? open : undefined} testID={testID} style={{ width }}>
       <HomeCard style={{ overflow: 'hidden', flex: 1 }}>
         <Picture picture={picture} name={name} seed={id} width="100%" height={homeSize.restPhoto} radius={0} testID={testID} />
-        <View style={{ padding: theme.space[3], paddingTop: theme.space[2], gap: 2 }}>
+        <View style={{ padding: theme.space[3], paddingTop: theme.space[2], gap: homeSize.gapHair }}>
           <Text variant="bodyStrong" face="display" numberOfLines={2}>
             {name}
           </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
             {/* The theme's star: orange with an ink outline in sage (orange alone fails there, §4). */}
-            {rating > 0 ? <Icon name="star" size={14} color="starOutline" fillColor="star" filled strokeWidth={1.25} /> : null}
+            {rating > 0 ? <Icon name="star" size={homeSize.iconSm} color="starOutline" fillColor="star" filled strokeWidth={1.25} /> : null}
             <Text variant="footnote" weight={700} tabular compact>
               {stars}
             </Text>
@@ -320,14 +319,14 @@ export function HomeChips({ chips, selected, onSelect, accessibilityLabel, testI
               minHeight: theme.hitTarget,
               flexDirection: 'row',
               alignItems: 'center',
-              gap: 6,
+              gap: homeSize.gapTight,
               paddingHorizontal: theme.space[4],
               borderRadius: theme.radius.pill,
               backgroundColor: on ? theme.colors.selected : look.card.fill,
               boxShadow: on ? undefined : (look.card.shadow ?? undefined),
             }}
           >
-            {on ? <Icon name="check" size={16} color="onSelected" strokeWidth={2.5} /> : null}
+            {on ? <Icon name="check" size={homeSize.iconChip} color="onSelected" strokeWidth={2.5} /> : null}
             <Text variant="label" weight={on ? 700 : 500} color={on ? 'onSelected' : 'text'} compact>
               {c.label}
             </Text>

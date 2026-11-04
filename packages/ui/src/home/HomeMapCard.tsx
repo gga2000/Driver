@@ -4,7 +4,7 @@ import { t } from '@driver/i18n';
 import { Text } from '../components/Text';
 import { useTheme } from '../theme/ThemeProvider';
 import { homeSize } from './format';
-import { liveAge, liveLabel } from './logic';
+import { liveAge, liveLabel, STALE_AFTER_SEC } from './logic';
 import { useHomeLook } from './look';
 
 export interface HomeMapCardProps {
@@ -109,6 +109,8 @@ export function HomeMapCard({
                 borderRadius: theme.radius.pill,
                 backgroundColor: look.card.fill,
                 boxShadow: look.card.shadow ?? undefined,
+                // Offline, the route is from the last picture too: it steps back with the grey rider.
+                opacity: offline ? 0.6 : 1,
               }}
             >
               <Text variant="footnote" compact numberOfLines={1}>
@@ -123,7 +125,7 @@ export function HomeMapCard({
   );
 }
 
-/** Seconds since `updatedAt`, ticking once a second for the first minute, then every 30 s. */
+/** Seconds since `updatedAt`, ticking once a second for the first minute, then every 30 s, with one tick exactly when it turns stale. */
 function useAgeSec(
   updatedAt: number | undefined,
   fixedNow: number | undefined,
@@ -135,7 +137,11 @@ function useAgeSec(
       : Math.max(0, Math.floor(((fixedNow ?? clock) - updatedAt) / 1000));
   useEffect(() => {
     if (updatedAt === undefined || fixedNow !== undefined) return;
-    const id = setTimeout(() => setClock(Date.now()), (age ?? 0) < 60 ? 1000 : 30_000);
+    const a = age ?? 0;
+    // Never show «مباشر» for up to 30 s past the stale line: wake right when it is crossed.
+    const untilStale = (STALE_AFTER_SEC + 1 - a) * 1000;
+    const next = a < 60 ? 1000 : untilStale > 0 ? Math.min(30_000, untilStale) : 30_000;
+    const id = setTimeout(() => setClock(Date.now()), next);
     return () => clearTimeout(id);
   }, [updatedAt, fixedNow, age]);
   return age;
@@ -178,7 +184,7 @@ export const LiveTag = memo(function LiveTag({
         start: theme.space[3],
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: homeSize.gapTight,
         paddingHorizontal: theme.space[3],
         paddingVertical: 2,
         borderRadius: theme.radius.pill,

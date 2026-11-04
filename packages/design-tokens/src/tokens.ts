@@ -1061,6 +1061,8 @@ export interface HomeLook {
     fact: string;
     /** Money on the panel (cash to hand over, offer prices): warm orange, AA on `fill` and `raised`. */
     cash: string;
+    /** Text on `accent` (the panel's main button, the offer badge): owned here so the pair is tested together. */
+    onAccent: string;
     /** The panel's hairline edge (night only; the forest needs none on the sage page). */
     edge: string | null;
   };
@@ -1099,9 +1101,9 @@ export interface HomeLook {
 
 export const homeLook: Record<CustomerThemeName, HomeLook> = {
   sage: {
-    panel: { fill: '#1F3A2B', raised: '#274836', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F', fact: '#9FF5C4', cash: '#FFB27A', edge: null },
+    panel: { fill: '#1F3A2B', raised: '#274836', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F', fact: '#9FF5C4', cash: '#FFB27A', onAccent: '#160D05', edge: null },
     board: { tile: '#FCFDFB', fact: '#1F3A2B', dot: '#2F7D4E' },
-    card: { fill: '#FCFDFB', shadow: '0px 1px 3px rgba(16, 40, 28, 0.14), 0px 10px 24px -14px rgba(16, 40, 28, 0.30)', edge: 'rgba(26, 46, 34, 0.10)' },
+    card: { fill: '#FCFDFB', shadow: '0px 1px 3px rgba(16, 40, 28, 0.14), 0px 10px 24px -14px rgba(16, 40, 28, 0.30)', edge: 'rgba(26, 46, 34, 0.16)' },
     late: { fill: '#F2C14E', on: '#1A1405' },
     price: '#1F3A2B',
     river: { line: '#9DB08A', inner: '#AAC096', glow: null },
@@ -1114,8 +1116,8 @@ export const homeLook: Record<CustomerThemeName, HomeLook> = {
   },
   emeraldNight: {
     // Same design as sage, night colours (Ali, 2026-11-02): the panel is one step above the cards.
-    panel: { fill: '#15261D', raised: '#1E3528', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F', fact: '#6CFFAE', cash: '#FFB27A', edge: '#2C4636' },
-    board: { tile: '#162820', fact: '#F2FFF6', dot: '#00E575' },
+    panel: { fill: '#15261D', raised: '#1E3528', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F', fact: '#6CFFAE', cash: '#FFB27A', onAccent: '#160D05', edge: '#2C4636' },
+    board: { tile: '#162820', fact: '#F2FFF6', dot: '#5FD99A' },
     card: { fill: '#162820', shadow: null, edge: 'rgba(242, 255, 246, 0.14)' },
     late: { fill: '#F2C14E', on: '#1A1405' },
     price: '#F2FFF6',

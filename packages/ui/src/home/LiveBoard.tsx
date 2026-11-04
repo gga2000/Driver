@@ -19,6 +19,8 @@ export interface Departure {
   /** The clock digits («4:30») and the part of day («العصر»). */
   time: string;
   part: string;
+  /** Tomorrow's first car (none left today): the row says «باچر» so a morning time is never read as today. */
+  tomorrow?: boolean;
   /** All seats in the car (the trip screen draws them); the board says only the free ones. */
   seats: number;
   /** Seats still free; 0 reads «كاملة». */
@@ -92,7 +94,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
               {t('home.board.food_closed')}
             </Text>
           )}
-          {art ? <TilePicture source={pictures.food} width={104} height={100} /> : null}
+          {art ? <TilePicture source={pictures.food} width={homeSize.boardArt.food.w} height={homeSize.boardArt.food.h} /> : null}
         </Tile>
 
         <View style={{ flex: 1, gap }}>
@@ -106,7 +108,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
             <Text variant="bodyStrong" face="display" compact>
               {t('home.board.ride')}
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: homeSize.gapTight }}>
               {rideMinutes === null ? null : <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.board.dot }} />}
               <Text variant="footnote" color="textMuted" numberOfLines={1}>
                 {rideFact}
@@ -128,8 +130,8 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
             )}
             {art ? (
               <View style={{ position: 'absolute', bottom: theme.space[1], end: theme.space[1], flexDirection: 'row', alignItems: 'flex-end', pointerEvents: 'none' }}>
-                <LocalPhoto source={pictures.taxi} fit="contain" style={{ width: 72, height: 44, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
-                <LocalPhoto source={pictures.tuktuk} fit="contain" style={{ width: 46, height: 46, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
+                <LocalPhoto source={pictures.taxi} fit="contain" style={{ width: homeSize.boardArt.taxi.w, height: homeSize.boardArt.taxi.h, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
+                <LocalPhoto source={pictures.tuktuk} fit="contain" style={{ width: homeSize.boardArt.tuktuk.w, height: homeSize.boardArt.tuktuk.h, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
               </View>
             ) : null}
           </Tile>
@@ -144,7 +146,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
               <Text variant="bodyStrong" face="display" compact>
                 {t('home.board.gov')}
               </Text>
-              {art ? <LocalPhoto source={pictures.intercity} fit="contain" style={{ width: 72, height: 32 }} /> : null}
+              {art ? <LocalPhoto source={pictures.intercity} fit="contain" style={{ width: homeSize.boardArt.intercity.w, height: homeSize.boardArt.intercity.h }} /> : null}
             </View>
             {shown.length === 0 ? (
               <Text variant="footnote" color="textMuted">
@@ -161,7 +163,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
         <SmallTile
           name={t('home.board.parcel')}
           fact={t('home.board.parcel_sub', { town })}
-          art={art ? <Art name="parcel" size={64} /> : null}
+          art={art ? <Art name="parcel" size={homeSize.boardArt.small} /> : null}
           onPress={press('parcel')}
           testID={testID ? `${testID}-parcel` : undefined}
         />
@@ -169,7 +171,7 @@ export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts
           name={t('home.board.carts')}
           fact={offline ? t('home.board.unknown') : carts > 0 ? t('home.board.carts_open', { n: carts }) : t('home.board.carts_closed')}
           live={carts > 0 && !offline}
-          art={art ? <Art name="cart" size={64} /> : null}
+          art={art ? <Art name="cart" size={homeSize.boardArt.small} /> : null}
           muted={offline || carts === 0}
           onPress={press('carts')}
           testID={testID ? `${testID}-carts` : undefined}
@@ -191,7 +193,7 @@ function Tile({ children, label, onPress, style, testID }: { children: ReactNode
       style={[
         {
           minHeight: homeSize.boardBottom,
-          gap: 2,
+          gap: homeSize.gapHair,
           borderRadius: theme.radius.xl,
           backgroundColor: look.board.tile,
           boxShadow: look.card.shadow ?? undefined,
@@ -209,7 +211,8 @@ function Tile({ children, label, onPress, style, testID }: { children: ReactNode
   );
 }
 
-const departureA11y = (d: Departure) => t('home.board.departure_a11y', { city: d.city, time: t('home.board.departure_time', { time: d.time, part: d.part }), seats: d.free > 0 ? t('intercity.seats_left', { n: d.free }) : t('intercity.full') });
+const partOf = (d: Departure) => (d.tomorrow ? t('home.board.tomorrow_part', { part: d.part }) : d.part);
+const departureA11y = (d: Departure) => t('home.board.departure_a11y', { city: d.city, time: t('home.board.departure_time', { time: d.time, part: partOf(d) }), seats: d.free > 0 ? t('intercity.seats_left', { n: d.free }) : t('intercity.full') });
 
 /** Two seats or fewer: the count turns orange (forest-on-sage reads «few left» by weight instead). */
 const FEW_SEATS = 2;
@@ -239,7 +242,7 @@ function DepartureRow({ d, first, testID }: { d: Departure; first: boolean; test
           {d.time}
         </Text>
         <Text variant="footnote" color="textMuted" compact>
-          {d.part}
+          {partOf(d)}
         </Text>
       </View>
       {/* Seats in words, not dots (audit round 2): «باقي 3 مقاعد», and «كاملة» when none is left. */}
@@ -257,13 +260,13 @@ function SmallTile({ name, fact, live, art, muted, onPress, testID }: { muted?: 
       <Text variant="bodyStrong" face="display" compact>
         {name}
       </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: art ? '70%' : undefined }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: homeSize.gapTight, maxWidth: art ? '70%' : undefined }}>
         {live ? <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.board.dot }} /> : null}
         <Text variant="footnote" color="textMuted" numberOfLines={2}>
           {fact}
         </Text>
       </View>
-      {art ? <View style={{ position: 'absolute', end: 4, bottom: 4, pointerEvents: 'none', opacity: muted ? UNAVAILABLE : 1 }}>{art}</View> : null}
+      {art ? <View style={{ position: 'absolute', end: homeSize.boardArt.inset, bottom: homeSize.boardArt.inset, pointerEvents: 'none', opacity: muted ? UNAVAILABLE : 1 }}>{art}</View> : null}
     </Tile>
   );
 }

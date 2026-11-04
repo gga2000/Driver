@@ -28,7 +28,7 @@ export function HomeMapCardSkeleton({ mapHeight = homeSize.mapIdle, testID }: { 
         <Skeleton height={mapHeight} radius={0} />
         <View style={{ padding: theme.space[4], gap: theme.space[2] }}>
           <Skeleton width="55%" height={22} radius={theme.radius.sm} />
-          <Skeleton width="100%" height={48} radius={theme.radius.pill} />
+          <Skeleton width="100%" height={homeSize.button} radius={theme.radius.pill} />
         </View>
       </View>
     </Loading>

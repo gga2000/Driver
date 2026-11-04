@@ -5,8 +5,10 @@ import type { ThemeName } from '@driver/design-tokens';
 import { renderUI } from '../test/render';
 import { HomeMapCard } from './HomeMapCard';
 import { LiveBoard } from './LiveBoard';
-import { CalmPanel, OffersPanel, OrderPanel, type HomeDish } from './panels';
+import { OrderPanel } from './OrderPanel';
+import { CalmPanel, OffersPanel, type HomeDish } from './calmPanels';
 import { PointsPill, RiverLine } from './bits';
+import { HomePress } from './media';
 import { countWord } from './look';
 import { HomeMapCardSkeleton, LiveBoardSkeleton } from './skeletons';
 const clean = (s: string | null | undefined) => (s ?? '').replace(/[\u200e\u200f\u2066-\u2069]/g, '');
@@ -374,5 +376,71 @@ describe('round 6: edges', () => {
     expect(parseFloat(getComputedStyle(night.getByTestId('rv')).opacity)).toBeLessThan(1);
     const none = renderUI(<RiverLine fill={0} testID="rv0" />, { theme: 'sage' });
     expect(none.queryByTestId('rv0-fill')).toBeNull();
+  });
+});
+
+describe('audit round 7', () => {
+  it('a late notice that arrives mid-step is said once, with a warning buzz', () => {
+    const spy = vi.spyOn(RN.AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    const haptics = vi.fn();
+    try {
+      const base = { from: 'مطعم خالد', title: 'طلع من المطعم', stage: 'on_way' as const, minutes: 12, testID: 'op' };
+      const r = renderUI(<OrderPanel {...base} />, { theme: 'sage', haptics, reduceMotion: false });
+      const late = { tone: 'late' as const, title: 'تأخرنا عليك · نعتذر', time: '1:40 الظهر' };
+      r.rerender(<OrderPanel {...base} notice={late} />);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith('طلع من المطعم. تأخرنا عليك · نعتذر');
+      expect(haptics).toHaveBeenLastCalledWith('warning');
+      r.rerender(<OrderPanel {...base} notice={late} minutes={11} />);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it('a fractional minute from the server is shown whole, with the right word', () => {
+    const r = renderUI(<CalmPanel dish={dish('d', { minutes: 12.6 })} testID="cp" />, { theme: 'sage' });
+    const text = clean(r.container.textContent);
+    expect(text).toContain('13');
+    expect(text).not.toContain('12.6');
+  });
+  it('an offer passes its own id when tapped', () => {
+    const onDish = vi.fn();
+    const r = renderUI(<OffersPanel town="العزيزية" meal="lunch" until="3" dishes={[dish('a'), dish('b', { was: 5000 })]} onDish={onDish} testID="of" />, { theme: 'sage' });
+    fireEvent.click(r.getByTestId('of-dish-b'));
+    expect(onDish).toHaveBeenCalledWith('b');
+  });
+  it('the usual order says how long it takes today when that is known', () => {
+    const r = renderUI(<CalmPanel usual={{ id: 'u', restaurant: 'مطعم الحجي', items: 'تمن وقيمة', price: 4500, friday: false, minutes: 25 }} onReorder={() => {}} testID="cp" />, { theme: 'sage' });
+    expect(clean(r.container.textContent)).toMatch(/4,500 دينار · 25 دقيقة/);
+  });
+  it('a courier with no name gets a person mark, never a blank circle', () => {
+    const r = renderUI(<OrderPanel from="مطعم خالد" title="وصل طلبك للمطعم" stage="placed" minutes={25} person={{ name: '  ', kind: 'courier' }} testID="op" />, { theme: 'sage' });
+    // At the first step nothing else on the panel draws an icon, so the one svg is the person mark.
+    expect(r.container.querySelectorAll('svg')).toHaveLength(1);
+  });
+  it('the live tag turns stale right at the line, not up to 30 seconds later', () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 10, 4, 9, 0);
+    vi.setSystemTime(start);
+    try {
+      const r = renderUI(<HomeMapCard map={null} town="العزيزية" updatedAt={start - 100_000} testID="m" />, { theme: 'sage' });
+      const read = () => clean(r.getByTestId('m-live').getAttribute('aria-label'));
+      expect(read()).toContain('مباشر');
+      act(() => vi.advanceTimersByTime(21_000));
+      expect(read()).not.toContain('مباشر');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('offline, the route pill steps back with the old picture', () => {
+    const r = renderUI(<HomeMapCard map={null} town="العزيزية" offline route={{ from: 'مطعم خالد', to: 'البيت' }} testID="m" />, { theme: 'sage' });
+    expect(parseFloat(getComputedStyle(r.getByTestId('m-route')).opacity)).toBeLessThan(1);
+  });
+  it('a switched-off press says so and ignores the tap', () => {
+    const onPress = vi.fn();
+    const r = renderUI(<HomePress onPress={onPress} disabled accessibilityLabel="اطلبه" testID="hp"><RN.Text>اطلبه</RN.Text></HomePress>, { theme: 'sage' });
+    fireEvent.click(r.getByTestId('hp'));
+    expect(onPress).not.toHaveBeenCalled();
+    expect(r.getByTestId('hp').getAttribute('aria-disabled')).toBe('true');
   });
 });

@@ -3,7 +3,8 @@
  * the partner and merchant apps never carry them.
  */
 export { HomeMapCard, LiveTag, type HomeMapCardProps } from './HomeMapCard';
-export { CalmPanel, OffersPanel, OrderPanel, type CalmPanelProps, type HomeDish, type OrderNotice, type UsualOrder, type OffersPanelProps, type OrderPanelProps } from './panels';
+export { OrderPanel, type OrderNotice, type OrderPanelProps } from './OrderPanel';
+export { CalmPanel, OffersPanel, type CalmPanelProps, type HomeDish, type UsualOrder, type OffersPanelProps } from './calmPanels';
 export { LiveBoard, type BoardService, type Departure, type LiveBoardProps } from './LiveBoard';
 export { PointsPill, RiverLine } from './bits';
 export { BigDishCard, CompactDish, DishPair, HomeCard, HomeChips, RestaurantCard, type BigDishCardProps, type CompactDishProps, type DishPairProps, type HomeCardDish, type HomeChip, type HomeChipsProps, type RestaurantCardProps } from './cards';

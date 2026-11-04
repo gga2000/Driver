@@ -79,10 +79,13 @@ export interface LiveAge {
   stale?: boolean;
 }
 
+/** Past this many seconds the live tag stops saying «مباشر» and says when the last update came. */
+export const STALE_AFTER_SEC = 120;
+
 /** The live tag's age: «هسة» under 5 s, seconds under a minute, then whole minutes. */
 export function liveAge(seconds: number): LiveAge {
   const s = Math.max(0, Math.floor(seconds));
-  const stale = s > 120 ? { stale: true } : {};
+  const stale = s > STALE_AFTER_SEC ? { stale: true } : {};
   if (s < 5) return { unit: 'now', n: 0, ...stale };
   if (s < 60) return { unit: 'sec', n: s, ...stale };
   return { unit: 'min', n: Math.floor(s / 60), ...stale };
