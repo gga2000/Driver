@@ -24,7 +24,7 @@ export function HomeMapCardSkeleton({ mapHeight = homeSize.mapIdle, testID }: { 
   const look = useHomeLook();
   return (
     <Loading testID={testID}>
-      <View style={{ borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.fill }}>
+      <View style={{ borderRadius: theme.radius.xl, overflow: 'hidden', backgroundColor: look.panel.fill, boxShadow: look.card.shadow ?? undefined, borderWidth: look.card.edge ? 1 : 0, borderColor: look.card.edge ?? undefined }}>
         <Skeleton height={mapHeight} radius={0} />
         <View style={{ padding: theme.space[4], gap: theme.space[2] }}>
           <Skeleton width="55%" height={22} radius={theme.radius.sm} />

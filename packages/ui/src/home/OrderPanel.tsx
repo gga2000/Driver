@@ -222,7 +222,8 @@ export function OrderPanel(props: OrderPanelProps) {
   const { from, title, stage, minutes, notice, actions, offline = false, cash, person, onMessage, testID } = props;
   const theme = useTheme();
   const steps = trackerSteps(stage);
-  const late = notice?.tone === 'late' ? notice : null;
+  // Late only while the order runs: once it has arrived the band and the new time step away.
+  const late = stageRuns(stage) && notice?.tone === 'late' ? notice : null;
   const newTime = late?.time;
   // One clock only: a late order's new time replaces the minutes.
   const left = stageRuns(stage) && newTime === undefined && minutes !== undefined ? panelMinutes(minutes) : undefined;

@@ -102,4 +102,7 @@ describe('round 6: the price slot', () => {
     expect(before.startsWith('مطعم خالد ')).toBe(true);
     expect(after).toBe('');
   });
+  it('no steps read as nothing, never a broken key', () => {
+    expect(stepsA11y([])).toBe('');
+  });
 });

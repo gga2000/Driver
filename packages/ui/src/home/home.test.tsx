@@ -443,4 +443,13 @@ describe('audit round 7', () => {
     expect(onPress).not.toHaveBeenCalled();
     expect(r.getByTestId('hp').getAttribute('aria-disabled')).toBe('true');
   });
+  it('an arrived order drops the late band and the new time', () => {
+    const r = renderUI(<OrderPanel from="مطعم خالد" title="وصل" stage="arrived" notice={{ tone: 'late', title: 'تأخرنا عليك · نعتذر', time: '1:40 الظهر' }} testID="op" />, { theme: 'sage' });
+    expect(r.queryByTestId('op-late')).toBeNull();
+    expect(r.queryByTestId('op-new-time')).toBeNull();
+  });
+  it('tomorrow\'s first car says «باچر», on screen and to screen readers', () => {
+    const r = renderUI(<LiveBoard town="العزيزية" open={5} rideMinutes={3} departures={[{ id: 'k', city: 'الكوت', time: '7:00', part: 'الصبح', tomorrow: true, seats: 7, free: 5 }]} carts={1} pictures={pictures} testID="lb" />, { theme: 'sage' });
+    expect(clean(r.container.textContent)).toContain('باچر الصبح');
+  });
 });

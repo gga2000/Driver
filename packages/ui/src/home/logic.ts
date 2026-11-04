@@ -106,6 +106,7 @@ export function liveLabel(ageSec: number | undefined, offline: boolean, town: st
 
 /** «خطوة 2 من 4: دا يتحضّر» for the step row; at the end, the last step. */
 export function stepsA11y(steps: readonly TrackerStep[]): string {
+  if (steps.length === 0) return '';
   const now = steps.indexOf('now');
   const at = now === -1 ? steps.length - 1 : now;
   return t('home.step_of', { n: at + 1, total: steps.length, step: stepName(STAGES[at]!) });

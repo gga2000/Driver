@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { View, type ImageSourcePropType, type StyleProp, type ViewStyle } from 'react-native';
 import Svg from 'react-native-svg';
 import { DishDrawing } from '../art/dishes';
@@ -77,7 +77,10 @@ export function HomePress({ onPress, haptic = 'secondary', guardMs = 0, disabled
   const last = useRef(0);
   // The latest props in a ref, so the tap handler stays the same function across renders.
   const latest = useRef({ onPress, haptic, guardMs, theme });
-  latest.current = { onPress, haptic, guardMs, theme };
+  // Written after render, never during it (safe under concurrent rendering).
+  useLayoutEffect(() => {
+    latest.current = { onPress, haptic, guardMs, theme };
+  });
   const handle = useCallback(() => {
     const { onPress: go, haptic: h, guardMs: guard, theme: th } = latest.current;
     const now = Date.now();
