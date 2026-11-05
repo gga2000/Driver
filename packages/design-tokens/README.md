@@ -26,6 +26,13 @@ components drew before, so the Partner, Merchant and Console don't change (`toke
 them). `scheme` says which way a theme leans (toasts, state layers); `identity` holds the monogram
 colours per theme; `haptic` maps events to buzzes.
 
+`themes.sage` (light) and `themes.emeraldNight` (dark) are the customer home redesign's themes
+(`docs/specs/2026-11-01-home-redesign.md` §4, Ali 2026-11-01), listed in `customerThemes`. Both use the
+orange `#FF7A1F` with `#160D05` on it; in sage the orange is never text on the light page or cards
+(forest carries links and live words). Each has its own `services`, `decor` and `liveStages`, and
+`homeLook` holds the redesign's own named colours (order panel, river, map card, search placeholder).
+No app switches to them yet; the `@driver/ui` gallery shows them (`?theme=sage`, `?theme=emeraldNight`).
+
 Components read roles (`bg`, `surface`, `text`, `accent`, `onAccent`, `accentTint`, `accentText`,
 `successText`, …), never raw scales. Two rules came out of the contrast check:
 

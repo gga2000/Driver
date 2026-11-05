@@ -484,11 +484,171 @@ const istikanNight: ThemeColors = {
   shadow: '#000000',
 };
 
-export const themes = { light, dark, istikan, istikanNight } as const;
+/**
+ * Sage «سيج» (customer home redesign, Ali 2026-11-01; docs/specs/2026-11-01-home-redesign.md §4) —
+ * the customer app's next light look. Sage page (never pure white), pale cards, forest panels and
+ * outline buttons, ink text. Orange `#FF7A1F` is never text here (2.1:1 on the page): it is a fill
+ * with `#160D05` on it, or a mark/text on the forest panel (4.7:1), and it is kept for the live order,
+ * the food symbol and the main button. Forest chooses and links. Not switched on in any app yet.
+ */
+const sage: ThemeColors = {
+  bg: '#E4EAE1',
+  surface: '#F1F4EF',
+  surfaceRaised: '#F1F4EF',
+  surfaceSunken: '#DAE2D6',
+  text: '#1A231C',
+  textMuted: '#4E5A50',
+  accent: '#FF7A1F',
+  onAccent: '#160D05',
+  // Orange never as text on a light surface: accent-coloured text and washes are forest.
+  accentTint: '#D3E0CF',
+  accentText: '#1F3A2B',
+  border: '#E0E7DC',
+  borderStrong: '#6F7F71',
+  accentBorder: '#1F3A2B',
+  focusRing: '#1A231C',
+  success: '#2F7D4E',
+  successTint: '#D2E8D6',
+  successText: '#1F5E38',
+  warning: '#B07F00',
+  warningTint: '#F5EBC6',
+  warningText: '#6E5100',
+  danger: '#B23A2E',
+  onDanger: '#FFFFFF',
+  dangerTint: '#F5DAD4',
+  dangerText: '#922B21',
+  info: '#2F523E',
+  infoTint: '#D3E0CF',
+  infoText: '#1F3A2B',
+  // The forest panel: the live order, «عندك طلب شغّال», the late banner.
+  inverse: '#1F3A2B',
+  onInverse: '#F1F4EF',
+  onInverseMuted: '#BDCABE',
+  onInverseCaution: '#F2C14E',
+  onInverseSuccess: '#9FDDAF',
+  onInverseAccent: '#FF7A1F',
+  selected: '#1F3A2B',
+  onSelected: '#F1F4EF',
+  selectedBorder: '#1F3A2B',
+  selectedSoft: '#1F3A2B',
+  onSelectedSoft: '#F1F4EF',
+  selectedMark: '#F1F4EF',
+  onSelectedMark: '#1F3A2B',
+  segmentSelected: '#1F3A2B',
+  segmentSelectedBorder: '#1F3A2B',
+  onSegmentSelected: '#F1F4EF',
+  stepperPlus: '#F1F4EF',
+  onStepperPlus: '#1A231C',
+  stepperPlusBorder: '#6F7F71',
+  tabSelected: '#1F3A2B',
+  onTabSelected: '#F1F4EF',
+  // Stars: orange with an ink outline (orange alone is 2.35:1 on a card).
+  star: '#FF7A1F',
+  starOutline: '#1A231C',
+  tintBorder: '#D3E0CF',
+  // The live order is orange (route, courier, minutes); its words are forest on light surfaces.
+  live: '#FF7A1F',
+  liveTint: '#FFE6D3',
+  liveText: '#1F3A2B',
+  deal: '#F2C14E',
+  onDeal: '#1A231C',
+  seatTaken: '#D2DBCE',
+  scrim: 'rgba(26, 35, 28, 0.45)',
+  photoBackdrop: '#0E0B08',
+  photoChrome: '#2A231C',
+  onPhotoBackdrop: '#F6EFE4',
+  shimmer: '#EEF2EB',
+  shadow: '#1F3A2B',
+};
+
+/**
+ * Emerald night «ليل زمردي» (customer home redesign, Ali 2026-11-01; spec §4) — the customer app's
+ * next dark look. Near-black green page, emerald for anything live (river, live dots, glows; never
+ * body text), light emerald for prices, minutes and info, orange for actions (buttons, the selected
+ * chip, the active tab) with `#160D05` on it. Not switched on in any app yet.
+ */
+const emeraldNight: ThemeColors = {
+  bg: '#09110D',
+  surface: '#0F1D16',
+  surfaceRaised: '#15261D',
+  surfaceSunken: '#0B1712',
+  text: '#F2FFF6',
+  textMuted: '#9FB8A8',
+  accent: '#FF7A1F',
+  onAccent: '#160D05',
+  accentTint: '#33200F',
+  accentText: '#FF8F42',
+  border: '#1F372A',
+  borderStrong: '#5F7D6B',
+  accentBorder: '#FF7A1F',
+  focusRing: '#F2FFF6',
+  success: '#00E575',
+  successTint: '#0F2E1E',
+  successText: '#6CFFAE',
+  warning: '#E5B53A',
+  warningTint: '#2E2910',
+  warningText: '#F2CF68',
+  danger: '#FF6B5A',
+  onDanger: '#160D05',
+  dangerTint: '#3A1612',
+  dangerText: '#FF9B8C',
+  info: '#6CFFAE',
+  infoTint: '#0F2E1E',
+  infoText: '#6CFFAE',
+  inverse: '#F2FFF6',
+  onInverse: '#09110D',
+  onInverseMuted: '#3E5446',
+  onInverseCaution: '#7A4E00',
+  onInverseSuccess: '#0B6B3A',
+  onInverseAccent: '#9A4206',
+  selected: '#FF7A1F',
+  onSelected: '#160D05',
+  selectedBorder: '#FF7A1F',
+  selectedSoft: '#33200F',
+  onSelectedSoft: '#F2FFF6',
+  selectedMark: '#FF7A1F',
+  onSelectedMark: '#160D05',
+  segmentSelected: '#FF7A1F',
+  segmentSelectedBorder: '#FF7A1F',
+  onSegmentSelected: '#160D05',
+  stepperPlus: '#FF7A1F',
+  onStepperPlus: '#160D05',
+  stepperPlusBorder: '#FF7A1F',
+  tabSelected: '#FF7A1F',
+  onTabSelected: '#160D05',
+  star: '#FF7A1F',
+  starOutline: '#FF7A1F',
+  tintBorder: '#33200F',
+  live: '#00E575',
+  liveTint: '#0F2E1E',
+  liveText: '#6CFFAE',
+  deal: '#F2C14E',
+  onDeal: '#160D05',
+  seatTaken: '#1A2E23',
+  scrim: 'rgba(0, 0, 0, 0.6)',
+  photoBackdrop: '#0E0B08',
+  photoChrome: '#2A231C',
+  onPhotoBackdrop: '#F6EFE4',
+  shimmer: '#15261D',
+  shadow: '#000000',
+};
+
+export const themes = { light, dark, istikan, istikanNight, sage, emeraldNight } as const;
 export type ThemeName = keyof typeof themes;
 
 /** Which way each theme leans: toasts, state layers and shadows read this, never the theme name. */
-export const scheme: Record<ThemeName, 'light' | 'dark'> = { light: 'light', dark: 'dark', istikan: 'light', istikanNight: 'dark' };
+export const scheme: Record<ThemeName, 'light' | 'dark'> = {
+  light: 'light',
+  dark: 'dark',
+  istikan: 'light',
+  istikanNight: 'dark',
+  sage: 'light',
+  emeraldNight: 'dark',
+};
+
+/** The customer app's redesign themes (spec 2026-11-01 §4): no app uses them yet. */
+export const customerThemes = ['sage', 'emeraldNight'] as const satisfies readonly ThemeName[];
+export type CustomerThemeName = (typeof customerThemes)[number];
 
 /** A monogram colour: `fill` behind the letter, `on` for the letter (AA, tested). */
 export interface IdentityColor {
@@ -518,6 +678,9 @@ export const identity: Record<ThemeName, readonly IdentityColor[]> = {
   ],
   istikan: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5C2A12', '#8E5A12', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
   istikanNight: ['#7A4A2A', '#AD5E36', '#6B7B2E', '#5C2A12', '#8E5A12', '#B23A2E'].map((fill) => ({ fill, on: '#FFFCF6' })),
+  // Redesign (2026-11-01): forest, date, olive, clay, ochre, pomegranate; never the live orange or emerald.
+  sage: ['#1F3A2B', '#7A4A2A', '#4E6A1A', '#AD5E36', '#8E5A12', '#9A2E23'].map((fill) => ({ fill, on: '#FFFCF6' })),
+  emeraldNight: ['#1F4A33', '#7A4A2A', '#4E6A1A', '#AD5E36', '#8E5A12', '#9A2E23'].map((fill) => ({ fill, on: '#FFFCF6' })),
 };
 
 /** One service's tile on the home screen: its own fill, the ink on it, and the colour of its glow. */
@@ -644,7 +807,90 @@ const servicesNight: ServicePalette = {
   off: { fill: '#2E241C', on: '#BFA892', glow: '#000000', card: { bg: '#2E241C', on: '#D9C6B2', sub: '#BFA892', dot: '#8A7560' } },
 };
 
-export const services: Record<ThemeName, ServicePalette> = { light: servicesDay, dark: servicesNight, istikan: servicesDay, istikanNight: servicesNight };
+/**
+ * Sage services (spec §4): the local symbols in their own colours with ink outlines — food the
+ * accent, taxi `#E3B23C`, tuktuk `#A9C25B`, parcels `#D2A46B`, carts `#E07A8E`. Trips and الرجعة
+ * (not in the pictures) wear the forest and the river; home cooks keep their pomegranate.
+ */
+const servicesSage: ServicePalette = {
+  food: {
+    fill: '#FF7A1F',
+    on: '#160D05',
+    glow: '#FF7A1F',
+    mesh: ['#FF9A4D', '#FF8730', '#F26D12'],
+    card: { bg: '#FFE3CC', top: '#FFF0E3', on: '#1A231C', sub: '#4E4034', dot: '#A84A06' },
+  },
+  taxi: { fill: '#E3B23C', on: '#1A231C', glow: '#E3B23C', card: { bg: '#F4E8C4', top: '#FAF3DF', on: '#1A231C', sub: '#4E4A34', dot: '#866300' } },
+  tuktuk: { fill: '#A9C25B', on: '#1A231C', glow: '#A9C25B', card: { bg: '#E1EBC6', top: '#EEF4DD', on: '#1A231C', sub: '#44503A', dot: '#4E6A1A' } },
+  trips: {
+    fill: '#1F3A2B',
+    light: '#274836',
+    on: '#F1F4EF',
+    sub: '#BDCABE',
+    glow: '#1F3A2B',
+    pattern: '#9DB08A',
+    card: { bg: '#D3E0CF', top: '#E4ECE1', on: '#1A231C', sub: '#3E4A40', dot: '#1F3A2B' },
+  },
+  back: {
+    fill: '#9DB08A',
+    light: '#AAC096',
+    on: '#1A231C',
+    sub: '#1F3A2B',
+    glow: '#9DB08A',
+    card: { bg: '#DCE6D2', top: '#E9F0E2', on: '#1A231C', sub: '#3E4A40', dot: '#3E5A2E' },
+  },
+  home: { fill: '#8C2340', on: '#FFFFFF', glow: '#8C2340', card: { bg: '#F2DCE2', top: '#F8EAEE', on: '#1A231C', sub: '#5A3A44', dot: '#8C2340' } },
+  parcel: { fill: '#D2A46B', on: '#1A231C', glow: '#D2A46B', kraft: '#E8D9BF', card: { bg: '#F1E3D0', top: '#F7EEE2', on: '#1A231C', sub: '#4E4034', dot: '#8A5A2A' } },
+  carts: { fill: '#E07A8E', on: '#1A231C', glow: '#E07A8E', card: { bg: '#F6D9DF', top: '#FAE8EC', on: '#1A231C', sub: '#523A40', dot: '#A23A55' } },
+  off: { fill: '#D5DDD1', on: '#4E5A50', glow: '#D5DDD1', card: { bg: '#DCE2D9', on: '#3E4A40', sub: '#4E5A50', dot: '#6F7F71' } },
+};
+
+/**
+ * Emerald night services (spec §4): rings on the surface, food a filled red disc — food `#C82828`,
+ * taxi `#FFE14D`, tuktuk `#00E575`, parcels `#FFB35C`, carts `#FF5FB8`. Trips and الرجعة (not in the
+ * pictures) wear the raised surface and light emerald; home cooks a lighter pomegranate.
+ */
+const servicesEmerald: ServicePalette = {
+  food: {
+    fill: '#C82828',
+    on: '#FFFFFF',
+    glow: '#C82828',
+    mesh: ['#D33434', '#C82828', '#A81E1E'],
+    card: { bg: '#2E1414', top: '#381A1A', on: '#F2FFF6', sub: '#D9B8B8', dot: '#FF6B6B' },
+  },
+  taxi: { fill: '#FFE14D', on: '#160D05', glow: '#FFE14D', card: { bg: '#2A2810', top: '#343118', on: '#F2FFF6', sub: '#D9D3A8', dot: '#FFE14D' } },
+  tuktuk: { fill: '#00E575', on: '#09110D', glow: '#00E575', card: { bg: '#0E2C1C', top: '#133624', on: '#F2FFF6', sub: '#A8D9BC', dot: '#00E575' } },
+  trips: {
+    fill: '#15261D',
+    light: '#1F372A',
+    on: '#F2FFF6',
+    sub: '#6CFFAE',
+    glow: '#000000',
+    pattern: '#00E575',
+    card: { bg: '#16261C', top: '#1C2F23', on: '#F2FFF6', sub: '#9FB8A8', dot: '#6CFFAE' },
+  },
+  back: {
+    fill: '#6CFFAE',
+    light: '#9DFFC9',
+    on: '#09110D',
+    sub: '#0F3A24',
+    glow: '#6CFFAE',
+    card: { bg: '#1A3020', top: '#203826', on: '#F2FFF6', sub: '#A8D9BC', dot: '#6CFFAE' },
+  },
+  home: { fill: '#E05A80', on: '#160D05', glow: '#E05A80', card: { bg: '#2E1520', top: '#381A28', on: '#F2FFF6', sub: '#E3B8C6', dot: '#E05A80' } },
+  parcel: { fill: '#FFB35C', on: '#160D05', glow: '#FFB35C', kraft: '#5A4430', card: { bg: '#2E2112', top: '#382918', on: '#F2FFF6', sub: '#E3CBA8', dot: '#FFB35C' } },
+  carts: { fill: '#FF5FB8', on: '#160D05', glow: '#FF5FB8', card: { bg: '#2E1426', top: '#381A2F', on: '#F2FFF6', sub: '#E3B8D3', dot: '#FF5FB8' } },
+  off: { fill: '#1A2B22', on: '#9FB8A8', glow: '#000000', card: { bg: '#141F19', on: '#C9DACF', sub: '#9FB8A8', dot: '#5F7D6B' } },
+};
+
+export const services: Record<ThemeName, ServicePalette> = {
+  light: servicesDay,
+  dark: servicesNight,
+  istikan: servicesDay,
+  istikanNight: servicesNight,
+  sage: servicesSage,
+  emeraldNight: servicesEmerald,
+};
 
 /** The hour's sky (`HomeDecor.wash`): which daypart tints the top of home. */
 export type SkyHour = 'dawn' | 'noon' | 'sunset' | 'late';
@@ -683,7 +929,33 @@ const decorNight: HomeDecor = {
   teaGlass: { tea: '#D0602A', glass: '#F7EADB', rim: '#FFC155', shine: '#FFFFFF', steam: '#8A7560' },
 };
 
-export const decor: Record<ThemeName, HomeDecor> = { light: decorDay, dark: decorNight, istikan: decorDay, istikanNight: decorNight };
+const decorSage: HomeDecor = {
+  haloDot: '#B9C8B2',
+  haloGlow: '#9DB08A',
+  wash: { dawn: '#EFE3D2', noon: '#DCE7D6', sunset: '#F2DCD0', late: '#D5DDD1' },
+  // Sand, apricot, sage, blush, olive cream, wheat: warm or sage, never teal (Ali's no-teal rule).
+  stages: ['#F1E3CF', '#F6DFCC', '#DCE5D3', '#EFE0D6', '#E3ECCB', '#F3E9CF'],
+  grain: '#1F3A2B',
+  teaGlass: { tea: '#B4471A', glass: '#1F3A2B', rim: '#E0A526', shine: '#FFFFFF', steam: '#9DB08A' },
+};
+
+const decorEmerald: HomeDecor = {
+  haloDot: '#1F372A',
+  haloGlow: '#00E575',
+  wash: { dawn: '#1E2418', noon: '#0F1D16', sunset: '#2A1A12', late: '#09110D' },
+  stages: ['#1A2A1E', '#2A1E14', '#17261A', '#2A1A1A', '#1E2A14', '#2A2414'],
+  grain: '#000000',
+  teaGlass: { tea: '#FF7A1F', glass: '#F2FFF6', rim: '#FFB35C', shine: '#FFFFFF', steam: '#4E6A5A' },
+};
+
+export const decor: Record<ThemeName, HomeDecor> = {
+  light: decorDay,
+  dark: decorNight,
+  istikan: decorDay,
+  istikanNight: decorNight,
+  sage: decorSage,
+  emeraldNight: decorEmerald,
+};
 
 /** One stage of the home live-order card: the card's own colour field and everything drawn on it. */
 export interface LiveStageSwatch {
@@ -730,7 +1002,103 @@ const liveStagesAll: LiveStagePalette = {
   onTheWay: { fill: '#F28C28', light: '#FFB04A', on: '#1F1006', sub: '#3E1F06', accent: '#2A170C', shine: '#FFB04A', marker: '#2A170C', markerOn: '#FFC155', plate: '#FFF4E6', glow: '#F38A1B' },
 };
 
-export const liveStages: Record<ThemeName, LiveStagePalette> = { light: liveStagesAll, dark: liveStagesAll, istikan: liveStagesAll, istikanNight: liveStagesAll };
+/**
+ * Sage: the live order lives on the forest panel (spec §3.4, §4). The forest deepens to its lighter
+ * greens as the food is made, the river sage when it's ready, and the card turns orange — the brightest
+ * — once it's on the way. Orange marks and bars ride the forest (4.7:1).
+ */
+const liveStagesSage: LiveStagePalette = {
+  sent: { fill: '#1A231C', light: '#26332A', on: '#F1F4EF', sub: '#BDCABE', accent: '#FF7A1F', shine: '#F1F4EF', marker: '#FF7A1F', markerOn: '#160D05', plate: '#F1F4EF', glow: '#1F3A2B' },
+  accepted: { fill: '#1F3A2B', light: '#274836', on: '#F1F4EF', sub: '#BDCABE', accent: '#FF7A1F', shine: '#F1F4EF', marker: '#FF7A1F', markerOn: '#160D05', plate: '#F1F4EF', glow: '#2F523E' },
+  cooking: { fill: '#2F523E', light: '#365C46', on: '#F1F4EF', sub: '#D3E0CF', accent: '#FF9A4D', shine: '#F1F4EF', marker: '#FF9A4D', markerOn: '#160D05', plate: '#F1F4EF', glow: '#FF7A1F' },
+  ready: { fill: '#9DB08A', light: '#AAC096', on: '#1A231C', sub: '#1F3A2B', accent: '#1A231C', shine: '#F1F4EF', marker: '#1F3A2B', markerOn: '#F1F4EF', plate: '#F1F4EF', glow: '#9DB08A' },
+  onTheWay: { fill: '#FF7A1F', light: '#FF9447', on: '#160D05', sub: '#3A1E08', accent: '#160D05', shine: '#FFB37A', marker: '#1F3A2B', markerOn: '#FF7A1F', plate: '#FFF0E3', glow: '#FF7A1F' },
+};
+
+/**
+ * Emerald night: the dark surfaces with emerald bars while the order is made, light emerald when it's
+ * ready, orange (the action colour) once it's on the way.
+ */
+const liveStagesEmerald: LiveStagePalette = {
+  sent: { fill: '#0F1D16', light: '#15261D', on: '#F2FFF6', sub: '#9FB8A8', accent: '#00E575', shine: '#6CFFAE', marker: '#6CFFAE', markerOn: '#09110D', plate: '#15261D', glow: '#00E575' },
+  accepted: { fill: '#12261B', light: '#183224', on: '#F2FFF6', sub: '#A8D9BC', accent: '#00E575', shine: '#6CFFAE', marker: '#6CFFAE', markerOn: '#09110D', plate: '#183224', glow: '#00E575' },
+  cooking: { fill: '#1C2E16', light: '#24391C', on: '#F2FFF6', sub: '#C9DABA', accent: '#FFB35C', shine: '#FFE1B8', marker: '#FFB35C', markerOn: '#160D05', plate: '#24391C', glow: '#FFB35C' },
+  ready: { fill: '#6CFFAE', light: '#9DFFC9', on: '#09110D', sub: '#0F3A24', accent: '#09110D', shine: '#F2FFF6', marker: '#09110D', markerOn: '#6CFFAE', plate: '#F2FFF6', glow: '#00E575' },
+  onTheWay: { fill: '#FF7A1F', light: '#FF9447', on: '#160D05', sub: '#3A1E08', accent: '#160D05', shine: '#FFB37A', marker: '#09110D', markerOn: '#FF7A1F', plate: '#FFF0E3', glow: '#FF7A1F' },
+};
+
+export const liveStages: Record<ThemeName, LiveStagePalette> = {
+  light: liveStagesAll,
+  dark: liveStagesAll,
+  istikan: liveStagesAll,
+  istikanNight: liveStagesAll,
+  sage: liveStagesSage,
+  emeraldNight: liveStagesEmerald,
+};
+
+/**
+ * The redesigned home's own named colours (spec 2026-11-01 §3, §4, §6): the order panel and its four
+ * steps, the Tigris river line, the map card's two styles and the service symbols' outline. Only the
+ * two redesign themes have them; nothing reads them yet (step 3 builds the pieces).
+ */
+export interface HomeLook {
+  /** The order panel on the map card: forest in sage, the raised surface in emerald night. */
+  panel: {
+    fill: string;
+    /** A box raised inside the panel. */
+    raised: string;
+    /** Hairlines and the empty part of the step bar. */
+    line: string;
+    /** Titles and big minutes' words on the panel. */
+    on: string;
+    /** Softer copy on the panel. */
+    onSoft: string;
+    /** Secondary copy on the panel (AA). */
+    muted: string;
+    /** The label of a step still to come («وصل»), AA on `fill`. */
+    upcoming: string;
+    /** Done steps, the active step and the big minutes (AA on `fill`). */
+    accent: string;
+  };
+  /** The Tigris line down the page and in the map card. */
+  river: { line: string; inner: string; /** CSS glow around it (emerald night only). */ glow: string | null };
+  /** The map card's style (a real map drawn in these colours, spec §6). */
+  map: { land: string; blocks: string; palms: readonly [string, string]; streets: string; river: string };
+  /** Anything live: the live tag dot, the courier pulse (orange in sage, emerald at night). */
+  live: string;
+  /** Prices, minutes and info in the services band and restaurant cards (forest / light emerald). */
+  info: string;
+  /** The search placeholder: solid, never an opacity (spec §4). */
+  searchPlaceholder: string;
+  /** Outline of the service symbols (ink in sage; none at night, where they are rings). */
+  symbolOutline: string | null;
+  /** The orange glow under a main button (emerald night only). */
+  accentGlow: string | null;
+}
+
+export const homeLook: Record<CustomerThemeName, HomeLook> = {
+  sage: {
+    panel: { fill: '#1F3A2B', raised: '#274836', line: '#2F523E', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F' },
+    river: { line: '#9DB08A', inner: '#AAC096', glow: null },
+    map: { land: '#EAE5D9', blocks: '#DED6C5', palms: ['#99A878', '#758655'], streets: '#FFFFFF', river: '#9DB08A' },
+    live: '#FF7A1F',
+    info: '#1F3A2B',
+    searchPlaceholder: '#4E5A50',
+    symbolOutline: '#1A231C',
+    accentGlow: null,
+  },
+  emeraldNight: {
+    panel: { fill: '#0F1D16', raised: '#15261D', line: '#1F372A', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F' },
+    river: { line: '#00E575', inner: '#6CFFAE', glow: '0 0 14px rgba(0, 229, 117, 0.45)' },
+    // Palms at night are not in the picture: two dim greens between the blocks and the streets.
+    map: { land: '#0A160F', blocks: '#12241A', palms: ['#1A3324', '#22402C'], streets: '#1F3527', river: '#00E575' },
+    live: '#00E575',
+    info: '#6CFFAE',
+    searchPlaceholder: '#9FB8A8',
+    symbolOutline: null,
+    accentGlow: '0 0 20px rgba(255, 122, 31, 0.35)',
+  },
+};
 
 /**
  * Date & Saffron lifts: soft, warm and a little below (CSS `boxShadow`, React Native ≥ 0.76 and
@@ -825,17 +1193,19 @@ export const nonTextPairs: ReadonlyArray<{ fg: ThemeColorKey; bg: ThemeColorKey;
   { fg: 'selectedBorder', bg: 'bg', use: 'selected chip outline on the screen' },
   { fg: 'onSelected', bg: 'selected', use: 'check icon on a selected chip' },
   { fg: 'onSelectedMark', bg: 'selectedMark', use: 'check on a chosen person chip' },
-  { fg: 'accent', bg: 'inverse', use: 'live dot and progress on the live-order card', only: ['light', 'istikan'] },
+  { fg: 'accent', bg: 'inverse', use: 'live dot and progress on the live-order card', only: ['light', 'istikan', 'sage'] },
   { fg: 'onPhotoBackdrop', bg: 'photoChrome', use: 'close ✕ on the photo viewer' },
   { fg: 'onTabSelected', bg: 'tabSelected', use: 'the chosen tab’s icon on its pill' },
   { fg: 'onPhotoBackdrop', bg: 'photoBackdrop', use: 'close button ring on the photo viewer' },
   // Istikan-only cues: in light the same roles are today's accent fills (unchanged for the other apps).
-  { fg: 'stepperPlusBorder', bg: 'surfaceSunken', use: 'the neutral "+" key on the stepper track', only: ['istikan', 'istikanNight'] },
-  { fg: 'starOutline', bg: 'surface', use: 'rating star outline on a card', only: ['istikan', 'istikanNight'] },
-  { fg: 'live', bg: 'bg', use: 'live dot, route on the screen', only: ['istikan', 'istikanNight'] },
-  { fg: 'live', bg: 'surface', use: 'live dot, route on a card', only: ['istikan', 'istikanNight'] },
-  { fg: 'segmentSelected', bg: 'surfaceSunken', use: 'segmented thumb on its track', only: ['istikan', 'istikanNight'] },
-  { fg: 'selected', bg: 'surface', use: 'selected chip fill on a card', only: ['istikan', 'istikanNight'] },
+  { fg: 'stepperPlusBorder', bg: 'surfaceSunken', use: 'the neutral "+" key on the stepper track', only: ['istikan', 'istikanNight', 'sage', 'emeraldNight'] },
+  { fg: 'starOutline', bg: 'surface', use: 'rating star outline on a card', only: ['istikan', 'istikanNight', 'sage', 'emeraldNight'] },
+  // Sage's live orange is 2.1:1 on the page: it is drawn on the forest panel or the map, never as a bare dot here.
+  { fg: 'live', bg: 'bg', use: 'live dot, route on the screen', only: ['istikan', 'istikanNight', 'emeraldNight'] },
+  { fg: 'live', bg: 'surface', use: 'live dot, route on a card', only: ['istikan', 'istikanNight', 'emeraldNight'] },
+  { fg: 'live', bg: 'inverse', use: 'live dot, route and courier on the forest panel', only: ['sage'] },
+  { fg: 'segmentSelected', bg: 'surfaceSunken', use: 'segmented thumb on its track', only: ['istikan', 'istikanNight', 'sage', 'emeraldNight'] },
+  { fg: 'selected', bg: 'surface', use: 'selected chip fill on a card', only: ['istikan', 'istikanNight', 'sage', 'emeraldNight'] },
 ];
 
 /** Spacing scale of 4. Keys are multipliers; values are px. */
@@ -1095,7 +1465,10 @@ export const haptic = {
     backOnline: 'light',
     sos: 'heavy',
   } satisfies Record<string, HapticEventKind>,
-  secondaryButton: { light: 'light', dark: 'light', istikan: null, istikanNight: null } satisfies Record<ThemeName, HapticEventKind | null>,
+  secondaryButton: { light: 'light', dark: 'light', istikan: null, istikanNight: null, sage: null, emeraldNight: null } satisfies Record<
+    ThemeName,
+    HapticEventKind | null
+  >,
 } as const;
 
 /**
@@ -1172,6 +1545,7 @@ export const tokens = {
   services,
   decor,
   liveStages,
+  homeLook,
   lift,
   brandFace,
   haptic,

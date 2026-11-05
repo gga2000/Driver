@@ -118,7 +118,7 @@ describe('istikan theme (joy J-D1; Date & Saffron, Ali 2026-10-06)', () => {
     for (const n of Object.keys(themes) as ThemeName[]) expect(Object.keys(themes[n]).sort()).toEqual(Object.keys(themes.light).sort());
   });
   it('is a light scheme; its night palette is dark and kept ready, not used (J-D4)', () => {
-    expect(scheme).toEqual({ light: 'light', dark: 'dark', istikan: 'light', istikanNight: 'dark' });
+    expect(scheme).toEqual({ light: 'light', dark: 'dark', istikan: 'light', istikanNight: 'dark', sage: 'light', emeraldNight: 'dark' });
     expect(themes.istikanNight.bg).toBe('#1A100A');
   });
   it('identity colours are non-semantic, and every letter on them passes AA', () => {
@@ -164,6 +164,6 @@ describe('motion and haptics (report 5 §6)', () => {
       .sort();
     expect(successes).toEqual(['arrival', 'orderPlaced', 'pointsEarned', 'seatBooked', 'topUpConfirmed']);
     expect(Object.entries(haptic.events).filter(([, k]) => k === 'heavy').map(([e]) => e)).toEqual(['sos']);
-    expect(haptic.secondaryButton).toEqual({ light: 'light', dark: 'light', istikan: null, istikanNight: null });
+    expect(haptic.secondaryButton).toEqual({ light: 'light', dark: 'light', istikan: null, istikanNight: null, sage: null, emeraldNight: null });
   });
 });

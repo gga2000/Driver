@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ScrollView, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { SAFETY_RULES } from '@driver/contracts';
-import { contrastRatio, type ThemeColorKey } from '@driver/design-tokens';
+import { contrastRatio, customerThemes, type CustomerThemeName, type ThemeColorKey, type ThemeName } from '@driver/design-tokens';
 import { t } from '@driver/i18n';
 import {
   OfflineBanner,
@@ -62,6 +62,7 @@ import {
 } from '../src';
 import { SketchbookDishes, SketchbookPage, SketchbookScenes } from './Sketchbook';
 import { StickersPage } from './Stickers';
+import { HomeLookSection } from './HomeLook';
 
 /* ───────────────────────── layout helpers ───────────────────────── */
 
@@ -184,7 +185,7 @@ function Hero() {
         </View>
         <View style={{ gap: theme.space[2], minWidth: wide ? 360 : undefined, alignSelf: wide ? 'auto' : 'stretch' }}>
           <Button label={t('home.order_now')} trailing={formatIqd(19250)} size="lg" fullWidth />
-          <Caption>الزر الرئيسي: حبر غامق على البرتقالي. الأبيض على #E08A1E نسبته 2.7:1 وما ينقرا.</Caption>
+          <Caption>{`الزر الرئيسي: حبر غامق على البرتقالي. الأبيض على ${theme.colors.accent} نسبته ${contrastRatio('#FFFFFF', theme.colors.accent).toFixed(1)}:1 وما ينقرا.`}</Caption>
         </View>
       </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[4] }}>
@@ -1172,8 +1173,10 @@ function Page() {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: theme.colors.bg }} contentContainerStyle={{ alignItems: 'center' }}>
       <View style={{ width: '100%', maxWidth: 1200, paddingHorizontal: gutter, paddingBottom: theme.space[16] }}>
+        <ThemeSwitch />
         <Hero />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: width >= 980 ? -theme.space[3] : 0 }}>
+          {isCustomerTheme(theme.name) ? <HomeLookSection name={theme.name} /> : null}
           <ButtonsSection />
           <ChoiceSection />
           <W12Controls />
@@ -1203,11 +1206,64 @@ function Page() {
   );
 }
 
+/* ───────────────────────── theme switch ───────────────────────── */
+
+/** Every theme the gallery can wear; `light` stays the default, so the gallery opens as before. */
+const GALLERY_THEMES: readonly { name: ThemeName; label: string }[] = [
+  { name: 'light', label: 'فاتح (الشركاء والمطاعم)' },
+  { name: 'dark', label: 'غامق' },
+  { name: 'istikan', label: 'استكان (الزبون هسة)' },
+  { name: 'istikanNight', label: 'استكان بالليل' },
+  { name: 'sage', label: 'سيج (الزبون الجديد)' },
+  { name: 'emeraldNight', label: 'ليل زمردي (الزبون الجديد)' },
+];
+
+const isCustomerTheme = (name: ThemeName): name is CustomerThemeName => (customerThemes as readonly ThemeName[]).includes(name);
+
+/** `?theme=sage` opens the gallery in that theme (screenshots use it); the switch keeps the URL in step. */
+function themeFromUrl(): ThemeName {
+  if (typeof window === 'undefined') return 'light';
+  const asked = new URLSearchParams(window.location.search).get('theme');
+  return GALLERY_THEMES.find((x) => x.name === asked)?.name ?? 'light';
+}
+
+const GalleryThemeContext = createContext<(name: ThemeName) => void>(() => {});
+
+function ThemeSwitch() {
+  const theme = useTheme();
+  const setTheme = useContext(GalleryThemeContext);
+  return (
+    <View testID="theme-switch" style={{ paddingTop: theme.space[6], gap: theme.space[2] }}>
+      <Text variant="label" color="textMuted">
+        الثيم
+      </Text>
+      <ChipGroup
+        accessibilityLabel="الثيم"
+        mode="single"
+        required
+        value={[theme.name]}
+        onChange={(next) => next[0] && setTheme(next[0] as ThemeName)}
+        items={GALLERY_THEMES.map((x) => ({ id: x.name, label: x.label }))}
+      />
+    </View>
+  );
+}
+
 export function Gallery() {
+  const [themeName, setThemeName] = useState<ThemeName>(themeFromUrl);
+  const choose = (name: ThemeName) => {
+    setThemeName(name);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (name === 'light') url.searchParams.delete('theme');
+    else url.searchParams.set('theme', name);
+    window.history.replaceState(null, '', url);
+  };
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ThemeProvider theme="light" direction="rtl">
+        <GalleryThemeContext.Provider value={choose}>
+        <ThemeProvider theme={themeName} direction="rtl">
           <ToastProvider bottomOffset={32}>
             {typeof window !== 'undefined' && window.location.hash === '#stickers' ? (
               <ScrollView style={{ flex: 1, backgroundColor: 'transparent' }}>
@@ -1222,6 +1278,7 @@ export function Gallery() {
             )}
           </ToastProvider>
         </ThemeProvider>
+        </GalleryThemeContext.Provider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './contrast.js';
-import { contrastPairs, liveStages, minFontSize, nonTextPairs, services, themes, type, type ThemeName } from './tokens.js';
+import { contrastPairs, customerThemes, homeLook, liveStages, minFontSize, nonTextPairs, services, themes, type, type ThemeName } from './tokens.js';
 
 describe('contrastRatio', () => {
   it('matches the WCAG reference values', () => {
@@ -142,5 +142,134 @@ describe('brand rules', () => {
   });
   it('both themes define the same keys', () => {
     expect(Object.keys(themes.dark).sort()).toEqual(Object.keys(themes.light).sort());
+  });
+});
+
+/**
+ * The customer home redesign's colour rules (docs/specs/2026-11-01-home-redesign.md §4, Ali
+ * 2026-11-01). Each rule is its own case so a broken one names itself.
+ */
+describe('home redesign colours (sage and emerald night)', () => {
+  const ORANGE = '#FF7A1F';
+  const ON_ORANGE = '#160D05';
+  const sage = themes.sage;
+  const night = themes.emeraldNight;
+  /** A colour is "light" when dark ink reads better on it than white does. */
+  const isLight = (hex: string) => contrastRatio('#000000', hex) > contrastRatio('#FFFFFF', hex);
+  /** The solid colour an `alpha` overlay of `fg` makes on `bg`. */
+  const blend = (fg: string, bg: string, alpha: number) =>
+    '#' + [1, 3, 5].map((i) => Math.round(parseInt(fg.slice(i, i + 2), 16) * alpha + parseInt(bg.slice(i, i + 2), 16) * (1 - alpha)).toString(16).padStart(2, '0')).join('').toUpperCase();
+
+  it('keeps the approved hexes of §4', () => {
+    expect([sage.bg, sage.surface, sage.border, sage.text, sage.textMuted, sage.accent, sage.onAccent]).toEqual([
+      '#E4EAE1', '#F1F4EF', '#E0E7DC', '#1A231C', '#4E5A50', ORANGE, ON_ORANGE,
+    ]);
+    expect(homeLook.sage.panel).toMatchObject({ fill: '#1F3A2B', raised: '#274836', line: '#2F523E', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE' });
+    expect(homeLook.sage.river).toMatchObject({ line: '#9DB08A', inner: '#AAC096' });
+    expect(homeLook.sage.map).toEqual({ land: '#EAE5D9', blocks: '#DED6C5', palms: ['#99A878', '#758655'], streets: '#FFFFFF', river: '#9DB08A' });
+    const s = services.sage;
+    expect([s.food.fill, s.taxi.fill, s.tuktuk.fill, s.parcel.fill, s.carts.fill]).toEqual([ORANGE, '#E3B23C', '#A9C25B', '#D2A46B', '#E07A8E']);
+    expect(homeLook.sage.symbolOutline).toBe('#1A231C');
+
+    expect([night.bg, night.surface, night.surfaceRaised, night.border, night.text, night.textMuted, night.accent, night.onAccent]).toEqual([
+      '#09110D', '#0F1D16', '#15261D', '#1F372A', '#F2FFF6', '#9FB8A8', ORANGE, ON_ORANGE,
+    ]);
+    expect([night.live, night.liveText, night.infoText]).toEqual(['#00E575', '#6CFFAE', '#6CFFAE']);
+    expect(homeLook.emeraldNight.map).toMatchObject({ land: '#0A160F', blocks: '#12241A', streets: '#1F3527', river: '#00E575' });
+    expect(homeLook.emeraldNight.accentGlow).toBe('0 0 20px rgba(255, 122, 31, 0.35)');
+    const n = services.emeraldNight;
+    expect([n.food.fill, n.taxi.fill, n.tuktuk.fill, n.parcel.fill, n.carts.fill]).toEqual(['#C82828', '#FFE14D', '#00E575', '#FFB35C', '#FF5FB8']);
+  });
+
+  it('the same orange in both themes, with #160D05 text on it (7.4:1)', () => {
+    for (const name of customerThemes) {
+      expect(themes[name].accent, name).toBe(ORANGE);
+      expect(themes[name].onAccent, name).toBe(ON_ORANGE);
+      expect(contrastRatio(ON_ORANGE, ORANGE)).toBeGreaterThanOrEqual(7);
+    }
+  });
+
+  it('orange is never text on a light page or card (2.1:1 on the page, 2.35:1 on a card)', () => {
+    expect(contrastRatio(ORANGE, sage.bg)).toBeLessThan(3);
+    expect(contrastRatio(ORANGE, sage.surface)).toBeLessThan(3);
+    // No text role in either theme puts the orange on a light background.
+    for (const name of customerThemes) {
+      const t = themes[name];
+      for (const p of contrastPairs) {
+        if (isLight(t[p.bg])) expect(t[p.fg], `${name}: ${p.fg} on ${p.bg} (${p.use})`).not.toBe(ORANGE);
+      }
+    }
+    // Sage's accent-, link- and live-coloured text is forest, never orange.
+    expect([sage.accentText, sage.liveText, sage.infoText]).toEqual(['#1F3A2B', '#1F3A2B', '#1F3A2B']);
+    // The service cards' words are never orange either.
+    for (const sw of Object.values(services.sage)) for (const ink of [sw.card.on, sw.card.sub]) expect(ink).not.toBe(ORANGE);
+  });
+
+  it('in sage, orange text lives on the forest panel (4.7:1)', () => {
+    const panel = homeLook.sage.panel;
+    expect(panel.accent).toBe(ORANGE);
+    expect(contrastRatio(ORANGE, panel.fill)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(sage.onInverseAccent, sage.inverse)).toBeGreaterThanOrEqual(4.5);
+    // The raised box inside the panel is only 3.9:1: orange there is a mark or big type, never body text.
+    expect(contrastRatio(ORANGE, panel.raised)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(ORANGE, panel.raised)).toBeLessThan(4.5);
+  });
+
+  it('never white text on orange (2.6:1)', () => {
+    expect(contrastRatio('#FFFFFF', ORANGE)).toBeLessThan(3);
+    for (const name of customerThemes) {
+      const t = themes[name];
+      for (const p of contrastPairs) if (t[p.bg] === ORANGE) expect(t[p.fg], `${name}: ${p.fg} on ${p.bg}`).toBe(ON_ORANGE);
+      for (const sw of Object.values(services[name])) if (sw.fill === ORANGE) expect(sw.on, name).toBe(ON_ORANGE);
+      for (const st of Object.values(liveStages[name])) if (st.fill === ORANGE) expect(st.on, name).toBe(ON_ORANGE);
+    }
+  });
+
+  it('the upcoming step «وصل» on the forest panel: #75897A fails (3.3:1), #93A596 passes (4.75:1)', () => {
+    const panel = homeLook.sage.panel;
+    expect(contrastRatio('#75897A', panel.fill)).toBeLessThan(4.5);
+    expect(panel.upcoming).toBe('#93A596');
+    expect(contrastRatio(panel.upcoming, panel.fill)).toBeGreaterThanOrEqual(4.5);
+    // Every word on either panel reads.
+    for (const name of customerThemes) {
+      const p = homeLook[name].panel;
+      for (const ink of [p.on, p.onSoft, p.muted, p.upcoming, p.accent]) {
+        expect(contrastRatio(ink, p.fill), `${name} ${ink} on ${p.fill}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it('the dark search placeholder is the full #9FB8A8, not 60 % of it (3.5:1)', () => {
+    const ph = homeLook.emeraldNight.searchPlaceholder;
+    expect(ph).toBe('#9FB8A8');
+    expect(ph).toMatch(/^#[0-9A-F]{6}$/);
+    for (const bg of [night.bg, night.surface, night.surfaceRaised, night.surfaceSunken]) expect(contrastRatio(ph, bg), bg).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(blend(ph, night.surface, 0.6), night.surface)).toBeLessThan(4.5);
+    for (const bg of [sage.bg, sage.surface, sage.surfaceSunken]) expect(contrastRatio(homeLook.sage.searchPlaceholder, bg), bg).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('stars on light cards are not plain orange: the orange star has an ink outline (2.35:1 alone)', () => {
+    expect(contrastRatio(sage.star, sage.surface)).toBeLessThan(3);
+    expect(sage.starOutline).toBe(sage.text);
+    expect(contrastRatio(sage.starOutline, sage.surface)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('emerald is never body text at night; light emerald carries prices and minutes (13.7:1)', () => {
+    for (const p of contrastPairs) expect(night[p.fg], `${p.fg} (${p.use})`).not.toBe('#00E575');
+    expect(contrastRatio('#6CFFAE', night.surface)).toBeGreaterThanOrEqual(13);
+    expect(homeLook.emeraldNight.info).toBe('#6CFFAE');
+  });
+
+  it('dark muted text is 8.2:1 on cards; sage ink 13.2:1 and muted 5.9:1 on the page; muted on forest 7.3:1', () => {
+    expect(contrastRatio(night.textMuted, night.surface)).toBeGreaterThanOrEqual(8);
+    expect(contrastRatio(sage.text, sage.bg)).toBeGreaterThanOrEqual(13);
+    expect(contrastRatio(sage.textMuted, sage.bg)).toBeGreaterThanOrEqual(5.9);
+    expect(contrastRatio(homeLook.sage.panel.muted, homeLook.sage.panel.fill)).toBeGreaterThanOrEqual(7.2);
+  });
+
+  it('live marks read where they are drawn: orange on the forest, emerald on the night page (3:1)', () => {
+    expect(contrastRatio(homeLook.sage.live, homeLook.sage.panel.fill)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(homeLook.emeraldNight.live, night.bg)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(homeLook.emeraldNight.live, night.surface)).toBeGreaterThanOrEqual(3);
   });
 });
