@@ -3,7 +3,7 @@ import { decodePolyline } from '@driver/map';
 import { useActiveOrder } from '@/features/home/queries';
 import { useCourierPosition, useOrderRoute, useTracking } from '@/features/track/queries';
 import { phaseOf } from '@/features/track/timeline';
-import { minutesLeft, orderStep, showsOnLiveMap, type LiveOrder, type OrderStep } from './logic';
+import { orderClock, orderStep, showsOnLiveMap, type LiveOrder, type OrderClock, type OrderStep } from './logic';
 
 /** Phases with a courier moving: his dot and the street route show. */
 const MOVING = new Set(['to_pickup', 'at_pickup', 'on_the_way']);
@@ -11,8 +11,8 @@ const MOVING = new Set(['to_pickup', 'at_pickup', 'on_the_way']);
 export interface OrderOnMap {
   order: LiveOrder;
   step: OrderStep;
-  /** Minutes until it reaches them (the one ETA everywhere), null before a courier has it. */
-  minutes: number | null;
+  /** Minutes until it reaches them (the one ETA everywhere), or how late it is; null with no time. */
+  clock: OrderClock | null;
 }
 
 /**
@@ -71,7 +71,7 @@ export function useOrderOnMap(now: number): { onMap: OrderOnMap | null; pending:
         cooking: phase === 'waiting_merchant' || phase === 'preparing',
       },
       step: orderStep(phase),
-      minutes: minutesLeft(fix?.etaAt ?? v.promisedAt, now),
+      clock: orderClock(fix, v.promisedAt, now),
     },
   };
 }

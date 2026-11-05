@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RestaurantCard } from '@driver/contracts';
-import { bubbleIds, fastest, filterPins, framePoints, headline, homeOf, kindOf, livePins, minutesLeft, MINUTES_CHIP, orderStep, showsOnLiveMap, TOWN_CENTRE, tourPlan } from './logic';
+import { bubbleIds, fastest, filterPins, framePoints, headline, homeOf, kindOf, livePins, minutesLeft, MINUTES_CHIP, orderClock, orderStep, showsOnLiveMap, TOWN_CENTRE, tourPlan } from './logic';
 
 const card = (id: string, o: Partial<RestaurantCard> = {}): RestaurantCard =>
   ({ id, cuisine: 'مشويات', tags: [], photoUrl: null, open: true, etaMinMinutes: 20, pickup: { zoneKey: 'z', pin: { lat: 32.91, lng: 45.06 } }, ...o }) as RestaurantCard;
@@ -69,6 +69,21 @@ describe('your order on the live map', () => {
     expect(minutesLeft(new Date(10 * 60_000 + 1), 0)).toBe(11);
     expect(minutesLeft(new Date(0), 60_000)).toBe(1);
     expect(minutesLeft(null, 0)).toBeNull();
+  });
+
+  it('a days-old courier fix never shows "two minutes": the card says how late it is', () => {
+    const MIN = 60_000;
+    const now = 3 * 24 * 60 * MIN;
+    const promisedAt = new Date(now - 3 * 24 * 60 * MIN + 35 * MIN);
+    // The server keeps an ETA two minutes from where he was days ago.
+    const stale = { etaAt: new Date(now + 2 * MIN), ageSec: 3 * 24 * 3600, at: new Date(35 * MIN) };
+    expect(orderClock(stale, promisedAt, now)).toEqual({ late: true, n: 60, long: true });
+    // A fresh fix: the live ETA counts down.
+    expect(orderClock({ etaAt: new Date(now + 4 * MIN), ageSec: 5, at: new Date(now - 5000) }, promisedAt, now)).toEqual({ late: false, n: 4 });
+    // No fix yet: the promised time, and minutes late once it passed.
+    expect(orderClock(null, new Date(now + 10 * MIN), now)).toEqual({ late: false, n: 10 });
+    expect(orderClock(null, new Date(now - 12 * MIN), now)).toEqual({ late: true, n: 12, long: false });
+    expect(orderClock(null, null, now)).toBeNull();
   });
 });
 

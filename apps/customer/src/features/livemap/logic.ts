@@ -127,6 +127,33 @@ export function minutesLeft(etaAt: Date | null | undefined, now: number): number
   return Math.max(1, Math.ceil((etaAt.getTime() - now) / 60_000));
 }
 
+/** A courier fix older than this no longer says where he is, so its ETA is not used. */
+export const STALE_FIX_SEC = 120;
+
+/** Past this many minutes late, the card stops counting and just says it is very late. */
+export const LATE_CAP_MIN = 60;
+
+/** The order card's clock: minutes to the door, or minutes late once the time has passed. */
+export type OrderClock = { late: false; n: number } | { late: true; n: number; long: boolean };
+
+/**
+ * Which time the card shows: the courier's live ETA while his fix is fresh, otherwise the promised
+ * time. A days-old fix keeps an ETA "2 minutes from where he was", so it must not count.
+ */
+export function orderClock(
+  fix: { etaAt: Date | null; ageSec: number; at: Date } | null | undefined,
+  promisedAt: Date | null | undefined,
+  now: number,
+): OrderClock | null {
+  const fresh = fix && fix.etaAt && fix.ageSec <= STALE_FIX_SEC && now - fix.at.getTime() <= STALE_FIX_SEC * 1000;
+  const eta = fresh ? fix.etaAt : (promisedAt ?? null);
+  if (!eta) return null;
+  const left = eta.getTime() - now;
+  if (left > 0 || fresh) return { late: false, n: Math.max(1, Math.ceil(left / 60_000)) };
+  const n = Math.max(1, Math.floor(-left / 60_000));
+  return { late: true, n: Math.min(n, LATE_CAP_MIN), long: n > LATE_CAP_MIN };
+}
+
 type LngLatPt = [number, number];
 
 /** Their own order on the map: the kitchen, their courier, the street route still ahead and their door. */

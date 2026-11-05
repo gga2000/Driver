@@ -110,7 +110,7 @@ export default function LiveScreen() {
 
   let bottom: React.ReactNode = null;
   if (onMap) {
-    bottom = <OrderCard kitchen={onMap.order.kitchen?.name ?? null} step={onMap.step} minutes={onMap.minutes} onOpen={() => router.push({ pathname: '/order/[id]', params: { id: onMap.order.id } })} />;
+    bottom = <OrderCard kitchen={onMap.order.kitchen?.name ?? null} step={onMap.step} clock={onMap.clock} onOpen={() => router.push({ pathname: '/order/[id]', params: { id: onMap.order.id } })} />;
   } else if (tour && tourPin) {
     bottom = <TourCard pin={tourPin} index={tour.i} total={tour.ids.length} onMenu={() => openMenu(tourPin.id)} onNext={tourNext} onSkip={endTour} />;
   } else if (shown) {

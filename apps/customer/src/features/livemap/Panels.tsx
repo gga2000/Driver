@@ -4,7 +4,7 @@ import { Button, Card, Icon, stageOf, Text, useTheme, withAlpha } from '@driver/
 import { FoodArt, kitchenLook, motifForKitchen } from '@/features/food/FoodArt';
 import { useT } from '@/lib/i18n';
 import { countKey } from '@/lib/plural';
-import type { LivePin, OrderStep } from './logic';
+import type { LivePin, OrderClock, OrderStep } from './logic';
 import { CookingDot } from './Markers';
 
 const TILE = 132;
@@ -81,7 +81,7 @@ export function NothingHere({ text, onAll }: { text: string; onAll: () => void }
  * Their order on its way, over the map (the dark date card): the kitchen, the minutes in a saffron box,
  * the four steps, and «تابع طلبك» to the full tracking screen.
  */
-export function OrderCard({ kitchen, step, minutes, onOpen }: { kitchen: string | null; step: OrderStep; minutes: number | null; onOpen: () => void }) {
+export function OrderCard({ kitchen, step, clock, onOpen }: { kitchen: string | null; step: OrderStep; clock: OrderClock | null; onOpen: () => void }) {
   const theme = useTheme();
   const t = useT();
   const s = theme.services.trips;
@@ -99,10 +99,10 @@ export function OrderCard({ kitchen, step, minutes, onOpen }: { kitchen: string 
             </Text>
           ) : null}
         </View>
-        {minutes !== null ? (
-          <View style={{ paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accent }}>
+        {clock ? (
+          <View style={{ paddingHorizontal: theme.space[3], paddingVertical: theme.space[2], borderRadius: theme.radius.lg, backgroundColor: theme.colors.accent }} testID={clock.late ? 'live-order-late' : 'live-order-minutes'}>
             <Text variant="bodyStrong" weight={700} tabular color="onAccent">
-              {t(countKey('live_map.minutes', minutes), { n: minutes })}
+              {clock.late ? (clock.long ? t('live_map.late_long') : t(countKey('live_map.late', clock.n), { n: clock.n })) : t(countKey('live_map.minutes', clock.n), { n: clock.n })}
             </Text>
           </View>
         ) : null}

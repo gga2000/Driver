@@ -152,10 +152,10 @@ export default function OrderLiveScreen() {
   // Audit d-5: the honest-delay credit, said once when the server posts it.
   useLatePromiseToast(v);
   // Minutes on the courier (maps program SP5a): from the same ETA as the sheet, only while he is coming.
-  // At the door there is nothing left to count down (joy f3): no pill.
+  // At the door there is nothing left to count down (joy f3): no pill. Nor once his signal is lost: an old fix's ETA is not a time.
   // A range when the ETA is a straight-line estimate (f19, maps c3): the server's basis, or ours when it gave none.
   const mapMinutes =
-    fix && eta && eta.getTime() > now && !atDoor ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated', locale) : null;
+    fix && eta && eta.getTime() > now && !atDoor && lostMin === null ? mapMinutesLabel(t, Math.max(1, Math.round((eta.getTime() - now) / 60_000)), fix.etaAt ? fix.etaBasis : 'estimated', locale) : null;
   const ride = v?.order.type === 'ride';
   const simpleMode = useSimpleMode().on;
   const simple = simpleMode && Boolean(ride);
