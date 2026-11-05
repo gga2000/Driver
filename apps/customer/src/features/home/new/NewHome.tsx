@@ -44,14 +44,13 @@ import { useSeason } from '@/lib/use-season';
 import { bandTitleKey, bandWords, daypart, greetingKey } from '../daypart';
 import { useUsuals } from '../habit-queries';
 import { usualNow } from '../habits';
-import { stageTitleKey, liveStage } from '../live-card';
 import { mapBoxNight } from '../map-box';
 import { pointsChip } from '../points-chip';
-import { useActiveOrder, usePicks, useRestaurants } from '../queries';
+import { useActiveOrder, useMyOrders, usePicks, useRestaurants } from '../queries';
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { TILE_PICTURES } from '../tile-pictures';
 import { HomeTownMap } from './HomeTownMap';
-import { boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, kitchenMinutes, lateNotice, minutesTo, orderStage, personOf, usualOrder } from './logic';
+import { boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, kitchenMinutes, lateNotice, minutesTo, orderHeadlineKey, orderStage, orderTitleKey, personOf, recentlyEnded, usualOrder } from './logic';
 
 const PICTURES = { food: TILE_PICTURES.food.source, taxi: TILE_PICTURES.taxi.source, tuktuk: TILE_PICTURES.tuktuk.source, intercity: TILE_PICTURES.intercity.source };
 /** How many of the hour's dishes are asked for (two side by side, one compact during an order, the fastest on the panel). */
@@ -83,6 +82,7 @@ export function NewHome() {
   const picks = usePicks(words, PICKS);
   const dishes = useMemo(() => homeDishes(picks.data ?? [], kitchens), [picks.data, kitchens]);
   const active = useActiveOrder();
+  const mine = useMyOrders();
   const usuals = useUsuals();
   const usual = useMemo(() => {
     const u = usualNow(usuals.data ?? [], now);
@@ -135,10 +135,11 @@ export function NewHome() {
     else router.push('/food-carts');
   };
 
-  const order = active.data ?? null;
+  const order = active.data ?? recentlyEnded(mine.data ?? [], now.getTime());
   const loading = restaurants.isPending;
   const named = !!prof.name;
-  const headline = order ? t('home.order_headline') : t(greetingKey(dp, { quiet: season.quiet, named }), named ? { name: prof.name! } : undefined);
+  const orderHeadline = order ? orderHeadlineKey(order) : null;
+  const headline = orderHeadline ? t(orderHeadline) : t(greetingKey(dp, { quiet: season.quiet, named }), named ? { name: prof.name! } : undefined);
   const placeText = place ? (place.title ?? t(placeLabelKey(place.label))) : t('home.deliver_to_none');
   const pair = dishes.slice(0, 2);
   const fastest = fastestDish(dishes);
@@ -276,7 +277,7 @@ function OrderCard({ order, town, night, offline }: { order: Order; town: string
   const stage = orderStage(o);
   const eta = v ? (liveEta(v, null, new Date(now)) ?? v.promisedAt) : null;
   const from = v?.merchant?.name ?? t(o.type === 'ride' ? 'home.active_trip' : 'home.active_order');
-  const title = t(stageTitleKey(liveStage(o)));
+  const title = t(orderTitleKey(o));
   const route = v?.merchant?.name ? { from: v.merchant.name, to: t('live_map.home') } : undefined;
   const open = () => router.push({ pathname: '/order/[id]', params: { id: o.id } });
   const late = lateNotice(v, t);
@@ -293,6 +294,7 @@ function OrderCard({ order, town, night, offline }: { order: Order; town: string
         offline={offline}
         {...(cashToHand(o) !== undefined ? { cash: cashToHand(o)! } : {})}
         {...(personOf(v, o) ? { person: personOf(v, o)! } : {})}
+        ride={o.type === 'ride'}
         onMessage={() => router.push({ pathname: '/chat/[orderId]', params: { orderId: o.id } })}
         testID="home-order"
       />

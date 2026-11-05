@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { t as translate, type MessageKey } from '@driver/i18n';
 import type { DepartureCard, OrderTracking, Usual } from '@driver/contracts';
 import type { RestaurantSummary } from '../restaurant-summary';
-import { boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, lateNotice, minutesTo, orderStage, personOf, usualOrder } from './logic';
+import { ENDED_SHOW_MS, orderHeadlineKey, orderTitleKey, recentlyEnded, boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, lateNotice, minutesTo, orderStage, personOf, usualOrder } from './logic';
 
 const t = (key: MessageKey, params?: Record<string, string | number>) => translate(key, params);
 const clean = (s: string) => s.replace(/[‎‏⁦-⁩]/g, '');
@@ -19,7 +19,29 @@ describe('new home: order panel data', () => {
     expect(orderStage({ state: 'ready' })).toBe('preparing');
     expect(orderStage({ state: 'picked_up' })).toBe('on_way');
     expect(orderStage({ state: 'delivered' })).toBe('arrived');
+    expect(orderStage({ type: 'ride', state: 'matched' })).toBe('preparing');
+    expect(orderStage({ type: 'food', state: 'matched' })).toBe('on_way');
     for (const state of ['customer_cancelled', 'platform_cancelled', 'merchant_rejected', 'failed'] as const) expect(orderStage({ state })).toBe('cancelled');
+  });
+  it('the panel and the headline say what happened: arrived, cancelled, a ride', () => {
+    expect(orderTitleKey({ type: 'food', state: 'picked_up' })).toBe('home.stage.on_the_way');
+    expect(orderTitleKey({ type: 'food', state: 'delivered' })).toBe('order.status.delivered');
+    expect(orderTitleKey({ type: 'ride', state: 'completed' })).toBe('home.stage.ride_done');
+    expect(orderTitleKey({ type: 'food', state: 'customer_cancelled' })).toBe('home.panel.cancelled_title');
+    expect(orderHeadlineKey({ type: 'food', state: 'preparing' })).toBe('home.order_headline');
+    expect(orderHeadlineKey({ type: 'food', state: 'delivered' })).toBe('home.bye');
+    expect(orderHeadlineKey({ type: 'ride', state: 'placed' })).toBe('home.ride_headline');
+    expect(orderHeadlineKey({ type: 'food', state: 'merchant_rejected' })).toBeNull();
+  });
+  it('an order that just arrived or was cancelled stays on the card for ten minutes, the newest first', () => {
+    const at = (min: number) => new Date(NOW.getTime() - min * 60_000);
+    const a = { id: 'a', state: 'delivered', deliveredAt: at(3), cancelledAt: null } as const;
+    const c = { id: 'c', state: 'customer_cancelled', deliveredAt: null, cancelledAt: at(1) } as const;
+    const old = { id: 'o', state: 'delivered', deliveredAt: at(11), cancelledAt: null } as const;
+    expect(recentlyEnded([a, c, old], NOW.getTime())?.id).toBe('c');
+    expect(recentlyEnded([a, old], NOW.getTime())?.id).toBe('a');
+    expect(recentlyEnded([old], NOW.getTime())).toBeNull();
+    expect(recentlyEnded([a], NOW.getTime() + ENDED_SHOW_MS)).toBeNull();
   });
   it('minutes to the door are whole and never below 0; no time, no minutes', () => {
     expect(minutesTo(new Date(NOW.getTime() + 12.4 * 60_000), NOW.getTime())).toBe(12);

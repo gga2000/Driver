@@ -104,5 +104,6 @@ describe('round 6: the price slot', () => {
   });
   it('no steps read as nothing, never a broken key', () => {
     expect(stepsA11y([])).toBe('');
+    expect(stepsA11y(trackerSteps('preparing'), true)).toBe('خطوة 2 من 4: السايق جاي');
   });
 });

@@ -15,8 +15,8 @@ export type TrackerStep = 'done' | 'now' | 'next';
 /** The four steps in order; their names are `home.step.<stage>`. */
 export const STAGES = ['placed', 'preparing', 'on_way', 'arrived'] as const satisfies readonly OrderStage[];
 
-/** A step's name: «طلبت», «دا يتحضّر», «بالطريق», «وصل». */
-export const stepName = (s: (typeof STAGES)[number]) => t(`home.step.${s}`);
+/** A step's name: «طلبت», «دا يتحضّر», «بالطريق», «وصل»; a ride's: «طلبت», «السايق جاي», «بالطريق», «وصلت». */
+export const stepName = (s: (typeof STAGES)[number], ride = false) => t(ride ? `home.step.ride_${s}` : `home.step.${s}`);
 
 /** The order still runs (it has steps and minutes). */
 export function stageRuns(stage: OrderStage): boolean {
@@ -105,11 +105,11 @@ export function liveLabel(ageSec: number | undefined, offline: boolean, town: st
 }
 
 /** «خطوة 2 من 4: دا يتحضّر» for the step row; at the end, the last step. */
-export function stepsA11y(steps: readonly TrackerStep[]): string {
+export function stepsA11y(steps: readonly TrackerStep[], ride = false): string {
   if (steps.length === 0) return '';
   const now = steps.indexOf('now');
   const at = now === -1 ? steps.length - 1 : now;
-  return t('home.step_of', { n: at + 1, total: steps.length, step: stepName(STAGES[at]!) });
+  return t('home.step_of', { n: at + 1, total: steps.length, step: stepName(STAGES[at]!, ride) });
 }
 
 /** Minutes as the panel shows them: whole, never below 0 (0 reads «يوصل هسة»). */

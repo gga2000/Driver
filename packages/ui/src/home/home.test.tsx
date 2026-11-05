@@ -202,6 +202,12 @@ describe('round 2: states', () => {
     expect(r.queryByLabelText(/يوصل خلال/)).toBeNull();
     expect(r.queryByTestId('op-minutes')).toBeNull();
   });
+  it('the cash line goes once it has arrived; a ride reads its own steps', () => {
+    const done = renderUI(<OrderPanel from="مطعم خالد" title="وصل طلبك" stage="arrived" cash={14000} testID="op" />, { theme: 'sage' });
+    expect(done.queryByTestId('op-cash')).toBeNull();
+    const ride = renderUI(<OrderPanel from="رحلتك" title="السايق جاي" stage="preparing" ride testID="rp" />, { theme: 'sage' });
+    expect(ride.getByLabelText('خطوة 2 من 4: السايق جاي')).toBeTruthy();
+  });
   it('no offers → no panel, never «0 عرض»', () => {
     const r = renderUI(<OffersPanel town="العزيزية" meal="lunch" until="3" dishes={[]} testID="of" />, { theme: 'sage' });
     expect(r.queryByTestId('of')).toBeNull();

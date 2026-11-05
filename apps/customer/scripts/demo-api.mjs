@@ -349,7 +349,7 @@ if (KITCHEN_MS > 0) {
 // total is above it); with `&nochange=1` the courier at the door has no change, takes the whole note
 // and the rest lands in the customer's wallet (the arrival screen's coin strip, wallet "باقي الكاش").
 const { tenderOptions } = await import('@driver/contracts');
-// Scenarios: kitchen · preparing · on_the_way · near · at_door · unreachable · arrived · late · late_apology · late_credit · signal_lost · reassigning.
+// Scenarios: cancelled · ride (a taxi still looking, step 5 home shots) · kitchen · preparing · on_the_way · near · at_door · unreachable · arrived · late · late_apology · late_credit · signal_lost · reassigning.
 // Joy J5b: `kitchen` = the kitchen said yes, not cooking yet, no courier; then
 //   POST /demo/track/kitchen?orderId=…&step=preparing|ready   the kitchen's next button (kitchen strip, l3)
 //   POST /demo/track/assign?orderId=…[&rated=1]                a courier with a photo takes it now (driver reveal, l2)
@@ -635,6 +635,23 @@ async function scenario(personId, name, opts = {}) {
     await pastPromise(personId, r.orderId, (name === 'late_credit' ? rules.afterMin : rules.apologyAfterMin) + 1);
     return r;
   }
+  if (name === 'cancelled') {
+    // New home (step 5): an order the person cancelled a moment ago, still on the home card for ten minutes.
+    const orderId = await placeAccepted(personId, 20, undefined, null, { accept: false });
+    await orders.cancel(personId, { orderId, reason: 'demo' });
+    return { orderId };
+  }
+  if (name === 'ride') {
+    // New home (step 5): a taxi asked for and still looking for a driver, on the home card instead of food.
+    const ride = await orders.place(personId, {
+      cityId: 'aziziyah',
+      type: 'ride',
+      rideVertical: 'taxi',
+      pickup: { zoneKey: 'centre', pin: { lat: 32.9012, lng: 45.0702 } },
+      dropoff: { zoneKey: 'mahdood_2', pin: { lat: 32.9165, lng: 45.0585 } },
+    });
+    return { orderId: ride.id };
+  }
   if (name === 'placed') {
     // Sent and not yet accepted: the kitchen-waiting screen (/kitchen/[id]) with its ring.
     return { orderId: await placeAccepted(personId, 20, undefined, null, { accept: false }) };
@@ -695,7 +712,7 @@ async function scenario(personId, name, opts = {}) {
   return { orderId, tripId, courierId };
 }
 
-const SCENARIOS = new Set(['placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'closed_street', 'signal_lost', 'reassigning']);
+const SCENARIOS = new Set(['cancelled', 'ride', 'placed', 'kitchen', 'preparing', 'on_the_way', 'near', 'at_door', 'unreachable', 'arrived', 'late', 'late_apology', 'late_credit', 'late_traffic', 'closed_street', 'signal_lost', 'reassigning']);
 
 app.use('/demo/track', async (req, res) => {
   try {
