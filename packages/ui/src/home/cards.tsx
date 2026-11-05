@@ -231,8 +231,8 @@ export interface RestaurantCardProps {
   /** 0 = no ratings yet («جديد»). */
   rating: number;
   minutes: number;
-  /** Delivery fee in dinars from the server; 0 = free. */
-  fee: number;
+  /** Delivery fee in dinars from the server; 0 = free; null = not known yet (no place picked): no fee line. */
+  fee: number | null;
   picture?: DishPicture;
   /** Card width in the row (the row scrolls sideways). */
   width?: number;
@@ -245,7 +245,7 @@ export interface RestaurantCardProps {
 export const RestaurantCard = memo(function RestaurantCard({ id, name, rating, minutes, fee, picture, width = homeSize.restWidth, onPress, testID }: RestaurantCardProps) {
   const open = useCallback(() => onPress?.(id), [onPress, id]);
   const theme = useTheme();
-  const feeText = fee > 0 ? t('list.fee', { amount: ltr(formatAmount(fee)) }) : t('list.fee_free');
+  const feeText = fee === null ? '' : fee > 0 ? t('list.fee', { amount: ltr(formatAmount(fee)) }) : t('list.fee_free');
   const stars = rating > 0 ? rating.toFixed(1) : t('home.rating_new');
   return (
     <HomePress accessibilityLabel={rating > 0 ? t('home.rest_a11y', { name, rating: stars, minutes: mins(minutes), fee: feeText }) : t('home.rest_new_a11y', { name, minutes: mins(minutes), fee: feeText })} onPress={onPress ? open : undefined} testID={testID} style={{ width }}>
@@ -268,9 +268,11 @@ export const RestaurantCard = memo(function RestaurantCard({ id, name, rating, m
               {mins(minutes)}
             </Text>
           </View>
-          <Text variant="footnote" color="textMuted" compact numberOfLines={1}>
-            {feeText}
-          </Text>
+          {feeText ? (
+            <Text variant="footnote" color="textMuted" compact numberOfLines={1}>
+              {feeText}
+            </Text>
+          ) : null}
         </View>
       </HomeCard>
     </HomePress>
