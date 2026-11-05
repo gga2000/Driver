@@ -61,7 +61,9 @@ import { RideHomeCard } from '@/features/ride/RideHomeCard';
 import { startRide } from '@/features/ride/WhereToBar';
 import { GOLDEN_MAP } from '@/features/track/map/credit';
 import { appNow } from '@/lib/dev-clock';
+import { NEW_HOME } from '@/lib/env';
 import { useT } from '@/lib/i18n';
+import { NewHome } from '@/features/home/new/NewHome';
 import { profile, selectedPlace, useProfile } from '@/lib/profile';
 import { useSeason } from '@/lib/use-season';
 
@@ -79,7 +81,12 @@ import { useSeason } from '@/lib/use-season';
  * drawing floats; pulling down fills a glass of tea; a dish's + adds it into a basket bar that floats
  * over the page.
  */
+/** The new home (spec 2026-11-01 §12, step 4) behind its switch; the old home stays the default until Ali says yes. */
 export default function Home() {
+  return NEW_HOME ? <NewHome /> : <OldHome />;
+}
+
+function OldHome() {
   const theme = useTheme();
   const t = useT();
   const [soon, setSoon] = useState<LaunchService | null>(null);

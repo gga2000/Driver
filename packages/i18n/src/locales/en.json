@@ -5777,6 +5777,7 @@
   "partner.kh_done_back": "Back home",
   "partner.ic_req_cap_short": "Max {amount} IQD",
   "home.service_tuktuk": "Tuktuk",
+  "home.deliver_to_short": "Deliver to:",
   "home.deliver_to_label": "Delivering to",
   "home.food_open": "{n} open now",
   "home.food_open_one": "One open now",
