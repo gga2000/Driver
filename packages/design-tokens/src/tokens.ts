@@ -1047,8 +1047,6 @@ export interface HomeLook {
     fill: string;
     /** A box raised inside the panel. */
     raised: string;
-    /** Hairlines and the empty part of the step bar. */
-    line: string;
     /** Titles and big minutes' words on the panel. */
     on: string;
     /** Softer copy on the panel. */
@@ -1063,21 +1061,28 @@ export interface HomeLook {
     fact: string;
     /** Money on the panel (cash to hand over, offer prices): warm orange, AA on `fill` and `raised`. */
     cash: string;
+    /** Text on `accent` (the panel's main button, the offer badge): owned here so the pair is tested together. */
+    onAccent: string;
     /** The panel's hairline edge (night only; the forest needs none on the sage page). */
     edge: string | null;
   };
   /** The live board «شنو تحتاج؟» (spec §12.2): flat tiles inside a page card, no glow. */
   board: {
     tile: string;
-    /** Tile edges and the outline of a taken seat. */
-    edge: string;
     /** Big live numbers and free seats on a tile (AA on `tile`). */
     fact: string;
     /** The small live dot beside «أقرب سيارة» (always next to words, so decorative). */
     dot: string;
   };
-  /** The edge of the map card and of page cards on the home. */
-  edge: string;
+  /**
+   * Page cards and board tiles (audit round 2, 2026-11-04): told apart from the page by fill and one soft
+   * shadow, never by an outline (outlines fade in Iraqi sun and read as a wireframe).
+   */
+  card: { fill: string; shadow: string | null; /** A faint hairline that keeps the card's edge in strong sun (light) and on the dark page (night), with the shadow (audit round 6). */ edge: string | null };
+  /** The late-promise band on the order panel (audit round 4): its own warm tone, so late never looks like the normal orange. */
+  late: { fill: string; on: string };
+  /** Prices on page cards: forest in sage, the main text at night (neon green stays for live things). */
+  price: string;
   /** The Tigris line down the page and in the map card. */
   river: { line: string; inner: string; /** CSS glow around it (emerald night only). */ glow: string | null };
   /** The map card's style (a real map drawn in these colours, spec §6). */
@@ -1090,15 +1095,17 @@ export interface HomeLook {
   searchPlaceholder: string;
   /** Outline of the service symbols (ink in sage; none at night, where they are rings). */
   symbolOutline: string | null;
-  /** The orange glow under a main button (emerald night only). */
+  /** The orange glow under a main button (emerald night only; reserved by spec §4, not drawn on the home yet). */
   accentGlow: string | null;
 }
 
 export const homeLook: Record<CustomerThemeName, HomeLook> = {
   sage: {
-    panel: { fill: '#1F3A2B', raised: '#274836', line: '#2F523E', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F', fact: '#9FF5C4', cash: '#FFB27A', edge: null },
-    board: { tile: '#E4EAE1', edge: '#8FA192', fact: '#1F3A2B', dot: '#FF7A1F' },
-    edge: '#8FA192',
+    panel: { fill: '#1F3A2B', raised: '#274836', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE', upcoming: '#93A596', accent: '#FF7A1F', fact: '#9FF5C4', cash: '#FFB27A', onAccent: '#160D05', edge: null },
+    board: { tile: '#FCFDFB', fact: '#1F3A2B', dot: '#2F7D4E' },
+    card: { fill: '#FCFDFB', shadow: '0px 1px 3px rgba(16, 40, 28, 0.14), 0px 10px 24px -14px rgba(16, 40, 28, 0.30)', edge: 'rgba(26, 46, 34, 0.16)' },
+    late: { fill: '#F2C14E', on: '#1A1405' },
+    price: '#1F3A2B',
     river: { line: '#9DB08A', inner: '#AAC096', glow: null },
     map: { land: '#EAE5D9', blocks: '#DED6C5', palms: ['#99A878', '#758655'], streets: '#FFFFFF', river: '#9DB08A' },
     live: '#FF7A1F',
@@ -1109,9 +1116,11 @@ export const homeLook: Record<CustomerThemeName, HomeLook> = {
   },
   emeraldNight: {
     // Same design as sage, night colours (Ali, 2026-11-02): the panel is one step above the cards.
-    panel: { fill: '#15261D', raised: '#1E3528', line: '#2C4636', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F', fact: '#6CFFAE', cash: '#FFB27A', edge: '#2C4636' },
-    board: { tile: '#15261D', edge: '#3E5A49', fact: '#6CFFAE', dot: '#00E575' },
-    edge: '#3E5A49',
+    panel: { fill: '#15261D', raised: '#1E3528', on: '#F2FFF6', onSoft: '#DCEFE2', muted: '#9FB8A8', upcoming: '#8AA595', accent: '#FF7A1F', fact: '#6CFFAE', cash: '#FFB27A', onAccent: '#160D05', edge: '#2C4636' },
+    board: { tile: '#162820', fact: '#F2FFF6', dot: '#5FD99A' },
+    card: { fill: '#162820', shadow: null, edge: 'rgba(242, 255, 246, 0.14)' },
+    late: { fill: '#F2C14E', on: '#1A1405' },
+    price: '#F2FFF6',
     river: { line: '#00E575', inner: '#6CFFAE', glow: '0 0 14px rgba(0, 229, 117, 0.45)' },
     // Palms at night are not in the picture: two dim greens between the blocks and the streets.
     map: { land: '#0A160F', blocks: '#12241A', palms: ['#1A3324', '#22402C'], streets: '#1F3527', river: '#00E575' },

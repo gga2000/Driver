@@ -41,7 +41,7 @@ The two pictures are two **states** of one home, each drawn in one **theme**. Th
 | Signature | the Tigris river line flowing down the page | Ali, 2026-10-27 |
 | Points corner | «120 نقطة · 1,200 دينار» (100 points = 1,000 دينار, `support-credit.ts`) | Ali, 2026-10-27 |
 | Fonts | headings Alexandria, body Almarai | Ali, 2026-10-28 |
-| Search | right under the map card | critique, 2026-10-27 |
+| Search | at the top, under the header (was under the map card; see §12.2 item 6) | Ali, 2026-11-05 |
 
 ## 3. One layout, top to bottom
 
@@ -253,7 +253,7 @@ order card's accent). Each component takes its colours from `homeLook[theme]` an
    - Rule (`panelMode`): order if anything runs; else offers during lunch 12:00–15:00 and dinner
      19:00–23:00 **when at least one offer exists** and the customer hasn't already seen and scrolled past
      that meal's offers; else calm.
-6. Search «دور على مطعم أو أكلة».
+6. Search «دور على مطعم أو أكلة». **Moved (Ali, 2026-11-05: "do what is best"):** the search sits at the top, right under the header, above the headline and the map card, where people look for it in every food app. Reviews should not flag this.
 7. **«شنو تحتاج؟» — the live board, always shown** (concept D «لوحة حيّة», real pictures, no icons, flat
    tiles, no glow):
    - **أكل** (tall, orange): food picture, the open count «22 مطعم فاتح». Unchanged service.

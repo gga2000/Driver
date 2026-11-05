@@ -164,7 +164,7 @@ describe('home redesign colours (sage and emerald night)', () => {
     expect([sage.bg, sage.surface, sage.border, sage.text, sage.textMuted, sage.accent, sage.onAccent]).toEqual([
       '#E4EAE1', '#F1F4EF', '#E0E7DC', '#1A231C', '#4E5A50', ORANGE, ON_ORANGE,
     ]);
-    expect(homeLook.sage.panel).toMatchObject({ fill: '#1F3A2B', raised: '#274836', line: '#2F523E', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE' });
+    expect(homeLook.sage.panel).toMatchObject({ fill: '#1F3A2B', raised: '#274836', on: '#F1F4EF', onSoft: '#E8EFE5', muted: '#BDCABE' });
     expect(homeLook.sage.river).toMatchObject({ line: '#9DB08A', inner: '#AAC096' });
     expect(homeLook.sage.map).toEqual({ land: '#EAE5D9', blocks: '#DED6C5', palms: ['#99A878', '#758655'], streets: '#FFFFFF', river: '#9DB08A' });
     const s = services.sage;
@@ -281,8 +281,6 @@ describe('home redesign colours (sage and emerald night)', () => {
       for (const fg of [b.fact, th.text, th.textMuted]) expect(contrastRatio(fg, b.tile), `${name} ${fg} on tile`).toBeGreaterThanOrEqual(4.5);
       // The food tile: dark ink on the orange.
       expect(contrastRatio(ON_ORANGE, ORANGE)).toBeGreaterThanOrEqual(4.5);
-      // An outlined (taken) seat is still visible on its tile.
-      expect(contrastRatio(b.edge, b.tile), `${name} seat outline`).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -290,5 +288,38 @@ describe('home redesign colours (sage and emerald night)', () => {
     expect(contrastRatio(homeLook.sage.live, homeLook.sage.panel.fill)).toBeGreaterThanOrEqual(3);
     expect(contrastRatio(homeLook.emeraldNight.live, night.bg)).toBeGreaterThanOrEqual(3);
     expect(contrastRatio(homeLook.emeraldNight.live, night.surface)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('audit round 2 (2026-11-04): cards stand off the page by fill, and every word and price on them reads', () => {
+    for (const name of customerThemes) {
+      const look = homeLook[name];
+      const th = themes[name];
+      expect(look.card.fill, name).not.toBe(th.bg);
+      expect(look.board.tile, `${name}: tiles are cards`).toBe(look.card.fill);
+      for (const fg of [th.text, th.textMuted, th.accentText, look.price]) {
+        expect(contrastRatio(fg, look.card.fill), `${name} ${fg} on card`).toBeGreaterThanOrEqual(4.5);
+      }
+      // Never neon green for prices (it stays for live things).
+      expect(look.price, name).not.toBe(look.live);
+    }
+    // Sage cards lift by a shadow; night cards are a step lighter than the page.
+    expect(homeLook.sage.card.shadow).toBeTruthy();
+    expect(contrastRatio(homeLook.emeraldNight.card.fill, night.bg)).toBeGreaterThan(1.05);
+  });
+
+  it('audit round 4 (2026-11-04): the late band reads, and small live marks reach 3:1 on their tiles', () => {
+    for (const name of customerThemes) {
+      const look = homeLook[name];
+      expect(contrastRatio(look.late.on, look.late.fill), `${name} late band`).toBeGreaterThanOrEqual(7);
+      expect(look.late.fill, `${name}: late is not the action orange`).not.toBe(ORANGE);
+      expect(contrastRatio(look.board.dot, look.board.tile), `${name} live dot on tile`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('audit round 7 (2026-11-04): text on the panel orange is its own pair and reads at AA', () => {
+    for (const name of customerThemes) {
+      const { panel } = homeLook[name];
+      expect(contrastRatio(panel.onAccent, panel.accent), `${name} panel button text`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

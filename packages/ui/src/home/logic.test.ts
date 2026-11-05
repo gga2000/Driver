@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { liveAge, mealKey, mealWindow, panelMode, seatSquares, trackerSteps, riverFill } from './logic';
+import { liveAge, liveLabel, mealKey, mealWindow, panelMinutes, panelMode, stepsA11y, trackerSteps, riverFill } from './logic';
+import { SLOT, splitSlot } from './format';
 
 /** A Baghdad wall-clock time on Thursday 2026-11-05 (UTC+3). */
 const at = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 5, h - 3, m));
@@ -77,12 +78,31 @@ describe('the live tag says how old the update is', () => {
   });
 });
 
-describe('seat squares on a departure row', () => {
-  it('filled squares are free seats, the rest outlined', () => {
-    expect(seatSquares(7, 3)).toEqual([true, true, true, false, false, false, false]);
+describe('round 5: labels', () => {
+  it('the live tag: offline first, then the town, stale, now, seconds, minutes', () => {
+    expect(liveLabel(240, true, 'العزيزية')).toContain('ماكو انترنت');
+    expect(liveLabel(undefined, false, 'العزيزية')).toContain('العزيزية');
+    expect(liveLabel(200, false, 'العزيزية')).not.toContain('مباشر');
+    expect(liveLabel(2, false, 'العزيزية')).toBe('مباشر · هسة');
+    expect(liveLabel(8, false, 'العزيزية')).toContain('8');
   });
-  it('never more free seats than seats, never below zero', () => {
-    expect(seatSquares(4, 9)).toEqual([true, true, true, true]);
-    expect(seatSquares(4, -1)).toEqual([false, false, false, false]);
+  it('the step row reads «خطوة n من 4», and the last step once it has arrived', () => {
+    expect(stepsA11y(trackerSteps('preparing'))).toBe('خطوة 2 من 4: دا يتحضّر');
+    expect(stepsA11y(trackerSteps('arrived'))).toBe('خطوة 4 من 4: وصل');
+  });
+  it('panel minutes are whole and never negative', () => {
+    expect([panelMinutes(-3), panelMinutes(4.6), panelMinutes(12)]).toEqual([0, 5, 12]);
+  });
+});
+
+describe('round 6: the price slot', () => {
+  it('splits a line around the slot, and keeps the price when a translation lost it', () => {
+    expect(splitSlot(`مطعم خالد · ${SLOT} · 30 دقيقة`)).toEqual(['مطعم خالد · ', ' · 30 دقيقة']);
+    const [before, after] = splitSlot('مطعم خالد');
+    expect(before.startsWith('مطعم خالد ')).toBe(true);
+    expect(after).toBe('');
+  });
+  it('no steps read as nothing, never a broken key', () => {
+    expect(stepsA11y([])).toBe('');
   });
 });

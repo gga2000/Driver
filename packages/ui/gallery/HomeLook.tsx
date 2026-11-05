@@ -82,7 +82,7 @@ function OrderPanel({ name }: { name: CustomerThemeName }) {
   return (
     <View
       testID="home-look-panel"
-      style={{ flex: 1, minWidth: 300, maxWidth: 420, backgroundColor: p.fill, borderRadius: 28, padding: theme.space[5], gap: theme.space[3], borderWidth: 1, borderColor: p.line }}
+      style={{ flex: 1, minWidth: 300, maxWidth: 420, backgroundColor: p.fill, borderRadius: 28, padding: theme.space[5], gap: theme.space[3], borderWidth: 1, borderColor: p.raised }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}>
         <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: homeLook[name].live }} />
@@ -103,7 +103,7 @@ function OrderPanel({ name }: { name: CustomerThemeName }) {
       </View>
       <View style={{ flexDirection: 'row', gap: theme.space[1] }}>
         {STEPS.map((s, i) => (
-          <View key={s} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: i <= now ? p.accent : p.line }} />
+          <View key={s} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: i <= now ? p.accent : p.raised }} />
         ))}
       </View>
       <View style={{ flexDirection: 'row' }}>

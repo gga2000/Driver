@@ -1,11 +1,14 @@
 import type { ReactNode } from 'react';
-import { Image, Pressable, View, type ImageSourcePropType, type StyleProp, type ViewStyle } from 'react-native';
+import { useWindowDimensions, View, type ImageSourcePropType, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Art } from '../art/Art';
+import { LocalPhoto } from '../components/PhotoImage';
 import { Text } from '../components/Text';
 import { useTheme } from '../theme/ThemeProvider';
-import { seatSquares } from './logic';
+import { homeSize } from './format';
+import { panelMinutes } from './logic';
 import { countWord, useHomeLook } from './look';
+import { HomePress } from './media';
 
 export type BoardService = 'food' | 'ride' | 'gov' | 'parcel' | 'carts';
 
@@ -16,7 +19,11 @@ export interface Departure {
   /** The clock digits («4:30») and the part of day («العصر»). */
   time: string;
   part: string;
+  /** Tomorrow's first car (none left today): the row says «باچر» so a morning time is never read as today. */
+  tomorrow?: boolean;
+  /** All seats in the car (the trip screen draws them); the board says only the free ones. */
   seats: number;
+  /** Seats still free; 0 reads «كاملة». */
   free: number;
 }
 
@@ -32,91 +39,121 @@ export interface LiveBoardProps {
   carts: number;
   /** The cut-out pictures from the app's assets (real photos, no icons; Ali 2026-11-02). */
   pictures: { food: ImageSourcePropType; taxi: ImageSourcePropType; tuktuk: ImageSourcePropType; intercity: ImageSourcePropType };
+  /** No connection: the live numbers are old, so the board stops claiming them (no live dots, «ما نعرف هسة»). */
+  offline?: boolean;
   onPress?: (service: BoardService) => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
+
+/** Above this text size the pictures step aside so the words never collide with them. */
+const BIG_TEXT = 1.3;
+/** A service that can't be used right now: its picture steps back, the words stay readable. */
+const UNAVAILABLE = 0.4;
 
 /**
  * «شنو تحتاج؟» — the live board (concept D, Ali 2026-11-02): food as the tall orange tile, taxi and tuktuk
  * as one tile with the nearest car's minutes, محافظات with the next real departures and their seats, then
  * طرود and عربانات. Flat tiles, real pictures, the same layout in both themes.
  */
-export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures, onPress, style, testID }: LiveBoardProps) {
+export function LiveBoard({ town, open, rideMinutes: liveRide, departures, carts, pictures, offline, onPress, style, testID }: LiveBoardProps) {
   const theme = useTheme();
   const look = useHomeLook();
   const press = (s: BoardService) => (onPress ? () => onPress(s) : undefined);
   const gap = theme.space[2];
   const shown = departures.slice(0, 2);
+  const art = useWindowDimensions().fontScale <= BIG_TEXT;
+  // Offline, the nearest car is unknown rather than «ماكو»: the old minutes would be a guess.
+  const rideMinutes = offline || liveRide === null ? null : panelMinutes(liveRide);
+  const rideFact = offline ? t('home.board.unknown') : rideMinutes === null ? t('home.board.no_car') : t('home.board.nearest');
   return (
     <View testID={testID} style={[{ gap }, style]}>
       <View style={{ flexDirection: 'row', gap }}>
         {/* Food: tall, orange, the count big. */}
         <Tile
-          service="food"
-          label={t('home.board.tile_a11y', { name: t('home.board.food'), fact: t('live_map.open_now', { n: open }) })}
+          label={t('home.board.tile_a11y', { name: t('home.board.food'), fact: open > 0 ? t('live_map.open_now', { n: open }) : t('home.board.food_closed') })}
           onPress={press('food')}
-          style={{ width: 108, backgroundColor: theme.colors.accent, borderColor: theme.colors.accent, justifyContent: 'flex-start' }}
+          style={{ width: homeSize.foodTile, minHeight: homeSize.boardTop, backgroundColor: theme.colors.accent, boxShadow: undefined, justifyContent: 'flex-start' }}
           testID={testID ? `${testID}-food` : undefined}
         >
           <Text variant="title" face="display" color="onAccent" compact>
             {t('home.board.food')}
           </Text>
-          <Text variant="numeralSm" face="display" color="onAccent">
-            {String(open)}
-          </Text>
-          <Text variant="label" weight={700} color="onAccent" compact numberOfLines={2}>
-            {countWord(open, 'home.word.open', 'home.word.open_pl')}
-          </Text>
-          <Image source={pictures.food} accessible={false} resizeMode="contain" style={{ position: 'absolute', bottom: -14, end: -14, width: 118, height: 100, transform: [{ rotate: '-8deg' }] }} />
+          {open > 0 ? (
+            <>
+              <Text variant="numeralSm" face="display" color="onAccent">
+                {String(open)}
+              </Text>
+              <Text variant="label" weight={700} color="onAccent" compact numberOfLines={2}>
+                {countWord(open, 'home.unit.open')}
+              </Text>
+            </>
+          ) : (
+            // Never «0 مطعم فاتح».
+            <Text variant="label" weight={700} color="onAccent" numberOfLines={3} testID={testID ? `${testID}-food-closed` : undefined}>
+              {t('home.board.food_closed')}
+            </Text>
+          )}
+          {art ? <TilePicture source={pictures.food} width={homeSize.boardArt.food.w} height={homeSize.boardArt.food.h} /> : null}
         </Tile>
 
         <View style={{ flex: 1, gap }}>
-          {/* Taxi + tuktuk: one tile, one screen. */}
+          {/* Taxi + tuktuk: one tile, one screen. Minutes in the flow, pictures at the bottom corner like every tile. */}
           <Tile
-            service="ride"
-            label={t('home.board.tile_a11y', { name: t('home.board.ride'), fact: rideMinutes === null ? t('home.board.no_car') : t('live_map.minutes', { n: rideMinutes }) })}
+            label={t('home.board.tile_a11y', { name: t('home.board.ride'), fact: rideMinutes === null ? rideFact : rideMinutes === 0 ? t('home.board.car_here') : t('live_map.minutes', { n: rideMinutes }) })}
             onPress={press('ride')}
-            style={{ height: 104 }}
+            style={{ minHeight: (homeSize.boardTop - gap) / 2 }}
             testID={testID ? `${testID}-ride` : undefined}
           >
             <Text variant="bodyStrong" face="display" compact>
               {t('home.board.ride')}
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              {rideMinutes === null ? null : <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: look.board.dot }} />}
-              <Text variant="footnote" color="textMuted" compact numberOfLines={1}>
-                {rideMinutes === null ? t('home.board.no_car') : t('home.board.nearest')}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: homeSize.gapTight }}>
+              {rideMinutes === null ? null : <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.board.dot }} />}
+              <Text variant="footnote" color="textMuted" numberOfLines={1}>
+                {rideFact}
               </Text>
             </View>
-            {rideMinutes === null ? null : (
-              <View style={{ position: 'absolute', bottom: theme.space[2], start: theme.space[3], flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+            {rideMinutes === 0 ? (
+              <Text variant="bodyStrong" face="display" color={look.board.fact} testID={testID ? `${testID}-ride-here` : undefined}>
+                {t('home.board.car_here')}
+              </Text>
+            ) : rideMinutes === null ? null : (
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[1] }}>
                 <Text variant="numeralSm" face="display" color={look.board.fact} testID={testID ? `${testID}-ride-minutes` : undefined}>
                   {String(rideMinutes)}
                 </Text>
                 <Text variant="footnote" color="textMuted" compact>
-                  {countWord(rideMinutes, 'home.word.minute', 'home.word.minute_pl')}
+                  {countWord(rideMinutes, 'home.unit.minute')}
                 </Text>
               </View>
             )}
-            <Image source={pictures.taxi} accessible={false} resizeMode="contain" style={{ position: 'absolute', bottom: 2, end: 56, width: 76, height: 46 }} />
-            <Image source={pictures.tuktuk} accessible={false} resizeMode="contain" style={{ position: 'absolute', bottom: 2, end: 4, width: 48, height: 48 }} />
+            {art ? (
+              <View style={{ position: 'absolute', bottom: theme.space[1], end: theme.space[1], flexDirection: 'row', alignItems: 'flex-end', pointerEvents: 'none' }}>
+                <LocalPhoto source={pictures.taxi} fit="contain" style={{ width: homeSize.boardArt.taxi.w, height: homeSize.boardArt.taxi.h, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
+                <LocalPhoto source={pictures.tuktuk} fit="contain" style={{ width: homeSize.boardArt.tuktuk.w, height: homeSize.boardArt.tuktuk.h, opacity: rideMinutes === null ? UNAVAILABLE : 1 }} />
+              </View>
+            ) : null}
           </Tile>
 
           {/* محافظات: the next real departures with their seats. */}
-          <Tile service="gov" label={t('home.board.gov')} onPress={press('gov')} testID={testID ? `${testID}-gov` : undefined}>
+          <Tile
+            label={shown.length === 0 ? t('home.board.tile_a11y', { name: t('home.board.gov'), fact: t('home.board.no_trips') }) : t('home.board.gov_a11y', { departures: shown.map(departureA11y).join(t('home.list_sep')) })}
+            onPress={press('gov')}
+            testID={testID ? `${testID}-gov` : undefined}
+          >
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text variant="bodyStrong" face="display" compact>
                 {t('home.board.gov')}
               </Text>
-              <Image source={pictures.intercity} accessible={false} resizeMode="contain" style={{ width: 84, height: 40, marginVertical: -8 }} />
+              {art ? <LocalPhoto source={pictures.intercity} fit="contain" style={{ width: homeSize.boardArt.intercity.w, height: homeSize.boardArt.intercity.h }} /> : null}
             </View>
             {shown.length === 0 ? (
               <Text variant="footnote" color="textMuted">
                 {t('home.board.no_trips')}
               </Text>
             ) : (
-              shown.map((d, i) => <DepartureRow key={d.id} d={d} first={i === 0} />)
+              shown.map((d, i) => <DepartureRow key={d.id} d={d} first={i === 0} testID={testID ? `${testID}-dep-${d.id}` : undefined} />)
             )}
           </Tile>
         </View>
@@ -124,19 +161,18 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
 
       <View style={{ flexDirection: 'row', gap }}>
         <SmallTile
-          service="parcel"
           name={t('home.board.parcel')}
           fact={t('home.board.parcel_sub', { town })}
-          art={<Art name="parcel" size={76} />}
+          art={art ? <Art name="parcel" size={homeSize.boardArt.small} /> : null}
           onPress={press('parcel')}
           testID={testID ? `${testID}-parcel` : undefined}
         />
         <SmallTile
-          service="carts"
           name={t('home.board.carts')}
-          fact={carts > 0 ? t('home.board.carts_open', { n: carts }) : t('home.board.carts_closed')}
-          live={carts > 0}
-          art={<Art name="cart" size={76} />}
+          fact={offline ? t('home.board.unknown') : carts > 0 ? t('home.board.carts_open', { n: carts }) : t('home.board.carts_closed')}
+          live={carts > 0 && !offline}
+          art={art ? <Art name="cart" size={homeSize.boardArt.small} /> : null}
+          muted={offline || carts === 0}
           onPress={press('carts')}
           testID={testID ? `${testID}-carts` : undefined}
         />
@@ -145,93 +181,102 @@ export function LiveBoard({ town, open, rideMinutes, departures, carts, pictures
   );
 }
 
-function Tile({ children, label, onPress, style, testID }: { service: BoardService; children: ReactNode; label: string; onPress?: () => void; style?: StyleProp<ViewStyle>; testID?: string }) {
+/** A board tile: the card colour and its soft shadow (no outline), the whole tile one button. */
+function Tile({ children, label, onPress, style, testID }: { children: ReactNode; label: string; onPress?: () => void; style?: StyleProp<ViewStyle>; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
   return (
-    <Pressable
-      accessibilityRole="button"
+    <HomePress
       accessibilityLabel={label}
       onPress={onPress}
       testID={testID}
-      style={({ pressed }) => [
+      style={[
         {
-          minHeight: 88,
+          minHeight: homeSize.boardBottom,
+          gap: homeSize.gapHair,
           borderRadius: theme.radius.xl,
-          borderWidth: 1,
-          borderColor: look.board.edge,
           backgroundColor: look.board.tile,
+          boxShadow: look.card.shadow ?? undefined,
+          borderWidth: look.card.edge ? 1 : 0,
+          borderColor: look.card.edge ?? undefined,
           paddingHorizontal: theme.space[3],
           paddingVertical: theme.space[2],
           overflow: 'hidden',
-          opacity: pressed ? 0.85 : 1,
         },
         style,
       ]}
     >
       {children}
-    </Pressable>
+    </HomePress>
   );
 }
 
-function DepartureRow({ d, first }: { d: Departure; first: boolean }) {
+const partOf = (d: Departure) => (d.tomorrow ? t('home.board.tomorrow_part', { part: d.part }) : d.part);
+const departureA11y = (d: Departure) => t('home.board.departure_a11y', { city: d.city, time: t('home.board.departure_time', { time: d.time, part: partOf(d) }), seats: d.free > 0 ? t('intercity.seats_left', { n: d.free }) : t('intercity.full') });
+
+/** Two seats or fewer: the count turns orange (forest-on-sage reads «few left» by weight instead). */
+const FEW_SEATS = 2;
+
+function DepartureRow({ d, first, testID }: { d: Departure; first: boolean; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
-  const squares = seatSquares(d.seats, d.free);
+  const few = d.free <= FEW_SEATS;
   return (
     <View
-      accessible
-      accessibilityLabel={t('home.board.departure_a11y', { city: d.city, time: `${d.time} ${d.part}`, seats: t('intercity.seats_left', { n: d.free }) })}
+      testID={testID}
       style={{
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: theme.space[2],
         paddingVertical: 6,
         borderTopWidth: first ? 0 : 1,
-        borderStyle: 'dashed',
-        borderTopColor: look.board.edge,
+        borderTopColor: theme.colors.border,
       }}
     >
-      <Text variant="label" numberOfLines={1}>
-        {d.city}
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-        <Text variant="label" face="display" color={look.board.fact} tabular>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[1], flexShrink: 1 }}>
+        <Text variant="label" weight={600} numberOfLines={1}>
+          {d.city}
+        </Text>
+        <Text variant="label" face="display" weight={700} color={look.board.fact} tabular>
           {d.time}
         </Text>
         <Text variant="footnote" color="textMuted" compact>
-          {d.part}
+          {partOf(d)}
         </Text>
-        <View testID={`seats-${d.id}`} style={{ flexDirection: 'row', gap: 3, marginStart: theme.space[1], direction: 'ltr' }}>
-          {squares.map((free, i) => (
-            <View
-              key={i}
-              testID={free ? 'seat-free' : 'seat-taken'}
-              style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: free ? look.board.fact : 'transparent', borderWidth: free ? 0 : 1, borderColor: look.board.edge }}
-            />
-          ))}
-        </View>
       </View>
+      {/* Seats in words, not dots (audit round 2): «باقي 3 مقاعد», and «كاملة» when none is left. */}
+      <Text testID={testID ? `${testID}-seats` : undefined} variant="footnote" weight={few ? 700 : 500} color={few && d.free > 0 ? 'accentText' : 'textMuted'} compact numberOfLines={1}>
+        {d.free > 0 ? t('intercity.seats_left', { n: d.free }) : t('intercity.full')}
+      </Text>
     </View>
   );
 }
 
-function SmallTile({ service, name, fact, live, art, onPress, testID }: { service: BoardService; name: string; fact: string; live?: boolean; art: ReactNode; onPress?: () => void; testID?: string }) {
+function SmallTile({ name, fact, live, art, muted, onPress, testID }: { muted?: boolean; name: string; fact: string; live?: boolean; art: ReactNode; onPress?: () => void; testID?: string }) {
   const look = useHomeLook();
   return (
-    <Tile service={service} label={t('home.board.tile_a11y', { name, fact })} onPress={onPress} style={{ flex: 1, height: 96 }} testID={testID}>
+    <Tile label={t('home.board.tile_a11y', { name, fact })} onPress={onPress} style={{ flex: 1 }} testID={testID}>
       <Text variant="bodyStrong" face="display" compact>
         {name}
       </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '70%' }}>
-        {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: look.board.dot }} /> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: homeSize.gapTight, maxWidth: art ? '70%' : undefined }}>
+        {live ? <View style={{ width: homeSize.dot, height: homeSize.dot, borderRadius: homeSize.dot / 2, backgroundColor: look.board.dot }} /> : null}
         <Text variant="footnote" color="textMuted" numberOfLines={2}>
           {fact}
         </Text>
       </View>
-      <View pointerEvents="none" style={{ position: 'absolute', end: -6, bottom: -8 }}>
-        {art}
-      </View>
+      {art ? <View style={{ position: 'absolute', end: homeSize.boardArt.inset, bottom: homeSize.boardArt.inset, pointerEvents: 'none', opacity: muted ? UNAVAILABLE : 1 }}>{art}</View> : null}
     </Tile>
+  );
+}
+
+/** A tile's cut-out picture, always in the same bottom corner (audit round 3: one place, never cropped). */
+function TilePicture({ source, width, height }: { source: ImageSourcePropType; width: number; height: number }) {
+  const theme = useTheme();
+  return (
+    <View style={{ position: 'absolute', bottom: theme.space[1], end: theme.space[1], pointerEvents: 'none' }}>
+      <LocalPhoto source={source} fit="contain" style={{ width, height }} />
+    </View>
   );
 }
