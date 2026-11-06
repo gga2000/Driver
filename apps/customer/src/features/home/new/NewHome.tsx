@@ -18,6 +18,7 @@ import {
   RestaurantCard,
   RestaurantRowSkeleton,
   homeSize,
+  stageRuns,
   type BoardService,
   type HomeDish,
 } from '@driver/ui/home';
@@ -50,7 +51,7 @@ import { useActiveOrder, useMyOrders, usePicks, useRestaurants } from '../querie
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { TILE_PICTURES } from '../tile-pictures';
 import { HomeTownMap } from './HomeTownMap';
-import { boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, kitchenMinutes, lateNotice, minutesTo, orderHeadlineKey, orderStage, orderTitleKey, personOf, recentlyEnded, usualOrder } from './logic';
+import { boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, kitchenMinutes, lateNotice, minutesTo, orderHeadline, orderHeadlineKey, orderStage, orderTitleKey, personOf, recentlyEnded, usualOrder } from './logic';
 
 const PICTURES = { food: TILE_PICTURES.food.source, taxi: TILE_PICTURES.taxi.source, tuktuk: TILE_PICTURES.tuktuk.source, intercity: TILE_PICTURES.intercity.source };
 /** How many of the hour's dishes are asked for (two side by side, one compact during an order, the fastest on the panel). */
@@ -175,13 +176,15 @@ export function NewHome() {
         </View>
 
         <View style={{ gap: theme.space[3] }}>
-          <Text variant="heading" face="display" accessibilityRole="header">
-            {headline}
-          </Text>
+          {orderHeadline ? null : (
+            <Text variant="heading" face="display" accessibilityRole="header">
+              {headline}
+            </Text>
+          )}
           {loading ? (
             <HomeMapCardSkeleton mapHeight={order ? homeSize.mapOrder : homeSize.mapIdle} />
           ) : order ? (
-            <OrderCard order={order} town={t('rajaa.city_aziziyah')} night={mapBoxNight(dp.hour)} offline={!net.online} />
+            <OrderCard order={order} withHeadline={orderHeadline !== null} town={t('rajaa.city_aziziyah')} night={mapBoxNight(dp.hour)} offline={!net.online} />
           ) : (
             <HomeMapCard map={<HomeTownMap night={mapBoxNight(dp.hour)} onUpdated={setMapAt} />} town={t('rajaa.city_aziziyah')} updatedAt={mapAt} offline={!net.online} testID="home-map">
               {usual ? (
@@ -267,8 +270,9 @@ export function NewHome() {
 }
 
 /** The map card while an order runs: the tracker panel under the town with their order on it. */
-function OrderCard({ order, town, night, offline }: { order: Order; town: string; night: boolean; offline: boolean }) {
+function OrderCard({ order, withHeadline, town, night, offline }: { order: Order; withHeadline: boolean; town: string; night: boolean; offline: boolean }) {
   const t = useT();
+  const theme = useTheme();
   const track = useTracking(order.id);
   const now = useNow(true, 30_000);
   const [mapAt, setMapAt] = useState<number | undefined>(undefined);
@@ -299,10 +303,28 @@ function OrderCard({ order, town, night, offline }: { order: Order; town: string
         testID="home-order"
       />
     );
+  // The headline names the kitchen and says when it gets there, as in the approved picture.
+  const head = withHeadline ? orderHeadline(o, v?.merchant?.name ?? null, stageRuns(stage) && !late ? eta : null, t) : null;
   // The map opens the order's own screen (the live map with the courier, the receipt, help).
-  return (
+  const card = (
     <HomeMapCard map={<HomeTownMap night={night} onUpdated={setMapAt} onPress={open} />} town={town} updatedAt={mapAt} offline={offline} frozen={stage === 'cancelled'} {...(route ? { route } : {})} testID="home-map">
       {panel}
     </HomeMapCard>
+  );
+  if (!head) return card;
+  return (
+    <>
+      <View style={{ gap: theme.space[1] }}>
+        <Text variant="heading" face="display" accessibilityRole="header">
+          {head.title}
+        </Text>
+        {head.line ? (
+          <Text variant="body" color="textMuted">
+            {head.line}
+          </Text>
+        ) : null}
+      </View>
+      {card}
+    </>
   );
 }

@@ -10921,6 +10921,8 @@
   "home.step_of": "Step {n} of {total}: {step}",
   "home.board.food_closed": "Restaurants are closed now",
   "home.order_headline": "Your food is on the way",
+  "home.order_headline_from": "Your food from {name} is on the way",
+  "home.order_eta_line": "Arrives at {time}",
   "home.ride_headline": "Your ride, now",
   "home.ride_done_headline": "Glad you got there safely",
   "home.stage.ride_done": "You arrived safely",

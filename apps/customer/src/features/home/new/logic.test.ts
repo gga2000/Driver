@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { t as translate, type MessageKey } from '@driver/i18n';
 import type { DepartureCard, OrderTracking, Usual } from '@driver/contracts';
 import type { RestaurantSummary } from '../restaurant-summary';
-import { ENDED_SHOW_MS, orderHeadlineKey, orderTitleKey, recentlyEnded, boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, lateNotice, minutesTo, orderStage, personOf, usualOrder } from './logic';
+import { ENDED_SHOW_MS, orderHeadline, orderHeadlineKey, orderTitleKey, recentlyEnded, boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, lateNotice, minutesTo, orderStage, personOf, usualOrder } from './logic';
 
 const t = (key: MessageKey, params?: Record<string, string | number>) => translate(key, params);
 const clean = (s: string) => s.replace(/[‎‏⁦-⁩]/g, '');
@@ -32,6 +32,15 @@ describe('new home: order panel data', () => {
     expect(orderHeadlineKey({ type: 'food', state: 'delivered' })).toBe('home.bye');
     expect(orderHeadlineKey({ type: 'ride', state: 'placed' })).toBe('home.ride_headline');
     expect(orderHeadlineKey({ type: 'food', state: 'merchant_rejected' })).toBeNull();
+  });
+  it('the running headline names the kitchen and the time it gets there; a ride and a late order keep it short', () => {
+    const at = new Date(Date.UTC(2026, 10, 4, 10, 42));
+    const h = orderHeadline({ type: 'food', state: 'picked_up' }, 'مطعم خالد', at, t);
+    expect(h?.title).toBe('أكلك من مطعم خالد بالطريق');
+    expect(clean(h?.line ?? '')).toBe('يوصل الساعة 1:42 الظهر');
+    expect(orderHeadline({ type: 'food', state: 'preparing' }, null, null, t)).toEqual({ title: 'أكلك بالطريق' });
+    expect(orderHeadline({ type: 'ride', state: 'placed' }, null, at, t)).toEqual({ title: 'مشوارك هسة' });
+    expect(orderHeadline({ type: 'food', state: 'customer_cancelled' }, 'مطعم خالد', at, t)).toBeNull();
   });
   it('an order that just arrived or was cancelled stays on the card for ten minutes, the newest first', () => {
     const at = (min: number) => new Date(NOW.getTime() - min * 60_000);

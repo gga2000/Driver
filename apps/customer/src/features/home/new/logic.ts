@@ -58,6 +58,17 @@ export function orderHeadlineKey(o: Pick<Order, 'type' | 'state'>): MessageKey |
   return stage === 'arrived' ? 'home.bye' : 'home.order_headline';
 }
 
+/**
+ * The headline over a running order (approved picture): «أكلك من مطعم خالد بالطريق» with «يوصل الساعة
+ * 1:42 الظهر» under it while a time is known; a ride keeps «مشوارك هسة». Null after a cancel.
+ */
+export function orderHeadline(o: Pick<Order, 'type' | 'state'>, merchant: string | null, eta: Date | null, t: TFn): { title: string; line?: string } | null {
+  const key = orderHeadlineKey(o);
+  if (!key) return null;
+  const title = key === 'home.order_headline' && merchant ? t('home.order_headline_from', { name: merchant }) : t(key);
+  return eta && key === 'home.order_headline' ? { title, line: t('home.order_eta_line', { time: formatHourPart(eta) }) } : { title };
+}
+
 /** How long an order that just ended (arrived, or cancelled) stays on the home card. */
 export const ENDED_SHOW_MS = 10 * 60_000;
 
