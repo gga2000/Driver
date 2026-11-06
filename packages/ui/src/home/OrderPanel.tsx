@@ -46,6 +46,8 @@ export type OrderPanelProps = OrderState & {
   cash?: number;
   /** The courier or driver. */
   person?: { name: string; photo?: string; kind: 'courier' | 'driver' };
+  /** A taxi or tuktuk: the steps read «طلبت · السايق جاي · بالطريق · وصلت». */
+  ride?: boolean;
   onMessage?: () => void;
   testID?: string;
 };
@@ -129,11 +131,11 @@ function PanelHead({ from, title, newTime, left, offline, testID }: { from: stri
 }
 
 /** The four steps as one screen-reader stop («خطوة 2 من 4: دا يتحضّر»); now = orange (muted offline), done = cream with a check, next = outlined. */
-function StepTrack({ steps, offline, testID }: { steps: readonly TrackerStep[]; offline: boolean; testID?: string }) {
+function StepTrack({ steps, offline, ride, testID }: { steps: readonly TrackerStep[]; offline: boolean; ride: boolean; testID?: string }) {
   const theme = useTheme();
   const look = useHomeLook();
   return (
-    <View accessible accessibilityLabel={stepsA11y(steps)} testID={testID ? `${testID}-steps` : undefined} style={{ gap: theme.space[2] }}>
+    <View accessible accessibilityLabel={stepsA11y(steps, ride)} testID={testID ? `${testID}-steps` : undefined} style={{ gap: theme.space[2] }}>
       <View style={{ flexDirection: 'row', gap: theme.space[1] }}>
         {steps.map((s, i) => (
           <View
@@ -155,7 +157,7 @@ function StepTrack({ steps, offline, testID }: { steps: readonly TrackerStep[]; 
           <View key={i} style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: theme.space[1] }}>
             {s === 'done' ? <Icon name="check" size={homeSize.iconSm} color={look.panel.onSoft} strokeWidth={2.75} /> : null}
             <Text variant="footnote" weight={s === 'now' ? 700 : 400} color={s === 'next' ? look.panel.muted : look.panel.on} compact numberOfLines={1}>
-              {stepName(STAGES[i]!)}
+              {stepName(STAGES[i]!, ride)}
             </Text>
           </View>
         ))}
@@ -219,7 +221,7 @@ function PersonRow({ person, offline, onMessage, testID }: { person: NonNullable
  * under Reduce Motion) and is announced once to screen readers, with its notice when there is one.
  */
 export function OrderPanel(props: OrderPanelProps) {
-  const { from, title, stage, minutes, notice, actions, offline = false, cash, person, onMessage, testID } = props;
+  const { from, title, stage, minutes, notice, actions, offline = false, cash, person, ride = false, onMessage, testID } = props;
   const theme = useTheme();
   const steps = trackerSteps(stage);
   // Late only while the order runs: once it has arrived the band and the new time step away.
@@ -248,8 +250,8 @@ export function OrderPanel(props: OrderPanelProps) {
       <PanelHead from={from} title={title} newTime={newTime} left={left} offline={offline} testID={testID} />
       {offline ? <OfflineLine testID={testID ? `${testID}-offline` : undefined} /> : null}
       {notice && (notice.tone === 'ended' || notice.text) ? <NoticeText notice={notice} testID={testID ? `${testID}-notice` : undefined} /> : null}
-      {steps.length > 0 ? <StepTrack steps={steps} offline={offline} testID={testID} /> : null}
-      {cash !== undefined && cash > 0 && !ended ? <CashRow cash={cash} testID={testID ? `${testID}-cash` : undefined} /> : null}
+      {steps.length > 0 ? <StepTrack steps={steps} offline={offline} ride={ride} testID={testID} /> : null}
+      {cash !== undefined && cash > 0 && stageRuns(stage) ? <CashRow cash={cash} testID={testID ? `${testID}-cash` : undefined} /> : null}
       {person && !ended ? <PersonRow person={person} offline={offline} onMessage={onMessage} testID={testID} /> : null}
       {actions ? (
         <View style={{ gap: theme.space[2] }}>

@@ -2,6 +2,7 @@ import type { DepartureCard, Order, OrderTracking, Usual } from '@driver/contrac
 import { cityDayDiff, dayPart, formatClock, formatHourPart, type MessageKey } from '@driver/i18n';
 import type { Departure, HomeChip, HomeDish, OrderNotice, OrderStage, UsualOrder } from '@driver/ui/home';
 import { boardSummary } from '@/features/rajaa/logic';
+import { liveStage, stageTitleKey } from '../live-card';
 import { itemsSummary } from '@/features/orders/reorder';
 import type { TFn } from '@/lib/i18n';
 import type { RestaurantSummary } from '../restaurant-summary';
@@ -12,7 +13,9 @@ import type { RestaurantSummary } from '../restaurant-summary';
  */
 
 /** The four steps the panel draws, from the order's state. Rides read the same way: asked, coming, on the way, there. */
-export function orderStage(o: Pick<Order, 'state'>): OrderStage {
+export function orderStage(o: Pick<Order, 'state'> & Partial<Pick<Order, 'type'>>): OrderStage {
+  // A ride: a driver took it = «السايق جاي» (the second step); picked up = on the trip.
+  if (o.type === 'ride' && o.state === 'matched') return 'preparing';
   switch (o.state) {
     case 'placed':
     case 'merchant_accepted':
@@ -37,6 +40,57 @@ export function orderStage(o: Pick<Order, 'state'>): OrderStage {
     default:
       return 'placed';
   }
+}
+
+/** The panel's big line: the step's words while it runs, then «وصل…» or that it didn't go through. */
+export function orderTitleKey(o: Pick<Order, 'type' | 'state'>): MessageKey {
+  const stage = orderStage(o);
+  if (stage === 'cancelled') return 'home.panel.cancelled_title';
+  if (stage === 'arrived') return o.type === 'ride' ? 'home.stage.ride_done' : 'order.status.delivered';
+  return stageTitleKey(liveStage(o));
+}
+
+/** The headline over the card while an order is on it; null after a cancel (the hour's greeting comes back). */
+export function orderHeadlineKey(o: Pick<Order, 'type' | 'state'>): MessageKey | null {
+  const stage = orderStage(o);
+  if (stage === 'cancelled') return null;
+  if (o.type === 'ride') return stage === 'arrived' ? 'home.ride_done_headline' : 'home.ride_headline';
+  return stage === 'arrived' ? 'home.bye' : 'home.order_headline';
+}
+
+/**
+ * The headline over a running order (approved picture): «أكلك من مطعم خالد بالطريق» with «يوصل الساعة
+ * 1:42 الظهر» under it while a time is known; a ride keeps «مشوارك هسة». Null after a cancel.
+ */
+export function orderHeadline(o: Pick<Order, 'type' | 'state'>, merchant: string | null, eta: Date | null, t: TFn): { title: string; line?: string } | null {
+  const key = orderHeadlineKey(o);
+  if (!key) return null;
+  const title = key === 'home.order_headline' && merchant ? t('home.order_headline_from', { name: merchant }) : t(key);
+  return eta && key === 'home.order_headline' ? { title, line: t('home.order_eta_line', { time: formatHourPart(eta) }) } : { title };
+}
+
+/** How long an order that just ended (arrived, or cancelled) stays on the home card. */
+export const ENDED_SHOW_MS = 10 * 60_000;
+
+/**
+ * The order the home card shows when nothing is running: the newest one that arrived or was cancelled
+ * in the last ten minutes, so «وصل» and the cancelled card are seen before the card goes calm again.
+ */
+export function recentlyEnded<O extends Pick<Order, 'state' | 'deliveredAt' | 'cancelledAt'>>(orders: readonly O[], now: number): O | null {
+  let best: O | null = null;
+  let bestAt = -Infinity;
+  for (const o of orders) {
+    const stage = orderStage(o);
+    const at = stage === 'arrived' ? o.deliveredAt : stage === 'cancelled' ? o.cancelledAt : null;
+    if (!at) continue;
+    const t = at.getTime();
+    if (now - t > ENDED_SHOW_MS || now < t - 60_000) continue;
+    if (t > bestAt) {
+      best = o;
+      bestAt = t;
+    }
+  }
+  return best;
 }
 
 /** Whole minutes from now to the arrival time; null when there is none yet (never below 0). */
