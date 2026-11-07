@@ -69,6 +69,18 @@ export function orderHeadline(o: Pick<Order, 'type' | 'state'>, merchant: string
   return eta && key === 'home.order_headline' ? { title, line: t('home.order_eta_line', { time: formatHourPart(eta) }) } : { title };
 }
 
+/** The order the card shows: the one picked with «+1» while it still runs, else the newest. */
+export function shownOrder<O extends { id: string }>(running: readonly O[], pickedId: string | null): O | null {
+  return running.find((o) => o.id === pickedId) ?? running[0] ?? null;
+}
+
+/** «+1» moves to the next running order, round the list. */
+export function nextOrderId(running: readonly { id: string }[], currentId: string | null): string | null {
+  if (running.length === 0) return null;
+  const at = running.findIndex((o) => o.id === currentId);
+  return running[(at + 1) % running.length]!.id;
+}
+
 /** How long an order that just ended (arrived, or cancelled) stays on the home card. */
 export const ENDED_SHOW_MS = 10 * 60_000;
 

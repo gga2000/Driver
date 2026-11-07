@@ -2,10 +2,12 @@ import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, View, type StyleProp, type ViewStyle } from 'react-native';
 import { t } from '@driver/i18n';
 import { Text } from '../components/Text';
+import { ltr } from '../format';
 import { useTheme } from '../theme/ThemeProvider';
 import { homeSize } from './format';
 import { liveAge, liveLabel, STALE_AFTER_SEC } from './logic';
 import { useHomeLook } from './look';
+import { HomePress } from './media';
 
 export interface HomeMapCardProps {
   /** The map itself (a real map from the app, or its still picture when the map can't draw). */
@@ -25,6 +27,8 @@ export interface HomeMapCardProps {
   town: string;
   /** «مطعم خالد» → «البيت» during an order. */
   route?: { from: string; to: string };
+  /** Something else runs too (spec §7): a «+1» chip on the map; a tap shows the next one. */
+  more?: { count: number; onPress: () => void };
   /** The panel under the map: `OrderPanel`, `OffersPanel` or `CalmPanel`. */
   children?: ReactNode;
   mapHeight?: number;
@@ -45,6 +49,7 @@ export function HomeMapCard({
   frozen,
   town,
   route,
+  more,
   children,
   mapHeight,
   style,
@@ -96,6 +101,20 @@ export function HomeMapCard({
             town={town}
             testID={testID ? `${testID}-live` : undefined}
           />
+          {more && more.count > 0 ? (
+            <HomePress
+              testID={testID ? `${testID}-more` : undefined}
+              accessibilityLabel={t('home.more_running_a11y', { n: more.count })}
+              onPress={more.onPress}
+              style={{ position: 'absolute', top: theme.space[2], end: theme.space[2], minWidth: theme.hitTarget, minHeight: theme.hitTarget, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <View style={{ height: homeSize.chip, minWidth: homeSize.chip, paddingHorizontal: theme.space[3], borderRadius: theme.radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: look.panel.fill }}>
+                <Text variant="label" face="display" weight={700} color={look.panel.on} compact numberOfLines={1}>
+                  {ltr(t('home.more_running', { n: more.count }))}
+                </Text>
+              </View>
+            </HomePress>
+          ) : null}
           {routeText ? (
             <View
               testID={testID ? `${testID}-route` : undefined}

@@ -47,11 +47,11 @@ import { useUsuals } from '../habit-queries';
 import { usualNow } from '../habits';
 import { mapBoxNight } from '../map-box';
 import { pointsChip } from '../points-chip';
-import { useActiveOrder, useMyOrders, usePicks, useRestaurants } from '../queries';
+import { runningOrders, useActiveOrder, useMyOrders, usePicks, useRestaurants } from '../queries';
 import { useReorderFlow } from '@/features/orders/ReorderSheet';
 import { TILE_PICTURES } from '../tile-pictures';
 import { HomeTownMap } from './HomeTownMap';
-import { boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, kitchenMinutes, lateNotice, minutesTo, orderHeadline, orderHeadlineKey, orderStage, orderTitleKey, personOf, recentlyEnded, usualOrder } from './logic';
+import { boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, kitchenMinutes, lateNotice, minutesTo, nextOrderId, orderHeadline, orderHeadlineKey, orderStage, orderTitleKey, personOf, recentlyEnded, shownOrder, usualOrder } from './logic';
 
 const PICTURES = { food: TILE_PICTURES.food.source, taxi: TILE_PICTURES.taxi.source, tuktuk: TILE_PICTURES.tuktuk.source, intercity: TILE_PICTURES.intercity.source };
 /** How many of the hour's dishes are asked for (two side by side, one compact during an order, the fastest on the panel). */
@@ -136,7 +136,12 @@ export function NewHome() {
     else router.push('/food-carts');
   };
 
-  const order = active.data ?? recentlyEnded(mine.data ?? [], now.getTime());
+  // Two things running at once: the newest shows, «+1» on the map switches (spec §7).
+  const running = useMemo(() => (active.data ? runningOrders(mine.data ?? []) : []), [active.data, mine.data]);
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const current = shownOrder(running, pickedId) ?? active.data ?? null;
+  const order = current ?? recentlyEnded(mine.data ?? [], now.getTime());
+  const more = current && running.length > 1 ? { count: running.length - 1, onPress: () => setPickedId(nextOrderId(running, current.id)) } : undefined;
   const loading = restaurants.isPending;
   const named = !!prof.name;
   const orderHeadline = order ? orderHeadlineKey(order) : null;
@@ -184,7 +189,7 @@ export function NewHome() {
           {loading ? (
             <HomeMapCardSkeleton mapHeight={order ? homeSize.mapOrder : homeSize.mapIdle} />
           ) : order ? (
-            <OrderCard order={order} withHeadline={orderHeadline !== null} town={t('rajaa.city_aziziyah')} night={mapBoxNight(dp.hour)} offline={!net.online} />
+            <OrderCard order={order} more={more} withHeadline={orderHeadline !== null} town={t('rajaa.city_aziziyah')} night={mapBoxNight(dp.hour)} offline={!net.online} />
           ) : (
             <HomeMapCard map={<HomeTownMap night={mapBoxNight(dp.hour)} onUpdated={setMapAt} />} town={t('rajaa.city_aziziyah')} updatedAt={mapAt} offline={!net.online} testID="home-map">
               {usual ? (
@@ -270,7 +275,7 @@ export function NewHome() {
 }
 
 /** The map card while an order runs: the tracker panel under the town with their order on it. */
-function OrderCard({ order, withHeadline, town, night, offline }: { order: Order; withHeadline: boolean; town: string; night: boolean; offline: boolean }) {
+function OrderCard({ order, more, withHeadline, town, night, offline }: { order: Order; more?: { count: number; onPress: () => void }; withHeadline: boolean; town: string; night: boolean; offline: boolean }) {
   const t = useT();
   const theme = useTheme();
   const track = useTracking(order.id);
@@ -307,7 +312,7 @@ function OrderCard({ order, withHeadline, town, night, offline }: { order: Order
   const head = withHeadline ? orderHeadline(o, v?.merchant?.name ?? null, stageRuns(stage) && !late ? eta : null, t) : null;
   // The map opens the order's own screen (the live map with the courier, the receipt, help).
   const card = (
-    <HomeMapCard map={<HomeTownMap night={night} onUpdated={setMapAt} onPress={open} />} town={town} updatedAt={mapAt} offline={offline} frozen={stage === 'cancelled'} {...(route ? { route } : {})} testID="home-map">
+    <HomeMapCard map={<HomeTownMap night={night} onUpdated={setMapAt} onPress={open} />} town={town} updatedAt={mapAt} offline={offline} frozen={stage === 'cancelled'} {...(route ? { route } : {})} {...(more ? { more } : {})} testID="home-map">
       {panel}
     </HomeMapCard>
   );

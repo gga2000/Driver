@@ -9,11 +9,12 @@
 //      DIST_DIR=…  the export (default ../dist-new-home)     PLAYWRIGHT_MODULE=…  where playwright lives
 //      WIDTHS=390  only some widths                          STATES=idle,on_the_way  only some states
 //
-// Files: <state>-<light|dark>-<width>.png, full page. States run in this order on one fresh account,
-// because an order placed for one state stays: first visit, idle (the usual), night, Friday, loading,
-// offline, arrived and cancelled (each still on the card for ten minutes), then the running orders
-// (sent, kitchen, on the way, late with the new time) and a taxi still looking. The newest order is the
-// one on the card. The map tiles need the network; without them the card keeps its land colour.
+// Files: <state>-<light|dark>-<width>.png, full page. States run in this order:
+// first visit, idle (the usual), night, Friday, loading, offline, arrived and cancelled (each still on
+// the card for ten minutes), then the running orders
+// (sent, kitchen, on the way, the same with very long names, late with the new time), a taxi still
+// looking, and two at once (food and a taxi, with «+1»). Each order state gets its own new account;
+// the newest order is the one on the card. The map tiles need the network; without them the card keeps its land colour.
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
@@ -26,6 +27,12 @@ const apiBase = (process.env.DEMO_API ?? 'http://127.0.0.1:3200').replace(/\/$/,
 const widths = (process.env.WIDTHS ?? '360,390,430').split(',').map(Number);
 const only = process.env.STATES ? new Set(process.env.STATES.split(',')) : null;
 const THEMES = ['light', 'dark'];
+/** The `long` state's names: real-looking, as long as Aziziyah kitchens and dishes get. */
+const LONG = [
+  ['مطعم خالد', 'مطعم ومشويات خالد أبو علي للأكلات الشعبية'],
+  ['مطعم المسافر', 'مطعم المسافر للباچة والكبة والمعجنات'],
+  ['باچة', 'باچة كاملة ويا خبز تنور وطرشي وليمون'],
+];
 mkdirSync(outDir, { recursive: true });
 
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.ttf': 'font/ttf', '.ico': 'image/x-icon', '.svg': 'image/svg+xml' };
@@ -151,10 +158,35 @@ try {
       await page.waitForTimeout(1500);
     },
   });
-  for (const scenario of ['arrived', 'cancelled', 'placed', 'kitchen', 'on_the_way', 'late_apology', 'ride']) {
-    if (only && !only.has(scenario)) continue;
-    await demo(`/demo/track?personId=${encodeURIComponent(personId)}&scenario=${scenario}`);
+  // Each order state on its own new account, so the orders of earlier states don't pile up (a second
+  // running order would add the «+1» chip everywhere); `two` puts food and a taxi on one account.
+  const fresh = async () => {
+    await page.evaluate(() => localStorage.clear());
+    await context.clearCookies();
+    return signIn();
+  };
+  for (const scenario of ['arrived', 'cancelled', 'placed', 'kitchen', 'on_the_way', 'late_apology', 'ride', 'two']) {
+    const wanted = (s) => !only || only.has(s);
+    if (!wanted(scenario) && !(scenario === 'on_the_way' && wanted('long'))) continue;
+    const id = await fresh();
+    if (scenario === 'two') {
+      await demo(`/demo/track?personId=${encodeURIComponent(id)}&scenario=on_the_way`);
+      await demo(`/demo/track?personId=${encodeURIComponent(id)}&scenario=ride`);
+    } else {
+      await demo(`/demo/track?personId=${encodeURIComponent(id)}&scenario=${scenario}`);
+    }
     await shoot(scenario, { wait: 'home-order' });
+    if (scenario === 'on_the_way' && wanted('long')) {
+      // Very long kitchen and dish names (spec §7): the same order, with the names the server sends made long.
+      await page.route('**/trpc/**', async (route) => {
+        const res = await route.fetch();
+        let body = await res.text();
+        for (const [from, to] of LONG) body = body.split(from).join(to);
+        await route.fulfill({ response: res, body });
+      });
+      await shoot('long', { wait: 'home-order' });
+      await page.unroute('**/trpc/**');
+    }
   }
 } catch (e) {
   errors.push(String(e?.stack ?? e));

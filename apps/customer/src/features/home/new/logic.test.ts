@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { t as translate, type MessageKey } from '@driver/i18n';
 import type { DepartureCard, OrderTracking, Usual } from '@driver/contracts';
 import type { RestaurantSummary } from '../restaurant-summary';
-import { ENDED_SHOW_MS, orderHeadline, orderHeadlineKey, orderTitleKey, recentlyEnded, boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, lateNotice, minutesTo, orderStage, personOf, usualOrder } from './logic';
+import { ENDED_SHOW_MS, nextOrderId, shownOrder, orderHeadline, orderHeadlineKey, orderTitleKey, recentlyEnded, boardDepartures, cashToHand, fastestDish, homeDishes, kitchenChips, lateNotice, minutesTo, orderStage, personOf, usualOrder } from './logic';
 
 const t = (key: MessageKey, params?: Record<string, string | number>) => translate(key, params);
 const clean = (s: string) => s.replace(/[‎‏⁦-⁩]/g, '');
@@ -41,6 +41,15 @@ describe('new home: order panel data', () => {
     expect(orderHeadline({ type: 'food', state: 'preparing' }, null, null, t)).toEqual({ title: 'أكلك بالطريق' });
     expect(orderHeadline({ type: 'ride', state: 'placed' }, null, at, t)).toEqual({ title: 'مشوارك هسة' });
     expect(orderHeadline({ type: 'food', state: 'customer_cancelled' }, 'مطعم خالد', at, t)).toBeNull();
+  });
+  it('two running: the newest shows; «+1» goes round them; a finished pick falls back to the newest', () => {
+    const run = [{ id: 'b' }, { id: 'a' }];
+    expect(shownOrder(run, null)?.id).toBe('b');
+    expect(nextOrderId(run, 'b')).toBe('a');
+    expect(nextOrderId(run, 'a')).toBe('b');
+    expect(shownOrder(run, 'a')?.id).toBe('a');
+    expect(shownOrder([{ id: 'b' }], 'a')?.id).toBe('b');
+    expect(nextOrderId([], null)).toBeNull();
   });
   it('an order that just arrived or was cancelled stays on the card for ten minutes, the newest first', () => {
     const at = (min: number) => new Date(NOW.getTime() - min * 60_000);

@@ -10921,6 +10921,8 @@
   "home.step_of": "خطوة {n} من {total}: {step}",
   "home.board.food_closed": "المطاعم مسدودة هسة",
   "home.order_headline": "أكلك بالطريق",
+  "home.more_running": "+{n}",
+  "home.more_running_a11y": "عندك {n} طلب ثاني شغّال، اضغط حتى تشوفه",
   "home.order_headline_from": "أكلك من {name} بالطريق",
   "home.order_eta_line": "يوصل الساعة {time}",
   "home.ride_headline": "مشوارك هسة",
