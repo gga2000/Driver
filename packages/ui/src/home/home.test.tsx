@@ -202,6 +202,22 @@ describe('round 2: states', () => {
     expect(r.queryByLabelText(/يوصل خلال/)).toBeNull();
     expect(r.queryByTestId('op-minutes')).toBeNull();
   });
+  it('the cash line goes once it has arrived; a ride reads its own steps', () => {
+    const done = renderUI(<OrderPanel from="مطعم خالد" title="وصل طلبك" stage="arrived" cash={14000} testID="op" />, { theme: 'sage' });
+    expect(done.queryByTestId('op-cash')).toBeNull();
+    const ride = renderUI(<OrderPanel from="رحلتك" title="السايق جاي" stage="preparing" ride testID="rp" />, { theme: 'sage' });
+    expect(ride.getByLabelText('خطوة 2 من 4: السايق جاي')).toBeTruthy();
+  });
+  it('a second thing running shows «+1» on the map; a tap asks for the next one; none without it', () => {
+    const next = vi.fn();
+    const r = renderUI(<HomeMapCard map={null} town="العزيزية" more={{ count: 1, onPress: next }} testID="mc" />, { theme: 'sage' });
+    const chip = r.getByLabelText('عندك 1 طلب ثاني شغّال، اضغط حتى تشوفه');
+    expect(chip.textContent).toContain('+1');
+    fireEvent.click(chip);
+    expect(next).toHaveBeenCalledTimes(1);
+    const one = renderUI(<HomeMapCard map={null} town="العزيزية" testID="m1" />, { theme: 'sage' });
+    expect(one.queryByTestId('m1-more')).toBeNull();
+  });
   it('no offers → no panel, never «0 عرض»', () => {
     const r = renderUI(<OffersPanel town="العزيزية" meal="lunch" until="3" dishes={[]} testID="of" />, { theme: 'sage' });
     expect(r.queryByTestId('of')).toBeNull();

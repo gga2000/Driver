@@ -58,7 +58,7 @@ export function CalmPanel(props: CalmPanelProps) {
             <Text variant="footnote" color={look.panel.muted} compact numberOfLines={1}>
               {title}
             </Text>
-            <Text variant="bodyStrong" face="display" color={look.panel.on} numberOfLines={1}>
+            <Text variant="bodyStrong" face="display" color={look.panel.on} numberOfLines={2}>
               {line}
             </Text>
             <Text variant="label" color={look.panel.onSoft} tabular compact numberOfLines={1}>
@@ -146,7 +146,7 @@ export function OffersPanel({ town, meal, until, dishes, onDish, testID }: Offer
               </Text>
             </View>
             <View style={{ padding: theme.space[2] }}>
-              <Text variant="label" weight={600} face="display" color={look.panel.on} numberOfLines={1}>
+              <Text variant="label" weight={600} face="display" color={look.panel.on} numberOfLines={2}>
                 {d.name}
               </Text>
               <Text variant="footnote" color={look.panel.muted} numberOfLines={1}>

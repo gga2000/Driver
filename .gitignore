@@ -18,6 +18,8 @@ packages/ui/gallery-dist/
 packages/ui/gallery-shots/
 apps/customer/dist-web*/
 apps/customer/web-shots/
+apps/customer/dist-new-home/
+apps/customer/home-shots/
 apps/partner/dist-web*/
 apps/partner/web-shots/
 apps/merchant/dist-web*/

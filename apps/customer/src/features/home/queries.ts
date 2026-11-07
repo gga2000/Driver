@@ -31,7 +31,12 @@ export function useMyOrders() {
  */
 /** The newest order still running (a ride booked for later doesn't count until it starts). */
 export function pickActiveOrder(orders: Order[]): Order | null {
-  return orders.filter((o) => isActiveOrder(o) && !isBookedRide(o, new Date())).sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime())[0] ?? null;
+  return runningOrders(orders)[0] ?? null;
+}
+
+/** Everything running now, newest first (the new home's card shows one and a «+1» chip for the rest). */
+export function runningOrders(orders: readonly Order[]): Order[] {
+  return orders.filter((o) => isActiveOrder(o) && !isBookedRide(o, new Date())).sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime());
 }
 
 export function useActiveOrder() {
