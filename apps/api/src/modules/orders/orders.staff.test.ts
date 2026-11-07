@@ -18,7 +18,21 @@ const HOUR = 60 * MIN;
 const ops: Actor = { personId: 'ops_1', roles: ['dispatcher'] } as unknown as Actor;
 const ali: Actor = { personId: 'ali', roles: ['admin'] } as unknown as Actor;
 const all = { disputes: { outcomes: [...DISPUTE_OUTCOMES] } };
-const make = (patch: Parameters<typeof staffHarness>[0] = {}) => staffHarness(patch, { ledger: ledgerHarness() });
+/**
+ * These tests were written against every money switch off (M-2 and M-10 went on by default on
+ * 2026-11-07): the baseline here stays off, and a test switches one on by naming it.
+ */
+const OFF = { platformFailure: { freeCancel: false }, courierLost: { refund: false }, stuckOrders: { autoEnd: false } } as const;
+const make = (patch: Parameters<typeof staffHarness>[0] = {}) =>
+  staffHarness(
+    {
+      ...patch,
+      platformFailure: { ...OFF.platformFailure, ...patch.platformFailure },
+      courierLost: { ...OFF.courierLost, ...patch.courierLost },
+      stuckOrders: { ...OFF.stuckOrders, ...patch.stuckOrders },
+    },
+    { ledger: ledgerHarness() },
+  );
 
 describe('W3 switches', () => {
   it('every money outcome is off by default, from code and from an empty environment', () => {
@@ -545,5 +559,91 @@ describe('remake pay (c6, Ali 2026-10-08)', () => {
     await h.orders.merchantAccept('m1', { orderId: other.id, prepMinutes: 15 });
     h.clock.advance(30 * MIN);
     expect(await code(h.staff.merchantRemake('m1', { orderId: other.id }))).toBe('order_state_conflict');
+  });
+});
+
+describe('stuck orders (Ali, 2026-11-07): no order stays open for days', () => {
+  const on = () => make({ courierLost: { refund: true }, stuckOrders: { autoEnd: true } });
+  async function onTheWay(h: ReturnType<typeof make>) {
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    const t = await h.tripFor(o.id);
+    await h.pickup(t.id);
+    return o;
+  }
+
+  it('Ali switched them on: the env defaults are free cancel when we fail, courier-lost refund and the auto-end; each has an off switch', () => {
+    const d = outcomeRulesFromEnv({});
+    expect(d.platformFailure.freeCancel).toBe(true);
+    expect(d.courierLost).toEqual({ refund: true, chargeCourier: false });
+    expect(d.stuckOrders).toEqual({ autoEnd: true, askAfterMin: 90, notArrivedAfterMin: 180, maxOpenH: 24 });
+    const off = outcomeRulesFromEnv({ PLATFORM_FAILURE_FREE_CANCEL: 'off', COURIER_LOST_REFUND: 'off', STUCK_ORDER_AUTO_END: 'off' });
+    expect([off.platformFailure.freeCancel, off.courierLost.refund, off.stuckOrders.autoEnd]).toEqual([false, false, false]);
+  });
+
+  it('90 min on the way: asks «وصلك الطلب؟» once; «إي» marks it delivered with the cash on the courier', async () => {
+    const h = on();
+    const o = await onTheWay(h);
+    expect(await code(h.staff.confirmArrival('c1', { orderId: o.id, arrived: true }))).toBe('order_state_conflict');
+    h.clock.advance(89 * MIN);
+    await h.staff.sweep();
+    expect(h.events.ofType('order.arrival_check')).toHaveLength(0);
+    h.clock.advance(2 * MIN);
+    await h.staff.sweep();
+    await h.staff.sweep();
+    expect(h.events.ofType('order.arrival_check')).toHaveLength(1);
+    expect(h.events.last('order.arrival_check')!.payload).toMatchObject({ customerId: 'c1' });
+    expect(await code(h.staff.confirmArrival('c2', { orderId: o.id, arrived: true }))).toBe('forbidden');
+    const after = await h.staff.confirmArrival('c1', { orderId: o.id, arrived: true });
+    expect(after.state).toBe('delivered');
+    expect(h.events.last('order.cash_collected')!.payload).toMatchObject({ amountIqd: o.totalIqd, courierId: 'd1' });
+    // A replay changes nothing.
+    expect((await h.staff.confirmArrival('c1', { orderId: o.id, arrived: false })).state).toBe('delivered');
+  });
+
+  it('«لا» ends it as «ما وصل»: nothing charged, the kitchen paid by Driver, the customer told', async () => {
+    const h = on();
+    const o = await onTheWay(h);
+    h.clock.advance(91 * MIN);
+    await h.staff.sweep();
+    const after = await h.staff.confirmArrival('c1', { orderId: o.id, arrived: false });
+    expect(after.state).toBe('refunded');
+    expect(h.events.ofType('order.courier_lost')).toHaveLength(1);
+    expect(h.audits.at(-1)).toMatchObject({ action: 'order.ops_courier_lost', actorId: 'c1' });
+  });
+
+  it('no answer: 3 h after pickup it ends as «ما وصل» by itself', async () => {
+    const h = on();
+    const o = await onTheWay(h);
+    h.clock.advance(179 * MIN);
+    await h.staff.sweep();
+    expect((await h.orders.get(o.id)).state).toBe('picked_up');
+    h.clock.advance(2 * MIN);
+    await h.staff.sweep();
+    expect((await h.orders.get(o.id)).state).toBe('refunded');
+    expect(h.audits.at(-1)).toMatchObject({ action: 'order.ops_courier_lost', actorId: 'system' });
+  });
+
+  it('24 h safety net: an order the kitchen never moved ends free; a booked order counts from its booked time', async () => {
+    const h = on();
+    const o = await h.orders.place('c1', h.foodInput());
+    await h.orders.merchantAccept('m1', { orderId: o.id, prepMinutes: 15 });
+    h.clock.advance(23 * HOUR);
+    await h.staff.sweep();
+    expect((await h.orders.get(o.id)).state).toBe('merchant_accepted');
+    h.clock.advance(2 * HOUR);
+    await h.staff.sweep();
+    const ended = await h.orders.get(o.id);
+    expect(ended.state).toBe('platform_cancelled');
+    expect(h.audits.at(-1)).toMatchObject({ action: 'order.ops_cancel', actorId: 'system' });
+  });
+
+  it('switched off: nothing is asked or ended', async () => {
+    const h = make({ stuckOrders: { autoEnd: false } });
+    const o = await onTheWay(h);
+    h.clock.advance(30 * HOUR);
+    await h.staff.sweep();
+    expect(h.events.ofType('order.arrival_check')).toHaveLength(0);
+    expect((await h.orders.get(o.id)).state).toBe('picked_up');
   });
 });

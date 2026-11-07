@@ -57,7 +57,7 @@ export const BOOKED_RIDE_EVENTS = [
 ] as const;
 
 /** W3: what staff did to a customer's order, told to him (docs/api/staff-ops.md). */
-export const STAFF_OUTCOME_EVENTS = ['order.ops_cancelled', 'order.dispute_resolved', 'order.free_cancel_offered', 'order.courier_lost'] as const;
+export const STAFF_OUTCOME_EVENTS = ['order.ops_cancelled', 'order.dispute_resolved', 'order.free_cancel_offered', 'order.courier_lost', 'order.arrival_check'] as const;
 
 /** W3: the push for each complaint outcome. */
 const DISPUTE_TEMPLATES = {
@@ -707,6 +707,12 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       if (!customerId || !e.orderId) return [];
       const template = e.type === 'order.ops_cancelled' ? ('order_ops_cancelled' as const) : e.type === 'order.free_cancel_offered' ? ('order_free_cancel' as const) : ('order_courier_lost' as const);
       return [{ ...base, template, to: customerId, orderId: e.orderId, params: { id: orderTicketNumber(e.orderId), orderId: e.orderId }, data: { orderId: e.orderId } }];
+    }
+    case 'order.arrival_check': {
+      // Stuck orders (Ali, 2026-11-07): «وصلك الطلب؟» — food still on the way 90 min after pickup.
+      const customerId = str(p['customerId']);
+      if (!customerId || !e.orderId) return [];
+      return [{ ...base, template: 'order_arrival_check', to: customerId, orderId: e.orderId, params: { id: orderTicketNumber(e.orderId), orderId: e.orderId }, data: { orderId: e.orderId } }];
     }
     case 'order.dispute_resolved': {
       // W3 / NTF-01: the complaint's outcome (a refund names its amount).

@@ -10,6 +10,7 @@ import {
   type MerchantRemakeInput,
   type MerchantRemakeResult,
   type MerchantRemakeRule,
+  type ConfirmArrivalInput,
   type OpenDisputeInput,
   type Order,
   type OrderQuote,
@@ -203,6 +204,11 @@ export class OrdersRpc implements OrdersPort {
 
   openDispute(actor: Actor, input: OpenDisputeInput): Promise<Order> {
     return this.orders.openDispute(actor.personId, input);
+  }
+
+  /** Stuck orders: the customer's «وصلك الطلب؟» answer (docs/api/stuck-orders.md). */
+  confirmArrival(actor: Actor, input: ConfirmArrivalInput): Promise<Order> {
+    return this.staffOrThrow().confirmArrival(actor.personId, input);
   }
 
   rate(actor: Actor, input: RateOrderInput): Promise<Order> {

@@ -9448,6 +9448,8 @@
   "push.order_free_cancel.body": "تگدر تلغي الطلب #{id} ببلاش، أو تنطر شوية بعد",
   "push.order_courier_lost.title": "آسفين، صار خلل بطلبك",
   "push.order_courier_lost.body": "الطلب #{id} ما راح يوصل وما راح تدفع شي عليه. تگدر تطلب من جديد",
+  "push.order_arrival_check.title": "وصلك الطلب؟",
+  "push.order_arrival_check.body": "الطلب #{id} صارله وكت طويل بالطريق. گلنا إذا وصلك، وإذا ما وصل ما راح تدفع شي عليه",
   "datasaver.slow_hint_auto": "النت ضعيف هسة، فخلّينا التطبيق خفيف: صور أقل وخريطة أبسط",
   "datasaver.slow_keep": "خلّيه دائماً",
   "datasaver.slow_hint_off": "النت ضعيف هسة. نخلّي التطبيق خفيف؟",

@@ -224,6 +224,7 @@ export const NotifyTemplateId = z.enum([
   'order_dispute_void',
   'order_free_cancel',
   'order_courier_lost',
+  'order_arrival_check',
   // طرود (parcels): the receiver's text with the door link, the receipt code once the door is set, and
   // the sender's notice when the door was never set in time.
   'parcel_door_link',
@@ -1222,6 +1223,16 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.order_courier_lost.title', body: 'push.order_courier_lost.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
+    quietHours: 'send',
+  },
+  // Stuck orders (Ali, 2026-11-07): food still on the way 90 min after pickup — «وصلك الطلب؟», answered on the order screen.
+  order_arrival_check: {
+    id: 'order_arrival_check',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.order_arrival_check.title', body: 'push.order_arrival_check.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     smsTwinAfterSec: WHATSAPP_SMS_FALLBACK_SEC,
     quietHours: 'send',

@@ -549,6 +549,13 @@ export const CancelOrderInput = z.object({ orderId: z.string().min(1), reason: z
 export type CancelOrderInput = z.infer<typeof CancelOrderInput>;
 export const OpenDisputeInput = z.object({ orderId: z.string().min(1), kind: DisputeKind, note: z.string().max(1000).optional() });
 export type OpenDisputeInput = z.infer<typeof OpenDisputeInput>;
+/**
+ * Stuck orders (Ali, 2026-11-07): the customer's answer to «وصلك الطلب؟», asked when food is still on the
+ * way 90 minutes after pickup. `arrived: true` marks it delivered as the courier's «وصل» would;
+ * `false` ends it as «ما وصل» (nothing charged). Only on his own order, only once the question was asked.
+ */
+export const ConfirmArrivalInput = z.object({ orderId: z.string().min(1), arrived: z.boolean() });
+export type ConfirmArrivalInput = z.infer<typeof ConfirmArrivalInput>;
 export const ListActiveOrdersInput = z.object({ cityId: CityId.optional(), merchantOrgId: z.string().optional() });
 export type ListActiveOrdersInput = z.infer<typeof ListActiveOrdersInput>;
 export const MerchantHeartbeatInput = z.object({ merchantOrgId: z.string().min(1) });
@@ -608,6 +615,7 @@ export interface OrdersPort {
   cancel(actor: Actor, input: CancelOrderInput): Promise<Order>;
   respondPartial(actor: Actor, input: RespondPartialInput): Promise<Order>;
   openDispute(actor: Actor, input: OpenDisputeInput): Promise<Order>;
+  confirmArrival(actor: Actor, input: ConfirmArrivalInput): Promise<Order>;
   /** Closes the order early; with scores, also stores the two-tap rating (validated by the API). */
   rate(actor: Actor, input: RateOrderInput): Promise<Order>;
   /** «تحب تكرم عباس؟»: whether the tip prompt shows and the wallet chips it may offer (after a 4–5 rating). */

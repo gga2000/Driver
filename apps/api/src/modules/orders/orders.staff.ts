@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   AZIZIYAH_MONEY_RULES,
   DriverError,
@@ -6,6 +6,8 @@ import {
   orderTicketNumber,
   type Actor,
   type CancellationFee,
+  type ConfirmArrivalInput,
+  type Order,
   type FaultParty,
   type LedgerEvent,
   type OrderState,
@@ -40,6 +42,10 @@ import type { RefundApprovalRecord, RefundApprovalsService } from './refund-appr
 import type { OrdersStaffBridge, PlatformFailurePort } from './staff-bridge.js';
 
 const SYSTEM = 'system';
+/** The stuck-order watchdog acting on its own (its audit rows read «system»). */
+const AUTO: Actor = { personId: SYSTEM, sessionId: SYSTEM };
+/** States the 24-hour safety net ends (complaints stay with support). */
+const OPEN_STATES: readonly OrderState[] = ['placed', 'merchant_accepted', 'preparing', 'ready', 'matched', 'picked_up', 'delivered', 'completed'];
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
@@ -143,6 +149,8 @@ const iqd = (n: number) => n.toLocaleString('en-US');
  */
 @Injectable()
 export class OrdersStaffService implements PlatformFailurePort {
+  private readonly logger = new Logger(OrdersStaffService.name);
+
   constructor(
     private readonly orders: OrdersService,
     @Inject(ORDERS_REPOSITORY) private readonly repo: OrdersRepository,
@@ -670,6 +678,7 @@ export class OrdersStaffService implements PlatformFailurePort {
         done++;
       }
     }
+    if (this.rules.stuckOrders.autoEnd) done += await this.endStuck(now, cityId);
     const auto = this.rules.disputes.auto;
     if (auto.enabled) {
       for (const o of await this.repo.findMany({ ...(cityId ? { cityId } : {}), states: ['disputed'] })) {
@@ -688,6 +697,66 @@ export class OrdersStaffService implements PlatformFailurePort {
       }
     }
     return done;
+  }
+
+  /**
+   * Stuck orders (Ali, 2026-11-07, docs/api/stuck-orders.md): no order stays open for days. Food on the
+   * way `askAfterMin` after pickup → `order.arrival_check` («وصلك الطلب؟», once); still on the way
+   * `notArrivedAfterMin` after pickup → «ما وصل» (`courierLost`: nothing charged, the kitchen paid by
+   * Driver, a courier case for ops); any order still open `maxOpenH` after it was placed (or its booked
+   * time) ends: cancelled free before pickup, «ما وصل» on the way, closed once delivered. Complaints stay
+   * with support. Every step is once per order (state or event log), so a second pod repeats nothing.
+   */
+  private async endStuck(now: Date, cityId?: string): Promise<number> {
+    const r = this.rules.stuckOrders;
+    const t = now.getTime();
+    let done = 0;
+    for (const o of await this.repo.findMany({ ...(cityId ? { cityId } : {}), states: OPEN_STATES })) {
+      try {
+        if (o.state === 'picked_up' && o.pickedUpAt && MERCHANT_ORDER_TYPES.includes(o.type)) {
+          const onWay = t - o.pickedUpAt.getTime();
+          if (onWay >= r.notArrivedAfterMin * MIN) {
+            await this.courierLost(AUTO, { orderId: o.id, reason: `ما وصل خلال ${r.notArrivedAfterMin / 60} ساعات من الاستلام` });
+            done++;
+            continue;
+          }
+          if (onWay >= r.askAfterMin * MIN && !(await this.hasEvent(o.id, 'order.arrival_check'))) {
+            await this.uow.run((tx) => this.bridge.emit(tx, 'order.arrival_check', SYSTEM, o, { customerId: o.ordererId, pickedUpAt: o.pickedUpAt!.toISOString() }));
+            done++;
+          }
+        }
+        const from = Math.max(o.placedAt.getTime(), o.scheduledFor?.getTime() ?? 0);
+        if (t - from < r.maxOpenH * HOUR) continue;
+        const reason = `الطلب ظل مفتوح ${r.maxOpenH} ساعة`;
+        if (CANCELLABLE.includes(o.state)) await this.cancel(AUTO, { orderId: o.id, reason, onBehalfOfCustomer: false });
+        else if (o.state === 'picked_up') await this.courierLost(AUTO, { orderId: o.id, reason });
+        // Delivered: only once its 2-h complaint window is over (the normal auto-close missed it).
+        else if (t - (o.deliveredAt?.getTime() ?? from) >= ORDERS_RULES.autoCloseMs) await this.close(AUTO, { orderId: o.id, reason });
+        else continue;
+        done++;
+      } catch (err) {
+        // One order that can't move (a race with the courier's «وصل», a missing trip) never stops the rest.
+        this.logger.warn(`stuck order ${o.id} (${o.state}) not ended: ${(err as Error).message}`);
+      }
+    }
+    return done;
+  }
+
+  /**
+   * Stuck orders: the customer's answer to «وصلك الطلب؟» (asked only by `endStuck`). Yes → delivered as
+   * the courier's «وصل» would (a cash order's cash counts as his); no → «ما وصل» at once. A replay, or
+   * an order the courier already finished, just returns the order.
+   */
+  async confirmArrival(customerId: string, input: ConfirmArrivalInput): Promise<Order> {
+    const order = await this.load(input.orderId);
+    if (order.ordererId !== customerId) throw new DriverError('forbidden');
+    if (order.state === 'picked_up') {
+      if (!(await this.hasEvent(order.id, 'order.arrival_check'))) throw new DriverError('order_state_conflict');
+      const who: Actor = { personId: customerId, sessionId: 'customer' };
+      if (input.arrived) await this.markDelivered(who, { orderId: order.id, reason: 'الزبون گال الطلب وصله' });
+      else await this.courierLost(who, { orderId: order.id, reason: 'الزبون گال الطلب ما وصله' });
+    }
+    return this.orders.get(order.id);
   }
 
   /**

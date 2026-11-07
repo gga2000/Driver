@@ -9448,6 +9448,8 @@
   "push.order_free_cancel.body": "You can cancel order #{id} for free, or wait a little longer",
   "push.order_courier_lost.title": "Sorry, something went wrong with your order",
   "push.order_courier_lost.body": "Order #{id} will not arrive and you pay nothing for it. You can order again",
+  "push.order_arrival_check.title": "Did your order arrive?",
+  "push.order_arrival_check.body": "Order #{id} has been on the way a long time. Tell us if it reached you; if it didn't, you pay nothing for it",
   "datasaver.slow_hint_auto": "Your internet is slow right now, so we made the app lighter: fewer photos, a simpler map",
   "datasaver.slow_keep": "Keep it light",
   "datasaver.slow_hint_off": "Your internet is slow right now. Make the app lighter?",

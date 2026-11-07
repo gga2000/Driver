@@ -29,7 +29,10 @@ export interface OrderOutcomeRules {
   };
   /** M-2 (NTF-11): when we fail, the customer cancels free. */
   platformFailure: {
-    /** env `PLATFORM_FAILURE_FREE_CANCEL`. Off: the normal cancellation fee applies (today's rule). */
+    /**
+     * env `PLATFORM_FAILURE_FREE_CANCEL`. Ali switched it ON on 2026-11-07 (stuck-orders review, "go");
+     * `PLATFORM_FAILURE_FREE_CANCEL=off` brings back the normal cancellation fee.
+     */
     freeCancel: boolean;
     /** env `PLATFORM_FAILURE_FOOD_PAYER` (`platform` | `merchant`): who carries food already cooked. */
     cookedFoodPayer: CookedFoodPayer;
@@ -67,7 +70,10 @@ export interface OrderOutcomeRules {
   };
   /** M-10 (NTF-13): the courier disappeared with the food. */
   courierLost: {
-    /** env `COURIER_LOST_REFUND`: the order ends at once with nothing charged and the kitchen paid by the platform. */
+    /**
+     * env `COURIER_LOST_REFUND`: the order ends at once with nothing charged and the kitchen paid by the
+     * platform. Ali switched it ON on 2026-11-07 (stuck-orders review, "go"); `COURIER_LOST_REFUND=off` stops it.
+     */
     refund: boolean;
     /** env `COURIER_LOST_CHARGE`: after ops confirms, the food cost goes on the courier's cash account. */
     chargeCourier: boolean;
@@ -79,18 +85,28 @@ export interface OrderOutcomeRules {
    * env `MERCHANT_REMAKE_PAY=off` turns it off without a code change.
    */
   remake: { pay: boolean; afterReadyMin: number };
+  /**
+   * Stuck orders (Ali, 2026-11-07, "go" on the stuck-orders review): no order stays open for days.
+   * Food on the way `askAfterMin` after pickup → the customer is asked «وصلك الطلب؟» (yes = delivered,
+   * no = «ما وصل»); still on the way `notArrivedAfterMin` after pickup → «ما وصل» (M-10's courier-lost
+   * end: nothing charged, the kitchen paid by Driver, a courier case for ops); any order still open
+   * `maxOpenH` after it was placed (or its booked time) ends by itself, nothing charged.
+   * env `STUCK_ORDER_AUTO_END=off` stops all three.
+   */
+  stuckOrders: { autoEnd: boolean; askAfterMin: number; notArrivedAfterMin: number; maxOpenH: number };
   /** M-13 (THIN-12): env `AGENT_CASH_ACCOUNTS`: an agent's top-up cash sits on his own `cash:` account until handed in. */
   agentCashAccounts: boolean;
 }
 
-/** The plan's recommended values with every switch off. */
+/** The plan's recommended values; switches Ali has decided are on, the rest off. */
 export const DEFAULT_ORDER_OUTCOME_RULES: OrderOutcomeRules = {
   disputes: { outcomes: [], agentLimitIqd: 25_000, auto: { enabled: false, escalateAfterH: 48, standsAfterH: 72 } },
-  platformFailure: { freeCancel: false, cookedFoodPayer: 'platform', noCourierAfterMin: 15, kitchenSilentAfterMin: 10, driverNoShowAfterMin: 15 },
+  platformFailure: { freeCancel: true, cookedFoodPayer: 'platform', noCourierAfterMin: 15, kitchenSilentAfterMin: 10, driverNoShowAfterMin: 15 },
   cashDebt: { block: false, maxUnpaidFees: 2, maxOwedIqd: 5_000, collectOnNext: true },
   openCash: { enabled: false, newAccountBelowCompleted: 3, newAccountMax: 1, regularMax: 2, prepayAfterNoAnswer: false },
-  courierLost: { refund: false, chargeCourier: false },
+  courierLost: { refund: true, chargeCourier: false },
   remake: { pay: true, afterReadyMin: 10 },
+  stuckOrders: { autoEnd: true, askAfterMin: 90, notArrivedAfterMin: 180, maxOpenH: 24 },
   agentCashAccounts: false,
 };
 
@@ -112,10 +128,11 @@ export function outcomeRulesFromEnv(env: Readonly<Record<string, string | undefi
   const payer = env['PLATFORM_FAILURE_FOOD_PAYER']?.trim().toLowerCase();
   return {
     disputes: { ...d.disputes, outcomes, auto: { ...d.disputes.auto, enabled: on(env['DISPUTE_AUTO_OUTCOME']) } },
-    platformFailure: { ...d.platformFailure, freeCancel: on(env['PLATFORM_FAILURE_FREE_CANCEL']), cookedFoodPayer: payer === 'merchant' ? 'merchant' : 'platform' },
+    platformFailure: { ...d.platformFailure, freeCancel: !off(env['PLATFORM_FAILURE_FREE_CANCEL']), cookedFoodPayer: payer === 'merchant' ? 'merchant' : 'platform' },
     cashDebt: { ...d.cashDebt, block: on(env['CASH_DEBT_BLOCK']), collectOnNext: !off(env['CASH_DEBT_COLLECT']) },
     openCash: { ...d.openCash, enabled: on(env['OPEN_CASH_CAP']), prepayAfterNoAnswer: on(env['PREPAY_AFTER_NO_ANSWER']) },
-    courierLost: { refund: on(env['COURIER_LOST_REFUND']), chargeCourier: on(env['COURIER_LOST_CHARGE']) },
+    courierLost: { refund: !off(env['COURIER_LOST_REFUND']), chargeCourier: on(env['COURIER_LOST_CHARGE']) },
+    stuckOrders: { ...d.stuckOrders, autoEnd: !off(env['STUCK_ORDER_AUTO_END']) },
     remake: { ...d.remake, pay: !off(env['MERCHANT_REMAKE_PAY']) },
     agentCashAccounts: on(env['AGENT_CASH_ACCOUNTS']),
   };
@@ -131,6 +148,7 @@ export function outcomeRules(patch: { [K in keyof OrderOutcomeRules]?: OrderOutc
     openCash: { ...d.openCash, ...patch.openCash },
     courierLost: { ...d.courierLost, ...patch.courierLost },
     remake: { ...d.remake, ...patch.remake },
+    stuckOrders: { ...d.stuckOrders, ...patch.stuckOrders },
     agentCashAccounts: patch.agentCashAccounts ?? d.agentCashAccounts,
   };
 }
