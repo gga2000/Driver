@@ -1,0 +1,215 @@
+# Driver (درايفر) — the bad-night buttons (docs/deploy/bad-night.md).
+#
+# Run by hand: Actions → Ops → Run workflow, pick where (production, or staging to rehearse on the game day)
+# and what. Nobody types server commands at night; each button does one thing, checks the API after,
+# and writes what it did on the run page.
+#
+#   status                  changes nothing: machines, the last API releases, the live web deployments
+#   restart-worker          restarts the API's worker machine(s) (timers, queues, nightly jobs)
+#   restart-redis           restarts the Redis machine (queues and caches only; the database is untouched)
+#   rollback-api            puts the API back on the image of the release before the running one (or `to`)
+#   promote-previous-web    points one web app's address back at its deployment before the live one (or `to`)
+#
+# Production's buttons run in the `production` GitHub environment, so its required reviewers (if set)
+# approve each run. Production refuses any app ending in -staging; staging requires it.
+# Secrets per environment: FLY_API_TOKEN (an org token, `fly tokens create org`, so it also reaches Redis);
+# VERCEL_TOKEN for promote-previous-web (Vercel → Account Settings → Tokens, scoped to the team).
+# Variables: FLY_API_APP, FLY_REDIS_APP, VERCEL_TEAM_ID (the team id, team_…; unset: a personal account).
+name: Ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where (staging = rehearsal)
+        type: choice
+        options: [production, staging]
+        default: production
+      action:
+        description: What to do (docs/deploy/bad-night.md)
+        type: choice
+        options:
+          - status
+          - restart-worker
+          - restart-redis
+          - rollback-api
+          - promote-previous-web
+        default: status
+      web:
+        description: Which web app (promote-previous-web only)
+        type: choice
+        options: [customer, merchant, partner]
+        default: customer
+      to:
+        description: Optional. rollback-api — a release version (e.g. 41); promote-previous-web — a deployment id (dpl_…). Empty = the one before the live one
+        type: string
+        default: ''
+
+# Shared with Deploy, so a rollback never runs during a deploy to the same place.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ops:
+    name: ${{ inputs.environment }} → ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 20
+    env:
+      WHERE: ${{ inputs.environment }}
+      ACTION: ${{ inputs.action }}
+      TO: ${{ inputs.to }}
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+      DEPLOY_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT }}
+      API_APP: ${{ vars.FLY_API_APP || (inputs.environment == 'staging' && 'driver-api-staging' || 'driver-api') }}
+      REDIS_APP: ${{ vars.FLY_REDIS_APP || (inputs.environment == 'staging' && 'driver-redis-staging' || 'driver-redis') }}
+      WEB_PROJECT: ${{ inputs.web == 'merchant' && (vars.VERCEL_PROJECT_MERCHANT || 'driver-merchant') || inputs.web == 'partner' && (vars.VERCEL_PROJECT_PARTNER || 'driver-partner') || (vars.VERCEL_PROJECT_CUSTOMER || 'driver-customer') }}
+    steps:
+      - name: Right place
+        run: |
+          fail() { echo "::error title=Ops guard::$1 (docs/deploy/bad-night.md)"; exit 1; }
+          if [ "$WHERE" = staging ]; then
+            [ "$DEPLOY_ENVIRONMENT" = staging ] || fail "the staging environment must set the variable DEPLOY_ENVIRONMENT=staging"
+            [[ "$API_APP" == *-staging ]] || fail "on staging FLY_API_APP must end in -staging"
+            [[ "$REDIS_APP" == *-staging ]] || fail "on staging FLY_REDIS_APP must end in -staging"
+          else
+            [ "$DEPLOY_ENVIRONMENT" != staging ] || fail "the production environment says DEPLOY_ENVIRONMENT=staging"
+            [[ "$API_APP" != *-staging ]] || fail "production refuses the staging API app $API_APP"
+            [[ "$REDIS_APP" != *-staging ]] || fail "production refuses the staging Redis app $REDIS_APP"
+          fi
+          if [ "$ACTION" = promote-previous-web ]; then
+            [ -n "$VERCEL_TOKEN" ] || fail "secret VERCEL_TOKEN is not set on the $WHERE environment"
+          else
+            [ -n "$FLY_API_TOKEN" ] || fail "secret FLY_API_TOKEN is not set on the $WHERE environment"
+          fi
+          if [ -n "$TO" ]; then
+            case "$ACTION" in
+              rollback-api) [[ "$TO" =~ ^[0-9]+$ ]] || fail "for rollback-api, 'to' is a release version number" ;;
+              promote-previous-web) [[ "$TO" =~ ^dpl_[A-Za-z0-9]+$ ]] || fail "for promote-previous-web, 'to' is a deployment id (dpl_…)" ;;
+              *) fail "'to' is only for rollback-api and promote-previous-web" ;;
+            esac
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+        if: inputs.action != 'promote-previous-web'
+
+      - name: Restart the worker
+        if: inputs.action == 'restart-worker'
+        run: |
+          mapfile -t ids < <(flyctl machines list --app "$API_APP" --json |
+            jq -r '.[] | select(.config.metadata.fly_process_group == "worker") | .id')
+          [ ${#ids[@]} -gt 0 ] || { echo "::error title=Ops::no worker machine in $API_APP"; exit 1; }
+          for id in "${ids[@]}"; do flyctl machine restart "$id" --app "$API_APP"; done
+          echo "Restarted worker machine(s): ${ids[*]}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restart Redis
+        if: inputs.action == 'restart-redis'
+        run: |
+          mapfile -t ids < <(flyctl machines list --app "$REDIS_APP" --json | jq -r '.[].id')
+          [ ${#ids[@]} -gt 0 ] || { echo "::error title=Ops::no machine in $REDIS_APP (an org token reaches it; a deploy token for the API does not)"; exit 1; }
+          for id in "${ids[@]}"; do flyctl machine restart "$id" --app "$REDIS_APP"; done
+          echo "Restarted Redis machine(s): ${ids[*]}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Roll the API back
+        if: inputs.action == 'rollback-api'
+        run: |
+          # Releases newest first. A secret change makes a release with the same image, so "the one before"
+          # is the newest earlier release whose image differs from the running one.
+          flyctl releases --app "$API_APP" --image --json > releases.json
+          norm='[.[] | {v: (.Version // .version), image: (.ImageRef // .imageRef // .image_ref // ""), status: (.Status // .status // ""), at: (.CreatedAt // .createdAt // "")}]'
+          jq "$norm" releases.json > rel.json
+          current=$(jq -r '.[0].image' rel.json)
+          if [ -n "$TO" ]; then
+            image=$(jq -r --argjson v "$TO" '.[] | select(.v == $v) | .image' rel.json)
+          else
+            image=$(jq -r --arg c "$current" '[.[] | select(.image != "" and .image != $c and (.status | ascii_downcase) != "failed")][0].image // ""' rel.json)
+          fi
+          if [ -z "$image" ] || [ "$image" = null ]; then echo "::error title=Ops::no earlier image found in the releases of $API_APP"; jq -r '.[] | "\(.v) \(.status) \(.image)"' rel.json | head -10; exit 1; fi
+          echo "Running: $current"
+          echo "Going back to: $image"
+          flyctl deploy --config deploy/fly/api.toml --app "$API_APP" --image "$image" --yes
+          { echo "### API rolled back"; echo "from \`$current\`"; echo; echo "to \`$image\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Promote the previous web deployment
+        if: inputs.action == 'promote-previous-web'
+        run: |
+          api=https://api.vercel.com
+          team=${VERCEL_TEAM_ID:+teamId=$VERCEL_TEAM_ID}
+          call() { curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "$@"; }
+          project=$(call "$api/v9/projects/$WEB_PROJECT?$team")
+          pid=$(echo "$project" | jq -r '.id')
+          live=$(echo "$project" | jq -r '.targets.production.id // ""')
+          if [ -n "$TO" ]; then
+            target=$TO
+          else
+            # The newest ready production deployment made before the live one, so a second press goes further back.
+            call "$api/v6/deployments?projectId=$pid&target=production&state=READY&limit=20&$team" > deps.json
+            live_at=$(jq -r --arg l "$live" '[.deployments[] | select(.uid == $l) | .created][0] // 0' deps.json)
+            target=$(jq -r --arg l "$live" --argjson t "$live_at" \
+              '[.deployments[] | select(.uid != $l and ($t == 0 or .created < $t))] | sort_by(-.created) | .[0].uid // ""' deps.json)
+          fi
+          [ -n "$target" ] || { echo "::error title=Ops::no earlier ready production deployment of $WEB_PROJECT"; exit 1; }
+          echo "Live: $live → promoting $target"
+          call -X POST "$api/v10/projects/$pid/promote/$target?$team" -o /dev/null
+          {
+            echo "### $WEB_PROJECT: address moved back"
+            echo "from \`$live\` to \`$target\`"
+            echo
+            echo "Vercel now keeps this one live: new builds of main wait until someone promotes one (Vercel → $WEB_PROJECT → Deployments → the new one → Promote). See docs/deploy/bad-night.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: API health after
+        if: inputs.action != 'promote-previous-web'
+        run: |
+          url="https://${API_APP}.fly.dev/trpc/health.ready"
+          for _ in $(seq 1 45); do body=$(curl -fsS "$url" 2>/dev/null) && echo "$body" | jq -e '.result.data.json.db == "ok"' > /dev/null && break; sleep 2; done
+          echo "$body" | jq . || true
+          echo "$body" | jq -e '.result.data.json.db == "ok"' > /dev/null || {
+            echo "::error title=Ops::$url does not report db: ok (docs/deploy/bad-night.md)"; exit 1; }
+          echo "$body" | jq -e '.result.data.json.redis == "ok"' > /dev/null ||
+            echo "::warning title=Ops::health.ready reports redis not ok (docs/deploy/bad-night.md, Redis)"
+
+      - name: Status
+        if: always() && inputs.action != 'promote-previous-web' && env.FLY_API_TOKEN != ''
+        run: |
+          {
+            echo "### $WHERE now"
+            echo '| app | process | state | image |'
+            echo '| --- | --- | --- | --- |'
+            for app in "$API_APP" "$REDIS_APP"; do
+              flyctl machines list --app "$app" --json 2>/dev/null | jq -r --arg a "$app" \
+                '.[] | "| \($a) | \(.config.metadata.fly_process_group // "-") | \(.state) | \(.config.image // "-") |"' || echo "| $app | - | not reachable with this token | - |"
+            done
+            echo
+            echo '**Last API releases** (version, status, when)'
+            echo '```'
+            flyctl releases --app "$API_APP" --json 2>/dev/null |
+              jq -r '.[:5][] | "\(.Version // .version)  \(.Status // .status)  \(.CreatedAt // .createdAt)"' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Web status
+        if: always() && env.VERCEL_TOKEN != '' && (inputs.action == 'status' || inputs.action == 'promote-previous-web')
+        run: |
+          team=${VERCEL_TEAM_ID:+teamId=$VERCEL_TEAM_ID}
+          {
+            echo '### Web apps: live deployment'
+            echo '| project | live deployment | made |'
+            echo '| --- | --- | --- |'
+            for p in "${{ vars.VERCEL_PROJECT_CUSTOMER || 'driver-customer' }}" "${{ vars.VERCEL_PROJECT_MERCHANT || 'driver-merchant' }}" "${{ vars.VERCEL_PROJECT_PARTNER || 'driver-partner' }}"; do
+              curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v9/projects/$p?$team" 2>/dev/null |
+                jq -r --arg p "$p" '"| \($p) | \(.targets.production.id // "-") | \((.targets.production.createdAt // 0) / 1000 | todate) |"' ||
+                echo "| $p | not reachable with this token | - |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
