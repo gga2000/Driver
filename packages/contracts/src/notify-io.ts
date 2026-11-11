@@ -193,6 +193,7 @@ export const NotifyTemplateId = z.enum([
   'booked_ride_searching',
   'ride_driver_cancelled',
   'ride_driver_cancelled_credit',
+  'ride_rider_no_show',
   'ride_no_driver',
   'partner_booked_offer',
   'partner_booked_favourite',
@@ -1091,6 +1092,15 @@ export const NOTIFY_TEMPLATES: Readonly<Record<NotifyTemplateId, NotifyTemplateD
     category: 'order_updates',
     app: 'customer',
     push: { title: 'push.ride_driver_cancelled.title', body: 'push.ride_driver_cancelled.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
+    primary: ['push'],
+    quietHours: 'send',
+  },
+  // Rider no-show (Ali 2026-10-30): the driver waited 5 minutes at the pickup and ended the ride; the orderer hears the fee.
+  ride_rider_no_show: {
+    id: 'ride_rider_no_show',
+    category: 'order_updates',
+    app: 'customer',
+    push: { title: 'push.ride_rider_no_show.title', body: 'push.ride_rider_no_show.body', androidChannel: 'orders', deepLink: 'driver://order/{orderId}' },
     primary: ['push'],
     quietHours: 'send',
   },

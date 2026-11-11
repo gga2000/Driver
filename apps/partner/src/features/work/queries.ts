@@ -248,5 +248,6 @@ export function useTripActions() {
     complete: useMutation(api.trips.completeStop.mutationOptions()),
     unreachable: useMutation(api.trips.startUnreachable.mutationOptions()),
     fail: useMutation(api.trips.fail.mutationOptions()),
+    noShow: useMutation(api.trips.riderNoShow.mutationOptions()),
   };
 }

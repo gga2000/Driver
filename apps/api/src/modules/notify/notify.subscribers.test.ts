@@ -432,6 +432,11 @@ describe('W2: the turns that used to leave the customer staring at a screen', ()
     expect((await run(event('order.rejected', { reason: 'busy', customerCreditIqd: 0 }, { orderId: 'ord_1' })))[0]?.template).toBe('order_rejected');
   });
 
+  it('«الراكب ما إجه»: the rider hears the wait and the fee owed to the driver', async () => {
+    const e = event('order.cancelled', { from: 'matched', to: 'customer_cancelled', cancelledState: 'customer_cancelled', by: 'customer', reason: 'rider_no_show', free: false, feeIqd: 1000 }, { orderId: 'ord_1' });
+    expect(await run(e)).toEqual([{ template: 'ride_rider_no_show', to: 'cust', params: { minutes: '5', amount: '1,000', orderId: 'ord_1' } }]);
+  });
+
   it('only what we cancelled is told; the household payer’s answer is named; his own cancel is silent', async () => {
     const cancel = (reason: string, cancelledState = 'platform_cancelled') => event('order.cancelled', { from: 'placed', to: cancelledState, cancelledState, by: 'platform', reason, free: true, feeIqd: 0 }, { orderId: 'ord_1' });
     expect(await run(cancel('payer_declined'))).toEqual([{ template: 'order_payer_declined', to: 'cust', params: { orderId: 'ord_1' } }]);

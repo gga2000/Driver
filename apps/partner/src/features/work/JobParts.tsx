@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, View, useWindowDimensions } from 'react-native';
 import Animated, { Easing, FadeIn, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { PartnerMerchantPrep } from '@driver/contracts';
+import { RIDE_NO_SHOW_FREE_WAIT_MIN, type PartnerMerchantPrep } from '@driver/contracts';
 import { Badge, Button, Icon, ModalSheet, Text, useTheme, type IconName } from '@driver/ui';
 import { useFullBrightness } from '@/lib/brightness';
 import { useT } from '@/lib/i18n';
@@ -189,10 +189,11 @@ export function ReadyBar({ prep }: { prep: PartnerMerchantPrep }) {
 }
 
 /** r6: «صار لك تنتظر 3:07» from the moment he reached the rider (shown only). */
-export function RiderWait({ arrivedAt }: { arrivedAt: Date | null }) {
+export function RiderWait({ arrivedAt, onNoShow, busy = false }: { arrivedAt: Date | null; onNoShow?: () => void; busy?: boolean }) {
   const theme = useTheme();
   const t = useT();
   const [now, setNow] = useState(Date.now());
+  const [asking, setAsking] = useState(false);
   useEffect(() => {
     if (!arrivedAt) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -200,12 +201,38 @@ export function RiderWait({ arrivedAt }: { arrivedAt: Date | null }) {
   }, [arrivedAt]);
   const c = waitClock(arrivedAt, now);
   if (!c) return null;
+  // «الراكب ما إجه» (Ali 2026-10-30): after the free wait he may end the ride; the rider owes the wait to him.
+  const noShowOpen = c.minutes >= RIDE_NO_SHOW_FREE_WAIT_MIN;
   return (
-    <View testID="job-rider-wait" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: theme.space[3], minHeight: 36, backgroundColor: c.minutes >= 5 ? theme.colors.warningTint : theme.colors.surfaceSunken }}>
-      <Icon name="clock" size={18} color={c.minutes >= 5 ? 'warningText' : 'text'} strokeWidth={2.2} />
-      <Text variant="label" weight={700} tabular color={c.minutes >= 5 ? 'warningText' : 'text'}>
-        {t('partner.rider_wait', { time: c.text })}
-      </Text>
+    <View style={{ gap: theme.space[2] }}>
+      <View testID="job-rider-wait" style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2], alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: theme.space[3], minHeight: 36, backgroundColor: noShowOpen ? theme.colors.warningTint : theme.colors.surfaceSunken }}>
+        <Icon name="clock" size={18} color={noShowOpen ? 'warningText' : 'text'} strokeWidth={2.2} />
+        <Text variant="label" weight={700} tabular color={noShowOpen ? 'warningText' : 'text'}>
+          {t('partner.rider_wait', { time: c.text })}
+        </Text>
+      </View>
+      {onNoShow ? (
+        noShowOpen ? (
+          asking ? (
+            <View testID="job-no-show-confirm" style={{ gap: theme.space[2], padding: theme.space[3], borderRadius: theme.radius.lg, backgroundColor: theme.colors.surfaceSunken }}>
+              <Text variant="bodyStrong">{t('partner.no_show_confirm_title')}</Text>
+              <Text variant="footnote" color="textMuted">
+                {t('partner.no_show_confirm_body')}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: theme.space[2] }}>
+                <Button testID="job-no-show-back" label={t('partner.no_show_back')} variant="secondary" size="md" style={{ flex: 1 }} onPress={() => setAsking(false)} />
+                <Button testID="job-no-show-end" label={t('partner.no_show_end')} variant="ink" size="md" loading={busy} style={{ flex: 1 }} onPress={onNoShow} />
+              </View>
+            </View>
+          ) : (
+            <Button testID="job-no-show" label={t('partner.no_show')} icon="user" variant="secondary" size="md" fullWidth onPress={() => setAsking(true)} />
+          )
+        ) : (
+          <Text variant="footnote" color="textMuted" testID="job-no-show-hint">
+            {t('partner.no_show_hint', { minutes: RIDE_NO_SHOW_FREE_WAIT_MIN })}
+          </Text>
+        )
+      ) : null}
     </View>
   );
 }

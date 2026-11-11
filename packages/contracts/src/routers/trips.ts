@@ -53,6 +53,8 @@ export const tripsRouter = router({
     .mutation(({ ctx, input }) => ctx.trips.startUnreachable(ctx.actor, input)),
   /** Driver after 5:00 of the unreachable timer; dispatcher from 3:00. */
   fail: protectedProcedure([...DRIVING_ROLES, 'dispatcher']).input(FailTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.fail(ctx.actor, input)),
+  /** «الراكب ما إجه» (Ali 2026-10-30): the ride's driver, 5 minutes after arriving at the pickup; the rider owes the no-show fee. */
+  riderNoShow: protectedProcedure(['driver']).input(TripIdInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.riderNoShow(ctx.actor, input)),
   /** Driver cancel (scoring hit, fees per spec §4) or dispatcher/platform cancel. */
   cancel: protectedProcedure([...DRIVING_ROLES, 'dispatcher', 'admin']).input(CancelTripInput).output(Trip).mutation(({ ctx, input }) => ctx.trips.cancel(ctx.actor, input)),
   /** s1: night-ride trip codes typed wrong again and again (Console safety strip, with the sweep and PIN rows). */

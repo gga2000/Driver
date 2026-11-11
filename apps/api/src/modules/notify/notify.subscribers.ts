@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { baghdadHour, ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, kitchenHeld, MonthKey, orderTicketNumber, QUIET_HOURS, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor } from '@driver/contracts';
+import { baghdadHour, ComplimentKey, encodeRajaaPassPush, GARAGE_TAXI_EVENTS, isNightAt, kitchenHeld, MonthKey, orderTicketNumber, QUIET_HOURS, RAJAA_PASS_EVENTS, RAJAA_PASS_PUSH_KIND, rajaaPassPhaseFor, RIDE_NO_SHOW_FREE_WAIT_MIN } from '@driver/contracts';
 import { cityDayDiff, formatDay, formatHourPart, t, type MessageKey } from '@driver/i18n';
 import type { EventsService, PublishedEvent } from '../events/index.js';
 import type { NotifyEngine, NotifyRequest } from './notify.engine.js';
@@ -408,6 +408,12 @@ async function messagesFor(e: PublishedEvent, deps: NotifySubscriberDeps): Promi
       // `order.ops_cancelled` rides on this same `order.cancelled`, so the kitchen hears it once).
       const order = e.orderId ? await L.order(e.orderId) : null;
       const kitchen = order ? await kitchenCancelled(order, p['from'], base, L) : [];
+      // «الراكب ما إجه» (Ali 2026-10-30): the driver ended the ride after the free wait; the orderer hears the fee.
+      if (p['cancelledState'] === 'customer_cancelled' && p['reason'] === 'rider_no_show') {
+        if (!order) return [];
+        const feeIqd = typeof p['feeIqd'] === 'number' ? p['feeIqd'] : 0;
+        return [{ ...base, template: 'ride_rider_no_show', to: order.customerId, orderId: order.id, params: { minutes: String(RIDE_NO_SHOW_FREE_WAIT_MIN), amount: iqd(feeIqd), orderId: order.id }, data: { orderId: order.id } }];
+      }
       // Only what we cancelled: his own cancel needs no message. The household payer's answer (or the
       // lack of one) is named; anything else is the calm «آسفين، انلغى طلبك» with the details in the app.
       if (p['cancelledState'] !== 'platform_cancelled') return kitchen;

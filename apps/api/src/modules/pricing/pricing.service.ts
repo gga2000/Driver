@@ -4,7 +4,7 @@ import type { CancellationFee, PriceRequest, Quote, Vertical } from '@driver/con
 import { CLOCK, SystemClock, type Clock } from '../../shared/clock.js';
 import type { Tx } from '../../shared/db/unit-of-work.js';
 import { ConfigService } from '../config/index.js';
-import { DEFAULT_CANCELLATION_RULES, cancellationFee, type CancellationSubject } from './cancellation.js';
+import { DEFAULT_CANCELLATION_RULES, cancellationFee, riderNoShowFee, type CancellationSubject } from './cancellation.js';
 import { PricingEngine, PricingError } from './engine.js';
 import { InMemoryQuoteStore, QUOTE_PURGE_GRACE_MIN, QUOTE_REUSE_MIN_LEFT_MIN, QUOTE_STORE, QUOTE_TTL_MIN, type QuoteStore } from './quote-store.js';
 
@@ -111,5 +111,11 @@ export class PricingService {
   cancellationFee(subject: CancellationSubject, at: Date, cityId?: string): CancellationFee {
     const step = (cityId ? this.config.city(cityId)?.roundingStep : undefined) ?? DEFAULT_CANCELLATION_RULES.roundingStep;
     return cancellationFee(subject, at, { ...DEFAULT_CANCELLATION_RULES, roundingStep: step });
+  }
+
+  /** «الراكب ما إجه» (Ali 2026-10-30): the rider's no-show fee to the driver, rounded per city. */
+  riderNoShowFee(t: { arrivedPickupAt: Date | null; fareIqd: number }, at: Date, cityId?: string): CancellationFee {
+    const step = (cityId ? this.config.city(cityId)?.roundingStep : undefined) ?? DEFAULT_CANCELLATION_RULES.roundingStep;
+    return riderNoShowFee(t, at, { ...DEFAULT_CANCELLATION_RULES, roundingStep: step });
   }
 }

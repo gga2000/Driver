@@ -132,6 +132,10 @@ export class TripsRpc implements TripsPort {
     throw new DriverError('forbidden');
   }
 
+  riderNoShow(actor: Actor, input: { tripId: string }): Promise<Trip> {
+    return this.trips.riderNoShow(input.tripId, actor.personId);
+  }
+
   async cancel(actor: Actor, input: CancelTripInput): Promise<Trip> {
     const trip = await this.trips.get(input.tripId);
     if (trip.courierId === actor.personId) return this.trips.cancel(input.tripId, 'driver', actor.personId, input.reason);

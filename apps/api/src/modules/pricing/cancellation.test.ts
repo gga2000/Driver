@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalCountsForFees, cancellationFee, FEE_ARRIVAL_RADIUS_M, type OrderCancellationSubject, type TripCancellationSubject } from './cancellation.js';
+import { arrivalCountsForFees, cancellationFee, FEE_ARRIVAL_RADIUS_M, riderNoShowAt, riderNoShowFee, type OrderCancellationSubject, type TripCancellationSubject } from './cancellation.js';
 
 const T0 = new Date('2026-10-03T12:00:00Z');
 const sec = (s: number) => new Date(T0.getTime() + s * 1000);
@@ -137,4 +137,16 @@ describe('arrivalCountsForFees — the fee-only arrival radius', () => {
     expect(arrivalCountsForFees(tap(400, 1000))).toBe(false);
   });
   it('no tap is no arrival', () => expect(arrivalCountsForFees({ ...tap(10), arrivedAt: null })).toBe(false));
+});
+
+describe('riderNoShowFee — «الراكب ما إجه» (Ali 2026-10-30)', () => {
+  it('opens 5 minutes after the counted arrival: 1,000 from the rider to the driver', () => {
+    expect(riderNoShowAt(T0)).toEqual(sec(300));
+    expect(riderNoShowFee({ arrivedPickupAt: T0, fareIqd: 4000 }, sec(299))).toMatchObject({ allowed: false });
+    expect(riderNoShowFee({ arrivedPickupAt: T0, fareIqd: 4000 }, sec(300))).toMatchObject({ allowed: true, free: false, payer: 'customer', amountIqd: 1000, splits: [{ to: 'driver', amountIqd: 1000 }], label_ar: 'الراكب ما إجه' });
+  });
+  it('never without an arrival near the rider, and never above the fare', () => {
+    expect(riderNoShowFee({ arrivedPickupAt: null, fareIqd: 4000 }, sec(3600))).toMatchObject({ allowed: false, amountIqd: 0 });
+    expect(riderNoShowFee({ arrivedPickupAt: T0, fareIqd: 750 }, sec(600)).amountIqd).toBe(750);
+  });
 });
