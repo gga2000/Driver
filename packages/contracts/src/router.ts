@@ -34,6 +34,7 @@ import { phoneBookingsRouter } from './routers/phone-booking.js';
 import { inboxRouter } from './routers/inbox.js';
 import { onCallRouter } from './routers/on-call.js';
 import { garageTaxiRouter } from './routers/garage-taxi.js';
+import { accessRouter } from './routers/waves.js';
 import { closuresRouter } from './routers/closures.js';
 import { peopleRouter } from './routers/people.js';
 import { publicProcedure, router, t } from './trpc.js';
@@ -97,6 +98,8 @@ export const appRouter = router({
   places: placesRouter,
   wallet: walletRouter,
   household: householdRouter,
+  /** Customer waves (W5): my place in line. */
+  access: accessRouter,
   partner: partnerRouter,
   closures: closuresRouter,
   people: peopleRouter,
