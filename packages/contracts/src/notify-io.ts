@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import type { MessageKey } from '@driver/i18n';
 import type { Actor } from './identity-io.js';
+import type { AndroidChannelId } from './android-channels.js';
+
+export { ANDROID_CHANNELS, AndroidChannelId, OFFER_SOUND, type AndroidChannelDef } from './android-channels.js';
 
 /**
  * Notifications (domain §8, notifications & support spec §1): push first; WhatsApp for money and
@@ -23,38 +26,6 @@ export type PushPlatform = z.infer<typeof PushPlatform>;
 /** `expo`: an `ExponentPushToken[…]` (Expo push service); `fcm`: a raw FCM registration token. */
 export const PushTokenKind = z.enum(['expo', 'fcm']);
 export type PushTokenKind = z.infer<typeof PushTokenKind>;
-
-// ───────────────────────── Android channels ─────────────────────────
-
-/**
- * Android notification channels the apps create at start. `offers` rings loud with the custom
- * `offer.wav` (partner job offers, merchant new orders); `marketing` is silent and its server-side
- * preference is off by default.
- */
-export const AndroidChannelId = z.enum(['offers', 'orders', 'chat', 'marketing']);
-export type AndroidChannelId = z.infer<typeof AndroidChannelId>;
-
-export interface AndroidChannelDef {
-  id: AndroidChannelId;
-  nameKey: MessageKey;
-  descriptionKey?: MessageKey;
-  /** expo-notifications `AndroidImportance` name. */
-  importance: 'MAX' | 'HIGH' | 'DEFAULT' | 'LOW';
-  /** Bundled sound file name (`offer.wav`), `default`, or null for silent. */
-  sound: string | null;
-  vibrationPattern: readonly number[] | null;
-  /** Which apps create the channel. */
-  apps: readonly NotifyApp[];
-}
-
-export const OFFER_SOUND = 'offer.wav';
-
-export const ANDROID_CHANNELS: Readonly<Record<AndroidChannelId, AndroidChannelDef>> = {
-  offers: { id: 'offers', nameKey: 'notify.channel.offers', descriptionKey: 'notify.channel.offers_desc', importance: 'MAX', sound: OFFER_SOUND, vibrationPattern: [0, 400, 200, 400, 200, 400], apps: ['partner', 'merchant'] },
-  orders: { id: 'orders', nameKey: 'notify.channel.orders', importance: 'HIGH', sound: 'default', vibrationPattern: [0, 250], apps: ['customer', 'partner', 'merchant'] },
-  chat: { id: 'chat', nameKey: 'notify.channel.chat', importance: 'HIGH', sound: 'default', vibrationPattern: [0, 150], apps: ['customer', 'partner', 'merchant'] },
-  marketing: { id: 'marketing', nameKey: 'notify.channel.marketing', importance: 'LOW', sound: null, vibrationPattern: null, apps: ['customer'] },
-};
 
 // ───────────────────────── preferences ─────────────────────────
 
