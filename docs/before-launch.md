@@ -154,7 +154,7 @@ run the checks, get the reviewer's `reviewed:<sha>` label and, for sign-in, Ali'
 | What it does for people | Branch | Blocks launch | Notes |
 |---|---|---|---|
 | A gift order's recipient gets one SMS when the courier is near (cash gifts say how much to pay) | `claude/lane-d-gift-sms`, PR #131 | No | migration slot 410000 |
-| Limits against abuse (too many orders or cancels from one person or phone) | `claude/lane-d-abuse-limits` | Probably | slot 420000; built on an older `main`, expect conflicts |
+| Limits against abuse (too many orders or cancels from one person or phone) | `claude/lane-d-abuse-limits` | Probably | slot 670000 (re-stamped from 420000); main merged in, PR open |
 | A household member must accept before joining a shared wallet (SEC-06) | `claude/lane-d-household` | Yes: no one may be added to a wallet without saying yes | slot 430000 |
 | Opening in waves: new customers wait in a queue until ops opens more places | `claude/lane-d-waves` | Probably | slot 440000; the store reviewer's account must skip the queue |
 | Delete my account from inside the app (both stores require it) | `claude/lane-d-account-deletion` | Yes | slot 450000; carries the list of every table it clears ; partners and merchants already ask from their apps and an admin closes them from the Console (`docs/api/account-close.md`), so its `work_role` blocker sends them there |

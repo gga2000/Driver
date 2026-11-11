@@ -40,7 +40,7 @@ order's money fact (`OrdersService.bindReferrals`), and the ledger decides as be
 | Procedure | Who | What |
 |---|---|---|
 | `referral.mine` | signed in | `{ code, path: '/i/<code>', rule, invited, rewarded, friends }`; the code (6 characters, no 0/O/1/I/L) is made on the first ask. `rewarded` = the inviter's own `referral_bonus` lines. |
-| `referral.preview({ code })` | public | `{ valid, inviterFirstName, rule }` for the landing page. The first name is the inviter's own choice to share (read as himself). |
+| `referral.preview({ code })` | public | `{ valid, inviterFirstName, rule }` for the landing page. The first name is the inviter's own choice to share (read as himself). Limited per caller (the person, or the address for guests): 120 a minute, and after 30 unknown codes in an hour the preview answers `rate_limited` for the rest of that hour (`INVITE_PREVIEW_RATE`). |
 | `referral.claim({ code })` | signed in | Once per person, never your own code, only before your first order: `invite_invalid`, `invite_own`, `invite_already_claimed`, `invite_not_new`. Claiming the same code again answers like the first time. Returns the inviter's first name (a logged vault read, `invite_claim`). |
 
 `rule` = `{ pointsPerSide, pointValueIqd, minOrderIqd, unlockOnOrder, monthlyCap }` from the money rules: the

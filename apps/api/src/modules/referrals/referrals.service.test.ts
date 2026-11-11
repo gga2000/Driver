@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AZIZIYAH_MONEY_RULES, DriverError, INVITE_CODE_ALPHABET } from '@driver/contracts';
+import { AZIZIYAH_MONEY_RULES, DriverError, INVITE_CODE_ALPHABET, INVITE_PREVIEW_RATE } from '@driver/contracts';
 import { FakeClock } from '../../shared/clock.js';
 import { InMemoryReferralsRepository } from './referrals.repository.js';
 import { inviteRuleOf, newInviteCode, ReferralsService } from './referrals.service.js';
@@ -29,9 +29,10 @@ function harness(opts: { placed?: Record<string, number>; lines?: Record<string,
     seed = (seed * 1103515245 + 12345) % 2147483648;
     return seed % n;
   };
-  const service = new ReferralsService(repo, names, ledger, AZIZIYAH_MONEY_RULES, random, new FakeClock('2026-10-07T09:00:00Z'), fingerprint);
+  const clock = new FakeClock('2026-10-07T09:00:00Z');
+  const service = new ReferralsService(repo, names, ledger, AZIZIYAH_MONEY_RULES, random, clock, fingerprint);
   service.bindOrders({ placedCount: async (id) => opts.placed?.[id] ?? 0 });
-  return { service, repo, reads, parts, groups };
+  return { service, repo, reads, parts, groups, clock };
 }
 
 const code = async (p: Promise<unknown>) => {
@@ -99,6 +100,30 @@ describe('invite as a gift (joy g2)', () => {
     expect(await service.preview({ code: c })).toMatchObject({ valid: true, inviterFirstName: 'علي' });
     expect(reads.at(-1)).toMatchObject({ accessor: 'ali', purpose: 'invite_preview' });
     expect(await service.preview({ code: 'nothing' })).toMatchObject({ valid: false, inviterFirstName: null });
+  });
+
+  it('the preview is limited per caller, and wrong codes much more tightly (FLOW-33)', async () => {
+    const { service, clock } = harness();
+    const { code: c } = await service.mine(actor('ali'));
+    const guest = { personId: null, ip: '10.0.0.1' };
+    // A town behind one carrier address: many real links in a minute pass.
+    for (let i = 0; i < INVITE_PREVIEW_RATE.perCaller; i += 1) expect((await service.preview({ code: c }, guest)).valid).toBe(true);
+    expect(await code(service.preview({ code: c }, guest))).toBe('rate_limited');
+    // Another address and a signed-in person are counted on their own.
+    expect((await service.preview({ code: c }, { personId: null, ip: '10.0.0.2' })).valid).toBe(true);
+    expect((await service.preview({ code: c }, { personId: 'sara', ip: '10.0.0.1' })).valid).toBe(true);
+    clock.advance(INVITE_PREVIEW_RATE.windowMs);
+    expect((await service.preview({ code: c }, guest)).valid).toBe(true);
+
+    // Walking codes: after the allowed misses even a real code is refused for the hour.
+    const walker = { personId: null, ip: '10.0.0.3' };
+    for (let i = 0; i < INVITE_PREVIEW_RATE.missesPerCaller; i += 1) {
+      expect((await service.preview({ code: `ZZZZ${String(i).padStart(2, '2')}` }, walker)).valid).toBe(false);
+      clock.advance(INVITE_PREVIEW_RATE.windowMs / 10);
+    }
+    expect(await code(service.preview({ code: c }, walker))).toBe('rate_limited');
+    clock.advance(INVITE_PREVIEW_RATE.missWindowMs);
+    expect((await service.preview({ code: c }, walker)).valid).toBe(true);
   });
 
   describe('the fingerprint on device + phone + home place (decisions §1)', () => {

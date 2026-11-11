@@ -3,18 +3,29 @@ import { errorEnvelope, isDriverError, PHOTO_MAX_BYTES } from '@driver/contracts
 import type { Request, Response } from 'express';
 import { BLOB_STORE, type BlobStore } from './uploads.js';
 
-/** Reads a raw request body up to `max` bytes (null when larger). */
-function readBody(req: Request, max: number): Promise<Buffer | null> {
+/**
+ * Reads a raw request body up to `max` bytes; null as soon as it is larger (a declared
+ * `content-length` over the cap is refused before a byte is read). SEC-24: the rest is never read, the
+ * caller answers 413 and closes the connection.
+ */
+export function readBody(req: Request, max: number): Promise<Buffer | null> {
+  const declared = Number(req.headers['content-length']);
+  if (Number.isFinite(declared) && declared > max) return Promise.resolve(null);
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    let over = false;
-    req.on('data', (c: Buffer) => {
+    const onData = (c: Buffer): void => {
       size += c.length;
-      if (size > max) over = true;
-      else chunks.push(c);
-    });
-    req.on('end', () => resolve(over ? null : Buffer.concat(chunks)));
+      if (size > max) {
+        req.off('data', onData);
+        req.pause();
+        resolve(null);
+        return;
+      }
+      chunks.push(c);
+    };
+    req.on('data', onData);
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -58,6 +69,9 @@ export class UploadsController {
     try {
       const bytes = await readBody(req, PHOTO_MAX_BYTES);
       if (!bytes) {
+        // Too big: answer, then drop the connection instead of draining the rest of the body.
+        res.setHeader('connection', 'close');
+        res.on('finish', () => req.destroy());
         res.status(413).json(errorEnvelope('upload_invalid'));
         return;
       }

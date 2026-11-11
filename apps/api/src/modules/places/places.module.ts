@@ -1,6 +1,7 @@
 import { Logger, Module } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock.js';
 import { PrismaService } from '../../shared/db/prisma.service.js';
+import { WINDOW_COUNTER, type WindowCounter } from '../../shared/window-counter.js';
 import { EventsModule } from '../events/index.js';
 import { OrgsModule, OrgsService } from '../orgs/index.js';
 import { LandmarkFeedService } from './landmark-feed.js';
@@ -46,16 +47,17 @@ import { BLOB_STORE, InMemoryUploadRecords, ObjectBlobStore, PrismaUploadRecords
     { provide: OBJECT_STORAGE, useFactory: (): ObjectStoragePort => objectStorageFromEnv() },
     {
       provide: BLOB_STORE,
-      useFactory: (clock: Clock, prisma: PrismaService, storage: ObjectStoragePort) => {
+      useFactory: (clock: Clock, prisma: PrismaService, storage: ObjectStoragePort, counter: WindowCounter) => {
         if (prisma.configured && !storage.direct && !process.env['UPLOADS_DIR']) {
           new Logger('PlacesModule').warn('photo bytes are kept in memory (no S3_* storage, no UPLOADS_DIR): upload records survive a restart, the bytes do not');
         }
         return new ObjectBlobStore(clock, prisma.configured ? new PrismaUploadRecords(prisma) : new InMemoryUploadRecords(), storage, {
           secret: process.env['UPLOADS_SECRET'] ?? process.env['JWT_SECRET'],
           publicOrigin: process.env['UPLOADS_PUBLIC_ORIGIN'],
+          counter,
         });
       },
-      inject: [CLOCK, PrismaService, OBJECT_STORAGE],
+      inject: [CLOCK, PrismaService, OBJECT_STORAGE, WINDOW_COUNTER],
     },
     {
       provide: HOUSEHOLD_PEERS,
