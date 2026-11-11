@@ -63,6 +63,7 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
     await db.participant.deleteMany({ where: { orderId: { in: created.orders } } });
     await db.order.deleteMany({ where: { id: { in: created.orders } } });
     await db.payerApproval.deleteMany({ where: { orgId: { in: created.orgs } } });
+    await db.householdInvite.deleteMany({ where: { orgId: { in: created.orgs } } });
     await db.orgMember.deleteMany({ where: { orgId: { in: created.orgs } } });
     await db.org.deleteMany({ where: { id: { in: created.orgs } } });
     await db.placePhoto.deleteMany({ where: { placeId: { in: created.places } } });
@@ -118,8 +119,14 @@ describe.skipIf(!url)('persistence across restarts (needs DATABASE_URL)', () => 
       const home = await households.create(as(state.ali), { name: 'بيت علي', cityId: 'aziziyah' });
       state.homeId = home.id;
       created.orgs.push(home.id);
-      const withMinar = await households.inviteMember(as(state.ali), { householdId: home.id, phone: phone(2), role: 'orderer', spendingLimitIqd: 25_000 });
-      state.minar = withMinar.members.find((m) => !m.isMe)!.personId;
+      const minarPhone = phone(2);
+      const invited = await households.inviteMember(as(state.ali), { householdId: home.id, phone: minarPhone, role: 'orderer', spendingLimitIqd: 25_000 });
+      expect(invited.members).toHaveLength(1);
+      // SEC-06: Minar joins by saying yes (the invite row is on Postgres too).
+      state.minar = (await identity.personIdByPhone(minarPhone))!;
+      const [invite] = await households.myInvites(as(state.minar));
+      const withMinar = await households.respondInvite(as(state.minar), { inviteId: invite!.id, accept: true });
+      expect(withMinar?.members.map((m) => m.personId)).toEqual([state.ali, state.minar]);
       const req = await orgs.requestPayerApproval({ orgId: home.id, orderId: `ord_${run}`, requestedBy: state.minar, amountIqd: 31_000 });
       state.approvalId = req.id;
       await households.approve(as(state.ali), { requestId: req.id });

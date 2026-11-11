@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HouseholdView } from '@driver/contracts';
 import { HOUSEHOLD_PAY_ENABLED, householdToPayFrom } from './household-pay';
 
-const home = (myRole: HouseholdView['myRole']): HouseholdView => ({ id: 'org_home', name: 'بيت علي', cityId: 'aziziyah', myRole, members: [], pendingApprovals: [], month: null });
+const home = (myRole: HouseholdView['myRole']): HouseholdView => ({ id: 'org_home', name: 'بيت علي', cityId: 'aziziyah', myRole, members: [], pendingApprovals: [], invites: [], month: null });
 
 describe('household pay switch (RDB-03)', () => {
   it('is off: nothing funds the household account yet (Ali, 2026-10-08)', () => {

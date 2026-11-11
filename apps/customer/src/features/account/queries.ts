@@ -173,6 +173,48 @@ export function useInviteMember() {
   return useMutation(api.household.inviteMember.mutationOptions({ onSuccess: invalidate }));
 }
 
+/** SEC-06: household invites waiting for the caller's yes or no. */
+export function useMyHouseholdInvites() {
+  const api = useApi();
+  const signedIn = useSignedIn();
+  return useQuery({ ...api.household.myInvites.queryOptions(), enabled: signedIn });
+}
+
+/** SEC-06: invite answers and leaving also refresh the caller's own invites. */
+function useInviteInvalidation() {
+  const api = useApi();
+  const qc = useQueryClient();
+  const household = useHouseholdInvalidation();
+  return () => {
+    household();
+    void qc.invalidateQueries({ queryKey: api.household.myInvites.queryKey() });
+  };
+}
+
+export function useRespondHouseholdInvite() {
+  const api = useApi();
+  const invalidate = useInviteInvalidation();
+  return useMutation(api.household.respondInvite.mutationOptions({ onSuccess: invalidate }));
+}
+
+export function useCancelHouseholdInvite() {
+  const api = useApi();
+  const invalidate = useHouseholdInvalidation();
+  return useMutation(api.household.cancelInvite.mutationOptions({ onSuccess: invalidate }));
+}
+
+export function useLeaveHousehold() {
+  const api = useApi();
+  const invalidate = useInviteInvalidation();
+  return useMutation(api.household.leave.mutationOptions({ onSuccess: invalidate }));
+}
+
+export function useRemoveHouseholdMember() {
+  const api = useApi();
+  const invalidate = useHouseholdInvalidation();
+  return useMutation(api.household.removeMember.mutationOptions({ onSuccess: invalidate }));
+}
+
 export function useSetLimit() {
   const api = useApi();
   const invalidate = useHouseholdInvalidation();
