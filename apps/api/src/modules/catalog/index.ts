@@ -1,7 +1,7 @@
 export { CatalogModule } from './catalog.module.js';
 export { CatalogService, FOOD_CART_TAG, itemOnSale, NOT_RESTAURANT_TAGS } from './catalog.service.js';
-export { CatalogRpc, STOREFRONT_HOME, STOREFRONT_MERCHANTS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontHome, type StorefrontSwitches } from './catalog.rpc.js';
-export type { StorefrontMerchants, StorefrontPricing, StorefrontToday } from './catalog.rpc.js';
+export { CatalogRpc, STOREFRONT_AUDIENCE, STOREFRONT_HOME, STOREFRONT_MERCHANTS, STOREFRONT_SWITCHES, STOREFRONT_TODAY, type StorefrontHome, type StorefrontSwitches } from './catalog.rpc.js';
+export type { StorefrontAudience, StorefrontMerchants, StorefrontPricing, StorefrontToday } from './catalog.rpc.js';
 export { CATALOG_REPOSITORY, InMemoryCatalogRepository, PrismaCatalogRepository } from './catalog.repository.js';
 export { seedStorefronts } from './seed.js';
 export { kindOfLabels, withKind } from './dish-kind.js';

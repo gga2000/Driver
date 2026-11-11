@@ -31,6 +31,8 @@ export interface Org {
   createdAt: Date;
   /** Restaurants and grocers: order-taking settings (columns on `orgs`). */
   merchant?: MerchantSettings;
+  /** The store reviewers' hidden test kitchen (`orgs.is_test`, BENCH-04); absent = false. */
+  isTest?: boolean;
 }
 
 /** Local-time weekly window, e.g. Friday prayer `{dow: 5, start: '11:45', end: '13:15'}`. */

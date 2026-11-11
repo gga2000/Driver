@@ -92,12 +92,13 @@ export class LiveFanoutService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
+    // The store reviewers' test orders (BENCH-04) update their own screens like any order.
     this.offs.push(
       this.events.subscribe(LIVE_FANOUT_SUBSCRIBER, '*', async (event, ctx) => {
         if (this.bus.idle()) return;
         const publish = () => this.publish(event);
         if (!afterCommit(ctx.tx, publish)) await publish();
-      }),
+      }, { test: true }),
     );
     this.offs.push(
       this.trips.onPositionReported((report) => {

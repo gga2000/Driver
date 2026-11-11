@@ -51,9 +51,9 @@ export class InMemoryOrgsRepository implements OrgsRepository {
   private readonly approvalRows = new Map<string, PayerApprovalRequest>();
   private seq = 0;
 
-  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date }): Promise<Org> {
+  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date; isTest?: boolean }): Promise<Org> {
     this.seq += 1;
-    const org: Org = { id: `org_${this.seq}`, type: input.type, name: input.name, cityId: input.cityId, members: input.members.map((m) => ({ ...m })), createdAt: input.createdAt ?? new Date() };
+    const org: Org = { id: `org_${this.seq}`, type: input.type, name: input.name, cityId: input.cityId, members: input.members.map((m) => ({ ...m })), createdAt: input.createdAt ?? new Date(), ...(input.isTest ? { isTest: true } : {}) };
     if (isMerchantType(input.type)) org.merchant = { ...DEFAULT_MERCHANT_SETTINGS };
     this.orgs.set(org.id, org);
     return clone(org);
@@ -127,6 +127,7 @@ interface OrgRow {
   type: string;
   name: string;
   cityId: string;
+  isTest?: boolean;
   autoAccept: boolean;
   lastHeartbeat: Date | null;
   pauseWindows: unknown;
@@ -189,6 +190,7 @@ function orgFromRow(r: OrgRow, pin: Pin | undefined): Org {
     cityId: r.cityId,
     members: r.members.map((m) => ({ personId: m.personId, role: m.role as OrgMember['role'], spendingLimitIqd: m.spendingLimitIqd, monthlyBudgetIqd: m.monthlyBudgetIqd ?? null })),
     createdAt: r.createdAt,
+    ...(r.isTest ? { isTest: true } : {}),
   };
   if (isMerchantType(type)) {
     org.merchant = {
@@ -243,7 +245,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
     return rows.map((r) => orgFromRow(r, pins.get(r.id)));
   }
 
-  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date }, tx?: Tx): Promise<Org> {
+  async create(input: { type: OrgType; name: string; cityId: string; members: OrgMember[]; createdAt?: Date; isTest?: boolean }, tx?: Tx): Promise<Org> {
     const db = this.db(tx);
     const row = await db.org.create({
       data: {
@@ -251,6 +253,7 @@ export class PrismaOrgsRepository implements OrgsRepository {
         type: input.type,
         name: input.name,
         cityId: input.cityId,
+        ...(input.isTest ? { isTest: true } : {}),
         members: { create: input.members.map((m) => ({ personId: m.personId, role: m.role, spendingLimitIqd: m.spendingLimitIqd, monthlyBudgetIqd: m.monthlyBudgetIqd ?? null })) },
       },
       include: ORG_INCLUDE,

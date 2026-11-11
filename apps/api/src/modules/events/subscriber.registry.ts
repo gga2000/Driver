@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isTestEvent } from '../../shared/test-scope.js';
 import type { EventHandler, StoredEvent } from './events.types.js';
 
 export interface SubscribeOptions {
@@ -8,6 +9,12 @@ export interface SubscribeOptions {
    * subscribers opt in.
    */
   quarantined?: boolean;
+  /**
+   * Also receive events of the store reviewers' test kitchen (a `test_` order or trip, BENCH-04).
+   * Off by default, so dispatch, the ledger, learning and every other real-world effect never see a
+   * test order; only the order's own flow, live updates and the test-kitchen runner opt in.
+   */
+  test?: boolean;
 }
 
 export interface Subscription {
@@ -15,6 +22,7 @@ export interface Subscription {
   types: readonly string[] | '*';
   handler: EventHandler;
   quarantined: boolean;
+  test: boolean;
 }
 
 /**
@@ -31,7 +39,7 @@ export class SubscriberRegistry {
   subscribe(name: string, types: readonly string[] | '*', handler: EventHandler, opts: SubscribeOptions = {}): () => void {
     if (!name) throw new Error('subscriber name is required');
     if (this.subs.has(name)) throw new Error(`subscriber ${name} is already registered`);
-    const sub: Subscription = { name, types, handler, quarantined: opts.quarantined ?? false };
+    const sub: Subscription = { name, types, handler, quarantined: opts.quarantined ?? false, test: opts.test ?? false };
     this.subs.set(name, sub);
     return () => {
       if (this.subs.get(name) === sub) this.subs.delete(name);
@@ -39,8 +47,9 @@ export class SubscriberRegistry {
   }
 
   /** Subscribers that should receive `event`, in registration order. */
-  matching(event: Pick<StoredEvent, 'type' | 'quarantined'>): Subscription[] {
-    return [...this.subs.values()].filter((s) => (!event.quarantined || s.quarantined) && matchesType(s.types, event.type));
+  matching(event: Pick<StoredEvent, 'type' | 'quarantined' | 'aggregate' | 'aggregateId' | 'orderId' | 'tripId'>): Subscription[] {
+    const test = isTestEvent(event);
+    return [...this.subs.values()].filter((s) => (!event.quarantined || s.quarantined) && (!test || s.test) && matchesType(s.types, event.type));
   }
 
   names(): string[] {

@@ -60,10 +60,16 @@ export class EventsServiceAdapter implements OrderEventEmitter {
    * redelivery skips it. Quarantined late replays never arrive here.
    */
   subscribeToTrips(handler: (e: TripEventEnvelope) => Promise<unknown>): () => void {
-    return this.events.subscribe(ORDERS_TRIP_SUBSCRIBER, '*', async (e) => {
-      if (e.aggregate !== 'trip') return;
-      await handler(toTripEnvelope(e));
-    });
+    // A test-kitchen trip (BENCH-04) moves its test order like any other, so this one opts in.
+    return this.events.subscribe(
+      ORDERS_TRIP_SUBSCRIBER,
+      '*',
+      async (e) => {
+        if (e.aggregate !== 'trip') return;
+        await handler(toTripEnvelope(e));
+      },
+      { test: true },
+    );
   }
 }
 
