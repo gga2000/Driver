@@ -4,6 +4,7 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import { transformer, type AppRouter, type RoleKind } from '@driver/contracts';
 import { createApp } from './bootstrap.js';
 import { IdentityService } from './modules/identity/index.js';
+import { owesSecondStep, passSecondStep } from './modules/identity/staff-totp.testing.js';
 import { PostingService } from './modules/ledger/index.js';
 
 /** Ledger router over the wire (plan Step 6 acceptance, minus the Console pages). */
@@ -30,6 +31,7 @@ describe('ledger router smoke', () => {
     const res = await anon.identity.verifyOtp.mutate({ phone, code: code! });
     for (const r of roles) await app.get(IdentityService).grantRole({ personId: 'system:test' }, { personId: res.personId, ...r });
     const client = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url, transformer, headers: { authorization: `Bearer ${res.tokens.accessToken}` } })] });
+    if (owesSecondStep(roles)) await passSecondStep(client, res.personId);
     return { personId: res.personId, client };
   }
 

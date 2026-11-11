@@ -13,6 +13,14 @@ interface RequestContext {
   readonly requestId: string;
   /** Background work (a queued job, an outbox delivery), not a phone waiting on an answer. */
   readonly background?: boolean;
+  /** The signed-in caller of this request, once its token checked out (`setRequestCaller`). */
+  caller?: RequestCaller;
+}
+
+/** Who is calling: the person and the session their token names. */
+export interface RequestCaller {
+  readonly personId: string;
+  readonly sessionId: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -20,6 +28,22 @@ const storage = new AsyncLocalStorage<RequestContext>();
 /** The current request's id, or undefined outside a request. */
 export function currentRequestId(): string | undefined {
   return storage.getStore()?.requestId;
+}
+
+/**
+ * Records the caller of the request being served, once its access token was verified (tRPC context).
+ * Identity reads it so a person's own role reads in a session that still owes the staff authenticator
+ * step leave admin and finance out (docs/api/staff-totp.md). Set once; outside a request it does nothing.
+ */
+export function setRequestCaller(caller: RequestCaller): void {
+  const ctx = storage.getStore();
+  if (ctx && !ctx.background && !ctx.caller) ctx.caller = { personId: caller.personId, sessionId: caller.sessionId };
+}
+
+/** The verified caller of the request being served, or undefined (no token, background work). */
+export function requestCaller(): RequestCaller | undefined {
+  const ctx = storage.getStore();
+  return ctx && !ctx.background ? ctx.caller : undefined;
 }
 
 /** Runs `fn` with `requestId` as the current request id. */

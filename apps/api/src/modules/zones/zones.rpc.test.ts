@@ -13,7 +13,8 @@ function caller(signedIn: boolean, admin = signedIn) {
   const ctx = {
     auth: signedIn ? { sub: 'staff', sid: 's_staff', iss: 'driver-api', iat: 0, exp: 0 } : null,
     authError: null,
-    identity: { hasRole: async (_id: string, role: string) => (role === 'admin' ? admin : signedIn) },
+    // A staff session that already passed the authenticator step (admin routes fail closed without it).
+    identity: { hasRole: async (_id: string, role: string) => (role === 'admin' ? admin : signedIn), secondStepPending: async () => false },
     zones: { list: async () => [placed], pinCheck: async () => ({ cityId: 'aziziyah', pins: 3, drawnZones: 1, changed: 1, newlyServed: 0, dearer: 1, cheaper: 0, avgFeeChangeIqd: 167, moves: [{ fromKey: 'hashimi', toKey: 'centre', pins: 1, feeChangeIqd: 500 }] }) },
   } as unknown as AppContext;
   return t.createCallerFactory(appRouter)(ctx).ops.zones;

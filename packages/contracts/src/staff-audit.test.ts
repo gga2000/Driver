@@ -107,6 +107,8 @@ const AUDITED = [
   'identity.closeAccount.close',
   // Admins cut a staff member off every device («الموظفين»).
   'identity.endAllSessions',
+  // Admins clear another staff member's authenticator (docs/api/staff-totp.md).
+  'identity.authenticator.reset',
   // Admins put failed outbox rows back on the queue: the audit row commits with the requeue.
   'system.requeueOutbox',
   // «الناس»: showing a whole phone number writes an audit row with the reason (and a vault access row).

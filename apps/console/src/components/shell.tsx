@@ -23,6 +23,8 @@ const ShortcutsSheet = dynamic(() => import('./shell/shortcuts').then((m) => m.S
 const LiveDownStrip = dynamic(() => import('./shell/watch-strip').then((m) => m.LiveDownStrip), { ssr: false });
 // Loaded after first paint: it draws nothing unless a ledger posting is stuck.
 const MoneyAlarmStrip = dynamic(() => import('./shell/money-alarm-strip').then((m) => m.MoneyAlarmStrip), { ssr: false });
+// Loaded after first paint: the admin/finance authenticator step and locked staff rows (docs/api/staff-totp.md).
+const StaffStepWatch = dynamic(() => import('./shell/staff-step').then((m) => m.StaffStepWatch), { ssr: false });
 
 /**
  * The Console shell: the RTL sidebar on the start edge, a slim top bar with search and status, and
@@ -87,6 +89,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <SafetyBanner />
           {/* خطوط: a run ended and nobody confirmed the car is empty (partner S-6, Ali 2026-10-06). */}
           <SweepAlertStrip />
+          {/* Admins: a staff member locked out by wrong authenticator codes; a session owing the code goes to sign in. */}
+          <StaffStepWatch />
           {/* The same alerts as a desktop notification and a flashing title when the tab is away. */}
           <SafetyAlarm />
           {/* S-K1: cards waiting for a dispatcher, seen from every page. */}
@@ -101,7 +105,7 @@ export function Shell({ children }: { children: ReactNode }) {
             className={cx(
               'min-w-0',
               fullBleed
-                ? 'h-[calc(100vh-106px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px)-var(--watch-h,0px)-var(--money-h,0px))] flex-none overflow-hidden lg:h-[calc(100vh-57px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px)-var(--watch-h,0px)-var(--money-h,0px))]'
+                ? 'h-[calc(100vh-106px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px)-var(--watch-h,0px)-var(--money-h,0px)-var(--totp-h,0px))] flex-none overflow-hidden lg:h-[calc(100vh-57px-var(--sos-h,0px)-var(--sweep-h,0px)-var(--triage-h,0px)-var(--watch-h,0px)-var(--money-h,0px)-var(--totp-h,0px))]'
                 : 'flex-1 px-4 py-6 lg:px-8 lg:py-7',
             )}
           >

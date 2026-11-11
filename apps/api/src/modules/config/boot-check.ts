@@ -1,6 +1,7 @@
 import { publicHttpsProblem } from '../../shared/public-url.js';
 import { smsProviderName } from '../../shared/messaging/sms.js';
 import { processRoleFromEnv, runsJobs } from '../../shared/process-role.js';
+import { staffTotpKeyProblem } from '../../shared/secrets.js';
 
 /** Where this process runs: `production` (real customers), `staging`, or `local` (not NODE_ENV=production). */
 export type DeployEnvironment = 'production' | 'staging' | 'local';
@@ -32,7 +33,9 @@ const LINK_SETTINGS: ReadonlyArray<{ name: string; unset: string; required: bool
  * configuration stops boot: a dependency that is configured but unreachable never does (it shows in
  * `health.ready`, and `health.live` covers the database).
  *
- * - Staging and production need a database and Redis (without Redis no job, timer or outbox runs).
+ * - Staging and production need a database and Redis (without Redis no job, timer or outbox runs),
+ *   and their own STAFF_TOTP_KEY (admin and finance sign-in's authenticator secrets), never the demo
+ *   code switch STAFF_TOTP_DEMO.
  * - Production also needs a real SMS provider (or nobody can sign in) and must not carry the staging
  *   test code. (Expo push on production is checked where push is built, lane D's OPS-02 in
  *   `notify/providers/push.ts`, with the same production/staging rule.)
@@ -51,6 +54,10 @@ export function bootConfigProblems(env: NodeJS.ProcessEnv = process.env): string
   if (!env['DATABASE_URL']?.trim()) problems.push('DATABASE_URL is not set');
   if (!env['REDIS_URL']?.trim()) problems.push('REDIS_URL is not set');
   // The launch scope comes from the city file on every deployed server, staging included (game day checks it).
+  // Admin and finance sign-in's authenticator step seals its secrets with this key (docs/api/staff-totp.md).
+  const totpKey = staffTotpKeyProblem(env);
+  if (totpKey) problems.push(totpKey);
+  if (env['STAFF_TOTP_DEMO']?.trim()) problems.push('STAFF_TOTP_DEMO is for the local demo only: remove it (fly secrets unset STAFF_TOTP_DEMO)');
   if (env['DRIVER_TEST_LAUNCHED_VERTICALS']?.trim()) problems.push('DRIVER_TEST_LAUNCHED_VERTICALS is for local runs and CI only: remove it (open a service in its city file instead)');
   if (where === 'production') {
     if (!env['SMS_PROVIDER']?.trim() || smsProviderName(env) === 'dev') problems.push('SMS_PROVIDER must be a real provider (otpiq, http or twilio): with dev nobody gets a sign-in code');

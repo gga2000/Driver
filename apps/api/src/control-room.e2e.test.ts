@@ -9,6 +9,7 @@ import { ConfigService } from './modules/config/index.js';
 import { DispatchService } from './modules/dispatch/index.js';
 import { EventsService } from './modules/events/index.js';
 import { IdentityService } from './modules/identity/index.js';
+import { owesSecondStep, passSecondStep } from './modules/identity/staff-totp.testing.js';
 import { LedgerService } from './modules/ledger/index.js';
 import { OrdersService } from './modules/orders/index.js';
 import { OrgsService } from './modules/orgs/index.js';
@@ -47,7 +48,9 @@ describe('launch control room (e2e)', () => {
     const res = await identity.verifyOtp({ phone, code: code!, device: { fingerprint: `cr-e2e-${phone}`, platform: 'web' } });
     await identity.updateProfile({ personId: res.personId, sessionId: 'e2e' }, { name: `موظف ${seq}` });
     for (const r of roles) await identity.grantRole(SYSTEM, typeof r === 'string' ? { personId: res.personId, kind: r } : { personId: res.personId, kind: r.kind, orgId: r.orgId });
-    return { client: as(res.tokens.accessToken), personId: res.personId, phone };
+    const client = as(res.tokens.accessToken);
+    if (owesSecondStep(roles)) await passSecondStep(client, res.personId);
+    return { client, personId: res.personId, phone };
   }
 
   const errOf = async (p: Promise<unknown>): Promise<{ code: string | undefined; message: string; retryAfterSec?: number }> => {

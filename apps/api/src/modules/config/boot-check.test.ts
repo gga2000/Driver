@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { assertBootConfig, bootConfigProblems, bootConfigWarnings, deployEnvironmentFromEnv } from './boot-check.js';
 import { testLaunchedVerticals } from './config.service.js';
 
-const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', REDIS_URL: 'redis://x' };
+/** A throwaway 64-hex value for the staff authenticator key (never a real one). */
+const TOTP_KEY = 'ab'.repeat(32);
+const base = { NODE_ENV: 'production', DATABASE_URL: 'postgresql://x', REDIS_URL: 'redis://x', STAFF_TOTP_KEY: TOTP_KEY };
 const LINKS = {
   CONSOLE_BASE_URL: 'https://console.example.com',
   SAFETY_LINK_BASE_URL: 'https://app.example.com/sos/',
@@ -29,7 +31,19 @@ describe('boot configuration (SEC-16)', () => {
 
   it('lets staging run with dev SMS and dev push, but not without a database or Redis', () => {
     expect(bootConfigProblems({ ...base, DEPLOY_ENVIRONMENT: 'staging', SMS_PROVIDER: 'fake', STAGING_TEST_OTP: '123456' })).toEqual([]);
-    expect(bootConfigProblems({ NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'staging' })).toEqual(['DATABASE_URL is not set', 'REDIS_URL is not set']);
+    expect(bootConfigProblems({ NODE_ENV: 'production', DEPLOY_ENVIRONMENT: 'staging', STAFF_TOTP_KEY: TOTP_KEY })).toEqual(['DATABASE_URL is not set', 'REDIS_URL is not set']);
+  });
+
+  it('needs its own staff authenticator key on staging and production, and never the demo code switch', () => {
+    for (const where of [{}, { DEPLOY_ENVIRONMENT: 'staging' }]) {
+      const env = { ...live, ...where };
+      expect(bootConfigProblems({ ...env, STAFF_TOTP_KEY: '' })).toEqual([expect.stringMatching(/^STAFF_TOTP_KEY is not set/)]);
+      expect(bootConfigProblems({ ...env, STAFF_TOTP_KEY: 'short' })).toEqual([expect.stringMatching(/^STAFF_TOTP_KEY must be 64 hex/)]);
+      expect(bootConfigProblems({ ...env, JWT_SECRET: TOTP_KEY })).toEqual([expect.stringMatching(/^STAFF_TOTP_KEY must be its own value/)]);
+      expect(bootConfigProblems({ ...env, STAFF_TOTP_DEMO: '1' })).toEqual([expect.stringMatching(/^STAFF_TOTP_DEMO is for the local demo only/)]);
+    }
+    // The key's value never shows in a problem.
+    expect(bootConfigProblems({ ...live, STAFF_TOTP_KEY: 'cd'.repeat(31) }).join(' ')).not.toContain('cd'.repeat(31));
   });
 
   it('needs real SMS in production, and no staging test code', () => {
@@ -96,7 +110,7 @@ describe('boot configuration (SEC-16)', () => {
   });
 
   it('throws the whole list at once and never echoes a value', () => {
-    expect(() => assertBootConfig({ NODE_ENV: 'production', STAGING_TEST_OTP: '987654' })).toThrow(/refusing to boot \(production\): DATABASE_URL is not set; REDIS_URL is not set; SMS_PROVIDER/);
+    expect(() => assertBootConfig({ NODE_ENV: 'production', STAGING_TEST_OTP: '987654' })).toThrow(/refusing to boot \(production\): DATABASE_URL is not set; REDIS_URL is not set; STAFF_TOTP_KEY is not set.*; SMS_PROVIDER/);
     try {
       assertBootConfig({ NODE_ENV: 'production', STAGING_TEST_OTP: '987654' });
     } catch (err) {

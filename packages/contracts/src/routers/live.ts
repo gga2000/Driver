@@ -18,6 +18,7 @@ import { SAFETY_DESK_ROLES } from '../safety-io.js';
 import { SHARE_LIVE_RULES, SharedTripInput } from '../share-io.js';
 import { TripChatRef } from '../trip-chat-io.js';
 import {
+  assertSecondStep,
   protectedProcedure,
   publicProcedure,
   router,
@@ -42,6 +43,11 @@ function liveProcedure(roles?: readonly RoleKind[]) {
       sessionId: claims.sid,
       ...(claims.did ? { deviceId: claims.did } : {}),
     };
+    try {
+      await assertSecondStep(ctx, actor, roles);
+    } catch (err) {
+      throw toTrpcError(err);
+    }
     if (roles && roles.length > 0 && !(await holdsAny(ctx, actor.personId, roles)))
       throw toTrpcError(new DriverError('forbidden'));
     return next({ ctx: { ...ctx, actor, claims } });

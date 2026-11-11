@@ -7,6 +7,7 @@ import { CatalogService } from './modules/catalog/index.js';
 import { ConfigService } from './modules/config/index.js';
 import { FoodCartsService, seedDemoCarts } from './modules/food-carts/index.js';
 import { IdentityService } from './modules/identity/index.js';
+import { owesSecondStep, passSecondStep } from './modules/identity/staff-totp.testing.js';
 import { OrgsService } from './modules/orgs/index.js';
 
 const SYSTEM = { personId: 'system:e2e', sessionId: 'e2e' };
@@ -38,7 +39,9 @@ describe('food carts launch switch (e2e)', () => {
     const res = await identity.verifyOtp({ phone, code: code!, device: { fingerprint: `fc-launch-${phone}`, platform: 'web' } });
     await identity.updateProfile({ personId: res.personId, sessionId: 'e2e' }, { name: `موظف ${seq}` });
     for (const kind of roles) await identity.grantRole(SYSTEM, { personId: res.personId, kind });
-    return { client: as(res.tokens.accessToken), personId: res.personId };
+    const client = as(res.tokens.accessToken);
+    if (owesSecondStep(roles)) await passSecondStep(client, res.personId);
+    return { client, personId: res.personId };
   }
 
   const codeOf = async (p: Promise<unknown>): Promise<string | undefined> => {

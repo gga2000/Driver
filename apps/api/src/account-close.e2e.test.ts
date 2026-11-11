@@ -4,6 +4,7 @@ import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client';
 import { transformer, type AppRouter, type RoleKind } from '@driver/contracts';
 import { createApp } from './bootstrap.js';
 import { IdentityService } from './modules/identity/index.js';
+import { owesSecondStep, passSecondStep } from './modules/identity/staff-totp.testing.js';
 import { Accounts, LedgerService } from './modules/ledger/index.js';
 import { NOTIFY_REPOSITORY, type NotifyRepository } from './modules/notify/notify.repository.js';
 import { OrgsService } from './modules/orgs/index.js';
@@ -24,7 +25,9 @@ describe('partner and merchant account close (e2e)', () => {
     const { code } = await c.identity.devLastOtp.query({ phone });
     const res = await c.identity.verifyOtp.mutate({ phone, code: code!, device: { fingerprint: `e2e-${phone}`, platform: 'web' } });
     for (const kind of roles) await app.get(IdentityService).grantRole({ personId: 'system:e2e', sessionId: 'e2e' }, { personId: res.personId, kind });
-    return { client: as(res.tokens.accessToken), personId: res.personId, isNew: res.isNew };
+    const client = as(res.tokens.accessToken);
+    if (owesSecondStep(roles)) await passSecondStep(client, res.personId);
+    return { client, personId: res.personId, isNew: res.isNew };
   }
 
   async function upload(client: Client): Promise<string> {

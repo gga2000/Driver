@@ -8,6 +8,7 @@ import { DEFAULT_OTP_GUARD, OtpGuard, RecordingOtpAlerts, type OtpGuardConfig } 
 import { InMemoryWindowCounter } from '../../shared/window-counter.js';
 import { SessionService } from './session.service.js';
 import type { StagingTestConfig } from './staging-test.js';
+import type { StaffTotpConfig } from './totp.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
 import { DevWhatsAppProvider, whatsAppPortFromEnv } from '../../shared/messaging/whatsapp.js';
 
@@ -34,7 +35,7 @@ export function fakeRunner() {
 }
 
 /** Builds an IdentityService on in-memory everything. Shared by the unit tests. */
-export function harness(start = '2026-10-02T09:00:00Z', opts: { otpGuard?: Partial<OtpGuardConfig>; noWhatsApp?: boolean; whatsappEnv?: NodeJS.ProcessEnv; stagingTest?: StagingTestConfig } = {}) {
+export function harness(start = '2026-10-02T09:00:00Z', opts: { otpGuard?: Partial<OtpGuardConfig>; noWhatsApp?: boolean; whatsappEnv?: NodeJS.ProcessEnv; stagingTest?: StagingTestConfig; authenticator?: StaffTotpConfig } = {}) {
   const clock = new FakeClock(start);
   const repo = new InMemoryIdentityRepository();
   const sms = new FakeSmsProvider(false);
@@ -48,7 +49,7 @@ export function harness(start = '2026-10-02T09:00:00Z', opts: { otpGuard?: Parti
   const whatsapp = opts.noWhatsApp || opts.whatsappEnv ? undefined : new DevWhatsAppProvider(false);
   // `whatsappEnv`: the port exactly as the module builds it from that environment.
   const whatsappPort = opts.whatsappEnv ? whatsAppPortFromEnv(opts.whatsappEnv, { log: false }) : whatsapp;
-  const service = new IdentityService(repo, events, sms, clock, uow, PEPPER, sessions, otpGuard, whatsappPort, opts.stagingTest ?? null);
+  const service = new IdentityService(repo, events, sms, clock, uow, PEPPER, sessions, otpGuard, whatsappPort, opts.stagingTest ?? null, opts.authenticator ?? null);
 
   /** Full login: request → read fake SMS → verify. */
   async function login(phone: string, device?: { fingerprint: string; platform: 'android' | 'ios' | 'web' }, sharedFamilyPhone?: boolean) {

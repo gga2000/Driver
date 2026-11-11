@@ -10,6 +10,8 @@ import { hashPhone } from './phone.js';
 import { REFRESH_REUSE_GRACE_SEC, SessionService } from './session.service.js';
 import { FakeSmsProvider } from './sms/fake.provider.js';
 import { VaultLogWriteError, swallowedVaultLogFailures } from './vault-log.js';
+import { totpCode, totpStep } from './totp.js';
+import { staffTotpBreakGlass } from './staff-totp-break-glass.js';
 
 /**
  * Identity against a real Postgres (plan Step 2 integration): no PII on `people`, one vault row per
@@ -174,6 +176,75 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     await expect(prisma.prisma.$executeRaw`UPDATE "identity_vault"."vault_access_logs" SET "purpose" = 'tampered' WHERE "person_id" = ${personId}`).rejects.toBeTruthy();
     await expect(prisma.prisma.$executeRaw`DELETE FROM "identity_vault"."vault_access_logs" WHERE "person_id" = ${personId}`).rejects.toBeTruthy();
   });
+  it('staff authenticator on Postgres: sealed secret, one-use steps, tries claimed outside the transaction, a lock, single-use recovery codes', async () => {
+    const who = `0772${Date.now().toString().slice(-7)}`;
+    const whoE164 = `+964${who.slice(1)}`;
+    clock.advanceSeconds(31);
+    await service.requestOtp({ phone: who, purpose: 'login' });
+    const first = await service.verifyOtp({ phone: who, code: sms.lastCodeFor(whoE164)! });
+    await service.grantRole({ personId: 'system:it', sessionId: 'it' }, { personId: first.personId, kind: 'finance' });
+    const claims = await service.verifyAccessToken(first.tokens.accessToken);
+    const actor = { personId: first.personId, sessionId: claims.sid };
+    expect(await service.secondStepPending(actor)).toBe(true);
+
+    const { secret } = await service.staffTotpEnrol(actor);
+    const db = prisma.prisma;
+    const sealed = await db.staffTotp.findUniqueOrThrow({ where: { personId: first.personId } });
+    expect(sealed.secretEnc).not.toContain(secret);
+    const { recoveryCodes } = await service.staffTotpConfirm(actor, totpCode(secret, totpStep(clock.now())));
+    expect(await service.secondStepPending(actor)).toBe(false);
+    expect((await db.session.findUniqueOrThrow({ where: { id: claims.sid } })).secondStepAt).toBeInstanceOf(Date);
+
+    clock.advanceSeconds(31);
+    await service.requestOtp({ phone: who, purpose: 'login' });
+    const next = await service.verifyOtp({ phone: who, code: sms.lastCodeFor(whoE164)! });
+    expect(next.secondStep).toBe('code');
+    const nextActor = { personId: first.personId, sessionId: (await service.verifyAccessToken(next.tokens.accessToken)).sid };
+    const codes: string[] = [];
+    for (let i = 0; i < 6; i += 1) await service.staffTotpVerify(nextActor, '999999').catch((e: unknown) => codes.push(e instanceof DriverError ? e.code : String(e)));
+    expect(codes).toEqual(['totp_invalid', 'totp_invalid', 'totp_invalid', 'totp_invalid', 'totp_locked', 'totp_locked']);
+    expect(events.events.filter((e) => e.type === 'staff.totp_locked' && e.payload['personId'] === first.personId)).toHaveLength(1);
+    clock.advanceMinutes(15);
+    expect(await service.staffTotpVerify(nextActor, recoveryCodes[0]!)).toEqual({ recoveryLeft: 7 });
+    await expect(service.staffTotpVerify(nextActor, recoveryCodes[0]!)).rejects.toMatchObject({ code: 'totp_invalid' });
+    const row = await db.staffTotp.findUniqueOrThrow({ where: { personId: first.personId } });
+    expect(row).toMatchObject({ failedAttempts: 1, lockedUntil: null });
+    expect(row.recoveryHashes).toHaveLength(7);
+    // Each read of the secret or the hashes left its access log row.
+    const purposes = (await db.vaultAccessLog.findMany({ where: { personId: first.personId }, select: { purpose: true } })).map((r) => r.purpose);
+    expect(purposes).toEqual(expect.arrayContaining(['staff_totp_enrol', 'staff_totp_verify']));
+  });
+
+  it('break glass from the server: a dry run changes nothing; --yes clears the set-up, ends every session, notifies and audits', async () => {
+    const who = `0773${Date.now().toString().slice(-7)}`;
+    const whoE164 = `+964${who.slice(1)}`;
+    clock.advanceSeconds(31);
+    await service.requestOtp({ phone: who, purpose: 'login' });
+    const res = await service.verifyOtp({ phone: who, code: sms.lastCodeFor(whoE164)! });
+    await service.grantRole({ personId: 'system:it', sessionId: 'it' }, { personId: res.personId, kind: 'admin' });
+    const actor = { personId: res.personId, sessionId: (await service.verifyAccessToken(res.tokens.accessToken)).sid };
+    const { secret } = await service.staffTotpEnrol(actor);
+    await service.staffTotpConfirm(actor, totpCode(secret, totpStep(clock.now())));
+    const audits: Array<Record<string, unknown>> = [];
+    const deps = { prisma, uow, events, audit: async (row: Record<string, unknown>) => audits.push(row), now: () => clock.now(), env: { PHONE_HASH_PEPPER: pepper } };
+    const input = { phone: who, operator: 'IT runner', reason: 'integration test, lost phone' };
+
+    expect(await staffTotpBreakGlass(deps, { ...input, apply: false })).toMatchObject({ found: true, personId: res.personId, hadApp: true, applied: false });
+    const db = prisma.prisma;
+    expect(await db.staffTotp.findUnique({ where: { personId: res.personId } })).not.toBeNull();
+    await expect(staffTotpBreakGlass(deps, { ...input, operator: '', apply: true })).rejects.toThrow(/operator/);
+
+    expect(await staffTotpBreakGlass(deps, { ...input, apply: true })).toMatchObject({ found: true, hadApp: true, ended: 1, applied: true });
+    expect(await db.staffTotp.findUnique({ where: { personId: res.personId } })).toBeNull();
+    expect((await db.session.findUniqueOrThrow({ where: { id: actor.sessionId } })).revokedAt).toBeInstanceOf(Date);
+    expect(events.last('staff.totp_reset')?.payload).toMatchObject({ personId: res.personId, breakGlass: true });
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ personId: res.personId, detail: { breakGlass: true, operator: 'IT runner' } });
+    expect(await staffTotpBreakGlass(deps, { ...input, phone: '07709999999', apply: true })).toMatchObject({ found: false, applied: false });
+    await db.session.deleteMany({ where: { personId: res.personId } });
+    await db.role.deleteMany({ where: { personId: res.personId } });
+  });
+
   it('account close: vault row, sessions, devices and codes go, roles are revoked, the person row stays; twice is a no-op', async () => {
     const other = `0771${Date.now().toString().slice(-7)}`;
     const otherE164 = `+964${other.slice(1)}`;
@@ -182,6 +253,9 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     const res = await service.verifyOtp({ phone: other, code: sms.lastCodeFor(otherE164)!, device: { fingerprint: `it-close-${other}`, platform: 'web' } });
     await service.grantRole({ personId: 'system:it', sessionId: 'it' }, { personId: res.personId, kind: 'courier' });
     await service.attachVaultRef(res.personId, 'documentRefs', { ref: 'up_it_close', kind: 'photo', recordId: 'doc_it' });
+    // He also holds finance and started the authenticator set-up: that vault row goes with the account too.
+    await service.grantRole({ personId: 'system:it', sessionId: 'it' }, { personId: res.personId, kind: 'finance' });
+    await service.staffTotpEnrol({ personId: res.personId, sessionId: (await service.verifyAccessToken(res.tokens.accessToken)).sid });
     expect(await service.storedFileRefs(res.personId, personId)).toEqual(['up_it_close']);
     expect((await service.accountCloseState(res.personId)).closable).toBe(true);
 
@@ -193,6 +267,7 @@ describe.skipIf(!url)('identity on Postgres (needs DATABASE_URL)', () => {
     expect(signedOut.sort()).toEqual([...sessionIds].sort());
     const db = prisma.prisma;
     expect(await db.personIdentity.findUnique({ where: { personId: res.personId } })).toBeNull();
+    expect(await db.staffTotp.findUnique({ where: { personId: res.personId } })).toBeNull();
     expect(await db.session.count({ where: { personId: res.personId } })).toBe(0);
     expect(await db.device.count({ where: { personId: res.personId } })).toBe(0);
     expect(await db.otpChallenge.count({ where: { phoneHash: hashPhone(otherE164, pepper) } })).toBe(0);

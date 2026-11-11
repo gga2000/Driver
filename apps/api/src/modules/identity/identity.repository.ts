@@ -55,7 +55,24 @@ export interface SessionRecord {
   expiresAt: Date;
   rotatedAt: Date | null;
   revokedAt: Date | null;
+  /** When this session passed the staff authenticator step; null/absent = not (yet). */
+  secondStepAt?: Date | null;
   createdAt: Date;
+}
+
+/** vault.staff_totp without the secret or the recovery hashes: whether it is set up, and the lock. */
+export interface StaffTotpState {
+  personId: string;
+  confirmedAt: Date | null;
+  failedAttempts: number;
+  lockedUntil: Date | null;
+}
+
+/** The whole vault.staff_totp row: only `readStaffTotp` returns it, and it logs the read first. */
+export interface StaffTotpRecord extends StaffTotpState {
+  secretEnc: string;
+  lastStep: number | null;
+  recoveryHashes: string[];
 }
 
 export interface OtpRecord {
@@ -206,7 +223,7 @@ export interface IdentityRepository {
   findSessionById(id: string, tx?: Tx): Promise<SessionRecord | null>;
   findSessionByRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
   findSessionByPreviousRefreshHash(hash: string, tx?: Tx): Promise<SessionRecord | null>;
-  updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx): Promise<SessionRecord>;
+  updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId' | 'secondStepAt'>>, tx?: Tx): Promise<SessionRecord>;
   /**
    * Compare-and-swap: applies `patch` only while the session's current refresh hash is still
    * `expectRefreshHash` and it is not revoked; `null` when another rotation got there first.
@@ -236,6 +253,37 @@ export interface IdentityRepository {
   /** Marks the challenge used, only if it is still unused and unlocked; `null` when another request got there first. */
   consumeOtp(id: string, now: Date, tx?: Tx): Promise<OtpRecord | null>;
 
+  // staff authenticator (docs/api/staff-totp.md); vault.staff_totp
+  /** Set up or not, and the lock: no secret, no hashes. */
+  staffTotpState(personId: string, tx?: Tx): Promise<StaffTotpState | null>;
+  /** People whose step is locked at `now` (the Console safety strip). */
+  lockedStaffTotps(now: Date, tx?: Tx): Promise<StaffTotpState[]>;
+  /** Set-ups confirmed at or after `since`, newest first (the enrolment alert on the safety strip). */
+  recentStaffTotpEnrolments(since: Date, tx?: Tx): Promise<StaffTotpState[]>;
+  /**
+   * The row with the sealed secret and the recovery hashes. Writes its VaultAccessLog row first
+   * (fail closed: no log row, no secret), with `fieldsRead` naming what the caller is about to use.
+   */
+  readStaffTotp(personId: string, log: { accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx): Promise<StaffTotpRecord | null>;
+  /** A new (unconfirmed) secret, replacing an unconfirmed one; false when one is already confirmed. */
+  startStaffTotp(personId: string, secretEnc: string, now: Date, tx?: Tx): Promise<boolean>;
+  /** Confirms the set-up with the step its first code used and the recovery hashes; false when already confirmed or gone. */
+  confirmStaffTotp(personId: string, input: { step: number; recoveryHashes: string[]; now: Date }, tx?: Tx): Promise<boolean>;
+  /**
+   * Claims one try before a code is compared, like `claimOtpAttempt` (no `tx`, commits at once): a
+   * single conditional increment, refused while locked or once `maxTries` are used; a lock that has
+   * run out starts the count again. `attempts`: the count this claim made it.
+   */
+  claimStaffTotpAttempt(personId: string, input: { now: Date; maxTries: number }): Promise<{ attempts: number } | null>;
+  /** Locks the step until `until` once the tries are used up (no `tx`); `newly`: this call set the lock. */
+  lockStaffTotp(personId: string, input: { now: Date; until: Date; maxTries: number }): Promise<{ lockedUntil: Date | null; newly: boolean }>;
+  /** Records `step` as used and clears the wrong tries, only if it is newer than the last used step (no `tx`). */
+  useStaffTotpStep(personId: string, step: number): Promise<boolean>;
+  /** Removes one recovery hash and clears the wrong tries, only if it is still there (no `tx`); how many are left. */
+  useStaffTotpRecovery(personId: string, hash: string): Promise<{ left: number } | null>;
+  /** Clears the person's set-up (an admin's reset; the account close). */
+  deleteStaffTotp(personId: string, tx?: Tx): Promise<boolean>;
+
   // guardian links
   createGuardianLink(input: { guardianId: string; wardPersonId: string | null; wardParticipantId: string | null; now: Date }, tx?: Tx): Promise<GuardianLinkRecord>;
   findGuardianLink(id: string, tx?: Tx): Promise<GuardianLinkRecord | null>;
@@ -248,7 +296,7 @@ export interface IdentityRepository {
   roleKindsEver(personId: string, tx?: Tx): Promise<RoleKind[]>;
   /**
    * Closes the account in one go (the person row locked): `deleted_at` set, the vault rows (his
-   * identity, the children he enrolled, the names he gave others or was given), devices, sessions,
+   * identity, the children he enrolled, the names he gave others or was given, his staff authenticator), devices, sessions,
    * sign-in codes and guardian links deleted, live roles revoked. Returns the ids of the sessions it
    * deleted (the caller announces each as signed out); null when the person is unknown or already
    * closed (nothing changed). Storage files are the caller's: read their refs first.
@@ -552,7 +600,7 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return this.db(tx).session.findUnique({ where: { previousRefreshTokenHash: hash } });
   }
 
-  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId'>>, tx?: Tx) {
+  async updateSession(id: string, patch: Partial<Pick<SessionRecord, 'refreshTokenHash' | 'previousRefreshTokenHash' | 'expiresAt' | 'rotatedAt' | 'revokedAt' | 'deviceId' | 'secondStepAt'>>, tx?: Tx) {
     return this.db(tx).session.update({ where: { id }, data: patch });
   }
 
@@ -624,6 +672,94 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return { ...row, purpose: fromDbPurpose(row.purpose) };
   }
 
+  async staffTotpState(personId: string, tx?: Tx) {
+    return this.db(tx).staffTotp.findUnique({ where: { personId }, select: STAFF_TOTP_STATE });
+  }
+
+  async lockedStaffTotps(now: Date, tx?: Tx) {
+    return this.db(tx).staffTotp.findMany({ where: { lockedUntil: { gt: now } }, select: STAFF_TOTP_STATE, orderBy: { lockedUntil: 'desc' } });
+  }
+
+  async recentStaffTotpEnrolments(since: Date, tx?: Tx) {
+    return this.db(tx).staffTotp.findMany({ where: { confirmedAt: { gte: since } }, select: STAFF_TOTP_STATE, orderBy: { confirmedAt: 'desc' }, take: 50 });
+  }
+
+  async readStaffTotp(personId: string, log: { accessorId: string; purpose: string; fieldsRead: string[]; now: Date }, tx?: Tx) {
+    await this.logVaultAccess({ personId, ...log }, tx, { failClosed: true });
+    return this.db(tx).staffTotp.findUnique({
+      where: { personId },
+      select: { ...STAFF_TOTP_STATE, secretEnc: true, lastStep: true, recoveryHashes: true },
+    });
+  }
+
+  async startStaffTotp(personId: string, secretEnc: string, now: Date, tx?: Tx) {
+    const db = this.db(tx);
+    const existing = await db.staffTotp.findUnique({ where: { personId }, select: { confirmedAt: true } });
+    if (existing?.confirmedAt) return false;
+    if (!existing) {
+      await db.staffTotp.create({ data: { personId, secretEnc, createdAt: now } });
+      return true;
+    }
+    const { count } = await db.staffTotp.updateMany({ where: { personId, confirmedAt: null }, data: { secretEnc, lastStep: null, recoveryHashes: [] } });
+    return count > 0;
+  }
+
+  async confirmStaffTotp(personId: string, input: { step: number; recoveryHashes: string[]; now: Date }, tx?: Tx) {
+    const { count } = await this.db(tx).staffTotp.updateMany({
+      where: { personId, confirmedAt: null },
+      data: { confirmedAt: input.now, lastStep: input.step, recoveryHashes: input.recoveryHashes, failedAttempts: 0, lockedUntil: null },
+    });
+    return count > 0;
+  }
+
+  async claimStaffTotpAttempt(personId: string, input: { now: Date; maxTries: number }) {
+    // Outside any transaction on purpose (see the port): one UPDATE … RETURNING, atomic in Postgres.
+    const rows = await this.prisma.prisma.$queryRaw<Array<{ failed_attempts: number }>>`
+      UPDATE "identity_vault"."staff_totp"
+         SET "failed_attempts" = CASE WHEN "locked_until" IS NOT NULL AND "locked_until" <= ${input.now} THEN 1 ELSE "failed_attempts" + 1 END,
+             "locked_until" = CASE WHEN "locked_until" IS NOT NULL AND "locked_until" <= ${input.now} THEN NULL ELSE "locked_until" END,
+             "updated_at" = now()
+       WHERE "person_id" = ${personId}
+         AND ("locked_until" IS NULL OR "locked_until" <= ${input.now})
+         AND ("failed_attempts" < ${input.maxTries} OR "locked_until" IS NOT NULL)
+   RETURNING "failed_attempts"`;
+    return rows[0] ? { attempts: Number(rows[0].failed_attempts) } : null;
+  }
+
+  async lockStaffTotp(personId: string, input: { now: Date; until: Date; maxTries: number }) {
+    const db = this.prisma.prisma;
+    const { count } = await db.staffTotp.updateMany({
+      where: { personId, failedAttempts: { gte: input.maxTries }, OR: [{ lockedUntil: null }, { lockedUntil: { lte: input.now } }] },
+      data: { lockedUntil: input.until },
+    });
+    const row = await db.staffTotp.findUnique({ where: { personId }, select: { lockedUntil: true } });
+    return { lockedUntil: row?.lockedUntil ?? null, newly: count > 0 };
+  }
+
+  async useStaffTotpStep(personId: string, step: number) {
+    const { count } = await this.prisma.prisma.staffTotp.updateMany({
+      where: { personId, OR: [{ lastStep: null }, { lastStep: { lt: step } }] },
+      data: { lastStep: step, failedAttempts: 0, lockedUntil: null },
+    });
+    return count > 0;
+  }
+
+  async useStaffTotpRecovery(personId: string, hash: string) {
+    // array_remove under the row lock: two requests with the same code, only one finds it still there.
+    const rows = await this.prisma.prisma.$queryRaw<Array<{ left: number }>>`
+      UPDATE "identity_vault"."staff_totp"
+         SET "recovery_hashes" = array_remove("recovery_hashes", ${hash}),
+             "failed_attempts" = 0, "locked_until" = NULL, "updated_at" = now()
+       WHERE "person_id" = ${personId} AND ${hash} = ANY("recovery_hashes")
+   RETURNING cardinality("recovery_hashes") AS "left"`;
+    return rows[0] ? { left: Number(rows[0].left) } : null;
+  }
+
+  async deleteStaffTotp(personId: string, tx?: Tx) {
+    const { count } = await this.db(tx).staffTotp.deleteMany({ where: { personId } });
+    return count > 0;
+  }
+
   async createGuardianLink(input: { guardianId: string; wardPersonId: string | null; wardParticipantId: string | null; now: Date }, tx?: Tx) {
     const { now: _unused, ...data } = input;
     void _unused;
@@ -665,6 +801,7 @@ export class PrismaIdentityRepository implements IdentityRepository {
       await db.personIdentity.delete({ where: { personId } });
     }
     await db.childIdentity.deleteMany({ where: { guardianId: personId } });
+    await db.staffTotp.deleteMany({ where: { personId } });
     await db.participantIdentity.deleteMany({ where: { OR: [{ personId }, { givenById: personId }] } });
     await db.guardianLink.deleteMany({ where: { OR: [{ guardianId: personId }, { wardPersonId: personId }] } });
     await db.session.deleteMany({ where: { personId } });
@@ -674,6 +811,9 @@ export class PrismaIdentityRepository implements IdentityRepository {
     return { sessionIds: sessions.map((s) => s.id) };
   }
 }
+
+/** The vault.staff_totp columns that say nothing secret. */
+const STAFF_TOTP_STATE = { personId: true, confirmedAt: true, failedAttempts: true, lockedUntil: true } as const;
 
 /** Contract purposes ⇄ Prisma `OtpPurpose` enum (`phone_change` is `number_change` in the schema). */
 function toDbPurpose(p: OtpPurpose): 'login' | 'guardian_consent' | 'number_change' {

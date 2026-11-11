@@ -306,7 +306,7 @@ describe('phoneBookings router', () => {
     const port = new Proxy({}, { get: (_t, name: string) => async () => (calls.push(name), name === 'today' ? [] : name === 'caller' ? { known: false, name: null, phoneRides: 0 } : null) });
     const ctx = {
       auth: { sub: 'p_x', sid: 's' } as unknown as SessionClaims,
-      identity: { hasRole: async (_p: string, kind: string) => roles.includes(kind) },
+      identity: { hasRole: async (_p: string, kind: string) => roles.includes(kind), secondStepPending: async () => false },
       phoneBookings: port,
     } as unknown as AppContext;
     return { caller: appRouter.createCaller(ctx), calls };

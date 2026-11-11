@@ -13,7 +13,8 @@
 //
 // مطعم خالد has a pickup spot set by its owner (Console › المطاعم, /stores/<id>; GET /demo/seed gives the link).
 //
-// People (log in at /login with the phone; the dev OTP fills itself):
+// People (log in at /login with the phone; the dev OTP fills itself; علي then sets up the authenticator
+// the first time and types its code after that, both filled in by the demo strip):
 //   0770 000 0001  علي     admin + dispatcher + support + finance (sees and changes everything)
 //   0770 000 0002  حيدر    field ops (took the photos, drafted the merchant: those are his own items)
 //   0770 000 0003  زينب    support agent (10,000 a day refund limit)
@@ -49,6 +50,10 @@ const SIM_SECONDS = Number(process.env.DEMO_SIM_SECONDS ?? 45);
 // The 23:00 round counts receipts from 18:00 Baghdad; the demo counts them from midnight so «استلمت»
 // moves "جمعنا … من …" at any hour of the day (CASH_ROUND_FROM_HOUR=18 for the real window).
 process.env.CASH_ROUND_FROM_HOUR ??= '0';
+// Admin and finance sign-in asks for the authenticator code after the SMS code (docs/api/staff-totp.md);
+// in the demo the code box shows the current code with «عبّيه», like the SMS code. A deployed server
+// refuses to boot with this set.
+process.env.STAFF_TOTP_DEMO ??= '1';
 // Outlines drawn in the demo Console (Zones page) are written here so they survive restarts.
 process.env.ZONES_STORE_FILE ??= fileURLToPath(new URL('../../../.studio/zones-placements.json', import.meta.url));
 const { createApp } = await load('bootstrap.js');
