@@ -6,7 +6,7 @@ import * as golden from '@driver/map/golden';
 import { MAP_COLORS_LIGHT } from '@driver/map';
 import { WINDOW_SOURCE } from '@driver/map/pieces/windows';
 import { useLiteMode } from '@driver/ui';
-import { LIGHT_CHECK_MS } from './golden-setup';
+import { LIGHT_CHECK_MS } from './light-check';
 import { WINDOW_TOLERANCE } from './house-windows';
 import { LandmarkLayer } from './LandmarkLayer';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';

@@ -15,7 +15,7 @@ import { closuresOnMap, litBuilding, momentOf, routeGeoJSON, routeParts, slowStr
 import { glidePos } from '../motion';
 import { isLive, POSITION_POLL_MS, useOrderRoute } from '../queries';
 import { MAP_CREDIT } from './credit';
-import { LIGHT_CHECK_MS } from './golden-setup';
+import { LIGHT_CHECK_MS } from './light-check';
 import { WINDOW_TOLERANCE } from './house-windows';
 import { nativeGolden, nativeGoldenImages, nativeGoldenStyle, nativeMapLibre } from './native-maplibre';
 import { RecentreChip } from './RecentreChip';
